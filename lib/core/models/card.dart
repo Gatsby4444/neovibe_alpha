@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-/// Types de Cards — énumération extensible (spec 4.8.1).
+/// Types de Cards — énumération extensible (spec 4.8.1, mécaniques V2 du
+/// 2026-07-11 : vues/durée paramétrables, Hot sans trace, Oneshot = double
+/// capture simultanée).
 enum CardType {
   standard,
   oneshot,
@@ -34,22 +36,56 @@ enum CardType {
     CardType.bereal => 'BeReal',
   };
 
-  /// Couleur signature du type — reconnaissable sans lire le tag.
+  /// Couleur signature du type — code couleur validé par Jay (2026-07-11) :
+  /// standard blanc éclatant, Oneshot bleu/magenta électrique, 1/1 or (inchangé),
+  /// Hot rouge Torino, BeReal vert nature clair/turquoise.
   Color get color => switch (this) {
-    CardType.standard => const Color(0xFF7C8CF8), // indigo neutre
-    CardType.oneshot => const Color(0xFFE53E5B), // rouge urgence
-    CardType.oneOfOne => const Color(0xFFD4AF37), // or exclusivité
-    CardType.hot => const Color(0xFFFF7A1A), // orange énergie
-    CardType.bereal => const Color(0xFF9E9E9E), // gris sobre
+    CardType.standard => const Color(0xFFFFFFFF), // blanc éclatant
+    CardType.oneshot => const Color(0xFF2979FF), // bleu électrique
+    CardType.oneOfOne => const Color(0xFFD4AF37), // or — ne pas changer
+    CardType.hot => const Color(0xFFC8102E), // rouge Torino
+    CardType.bereal => const Color(0xFF40E0D0), // turquoise
+  };
+
+  /// Dégradé signature (Oneshot et BeReal) — null = couleur unie.
+  Gradient? get gradient => switch (this) {
+    CardType.oneshot => const LinearGradient(
+      colors: [
+        Color(0xFF2979FF),
+        Color(0xFFE040FB),
+      ], // bleu → magenta électrique
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ),
+    CardType.bereal => const LinearGradient(
+      colors: [Color(0xFF7ED957), Color(0xFF40E0D0)], // vert nature → turquoise
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+    ),
+    _ => null,
   };
 
   String get description => switch (this) {
-    CardType.standard => 'Recto/verso classique, sans contrainte',
-    CardType.oneshot => 'Vue une seule fois, puis détruite',
+    CardType.standard =>
+      'Vues et durée à ta main, trace 24 h dans le chat, replay sur ton accord',
+    CardType.oneshot =>
+      'Avant + arrière capturés d\'un seul déclenché, sinon comme une classique',
     CardType.oneOfOne => 'Exclusive : un seul destinataire, à jamais',
-    CardType.hot => 'Fenêtre courte, mise en avant si ouverte vite',
-    CardType.bereal => 'Instant brut, capturé dans la fenêtre imposée',
+    CardType.hot => 'Une seule vue, temps limité, aucune trace après',
+    CardType.bereal => 'L\'instant imposé du jour, sans mise en scène',
   };
+
+  /// Les types que l'utilisateur peut choisir à la création
+  /// (BeReal est déclenchée par notification, pas par le menu).
+  static List<CardType> get selectable => [
+    CardType.standard,
+    CardType.oneshot,
+    CardType.oneOfOne,
+    CardType.hot,
+  ];
+
+  /// Vues/durée paramétrables par le créateur (Hot : figé à 1 vue courte).
+  bool get hasConfigurableViews => this != CardType.hot;
 }
 
 class CardModel {
@@ -60,6 +96,7 @@ class CardModel {
     required this.frontPath,
     required this.backPath,
     this.viewDurationSeconds,
+    this.maxViews,
     required this.createdAt,
   });
 
@@ -69,8 +106,12 @@ class CardModel {
   final String frontPath;
   final String backPath;
 
-  /// Durée de visionnage (Oneshot uniquement, 1 à 10 s, défaut 3).
+  /// Durée de lecture par vue en secondes (null = illimitée). Défaut 10 s.
   final int? viewDurationSeconds;
+
+  /// Nombre de vues côté destinataire (1-5, null = illimité). Défaut 2.
+  /// Ne s'applique qu'en chat : la bibliothèque est toujours illimitée.
+  final int? maxViews;
   final DateTime createdAt;
 
   factory CardModel.fromJson(Map<String, dynamic> json) => CardModel(
@@ -80,6 +121,7 @@ class CardModel {
     frontPath: json['front_path'] as String,
     backPath: json['back_path'] as String,
     viewDurationSeconds: json['view_duration_seconds'] as int?,
+    maxViews: json['max_views'] as int?,
     createdAt: DateTime.parse(json['created_at'] as String),
   );
 }
@@ -93,6 +135,9 @@ class CardDelivery {
     this.firstViewedAt,
     this.destroyedAt,
     this.hotBoosted = false,
+    this.viewCount = 0,
+    this.replayRequestedAt,
+    this.replayGrantedAt,
     this.card,
   });
 
@@ -105,7 +150,23 @@ class CardDelivery {
 
   /// Hot : mise en avant privée chez le destinataire (jamais publique).
   final bool hotBoosted;
+
+  /// Vues déjà consommées par le destinataire.
+  final int viewCount;
+
+  /// Replay : demandé par le destinataire, accordé par l'émetteur (+1 vue).
+  final DateTime? replayRequestedAt;
+  final DateTime? replayGrantedAt;
   final CardModel? card;
+
+  /// Vues restantes pour ce destinataire (null = illimité).
+  int? remainingViews(CardModel card) {
+    if (card.type == CardType.hot) return viewCount >= 1 ? 0 : 1;
+    if (card.maxViews == null) return null;
+    final bonus = replayGrantedAt != null ? 1 : 0;
+    final remaining = card.maxViews! + bonus - viewCount;
+    return remaining < 0 ? 0 : remaining;
+  }
 
   factory CardDelivery.fromJson(Map<String, dynamic> json) => CardDelivery(
     id: json['id'] as String,
@@ -119,6 +180,13 @@ class CardDelivery {
         ? null
         : DateTime.parse(json['destroyed_at'] as String),
     hotBoosted: json['hot_boosted'] as bool? ?? false,
+    viewCount: json['view_count'] as int? ?? 0,
+    replayRequestedAt: json['replay_requested_at'] == null
+        ? null
+        : DateTime.parse(json['replay_requested_at'] as String),
+    replayGrantedAt: json['replay_granted_at'] == null
+        ? null
+        : DateTime.parse(json['replay_granted_at'] as String),
     card: json['cards'] == null
         ? null
         : CardModel.fromJson(json['cards'] as Map<String, dynamic>),

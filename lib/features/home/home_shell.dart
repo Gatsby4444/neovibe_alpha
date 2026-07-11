@@ -67,40 +67,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     );
   }
 
+  // La BeReal n'est plus déclenchable manuellement : elle arrive par
+  // notification (consigne Jay) — la capture s'ouvre donc directement.
   void _openCapture() {
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_camera),
-              title: const Text('Nouvelle Card'),
-              subtitle: const Text('Recto/verso, à toi de choisir le type'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const CardCaptureScreen()),
-                );
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.bolt, color: Color(0xFF9E9E9E)),
-              title: const Text('Capturer l\'instant (BeReal)'),
-              subtitle: const Text('30 secondes, sans mise en scène'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const CardCaptureScreen(bereal: true),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CardCaptureScreen()));
   }
 }

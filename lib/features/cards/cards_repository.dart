@@ -24,6 +24,19 @@ final receivedDeliveriesProvider = StreamProvider<List<CardDelivery>>((ref) {
       );
 });
 
+/// Demandes de replay en attente sur une de MES cards (côté émetteur).
+final pendingReplayForCardProvider =
+    FutureProvider.family<List<CardDelivery>, String>((ref, cardId) async {
+      final rows = await ref
+          .watch(supabaseProvider)
+          .from('card_deliveries')
+          .select()
+          .eq('card_id', cardId)
+          .not('replay_requested_at', 'is', null)
+          .filter('replay_granted_at', 'is', null);
+      return rows.map(CardDelivery.fromJson).toList();
+    });
+
 final cardByIdProvider = FutureProvider.family<CardModel?, String>((
   ref,
   id,
@@ -44,11 +57,14 @@ class CardsRepository {
   SupabaseClient get _client => ref.read(supabaseProvider);
 
   /// Crée une Card : upload recto/verso puis insertion.
+  /// [viewDurationSeconds] null = lecture illimitée ; [maxViews] null = vues
+  /// illimitées. Hot : toujours 1 vue (imposé aussi côté serveur).
   Future<CardModel> create({
     required File front,
     required File back,
     required CardType type,
     int? viewDurationSeconds,
+    int? maxViews,
   }) async {
     final me = _client.auth.currentUser!.id;
     final stamp = DateTime.now().millisecondsSinceEpoch;
@@ -69,8 +85,10 @@ class CardsRepository {
           'card_type': type.dbValue,
           'front_path': frontPath,
           'back_path': backPath,
-          if (type == CardType.oneshot)
-            'view_duration_seconds': viewDurationSeconds ?? 3,
+          'view_duration_seconds': type == CardType.hot
+              ? 10
+              : viewDurationSeconds,
+          'max_views': type == CardType.hot ? 1 : maxViews,
         })
         .select()
         .single();
@@ -160,8 +178,28 @@ class CardsRepository {
   Future<void> markViewed(String deliveryId) =>
       _client.rpc('mark_card_viewed', params: {'delivery_id': deliveryId});
 
-  Future<void> destroyOneshot(String deliveryId) =>
-      _client.rpc('destroy_oneshot', params: {'delivery_id': deliveryId});
+  /// Fin de visionnage d'une Hot : destruction + disparition du chat.
+  Future<void> finishHotView(String deliveryId) =>
+      _client.rpc('finish_hot_view', params: {'delivery_id': deliveryId});
+
+  /// Replay : demandé par le destinataire, accordé par l'émetteur (+1 vue).
+  Future<void> requestReplay(String deliveryId) =>
+      _client.rpc('request_replay', params: {'delivery_id': deliveryId});
+
+  Future<void> grantReplay(String deliveryId) =>
+      _client.rpc('grant_replay', params: {'delivery_id': deliveryId});
+
+  /// Demandes de replay en attente sur MES cards (émetteur).
+  Future<List<CardDelivery>> pendingReplayRequests() async {
+    final me = _client.auth.currentUser!.id;
+    final rows = await _client
+        .from('card_deliveries')
+        .select('*, cards!inner(*)')
+        .eq('cards.owner_id', me)
+        .not('replay_requested_at', 'is', null)
+        .filter('replay_granted_at', 'is', null);
+    return rows.map(CardDelivery.fromJson).toList();
+  }
 
   Future<String> imageUrl(String path) =>
       _client.storage.from('cards').createSignedUrl(path, 3600);

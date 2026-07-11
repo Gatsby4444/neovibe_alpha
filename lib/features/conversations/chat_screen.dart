@@ -12,6 +12,7 @@ import '../../core/models/message.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/formats.dart';
 import '../cards/card_viewer_screen.dart';
+import '../cards/cards_repository.dart';
 import '../connections/connections_repository.dart';
 import 'video_player_screen.dart';
 import '../proximity/ble_service.dart';
@@ -475,33 +476,77 @@ class _CardChip extends ConsumerWidget {
         style: TextStyle(fontStyle: FontStyle.italic, color: Colors.white38),
       );
     }
-    return InkWell(
-      onTap: () => Navigator.of(
-        context,
-      ).push(MaterialPageRoute(builder: (_) => CardViewerScreen(card: card))),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          border: Border.all(color: card.type.color, width: 2),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.style, color: card.type.color),
-            const SizedBox(width: 8),
-            Text(
-              card.type.tag,
-              style: TextStyle(
-                color: card.type.color,
-                fontWeight: FontWeight.bold,
-              ),
+    final isMine = card.ownerId == ref.watch(currentUserIdProvider);
+    // Émetteur : demandes de replay en attente sur cette card
+    final pendingReplays = isMine
+        ? (ref.watch(pendingReplayForCardProvider(card.id)).value ??
+              <CardDelivery>[])
+        : <CardDelivery>[];
+    final onGradient = card.type.gradient != null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        InkWell(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => CardViewerScreen(card: card)),
+          ),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              gradient: card.type.gradient,
+              border: onGradient
+                  ? null
+                  : Border.all(color: card.type.color, width: 2),
+              borderRadius: BorderRadius.circular(12),
             ),
-            const SizedBox(width: 8),
-            const Text('Ouvrir'),
-          ],
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.style,
+                  color: onGradient ? Colors.white : card.type.color,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  card.type.tag,
+                  style: TextStyle(
+                    color: onGradient ? Colors.white : card.type.color,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text('Ouvrir'),
+              ],
+            ),
+          ),
         ),
-      ),
+        // Replay : le destinataire demande, l'émetteur décide
+        // (jamais automatique — décision verrouillée du produit)
+        for (final delivery in pendingReplays)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: FilledButton.tonalIcon(
+              icon: const Icon(Icons.replay, size: 18),
+              label: const Text('Replay demandé — accorder'),
+              onPressed: () async {
+                try {
+                  await ref
+                      .read(cardsRepositoryProvider)
+                      .grantReplay(delivery.id);
+                  ref.invalidate(pendingReplayForCardProvider(card.id));
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
+                  }
+                }
+              },
+            ),
+          ),
+      ],
     );
   }
 }

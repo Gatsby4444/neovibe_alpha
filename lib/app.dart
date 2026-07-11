@@ -7,6 +7,10 @@ import 'features/auth/auth_screen.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/home/home_shell.dart';
 
+/// Clé de navigation globale : permet aux notifications (ex. BeReal)
+/// d'ouvrir un écran hors de tout contexte de widget.
+final navigatorKey = GlobalKey<NavigatorState>();
+
 class NeoVibeApp extends StatelessWidget {
   const NeoVibeApp({super.key});
 
@@ -15,6 +19,7 @@ class NeoVibeApp extends StatelessWidget {
     return MaterialApp(
       title: 'NeoVibe',
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
       theme: NeoTheme.dark(),
       home: const RootGate(),
     );

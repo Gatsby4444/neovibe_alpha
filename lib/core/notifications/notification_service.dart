@@ -8,7 +8,8 @@ import 'package:timezone/timezone.dart' as tz;
 enum NotifChannel {
   fomo('fomo', 'Activité du cercle', 'Publications et Cards reçues'),
   waves('waves', 'Waves', 'Croisements physiques manqués'),
-  proximity('proximity', 'Proximité', 'Demandes de connexion à proximité');
+  proximity('proximity', 'Proximité', 'Demandes de connexion à proximité'),
+  bereal('bereal', 'BeReal', 'C\'est le moment de capturer l\'instant');
 
   const NotifChannel(this.id, this.title, this.description);
   final String id;
@@ -23,13 +24,25 @@ class NotificationService {
   final _plugin = FlutterLocalNotificationsPlugin();
   var _initialized = false;
 
+  /// Branché par l'app au démarrage : reçoit le payload d'une notification
+  /// touchée (ex. 'bereal' → ouvrir la capture contrainte).
+  void Function(String payload)? onNotificationTap;
+
   Future<void> init() async {
     if (_initialized) return;
     tzdata.initializeTimeZones();
     const settings = InitializationSettings(
       android: AndroidInitializationSettings('@mipmap/ic_launcher'),
     );
-    await _plugin.initialize(settings);
+    await _plugin.initialize(
+      settings,
+      onDidReceiveNotificationResponse: (response) {
+        final payload = response.payload;
+        if (payload != null && payload.isNotEmpty) {
+          onNotificationTap?.call(payload);
+        }
+      },
+    );
     final android = _plugin
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
@@ -56,13 +69,19 @@ class NotificationService {
     ),
   );
 
-  Future<void> show(NotifChannel channel, String title, String body) async {
+  Future<void> show(
+    NotifChannel channel,
+    String title,
+    String body, {
+    String? payload,
+  }) async {
     await init();
     await _plugin.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
       _details(channel),
+      payload: payload,
     );
   }
 
@@ -72,11 +91,13 @@ class NotificationService {
     NotifChannel channel,
     String title,
     String body,
-    DateTime when,
-  ) async {
+    DateTime when, {
+    String? payload,
+    bool exact = false,
+  }) async {
     await init();
     if (when.isBefore(DateTime.now())) {
-      return show(channel, title, body);
+      return show(channel, title, body, payload: payload);
     }
     await _plugin.zonedSchedule(
       when.millisecondsSinceEpoch ~/ 1000,
@@ -84,7 +105,11 @@ class NotificationService {
       body,
       tz.TZDateTime.from(when, tz.local),
       _details(channel),
-      androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      // exact : requis pour la notif BeReal programmée « à la seconde près »
+      androidScheduleMode: exact
+          ? AndroidScheduleMode.exactAllowWhileIdle
+          : AndroidScheduleMode.inexactAllowWhileIdle,
+      payload: payload,
     );
   }
 }

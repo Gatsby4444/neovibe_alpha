@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
+import '../../core/notifications/notification_service.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import '../connections/connections_repository.dart';
@@ -54,6 +55,8 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: (v) =>
                 ref.read(flipDirectionInvertedProvider.notifier).set(v),
           ),
+          const _CardDefaultsSection(),
+          const _Divulgation(),
           const Divider(),
           const _Header('Ma bibliothèque'),
           RadioGroup<LibraryVisibility>(
@@ -79,6 +82,9 @@ class SettingsScreen extends ConsumerWidget {
           if (profile?.libraryVisibility == LibraryVisibility.restricted)
             const _AccessListEditor(),
           const Divider(),
+          const _Header('Développeur (mode test — sera retiré)'),
+          const _DevBerealSection(),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Se déconnecter'),
@@ -91,6 +97,163 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Défauts appliqués aux nouvelles Cards (modifiables card par card à l'envoi).
+class _CardDefaultsSection extends ConsumerWidget {
+  const _CardDefaultsSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final views = ref.watch(defaultMaxViewsProvider);
+    final duration = ref.watch(defaultViewDurationProvider);
+    final unlimited = duration == DefaultViewDuration.unlimited;
+    final durationSlider = unlimited ? 21 : duration;
+
+    return Column(
+      children: [
+        ListTile(
+          dense: true,
+          title: Text('Visionnages par défaut : $views'),
+          subtitle: Slider(
+            value: views.toDouble(),
+            min: 1,
+            max: 5,
+            divisions: 4,
+            label: '$views',
+            onChanged: (v) =>
+                ref.read(defaultMaxViewsProvider.notifier).set(v.round()),
+          ),
+        ),
+        ListTile(
+          dense: true,
+          title: Text(
+            unlimited
+                ? 'Durée de lecture par défaut : illimitée'
+                : 'Durée de lecture par défaut : $duration s',
+          ),
+          subtitle: Slider(
+            value: durationSlider.toDouble(),
+            min: 1,
+            max: 21,
+            divisions: 20,
+            label: unlimited ? '∞' : '$duration s',
+            onChanged: (v) {
+              final rounded = v.round();
+              ref
+                  .read(defaultViewDurationProvider.notifier)
+                  .set(rounded == 21 ? DefaultViewDuration.unlimited : rounded);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Règles de confidentialité des Cards, énoncées noir sur blanc (consigne Jay).
+class _Divulgation extends StatelessWidget {
+  const _Divulgation();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Text(
+        'Dans les chats, tes Cards se voient un nombre de fois et une durée '
+        'limités (que tu choisis). Une trace reste 24 h et le replay ne se '
+        'fait qu\'avec ton accord. La Hot se voit une seule fois puis '
+        'disparaît sans trace. En bibliothèque, la lecture est illimitée.',
+        style: Theme.of(
+          context,
+        ).textTheme.bodySmall?.copyWith(color: Colors.white54),
+      ),
+    );
+  }
+}
+
+/// Mode test développeur (temporaire) : déclenche ou programme la
+/// notification BeReal, en attendant le déclenchement serveur aléatoire.
+class _DevBerealSection extends ConsumerWidget {
+  const _DevBerealSection();
+
+  static const _title = 'C\'est le moment. Sois vrai.';
+  static const _body = 'Tu as 5 minutes pour capturer ton instant.';
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifs = ref.watch(notificationServiceProvider);
+    return Column(
+      children: [
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.bolt),
+          title: const Text('Déclencher la notification BeReal maintenant'),
+          onTap: () async {
+            await notifs.show(
+              NotifChannel.bereal,
+              _title,
+              _body,
+              payload: 'bereal',
+            );
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Notification BeReal envoyée')),
+              );
+            }
+          },
+        ),
+        ListTile(
+          dense: true,
+          leading: const Icon(Icons.schedule),
+          title: const Text('Programmer la notification BeReal'),
+          subtitle: const Text('À la seconde près'),
+          onTap: () async {
+            final controller = TextEditingController(text: '30');
+            final seconds = await showDialog<int>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Dans combien de secondes ?'),
+                content: TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.number,
+                  autofocus: true,
+                  decoration: const InputDecoration(suffixText: 's'),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('Annuler'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(
+                      context,
+                      int.tryParse(controller.text.trim()),
+                    ),
+                    child: const Text('Programmer'),
+                  ),
+                ],
+              ),
+            );
+            if (seconds == null || seconds <= 0) return;
+            await notifs.schedule(
+              NotifChannel.bereal,
+              _title,
+              _body,
+              DateTime.now().add(Duration(seconds: seconds)),
+              payload: 'bereal',
+              exact: true,
+            );
+            if (context.mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Notification BeReal dans $seconds s')),
+              );
+            }
+          },
+        ),
+      ],
     );
   }
 }

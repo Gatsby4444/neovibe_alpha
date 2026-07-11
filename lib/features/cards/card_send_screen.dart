@@ -4,26 +4,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/card.dart';
+import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import '../connections/connections_repository.dart';
 import 'cards_repository.dart';
 
-/// Destination d'une Card : destinataires (connexions) et/ou bibliothèque.
-/// One of One : un seul destinataire, pas de bibliothèque.
-/// Oneshot : pas de bibliothèque (vue unique).
+/// Destination et paramètres d'une Card.
+/// - classique/1of1/oneshot : vues (1-5, défaut selon réglages) et durée de
+///   lecture (1-20 s ou illimitée, défaut selon réglages) choisies par le
+///   créateur pour CETTE card ;
+/// - Hot : figée à 1 vue, temps limité, aucune trace ;
+/// - bibliothèque : lecture toujours illimitée (limites appliquées en chat
+///   uniquement).
 class CardSendScreen extends ConsumerStatefulWidget {
   const CardSendScreen({
     super.key,
     required this.front,
     required this.back,
     required this.type,
-    this.oneshotDuration = 3,
   });
 
   final File front;
   final File back;
   final CardType type;
-  final int oneshotDuration;
 
   @override
   ConsumerState<CardSendScreen> createState() => _CardSendScreenState();
@@ -34,8 +37,56 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
   var _publish = false;
   var _loading = false;
 
+  /// Vues par card (1-5). Initialisé depuis les réglages.
+  late int _maxViews = ref.read(defaultMaxViewsProvider);
+
+  /// Durée de lecture : 1-20 s ; 21 = illimitée. Initialisé depuis les réglages.
+  late int _durationSlider = _fromPref(ref.read(defaultViewDurationProvider));
+
+  static int _fromPref(int pref) =>
+      pref == DefaultViewDuration.unlimited ? 21 : pref;
+
   bool get _canPublish =>
-      widget.type != CardType.oneOfOne && widget.type != CardType.oneshot;
+      widget.type != CardType.oneOfOne && widget.type != CardType.hot;
+
+  bool get _configurable => widget.type.hasConfigurableViews;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowExplainer());
+  }
+
+  /// Popup de première utilisation : règles de visionnage (consigne Jay).
+  Future<void> _maybeShowExplainer() async {
+    if (ref.read(cardsExplainerShownProvider)) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Comment vivent tes Cards'),
+        content: const SingleChildScrollView(
+          child: Text(
+            'Dans les chats, une Card se voit un nombre limité de fois '
+            '(2 par défaut) et pendant une durée limitée par vue (10 s par '
+            'défaut) — tu choisis ces limites pour chaque Card, et tes '
+            'défauts se règlent dans Réglages > Cards.\n\n'
+            'Une trace reste dans le chat 24 h et le destinataire peut te '
+            'demander un replay : rien ne se revoit sans ton accord.\n\n'
+            'La Hot, elle, se voit UNE fois, un court instant, puis disparaît '
+            'du chat sans laisser de trace.\n\n'
+            'Dans ta bibliothèque, ce que tu publies se regarde sans limite.',
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Compris'),
+          ),
+        ],
+      ),
+    );
+    await ref.read(cardsExplainerShownProvider.notifier).markShown();
+  }
 
   Future<void> _send() async {
     if (_selected.isEmpty && !_publish) {
@@ -53,7 +104,8 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
         front: widget.front,
         back: widget.back,
         type: widget.type,
-        viewDurationSeconds: widget.oneshotDuration,
+        viewDurationSeconds: _durationSlider == 21 ? null : _durationSlider,
+        maxViews: _maxViews,
       );
       if (_selected.isNotEmpty) {
         await repo.send(card, _selected.toList());
@@ -82,6 +134,7 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
     final me = ref.watch(currentUserIdProvider)!;
     final connections = ref.watch(fullConnectionsProvider);
     final singleRecipient = widget.type == CardType.oneOfOne;
+    final type = widget.type;
 
     return Scaffold(
       appBar: AppBar(
@@ -91,13 +144,16 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                border: Border.all(color: widget.type.color),
+                gradient: type.gradient,
+                border: type.gradient == null
+                    ? Border.all(color: type.color)
+                    : null,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
-                widget.type.tag,
+                type.tag,
                 style: TextStyle(
-                  color: widget.type.color,
+                  color: type.gradient == null ? type.color : Colors.white,
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
                 ),
@@ -116,11 +172,49 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
                 style: TextStyle(color: Color(0xFFD4AF37)),
               ),
             ),
+          if (type == CardType.hot)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                'Hot : une seule vue, temps limité, aucune trace après.',
+                style: TextStyle(color: type.color),
+              ),
+            ),
+          if (_configurable) ...[
+            ListTile(
+              dense: true,
+              title: Text('Visionnages : $_maxViews'),
+              subtitle: Slider(
+                value: _maxViews.toDouble(),
+                min: 1,
+                max: 5,
+                divisions: 4,
+                label: '$_maxViews',
+                onChanged: (v) => setState(() => _maxViews = v.round()),
+              ),
+            ),
+            ListTile(
+              dense: true,
+              title: Text(
+                _durationSlider == 21
+                    ? 'Durée de lecture : illimitée'
+                    : 'Durée de lecture : $_durationSlider s',
+              ),
+              subtitle: Slider(
+                value: _durationSlider.toDouble(),
+                min: 1,
+                max: 21,
+                divisions: 20,
+                label: _durationSlider == 21 ? '∞' : '$_durationSlider s',
+                onChanged: (v) => setState(() => _durationSlider = v.round()),
+              ),
+            ),
+          ],
           if (_canPublish)
             SwitchListTile(
               title: const Text('Publier dans ma bibliothèque'),
               subtitle: const Text(
-                'Contenu conservé, visible selon tes règles',
+                'Là-bas, lecture illimitée — visible selon tes règles d\'accès',
               ),
               value: _publish,
               onChanged: (v) => setState(() => _publish = v),

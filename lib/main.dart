@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app.dart';
 import 'core/config/env.dart';
 import 'core/notifications/notification_service.dart';
+import 'features/cards/card_capture_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -15,6 +16,17 @@ Future<void> main() async {
     publishableKey: Env.supabasePublishableKey,
   );
   await NotificationService.instance.init();
+
+  // Tap sur la notification BeReal → capture contrainte (fenêtre 5 min)
+  NotificationService.instance.onNotificationTap = (payload) {
+    if (payload == 'bereal') {
+      navigatorKey.currentState?.push(
+        MaterialPageRoute(
+          builder: (_) => const CardCaptureScreen(bereal: true),
+        ),
+      );
+    }
+  };
 
   // Service de premier plan : maintient la détection BLE (Ping/Waves)
   // quand l'app n'est plus au premier plan, tant que la visibilité est active.

@@ -127,9 +127,13 @@ class LibraryTile extends ConsumerWidget {
       final card = item.card!;
       return GestureDetector(
         onLongPress: onLongPress,
-        onTap: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => CardViewerScreen(card: card))),
+        // Bibliothèque : lecture illimitée (les limites de vues/durée ne
+        // s'appliquent qu'en chat — consigne Jay)
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => CardViewerScreen(card: card, fromLibrary: true),
+          ),
+        ),
         child: Container(
           decoration: BoxDecoration(
             border: Border.all(color: card.type.color, width: 2),
