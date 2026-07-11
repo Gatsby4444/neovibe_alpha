@@ -1,0 +1,42 @@
+name: neovibe
+description: "NeoVibe — le réseau social de la présence physique."
+publish_to: 'none'
+
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.12.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # État & backend
+  flutter_riverpod: ^3.0.0
+  supabase_flutter: ^2.10.0
+
+  # Capture & médias
+  camera: ^0.11.0
+  image_picker: ^1.1.0
+  video_player: ^2.9.0
+
+  # Proximité BLE
+  flutter_blue_plus: ^1.35.0
+  flutter_ble_peripheral: ^1.2.6
+  permission_handler: ^12.0.0
+  flutter_foreground_task: ^9.1.0
+
+  # Notifications locales
+  flutter_local_notifications: ^19.0.0
+  timezone: ^0.10.0
+
+  intl: ^0.20.0
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

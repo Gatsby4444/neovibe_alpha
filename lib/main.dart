@@ -1,0 +1,38 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import 'app.dart';
+import 'core/config/env.dart';
+import 'core/notifications/notification_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Supabase.initialize(
+    url: Env.supabaseUrl,
+    publishableKey: Env.supabasePublishableKey,
+  );
+  await NotificationService.instance.init();
+
+  // Service de premier plan : maintient la détection BLE (Ping/Waves)
+  // quand l'app n'est plus au premier plan, tant que la visibilité est active.
+  FlutterForegroundTask.init(
+    androidNotificationOptions: AndroidNotificationOptions(
+      channelId: 'neovibe_presence',
+      channelName: 'Présence NeoVibe',
+      channelDescription: 'Détection de proximité active',
+      channelImportance: NotificationChannelImportance.LOW,
+      priority: NotificationPriority.LOW,
+    ),
+    iosNotificationOptions: const IOSNotificationOptions(),
+    foregroundTaskOptions: ForegroundTaskOptions(
+      eventAction: ForegroundTaskEventAction.repeat(60000),
+      autoRunOnBoot: false,
+      allowWakeLock: true,
+    ),
+  );
+
+  runApp(const ProviderScope(child: NeoVibeApp()));
+}

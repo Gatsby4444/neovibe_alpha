@@ -13,3 +13,20 @@ build/
 coverage/
 supabase/.temp/
 .code-review-graph/
+
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+*.iml
+android/.gradle/
+android/local.properties
+android/app/.cxx/
+android/key.properties
+*.keystore
+*.jks
+
+# Config locale (cle Supabase hors repo)
+lib/core/config/env.dart
