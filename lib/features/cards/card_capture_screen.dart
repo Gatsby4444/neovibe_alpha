@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -10,13 +11,12 @@ import '../../core/models/card.dart';
 import 'card_send_screen.dart';
 import 'face_editor_screen.dart';
 
-/// Flux de création d'une Card : recto (caméra arrière) → verso (caméra
-/// avant) → choix du type → envoi/publication. Objectif : 10 s, zéro
-/// post-production imposée (l'éditeur de face reste optionnel).
-///
-/// Mode Oneshot : un seul déclenché capture les deux faces (arrière puis
-/// avant enchaînées au plus vite — la capture strictement simultanée des deux
-/// caméras n'est pas permise par Android sur la plupart des appareils).
+/// Flux de création d'une Card.
+/// Le TYPE se choisit AVANT la première photo, dans un sélecteur horizontal
+/// au-dessus du déclencheur (consigne Jay) — le Oneshot est donc un mode de
+/// prise (les deux faces en un déclenché), pas un choix a posteriori.
+/// Chaque face peut aussi être un « tableau » (fond noir à dessiner) au lieu
+/// d'une photo.
 class CardCaptureScreen extends ConsumerStatefulWidget {
   const CardCaptureScreen({super.key, this.bereal = false});
 
@@ -35,8 +35,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   File? _back; // verso = caméra avant (ma réaction)
   var _step = 0; // 0 = recto, 1 = verso, 2 = récap
   var _error = '';
-  var _oneshotMode = false;
-  var _capturing = false;
+  var _busy = false; // capture ou bascule caméra en cours
+  var _switching = false;
+  late CardType _type = widget.bereal ? CardType.bereal : CardType.standard;
 
   /// Fenêtre BeReal : 5 minutes pour boucler les deux captures (consigne Jay).
   static const _berealWindow = Duration(minutes: 5);
@@ -78,12 +79,20 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
+  /// Bascule de caméra : on libère TOUJOURS l'ancien contrôleur avant d'en
+  /// ouvrir un nouveau — deux contrôleurs ouverts en même temps provoquent
+  /// l'écran noir sur la caméra frontale (bug remonté par Jay).
   Future<void> _useCamera(CameraLensDirection direction) async {
+    setState(() => _switching = true);
+    final previous = _controller;
+    _controller = null;
+    if (mounted) setState(() {});
+    await previous?.dispose();
+
     final camera = _cameras.firstWhere(
       (c) => c.lensDirection == direction,
       orElse: () => _cameras.first,
     );
-    final previous = _controller;
     final controller = CameraController(
       camera,
       ResolutionPreset.high,
@@ -94,23 +103,26 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       controller.dispose();
       return;
     }
-    setState(() => _controller = controller);
-    previous?.dispose();
+    setState(() {
+      _controller = controller;
+      _switching = false;
+    });
   }
 
   Future<void> _capture() async {
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized || _capturing) {
+    if (controller == null || !controller.value.isInitialized || _busy) {
       return;
     }
-    _capturing = true;
+    setState(() => _busy = true);
     try {
-      if (_oneshotMode) {
-        // Un seul déclenché : arrière puis avant, enchaînées au plus vite
+      if (_type == CardType.oneshot && _step == 0) {
+        // Oneshot : les deux faces en un seul déclenché
         final backShot = await controller.takePicture();
         _front = File(backShot.path);
-        setState(() => _step = 1);
         await _useCamera(CameraLensDirection.front);
+        // Courte stabilisation avant le second cliché
+        await Future<void>.delayed(const Duration(milliseconds: 250));
         final frontShot = await _controller!.takePicture();
         _back = File(frontShot.path);
         _berealTimer?.cancel();
@@ -127,9 +139,56 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         _berealTimer?.cancel();
         setState(() => _step = 2);
       }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Capture impossible : $e')));
+      }
     } finally {
-      _capturing = false;
+      if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// « Face tableau » : saute la photo de la face courante et pose un fond
+  /// noir, à dessiner/annoter au récap (consigne Jay).
+  Future<void> _useBlackboard() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      final file = await _generateBlackboard();
+      if (_step == 0) {
+        _front = file;
+        setState(() => _step = 1);
+        await _useCamera(CameraLensDirection.front);
+      } else {
+        _back = file;
+        _berealTimer?.cancel();
+        setState(() => _step = 2);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  static Future<File> _generateBlackboard() async {
+    const width = 900.0, height = 1200.0;
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    canvas.drawRect(
+      const ui.Rect.fromLTWH(0, 0, width, height),
+      ui.Paint()..color = const ui.Color(0xFF000000),
+    );
+    final image = await recorder.endRecording().toImage(
+      width.toInt(),
+      height.toInt(),
+    );
+    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+    final file = File(
+      '${Directory.systemTemp.path}/board_${DateTime.now().millisecondsSinceEpoch}.png',
+    );
+    await file.writeAsBytes(bytes!.buffer.asUint8List());
+    return file;
   }
 
   @override
@@ -148,18 +207,14 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       );
     }
     if (_step == 2) {
-      return _RecapStep(
-        front: _front!,
-        back: _back!,
-        forcedType: widget.bereal
-            ? CardType.bereal
-            : _oneshotMode
-            ? CardType.oneshot
-            : null,
-      );
+      return _RecapStep(front: _front!, back: _back!, type: _type);
     }
 
     final controller = _controller;
+    final shutterColor = _type == CardType.standard
+        ? Colors.white
+        : _type.color;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -169,6 +224,22 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
               Positioned.fill(child: CameraPreview(controller))
             else
               const Center(child: CircularProgressIndicator()),
+            if (_busy && _type == CardType.oneshot)
+              const Positioned.fill(
+                child: ColoredBox(
+                  color: Colors.black54,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 12),
+                        Text('Oneshot — les deux faces…'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             Positioned(
               top: 12,
               left: 12,
@@ -221,47 +292,71 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 ],
               ),
             ),
-            // Mode Oneshot : les deux faces en un seul déclenché
+            // Sélecteur de type : AVANT la première photo (consigne Jay)
             if (!widget.bereal && _step == 0)
               Positioned(
-                bottom: 120,
+                bottom: 132,
                 left: 0,
                 right: 0,
-                child: Center(
-                  child: FilterChip(
-                    selected: _oneshotMode,
-                    onSelected: (v) => setState(() => _oneshotMode = v),
-                    selectedColor: CardType.oneshot.color.withValues(
-                      alpha: 0.35,
-                    ),
-                    label: Text(
-                      'Oneshot — les 2 faces d\'un coup',
-                      style: TextStyle(
-                        color: _oneshotMode ? Colors.white : Colors.white70,
-                      ),
-                    ),
+                child: SizedBox(
+                  height: 40,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    children: [
+                      for (final type in CardType.selectable)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            selected: _type == type,
+                            onSelected: (_) => setState(() => _type = type),
+                            selectedColor: type.color.withValues(alpha: 0.4),
+                            backgroundColor: Colors.black54,
+                            label: Text(
+                              type.tag,
+                              style: TextStyle(
+                                color: _type == type
+                                    ? Colors.white
+                                    : type.color,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
+            // Face tableau : fond noir au lieu d'une photo
+            Positioned(
+              bottom: 42,
+              right: 28,
+              child: IconButton.filledTonal(
+                tooltip: 'Face tableau (fond noir à dessiner)',
+                icon: const Icon(Icons.gesture),
+                onPressed: _busy ? null : _useBlackboard,
+              ),
+            ),
             Positioned(
               bottom: 28,
               left: 0,
               right: 0,
               child: Center(
                 child: GestureDetector(
-                  onTap: _capture,
+                  onTap: _switching ? null : _capture,
                   child: Container(
                     height: 76,
                     width: 76,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(
-                        color: _oneshotMode
-                            ? CardType.oneshot.color
-                            : Colors.white,
-                        width: 5,
-                      ),
+                      border: Border.all(color: shutterColor, width: 5),
+                      color: _type == CardType.oneshot
+                          ? shutterColor.withValues(alpha: 0.25)
+                          : null,
                     ),
+                    child: _type == CardType.oneshot
+                        ? const Icon(Icons.flip_camera_android)
+                        : null,
                   ),
                 ),
               ),
@@ -273,49 +368,75 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   }
 }
 
-/// Étape 3 : aperçu recto/verso (remplaçables via l'éditeur) + choix du type.
+/// Récap : aperçu recto/verso, éditeur par face, type déjà fixé (badge).
 class _RecapStep extends StatefulWidget {
-  const _RecapStep({required this.front, required this.back, this.forcedType});
+  const _RecapStep({
+    required this.front,
+    required this.back,
+    required this.type,
+  });
   final File front;
   final File back;
-  final CardType? forcedType;
+  final CardType type;
 
   @override
   State<_RecapStep> createState() => _RecapStepState();
 }
 
 class _RecapStepState extends State<_RecapStep> {
-  late CardType _type = widget.forcedType ?? CardType.standard;
   late File _front = widget.front;
   late File _back = widget.back;
 
-  Future<void> _editFace(bool isFront, {required bool fromBlank}) async {
+  /// Originaux conservés pour « revenir à l'image initiale » (consigne Jay).
+  late final File _originalFront = widget.front;
+  late final File _originalBack = widget.back;
+
+  Future<void> _editFace(bool isFront) async {
+    final current = isFront ? _front : _back;
     final result = await Navigator.of(context).push<File>(
-      MaterialPageRoute(
-        builder: (_) => FaceEditorScreen(
-          baseImage: fromBlank ? null : (isFront ? _front : _back),
-        ),
-      ),
+      MaterialPageRoute(builder: (_) => FaceEditorScreen(baseImage: current)),
     );
     if (result != null) {
-      setState(() {
-        if (isFront) {
-          _front = result;
-        } else {
-          _back = result;
-        }
-      });
+      setState(() => isFront ? _front = result : _back = result);
     }
+  }
+
+  void _restoreFace(bool isFront) {
+    setState(() => isFront ? _front = _originalFront : _back = _originalBack);
   }
 
   @override
   Widget build(BuildContext context) {
-    final types = widget.forcedType != null
-        ? [widget.forcedType!]
-        : CardType.selectable;
-
+    final type = widget.type;
     return Scaffold(
-      appBar: AppBar(title: const Text('Ta Card')),
+      appBar: AppBar(
+        title: Row(
+          children: [
+            const Text('Ta Card '),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                gradient: type.gradient,
+                color: type.gradient == null
+                    ? type.color.withValues(alpha: 0.2)
+                    : null,
+                border: type.gradient == null
+                    ? Border.all(color: type.color)
+                    : null,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                type.tag,
+                style: TextStyle(
+                  color: type.gradient == null ? type.color : Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -325,8 +446,9 @@ class _RecapStepState extends State<_RecapStep> {
                 child: _Shot(
                   label: 'Recto',
                   file: _front,
-                  onAnnotate: () => _editFace(true, fromBlank: false),
-                  onCreate: () => _editFace(true, fromBlank: true),
+                  edited: _front != _originalFront,
+                  onEdit: () => _editFace(true),
+                  onRestore: () => _restoreFace(true),
                 ),
               ),
               const SizedBox(width: 12),
@@ -334,68 +456,29 @@ class _RecapStepState extends State<_RecapStep> {
                 child: _Shot(
                   label: 'Verso',
                   file: _back,
-                  onAnnotate: () => _editFace(false, fromBlank: false),
-                  onCreate: () => _editFace(false, fromBlank: true),
+                  edited: _back != _originalBack,
+                  onEdit: () => _editFace(false),
+                  onRestore: () => _restoreFace(false),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          Text('Type de Card', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
-          RadioGroup<CardType>(
-            groupValue: _type,
-            onChanged: (v) {
-              if (widget.forcedType == null && v != null) {
-                setState(() => _type = v);
-              }
-            },
-            child: Column(
-              children: [
-                for (final type in types)
-                  RadioListTile<CardType>(
-                    value: type,
-                    title: Row(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 2,
-                          ),
-                          decoration: BoxDecoration(
-                            gradient: type.gradient,
-                            color: type.gradient == null
-                                ? type.color.withValues(alpha: 0.2)
-                                : null,
-                            border: type.gradient == null
-                                ? Border.all(color: type.color)
-                                : null,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            type.tag,
-                            style: TextStyle(
-                              color: type.gradient == null
-                                  ? type.color
-                                  : Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    subtitle: Text(type.description),
-                  ),
-              ],
-            ),
+          Text(
+            type.description,
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.white54),
           ),
           const SizedBox(height: 16),
           FilledButton(
-            onPressed: () => Navigator.of(context).pushReplacement(
+            // push (pas pushReplacement) : le retour depuis l'écran d'envoi
+            // ramène ici, dans la section Card (consigne Jay)
+            onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) =>
-                    CardSendScreen(front: _front, back: _back, type: _type),
+                    CardSendScreen(front: _front, back: _back, type: type),
               ),
             ),
             child: const Text('Continuer'),
@@ -410,13 +493,15 @@ class _Shot extends StatelessWidget {
   const _Shot({
     required this.label,
     required this.file,
-    required this.onAnnotate,
-    required this.onCreate,
+    required this.edited,
+    required this.onEdit,
+    required this.onRestore,
   });
   final String label;
   final File file;
-  final VoidCallback onAnnotate;
-  final VoidCallback onCreate;
+  final bool edited;
+  final VoidCallback onEdit;
+  final VoidCallback onRestore;
 
   @override
   Widget build(BuildContext context) {
@@ -431,18 +516,17 @@ class _Shot extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // Éditeur façon Snapchat : annoter la photo, ou créer une face
-            // entièrement dans l'éditeur (consigne Jay : les deux)
             IconButton(
               icon: const Icon(Icons.draw, size: 20),
-              tooltip: 'Annoter',
-              onPressed: onAnnotate,
+              tooltip: 'Modifier (dessin, texte)',
+              onPressed: onEdit,
             ),
-            IconButton(
-              icon: const Icon(Icons.palette, size: 20),
-              tooltip: 'Remplacer par une création',
-              onPressed: onCreate,
-            ),
+            if (edited)
+              IconButton(
+                icon: const Icon(Icons.restore, size: 20),
+                tooltip: 'Revenir à l\'image initiale',
+                onPressed: onRestore,
+              ),
           ],
         ),
       ],

@@ -132,6 +132,16 @@ class _FaceEditorScreenState extends State<FaceEditorScreen> {
                 : () => setState(() => _strokes.removeLast()),
           ),
           IconButton(
+            icon: const Icon(Icons.restore),
+            tooltip: 'Tout effacer (revenir à l\'image initiale)',
+            onPressed: _strokes.isEmpty && _texts.isEmpty
+                ? null
+                : () => setState(() {
+                    _strokes.clear();
+                    _texts.clear();
+                  }),
+          ),
+          IconButton(
             icon: _exporting
                 ? const SizedBox(
                     height: 20,
