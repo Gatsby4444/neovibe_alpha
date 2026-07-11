@@ -12,3 +12,4 @@ build/
 .idea/
 coverage/
 supabase/.temp/
+.code-review-graph/
