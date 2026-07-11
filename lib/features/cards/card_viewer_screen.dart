@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/card.dart';
 import '../../core/supabase_providers.dart';
 import 'cards_repository.dart';
+import 'flippable_card.dart';
 
 /// Visionnage d'une Card : recto/verso (tap pour retourner), avec les règles
 /// par type — Oneshot : minuteur visible puis destruction définitive ;
@@ -132,8 +133,6 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
       );
     }
 
-    final url = _showFront ? _frontUrl : _backUrl;
-
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
@@ -170,50 +169,67 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
             ),
         ],
       ),
-      body: GestureDetector(
-        onTap: () => setState(() => _showFront = !_showFront),
-        child: Center(
-          child: url == null
-              ? const CircularProgressIndicator()
-              : AnimatedOpacity(
-                  duration: const Duration(milliseconds: 600),
-                  opacity: type == CardType.hot ? _hotOpacity : 1.0,
-                  child: Container(
-                    margin: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                        color: type.color,
-                        width: type == CardType.oneOfOne ? 4 : 2,
-                      ),
-                      boxShadow: type == CardType.oneOfOne
-                          ? [
-                              BoxShadow(
-                                color: type.color.withValues(alpha: 0.4),
-                                blurRadius: 24,
-                              ),
-                            ]
-                          : null,
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(18),
-                      child: Image.network(url, fit: BoxFit.contain),
-                    ),
-                  ),
+      body: Center(
+        child: _frontUrl == null || _backUrl == null
+            ? const CircularProgressIndicator()
+            : AnimatedOpacity(
+                duration: const Duration(milliseconds: 600),
+                opacity: type == CardType.hot ? _hotOpacity : 1.0,
+                // Retournement physique : le doigt incline la carte,
+                // un swipe (ou un angle suffisant) la retourne (consigne Jay)
+                child: FlippableCard(
+                  onSideChanged: (front) => setState(() => _showFront = front),
+                  front: _CardFace(url: _frontUrl!, type: type),
+                  back: _CardFace(url: _backUrl!, type: type),
                 ),
-        ),
+              ),
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Text(
             _showFront
-                ? 'Recto — touche pour voir le verso'
-                : 'Verso — touche pour revenir au recto',
+                ? 'Recto — fais glisser pour retourner la carte'
+                : 'Verso — fais glisser pour revenir au recto',
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.white54),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Une face de la carte : image + cadre au liseré du type (embarqué dans la
+/// face pour que le cadre se retourne avec la carte).
+class _CardFace extends StatelessWidget {
+  const _CardFace({required this.url, required this.type});
+  final String url;
+  final CardType type;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.black,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: type.color,
+          width: type == CardType.oneOfOne ? 4 : 2,
+        ),
+        boxShadow: type == CardType.oneOfOne
+            ? [
+                BoxShadow(
+                  color: type.color.withValues(alpha: 0.4),
+                  blurRadius: 24,
+                ),
+              ]
+            : null,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: Image.network(url, fit: BoxFit.contain),
       ),
     );
   }
