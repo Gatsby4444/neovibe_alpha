@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
+import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import '../connections/connections_repository.dart';
 import '../library/library_repository.dart';
@@ -41,6 +42,17 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => const WavesScreen())),
+          ),
+          const Divider(),
+          const _Header('Cards'),
+          SwitchListTile(
+            title: const Text('Inverser le sens de retournement'),
+            subtitle: const Text(
+              'Change le sens dans lequel le swipe retourne une Card',
+            ),
+            value: ref.watch(flipDirectionInvertedProvider),
+            onChanged: (v) =>
+                ref.read(flipDirectionInvertedProvider.notifier).set(v),
           ),
           const Divider(),
           const _Header('Ma bibliothèque'),

@@ -14,6 +14,7 @@ class FlippableCard extends StatefulWidget {
     required this.front,
     required this.back,
     this.onSideChanged,
+    this.invertDrag = false,
   });
 
   final Widget front;
@@ -21,6 +22,9 @@ class FlippableCard extends StatefulWidget {
 
   /// Appelé quand la face visible change (true = recto).
   final ValueChanged<bool>? onSideChanged;
+
+  /// Inverse le sens de rotation entraîné par le doigt (préférence utilisateur).
+  final bool invertDrag;
 
   @override
   State<FlippableCard> createState() => _FlippableCardState();
@@ -75,11 +79,13 @@ class _FlippableCardState extends State<FlippableCard>
     _controller.stop();
   }
 
+  double get _dragSign => widget.invertDrag ? -1.0 : 1.0;
+
   void _onPanUpdate(DragUpdateDetails details) {
     final size = context.size ?? const Size(300, 400);
     setState(() {
       // Un glissement sur toute la largeur ≈ un demi-tour
-      _angle += details.delta.dx / size.width * math.pi;
+      _angle += _dragSign * details.delta.dx / size.width * math.pi;
       // Inclinaison légère qui suit le doigt, bornée pour rester subtile
       _tilt = (_tilt - details.delta.dy / size.height * 0.6).clamp(-0.22, 0.22);
     });
@@ -92,7 +98,7 @@ class _FlippableCardState extends State<FlippableCard>
     // instant dans le futur avec la vélocité du geste, puis on retombe sur la
     // face (multiple de π) la plus proche de cette projection.
     final angularVelocity =
-        details.velocity.pixelsPerSecond.dx / size.width * math.pi;
+        _dragSign * details.velocity.pixelsPerSecond.dx / size.width * math.pi;
     final projected = _angle + angularVelocity * 0.12;
     _settleTo((projected / math.pi).round() * math.pi);
   }

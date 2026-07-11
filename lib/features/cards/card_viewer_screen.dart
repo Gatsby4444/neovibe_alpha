@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/card.dart';
+import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import 'cards_repository.dart';
 import 'flippable_card.dart';
@@ -178,6 +179,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
                 // Retournement physique : le doigt incline la carte,
                 // un swipe (ou un angle suffisant) la retourne (consigne Jay)
                 child: FlippableCard(
+                  invertDrag: ref.watch(flipDirectionInvertedProvider),
                   onSideChanged: (front) => setState(() => _showFront = front),
                   front: _CardFace(url: _frontUrl!, type: type),
                   back: _CardFace(url: _backUrl!, type: type),
