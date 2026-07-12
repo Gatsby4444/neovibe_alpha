@@ -57,27 +57,32 @@ class CardsRepository {
   SupabaseClient get _client => ref.read(supabaseProvider);
 
   /// Crée une Card : upload recto/verso puis insertion.
-  /// [viewDurationSeconds] null = lecture illimitée ; [maxViews] null = vues
-  /// illimitées. Hot : toujours 1 vue (imposé aussi côté serveur).
+  /// [back] null = card Mono (face unique). [viewDurationSeconds] null =
+  /// lecture illimitée ; [maxViews] null = vues illimitées. Hot : toujours
+  /// 1 vue (imposé aussi côté serveur). [imported] : au moins une face vient
+  /// de la galerie.
   Future<CardModel> create({
     required File front,
-    required File back,
+    File? back,
     required CardType type,
     int? viewDurationSeconds,
     int? maxViews,
     bool saveable = false,
+    bool imported = false,
   }) async {
     final me = _client.auth.currentUser!.id;
     final stamp = DateTime.now().millisecondsSinceEpoch;
     final frontPath = '$me/${stamp}_front.jpg';
-    final backPath = '$me/${stamp}_back.jpg';
+    final backPath = back == null ? null : '$me/${stamp}_back.jpg';
     const options = FileOptions(contentType: 'image/jpeg');
     await _client.storage
         .from('cards')
         .upload(frontPath, front, fileOptions: options);
-    await _client.storage
-        .from('cards')
-        .upload(backPath, back, fileOptions: options);
+    if (back != null) {
+      await _client.storage
+          .from('cards')
+          .upload(backPath!, back, fileOptions: options);
+    }
 
     final row = await _client
         .from('cards')
@@ -91,6 +96,7 @@ class CardsRepository {
               : viewDurationSeconds,
           'max_views': type == CardType.hot ? 1 : maxViews,
           'saveable': type.canBeSaveable && saveable,
+          'imported': imported,
         })
         .select()
         .single();

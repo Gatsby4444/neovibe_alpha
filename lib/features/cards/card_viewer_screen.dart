@@ -70,7 +70,10 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     try {
       // URLs signées d'abord : c'est l'étape fragile côté réseau
       final front = await repo.imageUrl(widget.card.frontPath);
-      final back = await repo.imageUrl(widget.card.backPath);
+      // Mono : pas de verso
+      final back = widget.card.backPath == null
+          ? null
+          : await repo.imageUrl(widget.card.backPath!);
       if (!mounted) return;
       _frontUrl = front;
       _backUrl = back;
@@ -273,6 +276,12 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
           delivery: _delivery,
           onReplayRequested: _requestReplay,
         ),
+        // Mono : face unique non retournable, le jeu d'angle reste
+        _Phase.viewing when _backUrl == null => Center(
+          child: TiltableCard(
+            child: _CardFace(url: _frontUrl!, type: type),
+          ),
+        ),
         _Phase.viewing => Center(
           child: FlippableCard(
             invertDrag: ref.watch(flipDirectionInvertedProvider),
@@ -287,7 +296,9 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Text(
-                  _showFront
+                  _backUrl == null
+                      ? 'Face unique — fais glisser pour incliner la carte'
+                      : _showFront
                       ? 'Recto — fais glisser pour retourner la carte'
                       : 'Verso — fais glisser pour revenir au recto',
                   textAlign: TextAlign.center,

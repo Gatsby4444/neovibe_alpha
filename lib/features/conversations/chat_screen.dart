@@ -581,16 +581,34 @@ class _CardContainer extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          card.type.tag,
-                          style: TextStyle(
-                            color: dimmed
-                                ? Colors.white54
-                                : (gradient != null && unopened
-                                      ? Colors.white
-                                      : baseColor),
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                card.type.tag,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: dimmed
+                                      ? Colors.white54
+                                      : (gradient != null && unopened
+                                            ? Colors.white
+                                            : baseColor),
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            // Image importée de la galerie : petit logo
+                            // discret (consigne Jay 2026-07-12)
+                            if (card.imported)
+                              const Padding(
+                                padding: EdgeInsets.only(left: 5),
+                                child: Icon(
+                                  Icons.photo_library_outlined,
+                                  size: 13,
+                                  color: Colors.white54,
+                                ),
+                              ),
+                          ],
                         ),
                         Text(
                           stateLabel,

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 /// capture simultanée).
 enum CardType {
   standard,
+  mono,
   oneshot,
   oneOfOne,
   hot,
@@ -12,6 +13,7 @@ enum CardType {
 
   static CardType fromDb(String value) => switch (value) {
     'standard' => CardType.standard,
+    'mono' => CardType.mono,
     'oneshot' => CardType.oneshot,
     'one_of_one' => CardType.oneOfOne,
     'hot' => CardType.hot,
@@ -21,6 +23,7 @@ enum CardType {
 
   String get dbValue => switch (this) {
     CardType.standard => 'standard',
+    CardType.mono => 'mono',
     CardType.oneshot => 'oneshot',
     CardType.oneOfOne => 'one_of_one',
     CardType.hot => 'hot',
@@ -31,6 +34,7 @@ enum CardType {
   /// consigne Jay du 2026-07-12).
   String get tag => switch (this) {
     CardType.standard => 'Card',
+    CardType.mono => 'MONO',
     CardType.oneshot => 'Oneshot',
     CardType.oneOfOne => 'One of One',
     CardType.hot => 'Hot',
@@ -40,7 +44,10 @@ enum CardType {
   /// Types pouvant être marqués « sauvegardables » par le créateur
   /// (jamais Hot ni One of One).
   bool get canBeSaveable => switch (this) {
-    CardType.standard || CardType.oneshot || CardType.bereal => true,
+    CardType.standard ||
+    CardType.mono ||
+    CardType.oneshot ||
+    CardType.bereal => true,
     CardType.hot || CardType.oneOfOne => false,
   };
 
@@ -49,6 +56,7 @@ enum CardType {
   /// Hot rouge Torino, BeReal vert nature clair/turquoise.
   Color get color => switch (this) {
     CardType.standard => const Color(0xFFFFFFFF), // blanc éclatant
+    CardType.mono => const Color(0xFF00E5FF), // cyan (validé Jay 2026-07-12)
     CardType.oneshot => const Color(0xFF2979FF), // bleu électrique
     CardType.oneOfOne => const Color(0xFFD4AF37), // or — ne pas changer
     CardType.hot => const Color(0xFFC8102E), // rouge Torino
@@ -76,6 +84,8 @@ enum CardType {
   String get description => switch (this) {
     CardType.standard =>
       'Vues et durée à ta main, trace 24 h dans le chat, replay sur ton accord',
+    CardType.mono =>
+      'Une seule face, comme un snap — non retournable, sinon comme une classique',
     CardType.oneshot =>
       'Avant + arrière capturés d\'un seul déclenché, sinon comme une classique',
     CardType.oneOfOne => 'Exclusive : un seul destinataire, à jamais',
@@ -88,10 +98,14 @@ enum CardType {
   /// (BeReal est déclenchée par notification, pas par le menu).
   static List<CardType> get selectable => [
     CardType.standard,
+    CardType.mono,
     CardType.oneshot,
     CardType.oneOfOne,
     CardType.hot,
   ];
+
+  /// Mono : une seule face, pas de retournement.
+  bool get singleFace => this == CardType.mono;
 
   /// Vues/durée paramétrables par le créateur (Hot : figé à 1 vue courte).
   bool get hasConfigurableViews => this != CardType.hot;
@@ -103,10 +117,11 @@ class CardModel {
     required this.ownerId,
     required this.type,
     required this.frontPath,
-    required this.backPath,
+    this.backPath,
     this.viewDurationSeconds,
     this.maxViews,
     this.saveable = false,
+    this.imported = false,
     required this.createdAt,
   });
 
@@ -114,7 +129,9 @@ class CardModel {
   final String ownerId;
   final CardType type;
   final String frontPath;
-  final String backPath;
+
+  /// Null pour une card Mono (face unique).
+  final String? backPath;
 
   /// Durée de lecture par vue en secondes (null = illimitée). Défaut 10 s.
   final int? viewDurationSeconds;
@@ -125,6 +142,10 @@ class CardModel {
 
   /// Les destinataires peuvent l'enregistrer dans leurs Enregistrements.
   final bool saveable;
+
+  /// Au moins une face vient de la galerie (pas d'une capture en direct) —
+  /// signalé par un petit logo galerie sur le container en chat.
+  final bool imported;
   final DateTime createdAt;
 
   factory CardModel.fromJson(Map<String, dynamic> json) => CardModel(
@@ -132,10 +153,11 @@ class CardModel {
     ownerId: json['owner_id'] as String,
     type: CardType.fromDb(json['card_type'] as String),
     frontPath: json['front_path'] as String,
-    backPath: json['back_path'] as String,
+    backPath: json['back_path'] as String?,
     viewDurationSeconds: json['view_duration_seconds'] as int?,
     maxViews: json['max_views'] as int?,
     saveable: json['saveable'] as bool? ?? false,
+    imported: json['imported'] as bool? ?? false,
     createdAt: DateTime.parse(json['created_at'] as String),
   );
 }

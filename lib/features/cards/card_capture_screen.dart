@@ -6,18 +6,23 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/models/card.dart';
 import 'card_send_screen.dart';
 import 'face_editor_screen.dart';
+import 'gallery_import_screen.dart';
 
 /// Flux de création d'une Card.
 /// Le TYPE se choisit AVANT la première photo, dans un sélecteur horizontal
 /// au-dessus du déclencheur (consigne Jay) — le Oneshot est donc un mode de
 /// prise (les deux faces en un déclenché), pas un choix a posteriori.
-/// Chaque face peut aussi être un « tableau » (fond noir à dessiner) au lieu
-/// d'une photo.
+/// Chaque face peut aussi être un « tableau » (fond noir à dessiner) ou, pour
+/// les cards classiques et Mono, une image importée de la galerie.
+/// L'aperçu est un cadre 9:16 recadré « cover » et la photo est recadrée au
+/// même cadre : ce qu'on voit est exactement ce qui est capturé (fix de la
+/// distorsion remontée par Jay le 2026-07-12).
 class CardCaptureScreen extends ConsumerStatefulWidget {
   const CardCaptureScreen({super.key, this.bereal = false});
 
@@ -31,9 +36,23 @@ class CardCaptureScreen extends ConsumerStatefulWidget {
 
 class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   CameraController? _controller;
+
+  /// Oneshot : second flux (caméra frontale) pour la double prévisualisation.
+  CameraController? _secondController;
+
+  /// Le double flux a échoué sur cet appareil : on n'insiste pas (vue simple
+  /// + bouton de bascule, consigne Jay).
+  var _dualFailed = false;
+
+  /// Oneshot : la vue frontale est-elle maximisée (plein cadre) ?
+  /// Par défaut non : la frontale est la vignette en haut à droite.
+  var _frontMaximized = false;
+
   List<CameraDescription> _cameras = [];
   File? _front; // recto = caméra arrière (ce que je vois)
-  File? _back; // verso = caméra avant (ma réaction)
+  File? _back; // verso = caméra avant (ma réaction) — null en Mono
+  var _frontImported = false; // face issue de la galerie
+  var _backImported = false;
   var _step = 0; // 0 = recto, 1 = verso, 2 = récap
   var _error = '';
   var _busy = false; // capture ou bascule caméra en cours
@@ -44,7 +63,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// seul, mise en avant animée du mode sélectionné).
   late final PageController _typeController = PageController(
     viewportFraction: 0.34,
-    initialPage: CardType.selectable.indexOf(_type).clamp(0, 3),
+    initialPage: CardType.selectable.indexOf(_type).clamp(0, 4),
   );
 
   /// Fenêtre BeReal : 5 minutes pour boucler les deux captures (consigne Jay).
@@ -89,7 +108,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
 
   /// Bascule de caméra : on libère TOUJOURS l'ancien contrôleur avant d'en
   /// ouvrir un nouveau — deux contrôleurs ouverts en même temps provoquent
-  /// l'écran noir sur la caméra frontale (bug remonté par Jay).
+  /// l'écran noir sur la caméra frontale (bug remonté par Jay). Le double
+  /// flux Oneshot est l'exception assumée : il est TENTÉ, et on retombe sur
+  /// la vue simple si l'appareil refuse.
   Future<void> _useCamera(CameraLensDirection direction) async {
     setState(() => _switching = true);
     final previous = _controller;
@@ -120,6 +141,119 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     });
   }
 
+  /// Oneshot : tente d'ouvrir la caméra frontale EN PLUS de l'arrière pour la
+  /// double prévisualisation. En cas d'échec (fréquent selon le matériel
+  /// Android) : on l'indique et on garde la vue simple avec un bouton de
+  /// bascule (consigne Jay).
+  Future<void> _initDualPreview() async {
+    if (_secondController != null || _dualFailed || _cameras.isEmpty) return;
+    try {
+      final front = _cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+      );
+      final controller = CameraController(
+        front,
+        ResolutionPreset.medium,
+        enableAudio: false,
+      );
+      await controller.initialize();
+      await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
+      if (!mounted || _type != CardType.oneshot) {
+        controller.dispose();
+        return;
+      }
+      setState(() => _secondController = controller);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _dualFailed = true);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Double aperçu non supporté par cet appareil — vue simple, '
+            'utilise le bouton pour changer de caméra.',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _disposeDualPreview() async {
+    final second = _secondController;
+    if (second == null) return;
+    setState(() => _secondController = null);
+    await second.dispose();
+  }
+
+  /// Changement de type dans le sélecteur : gère les flux caméra spécifiques
+  /// (double préview Oneshot, caméra libre en Mono, arrière ailleurs).
+  void _onTypeChanged(CardType type) {
+    final previous = _type;
+    setState(() => _type = type);
+    if (type == CardType.oneshot) {
+      _initDualPreview();
+    } else {
+      _disposeDualPreview();
+      // En quittant le Mono, le recto redevient strictement caméra arrière.
+      if (previous == CardType.mono &&
+          _controller?.description.lensDirection == CameraLensDirection.front) {
+        _useCamera(CameraLensDirection.back);
+      }
+    }
+  }
+
+  /// Mono : bascule avant/arrière (double-tap sur l'aperçu OU bouton — les
+  /// deux, consigne Jay). En fallback Oneshot, le bouton change la vue mais
+  /// l'ordre de capture reste arrière puis avant.
+  Future<void> _toggleLens() async {
+    if (_busy || _switching || _controller == null) return;
+    final current = _controller!.description.lensDirection;
+    await _useCamera(
+      current == CameraLensDirection.back
+          ? CameraLensDirection.front
+          : CameraLensDirection.back,
+    );
+  }
+
+  /// Recadre un cliché au cadre 9:16 centré (celui montré à l'aperçu) et le
+  /// normalise au format unifié des cards (900×1600). WYSIWYG : c'est le fix
+  /// de la distorsion (l'aperçu n'est plus étiré, la photo correspond).
+  static Future<File> _cropTo916(File source) async {
+    final bytes = await source.readAsBytes();
+    final codec = await ui.instantiateImageCodec(bytes);
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    const targetRatio = 9 / 16;
+    final w = image.width.toDouble(), h = image.height.toDouble();
+    var cropW = w, cropH = h;
+    if (w / h > targetRatio) {
+      cropW = h * targetRatio;
+    } else {
+      cropH = w / targetRatio;
+    }
+    final src = ui.Rect.fromLTWH(
+      (w - cropW) / 2,
+      (h - cropH) / 2,
+      cropW,
+      cropH,
+    );
+    final recorder = ui.PictureRecorder();
+    final canvas = ui.Canvas(recorder);
+    canvas.drawImageRect(
+      image,
+      src,
+      const ui.Rect.fromLTWH(0, 0, 900, 1600),
+      ui.Paint()..filterQuality = ui.FilterQuality.high,
+    );
+    image.dispose();
+    final out = await recorder.endRecording().toImage(900, 1600);
+    final data = await out.toByteData(format: ui.ImageByteFormat.png);
+    final file = File(
+      '${Directory.systemTemp.path}/card_${DateTime.now().millisecondsSinceEpoch}.png',
+    );
+    await file.writeAsBytes(data!.buffer.asUint8List());
+    return file;
+  }
+
   Future<void> _capture() async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized || _busy) {
@@ -127,26 +261,50 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
     setState(() => _busy = true);
     try {
+      if (_type == CardType.mono) {
+        // Mono : une seule face, celle de la caméra active — comme un snap.
+        final shot = await controller.takePicture();
+        _front = await _cropTo916(File(shot.path));
+        _back = null;
+        setState(() => _step = 2);
+        return;
+      }
       if (_type == CardType.oneshot && _step == 0) {
-        // Oneshot : les deux faces en un seul déclenché
-        final backShot = await controller.takePicture();
-        _front = File(backShot.path);
-        await _useCamera(CameraLensDirection.front);
-        // Courte stabilisation avant le second cliché
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-        final frontShot = await _controller!.takePicture();
-        _back = File(frontShot.path);
+        // Oneshot : les deux faces en un seul déclenché.
+        if (_secondController != null) {
+          // Double flux actif : les deux clichés sans bascule de caméra.
+          final backShot = await controller.takePicture();
+          final frontShot = await _secondController!.takePicture();
+          _front = await _cropTo916(File(backShot.path));
+          _back = await _cropTo916(File(frontShot.path));
+        } else {
+          // Vue simple (fallback) : l'ordre reste arrière puis avant, même
+          // si l'utilisateur regardait la frontale.
+          if (controller.description.lensDirection !=
+              CameraLensDirection.back) {
+            await _useCamera(CameraLensDirection.back);
+          }
+          final backShot = await _controller!.takePicture();
+          await _useCamera(CameraLensDirection.front);
+          // Courte stabilisation avant le second cliché
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          final frontShot = await _controller!.takePicture();
+          _front = await _cropTo916(File(backShot.path));
+          _back = await _cropTo916(File(frontShot.path));
+        }
         _berealTimer?.cancel();
+        await _disposeDualPreview();
         setState(() => _step = 2);
         return;
       }
       final shot = await controller.takePicture();
+      final cropped = await _cropTo916(File(shot.path));
       if (_step == 0) {
-        _front = File(shot.path);
+        _front = cropped;
         setState(() => _step = 1);
         await _useCamera(CameraLensDirection.front);
       } else {
-        _back = File(shot.path);
+        _back = cropped;
         _berealTimer?.cancel();
         setState(() => _step = 2);
       }
@@ -161,11 +319,34 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
+  /// Applique un fichier à la face courante (tableau ou import galerie) et
+  /// avance le flux comme après une photo.
+  Future<void> _applyFace(File file, {required bool imported}) async {
+    if (_type == CardType.mono || _step != 0) {
+      // Mono : face unique ; sinon on est au verso.
+      if (_type == CardType.mono) {
+        _front = file;
+        _frontImported = imported;
+        _back = null;
+      } else {
+        _back = file;
+        _backImported = imported;
+      }
+      _berealTimer?.cancel();
+      setState(() => _step = 2);
+    } else {
+      _front = file;
+      _frontImported = imported;
+      setState(() => _step = 1);
+      await _useCamera(CameraLensDirection.front);
+    }
+  }
+
   /// « Face tableau » : saute la photo de la face courante et pose un fond
   /// noir, à dessiner/annoter au récap (consigne Jay, avec confirmation).
   Future<void> _useBlackboard() async {
     if (_busy) return;
-    final label = _step == 0 ? 'recto' : 'verso';
+    final label = _type == CardType.mono || _step == 0 ? 'recto' : 'verso';
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -190,18 +371,29 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     setState(() => _busy = true);
     try {
       final file = await _generateBlackboard();
-      if (_step == 0) {
-        _front = file;
-        setState(() => _step = 1);
-        await _useCamera(CameraLensDirection.front);
-      } else {
-        _back = file;
-        _berealTimer?.cancel();
-        setState(() => _step = 2);
-      }
+      await _applyFace(file, imported: false);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Import galerie (cards classiques et Mono uniquement, consigne Jay) :
+  /// choix dans la galerie puis ajustement (recadrage, zoom, rotation,
+  /// remplir/adapter sur fond noir) — pas d'outils dessin/texte ensuite.
+  bool get _galleryAllowed =>
+      _type == CardType.standard || _type == CardType.mono;
+
+  Future<void> _importFromGallery() async {
+    if (_busy) return;
+    final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (picked == null || !mounted) return;
+    final adjusted = await Navigator.of(context).push<File>(
+      MaterialPageRoute(
+        builder: (_) => GalleryImportScreen(source: File(picked.path)),
+      ),
+    );
+    if (adjusted == null || !mounted) return;
+    await _applyFace(adjusted, imported: true);
   }
 
   static Future<File> _generateBlackboard() async {
@@ -230,7 +422,134 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     _berealTimer?.cancel();
     _typeController.dispose();
     _controller?.dispose();
+    _secondController?.dispose();
     super.dispose();
+  }
+
+  /// Aperçu d'un flux caméra SANS distorsion : recadrage « cover » dans le
+  /// cadre fourni par le parent (le capteur est plus large que 9:16, on
+  /// centre et on coupe — jamais d'étirement).
+  static Widget _coverPreview(CameraController controller) {
+    final size = controller.value.previewSize;
+    if (size == null) return CameraPreview(controller);
+    return ClipRect(
+      child: FittedBox(
+        fit: BoxFit.cover,
+        clipBehavior: Clip.hardEdge,
+        // En portrait, le capteur livre une preview paysage : on inverse.
+        child: SizedBox(
+          width: size.height,
+          height: size.width,
+          child: CameraPreview(controller),
+        ),
+      ),
+    );
+  }
+
+  /// Cadre 9:16 : aperçu principal + vignette Oneshot le cas échéant.
+  Widget _previewFrame() {
+    final controller = _controller;
+    final ready = controller != null && controller.value.isInitialized;
+    final second = _secondController;
+    final dual =
+        _type == CardType.oneshot &&
+        _step == 0 &&
+        ready &&
+        second != null &&
+        second.value.isInitialized;
+
+    // Double préview : quelle caméra occupe le plein cadre ?
+    final CameraController? mainCamera = dual
+        ? (_frontMaximized ? second : controller)
+        : controller;
+    final CameraController? pipCamera = dual
+        ? (_frontMaximized ? controller : second)
+        : null;
+
+    Widget main = !ready
+        ? const ColoredBox(
+            color: Colors.black,
+            child: Center(child: CircularProgressIndicator()),
+          )
+        : AnimatedSwitcher(
+            duration: const Duration(milliseconds: 260),
+            transitionBuilder: (child, animation) => SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0.12, -0.08),
+                end: Offset.zero,
+              ).animate(animation),
+              child: FadeTransition(opacity: animation, child: child),
+            ),
+            child: KeyedSubtree(
+              key: ValueKey(mainCamera!.description.name),
+              child: _coverPreview(mainCamera),
+            ),
+          );
+
+    if (_type == CardType.mono) {
+      // Mono : double-tap = bascule caméra (comme Snapchat, consigne Jay).
+      main = GestureDetector(onDoubleTap: _toggleLens, child: main);
+    }
+
+    return Center(
+      child: AspectRatio(
+        aspectRatio: 9 / 16,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              main,
+              if (pipCamera != null)
+                Positioned(
+                  top: 64,
+                  right: 10,
+                  // Vignette PiP 9:16, un peu moins d'un quart de la largeur
+                  // (consigne Jay) — taper dessus échange les vues.
+                  child: GestureDetector(
+                    onTap: () =>
+                        setState(() => _frontMaximized = !_frontMaximized),
+                    child: Container(
+                      width: MediaQuery.of(context).size.width * 0.22,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.white70, width: 1.5),
+                        boxShadow: const [
+                          BoxShadow(color: Colors.black54, blurRadius: 10),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10.5),
+                        child: AspectRatio(
+                          aspectRatio: 9 / 16,
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 260),
+                            transitionBuilder: (child, animation) =>
+                                SlideTransition(
+                                  position: Tween<Offset>(
+                                    begin: const Offset(-0.4, 0.3),
+                                    end: Offset.zero,
+                                  ).animate(animation),
+                                  child: FadeTransition(
+                                    opacity: animation,
+                                    child: child,
+                                  ),
+                                ),
+                            child: KeyedSubtree(
+                              key: ValueKey(pipCamera.description.name),
+                              child: _coverPreview(pipCamera),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -242,23 +561,33 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       );
     }
     if (_step == 2) {
-      return _RecapStep(front: _front!, back: _back!, type: _type);
+      return _RecapStep(
+        front: _front!,
+        back: _back,
+        type: _type,
+        frontImported: _frontImported,
+        backImported: _backImported,
+      );
     }
 
-    final controller = _controller;
     final shutterColor = _type == CardType.standard
         ? Colors.white
         : _type.color;
+    // Bouton de bascule caméra : Mono (en plus du double-tap) et fallback
+    // Oneshot sans double flux.
+    final showLensToggle =
+        _type == CardType.mono ||
+        (_type == CardType.oneshot &&
+            _step == 0 &&
+            _secondController == null &&
+            _dualFailed);
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
         child: Stack(
           children: [
-            if (controller != null && controller.value.isInitialized)
-              Positioned.fill(child: CameraPreview(controller))
-            else
-              const Center(child: CircularProgressIndicator()),
+            Positioned.fill(child: _previewFrame()),
             if (_busy && _type == CardType.oneshot)
               const Positioned.fill(
                 child: ColoredBox(
@@ -299,7 +628,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      _step == 0 ? 'Recto — ce que tu vois' : 'Verso — toi',
+                      _type == CardType.mono
+                          ? 'Mono — face unique'
+                          : _step == 0
+                          ? 'Recto — ce que tu vois'
+                          : 'Verso — toi',
                       style: const TextStyle(color: Colors.white),
                     ),
                   ),
@@ -339,7 +672,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                   child: PageView.builder(
                     controller: _typeController,
                     onPageChanged: (i) =>
-                        setState(() => _type = CardType.selectable[i]),
+                        _onTypeChanged(CardType.selectable[i]),
                     itemCount: CardType.selectable.length,
                     itemBuilder: (context, index) {
                       final type = CardType.selectable[index];
@@ -401,6 +734,17 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                   ),
                 ),
               ),
+            // Import galerie (cards classiques et Mono uniquement)
+            if (_galleryAllowed)
+              Positioned(
+                bottom: 42,
+                left: 28,
+                child: IconButton.filledTonal(
+                  tooltip: 'Importer depuis la galerie',
+                  icon: const Icon(Icons.photo_library_outlined),
+                  onPressed: _busy ? null : _importFromGallery,
+                ),
+              ),
             // Face tableau : fond noir au lieu d'une photo
             Positioned(
               bottom: 42,
@@ -411,6 +755,16 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 onPressed: _busy ? null : _useBlackboard,
               ),
             ),
+            if (showLensToggle)
+              Positioned(
+                bottom: 108,
+                right: 28,
+                child: IconButton.filledTonal(
+                  tooltip: 'Changer de caméra',
+                  icon: const Icon(Icons.cameraswitch),
+                  onPressed: _busy || _switching ? null : _toggleLens,
+                ),
+              ),
             Positioned(
               bottom: 28,
               left: 0,
@@ -442,16 +796,21 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   }
 }
 
-/// Récap : aperçu recto/verso, éditeur par face, type déjà fixé (badge).
+/// Récap : aperçu recto/verso (ou face unique en Mono), éditeur par face
+/// (désactivé pour une image importée — consigne Jay), type déjà fixé.
 class _RecapStep extends StatefulWidget {
   const _RecapStep({
     required this.front,
     required this.back,
     required this.type,
+    this.frontImported = false,
+    this.backImported = false,
   });
   final File front;
-  final File back;
+  final File? back; // null = Mono (face unique)
   final CardType type;
+  final bool frontImported;
+  final bool backImported;
 
   @override
   State<_RecapStep> createState() => _RecapStepState();
@@ -459,14 +818,14 @@ class _RecapStep extends StatefulWidget {
 
 class _RecapStepState extends State<_RecapStep> {
   late File _front = widget.front;
-  late File _back = widget.back;
+  late File? _back = widget.back;
 
   /// Originaux conservés pour « revenir à l'image initiale » (consigne Jay).
   late final File _originalFront = widget.front;
-  late final File _originalBack = widget.back;
+  late final File? _originalBack = widget.back;
 
   Future<void> _editFace(bool isFront) async {
-    final current = isFront ? _front : _back;
+    final current = isFront ? _front : _back!;
     final result = await Navigator.of(context).push<File>(
       MaterialPageRoute(builder: (_) => FaceEditorScreen(baseImage: current)),
     );
@@ -482,6 +841,7 @@ class _RecapStepState extends State<_RecapStep> {
   @override
   Widget build(BuildContext context) {
     final type = widget.type;
+    final back = _back;
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -514,29 +874,51 @@ class _RecapStepState extends State<_RecapStep> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: _Shot(
-                  label: 'Recto',
-                  file: _front,
-                  edited: _front != _originalFront,
-                  onEdit: () => _editFace(true),
-                  onRestore: () => _restoreFace(true),
+          if (back == null)
+            // Mono : face unique, présentée seule et centrée
+            Row(
+              children: [
+                const Spacer(),
+                Expanded(
+                  flex: 2,
+                  child: _Shot(
+                    label: 'Face unique',
+                    file: _front,
+                    edited: _front != _originalFront,
+                    imported: widget.frontImported,
+                    onEdit: () => _editFace(true),
+                    onRestore: () => _restoreFace(true),
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _Shot(
-                  label: 'Verso',
-                  file: _back,
-                  edited: _back != _originalBack,
-                  onEdit: () => _editFace(false),
-                  onRestore: () => _restoreFace(false),
+                const Spacer(),
+              ],
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: _Shot(
+                    label: 'Recto',
+                    file: _front,
+                    edited: _front != _originalFront,
+                    imported: widget.frontImported,
+                    onEdit: () => _editFace(true),
+                    onRestore: () => _restoreFace(true),
+                  ),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _Shot(
+                    label: 'Verso',
+                    file: back,
+                    edited: back != _originalBack,
+                    imported: widget.backImported,
+                    onEdit: () => _editFace(false),
+                    onRestore: () => _restoreFace(false),
+                  ),
+                ),
+              ],
+            ),
           const SizedBox(height: 8),
           Text(
             type.description,
@@ -551,8 +933,12 @@ class _RecapStepState extends State<_RecapStep> {
             // ramène ici, dans la section Card (consigne Jay)
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) =>
-                    CardSendScreen(front: _front, back: _back, type: type),
+                builder: (_) => CardSendScreen(
+                  front: _front,
+                  back: _back,
+                  type: type,
+                  imported: widget.frontImported || widget.backImported,
+                ),
               ),
             ),
             child: const Text('Continuer'),
@@ -568,12 +954,16 @@ class _Shot extends StatelessWidget {
     required this.label,
     required this.file,
     required this.edited,
+    required this.imported,
     required this.onEdit,
     required this.onRestore,
   });
   final String label;
   final File file;
   final bool edited;
+
+  /// Image issue de la galerie : pas d'outils dessin/texte (consigne Jay).
+  final bool imported;
   final VoidCallback onEdit;
   final VoidCallback onRestore;
 
@@ -593,11 +983,21 @@ class _Shot extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            IconButton(
-              icon: const Icon(Icons.draw, size: 20),
-              tooltip: 'Modifier (dessin, texte)',
-              onPressed: onEdit,
-            ),
+            if (imported)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Icon(
+                  Icons.photo_library_outlined,
+                  size: 16,
+                  color: Colors.white38,
+                ),
+              )
+            else
+              IconButton(
+                icon: const Icon(Icons.draw, size: 20),
+                tooltip: 'Modifier (dessin, texte)',
+                onPressed: onEdit,
+              ),
             if (edited)
               IconButton(
                 icon: const Icon(Icons.restore, size: 20),

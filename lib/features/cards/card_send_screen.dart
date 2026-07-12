@@ -22,11 +22,17 @@ class CardSendScreen extends ConsumerStatefulWidget {
     required this.front,
     required this.back,
     required this.type,
+    this.imported = false,
   });
 
   final File front;
-  final File back;
+
+  /// Null = card Mono (face unique).
+  final File? back;
   final CardType type;
+
+  /// Au moins une face vient de la galerie (logo galerie sur le container).
+  final bool imported;
 
   @override
   ConsumerState<CardSendScreen> createState() => _CardSendScreenState();
@@ -121,6 +127,7 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
         viewDurationSeconds: _durationSlider == 21 ? null : _durationSlider,
         maxViews: _maxViews,
         saveable: _saveable,
+        imported: widget.imported,
       );
       if (_selected.isNotEmpty) {
         await repo.send(card, _selected.toList());
