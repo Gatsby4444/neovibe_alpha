@@ -52,7 +52,10 @@ final messagesStreamProvider = StreamProvider.family<List<Message>, String>((
       .from('messages')
       .stream(primaryKey: ['id'])
       .eq('conversation_id', conversationId)
-      .order('created_at')
+      // ATTENTION : sur un stream, order() est DESCENDANT par défaut
+      // (l'inverse du REST) — c'est ce qui empilait les messages en haut
+      // du chat (bug remonté par Jay, 2026-07-12).
+      .order('created_at', ascending: true)
       .map(
         (rows) =>
             rows.map(Message.fromJson).where((m) => !m.isExpired).toList(),
