@@ -56,7 +56,9 @@ enum CardType {
   /// Hot rouge Torino, BeReal vert nature clair/turquoise.
   Color get color => switch (this) {
     CardType.standard => const Color(0xFFFFFFFF), // blanc éclatant
-    CardType.mono => const Color(0xFF00E5FF), // cyan (validé Jay 2026-07-12)
+    CardType.mono => const Color(
+      0xFF9E9E9E,
+    ), // gris sobre (consigne Jay 2026-07-12, remplace le cyan)
     CardType.oneshot => const Color(0xFF2979FF), // bleu électrique
     CardType.oneOfOne => const Color(0xFFD4AF37), // or — ne pas changer
     CardType.hot => const Color(0xFFC8102E), // rouge Torino
