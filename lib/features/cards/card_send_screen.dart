@@ -23,6 +23,8 @@ class CardSendScreen extends ConsumerStatefulWidget {
     required this.back,
     required this.type,
     this.imported = false,
+    this.frontIsVideo = false,
+    this.backIsVideo = false,
   });
 
   final File front;
@@ -33,6 +35,11 @@ class CardSendScreen extends ConsumerStatefulWidget {
 
   /// Au moins une face vient de la galerie (logo galerie sur le container).
   final bool imported;
+
+  /// Faces vidéo : la durée de visionnage ne s'applique qu'aux faces photo ;
+  /// une face vidéo se lit en entier (consigne Jay 2026-07-12).
+  final bool frontIsVideo;
+  final bool backIsVideo;
 
   @override
   ConsumerState<CardSendScreen> createState() => _CardSendScreenState();
@@ -62,10 +69,21 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
   static int _fromPref(int pref) =>
       pref == DefaultViewDuration.unlimited ? 21 : pref;
 
+  /// Le destinataire peut contrôler la barre de lecture des vidéos
+  /// (défaut : intouchable — consigne Jay).
+  var _scrubbable = false;
+
   bool get _canPublish =>
       widget.type != CardType.oneOfOne && widget.type != CardType.hot;
 
   bool get _configurable => widget.type.hasConfigurableViews;
+
+  bool get _hasVideo => widget.frontIsVideo || widget.backIsVideo;
+
+  /// Au moins une face photo : la limite de durée de visionnage garde un
+  /// sens (les faces vidéo se lisent en entier).
+  bool get _hasPhoto =>
+      !widget.frontIsVideo || (widget.back != null && !widget.backIsVideo);
 
   @override
   void initState() {
@@ -124,10 +142,17 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
         front: widget.front,
         back: widget.back,
         type: widget.type,
-        viewDurationSeconds: _durationSlider == 21 ? null : _durationSlider,
+        // Pas de face photo = pas de limite de durée (les vidéos se lisent
+        // en entier)
+        viewDurationSeconds: !_hasPhoto || _durationSlider == 21
+            ? null
+            : _durationSlider,
         maxViews: _maxViews,
         saveable: _saveable,
         imported: widget.imported,
+        frontIsVideo: widget.frontIsVideo,
+        backIsVideo: widget.backIsVideo,
+        scrubbable: _hasVideo && _scrubbable,
       );
       if (_selected.isNotEmpty) {
         await repo.send(card, _selected.toList());
@@ -219,23 +244,36 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
                 onChanged: (v) => setState(() => _maxViews = v.round()),
               ),
             ),
-            ListTile(
-              dense: true,
-              title: Text(
-                _durationSlider == 21
-                    ? 'Durée de lecture : illimitée'
-                    : 'Durée de lecture : $_durationSlider s',
+            // La durée de lecture ne concerne que les faces photo : une face
+            // vidéo se lit en entier (consigne Jay 2026-07-12).
+            if (_hasPhoto)
+              ListTile(
+                dense: true,
+                title: Text(
+                  _durationSlider == 21
+                      ? 'Durée de lecture${_hasVideo ? ' (face photo)' : ''} : illimitée'
+                      : 'Durée de lecture${_hasVideo ? ' (face photo)' : ''} : $_durationSlider s',
+                ),
+                subtitle: Slider(
+                  value: _durationSlider.toDouble(),
+                  min: 1,
+                  max: 21,
+                  divisions: 20,
+                  label: _durationSlider == 21 ? '∞' : '$_durationSlider s',
+                  onChanged: (v) => setState(() => _durationSlider = v.round()),
+                ),
               ),
-              subtitle: Slider(
-                value: _durationSlider.toDouble(),
-                min: 1,
-                max: 21,
-                divisions: 20,
-                label: _durationSlider == 21 ? '∞' : '$_durationSlider s',
-                onChanged: (v) => setState(() => _durationSlider = v.round()),
-              ),
-            ),
           ],
+          if (_hasVideo)
+            SwitchListTile(
+              title: const Text('Barre de lecture contrôlable'),
+              subtitle: const Text(
+                'Désactivé : le destinataire voit la progression mais ne '
+                'peut pas se déplacer dans la vidéo',
+              ),
+              value: _scrubbable,
+              onChanged: (v) => setState(() => _scrubbable = v),
+            ),
           if (_canPublish) ...[
             SwitchListTile(
               title: const Text('Publier dans ma bibliothèque'),

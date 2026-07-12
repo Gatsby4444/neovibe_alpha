@@ -60,7 +60,8 @@ class CardsRepository {
   /// [back] null = card Mono (face unique). [viewDurationSeconds] null =
   /// lecture illimitée ; [maxViews] null = vues illimitées. Hot : toujours
   /// 1 vue (imposé aussi côté serveur). [imported] : au moins une face vient
-  /// de la galerie.
+  /// de la galerie. [frontIsVideo]/[backIsVideo] : faces vidéo (mp4) ;
+  /// [scrubbable] : barre de lecture contrôlable par le destinataire.
   Future<CardModel> create({
     required File front,
     File? back,
@@ -69,19 +70,35 @@ class CardsRepository {
     int? maxViews,
     bool saveable = false,
     bool imported = false,
+    bool frontIsVideo = false,
+    bool backIsVideo = false,
+    bool scrubbable = false,
   }) async {
     final me = _client.auth.currentUser!.id;
     final stamp = DateTime.now().millisecondsSinceEpoch;
-    final frontPath = '$me/${stamp}_front.jpg';
-    final backPath = back == null ? null : '$me/${stamp}_back.jpg';
-    const options = FileOptions(contentType: 'image/jpeg');
+    final frontPath = '$me/${stamp}_front.${frontIsVideo ? 'mp4' : 'jpg'}';
+    final backPath = back == null
+        ? null
+        : '$me/${stamp}_back.${backIsVideo ? 'mp4' : 'jpg'}';
     await _client.storage
         .from('cards')
-        .upload(frontPath, front, fileOptions: options);
+        .upload(
+          frontPath,
+          front,
+          fileOptions: FileOptions(
+            contentType: frontIsVideo ? 'video/mp4' : 'image/jpeg',
+          ),
+        );
     if (back != null) {
       await _client.storage
           .from('cards')
-          .upload(backPath!, back, fileOptions: options);
+          .upload(
+            backPath!,
+            back,
+            fileOptions: FileOptions(
+              contentType: backIsVideo ? 'video/mp4' : 'image/jpeg',
+            ),
+          );
     }
 
     final row = await _client
@@ -97,6 +114,9 @@ class CardsRepository {
           'max_views': type == CardType.hot ? 1 : maxViews,
           'saveable': type.canBeSaveable && saveable,
           'imported': imported,
+          'front_is_video': frontIsVideo,
+          'back_is_video': backIsVideo,
+          'scrubbable': scrubbable,
         })
         .select()
         .single();

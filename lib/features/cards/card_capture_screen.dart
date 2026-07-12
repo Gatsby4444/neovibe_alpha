@@ -3,11 +3,13 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../core/models/card.dart';
 import 'card_send_screen.dart';
@@ -45,11 +47,21 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   File? _back; // verso = caméra avant (ma réaction) — null en Mono
   var _frontImported = false; // face issue de la galerie
   var _backImported = false;
+  var _frontIsVideo = false; // face vidéo (mode vidéo, consigne Jay)
+  var _backIsVideo = false;
   var _step = 0; // 0 = recto, 1 = verso, 2 = récap
   var _error = '';
   var _busy = false; // capture ou bascule caméra en cours
   var _switching = false;
+  var _micGranted = false; // son des vidéos (permission micro)
   late CardType _type = widget.bereal ? CardType.bereal : CardType.standard;
+
+  /// Enregistrement vidéo en cours : appui maintenu sur le déclencheur ;
+  /// glisser hors du cercle = verrouillage (doigt libéré), re-tap = stop.
+  var _recording = false;
+  var _recordLocked = false;
+  var _recordSeconds = 0;
+  Timer? _recordTimer;
 
   /// Sélecteur de type : swipe localisé + snap (consigne Jay : épuré, texte
   /// seul, mise en avant animée du mode sélectionné).
@@ -58,8 +70,18 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     initialPage: CardType.selectable.indexOf(_type).clamp(0, 4),
   );
 
-  /// Fenêtre BeReal : 5 minutes pour boucler les deux captures (consigne Jay).
-  static const _berealWindow = Duration(minutes: 5);
+  /// Fenêtre BeReal : 30 secondes pour boucler les deux prises « pour un
+  /// vrai BeReal » (consigne Jay 2026-07-12 — remplace les 5 minutes).
+  static const _berealWindow = Duration(seconds: 30);
+
+  /// Durée max d'une vidéo selon le mode : 61 s en général (limite dev, à
+  /// repenser avant la prod — rappel demandé par Jay), 10 s pour Hot,
+  /// 15 s pour BeReal (2 faces dans la fenêtre de 30 s).
+  int get _maxVideoSeconds => switch (_type) {
+    CardType.hot => 10,
+    CardType.bereal => 15,
+    _ => 61,
+  };
   Timer? _berealTimer;
   int _berealRemaining = _berealWindow.inSeconds;
 
@@ -90,6 +112,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       setState(() => _error = 'Permission caméra refusée');
       return;
     }
+    // Micro pour le son des vidéos ; refusé = vidéos muettes, pas bloquant.
+    _micGranted = (await Permission.microphone.request()).isGranted;
     try {
       _cameras = await availableCameras();
       await _useCamera(CameraLensDirection.back);
@@ -117,7 +141,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     final controller = CameraController(
       camera,
       ResolutionPreset.high,
-      enableAudio: false,
+      enableAudio: _micGranted,
     );
     await controller.initialize();
     // Sécurité supplémentaire demandée par Jay : la prise est TOUJOURS
@@ -167,9 +191,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
 
   /// Bascule avant/arrière : Mono (double-tap sur l'aperçu OU bouton — les
   /// deux, consigne Jay) et Oneshot (bouton de bascule d'aperçu ; l'ordre de
-  /// capture reste arrière puis avant).
+  /// capture reste arrière puis avant). Pas de bascule pendant une vidéo
+  /// (limitation plugin : changer de caméra arrête l'enregistrement —
+  /// décision Jay 2026-07-12, à revoir avec le chantier plugin caméra).
   Future<void> _toggleLens() async {
-    if (_busy || _switching || _controller == null) return;
+    if (_busy || _switching || _recording || _controller == null) return;
     final current = _controller!.description.lensDirection;
     await _useCamera(
       current == CameraLensDirection.back
@@ -218,9 +244,107 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     return file;
   }
 
+  /// Démarre l'enregistrement vidéo (appui maintenu ~300 ms sur le
+  /// déclencheur — la « pression forte » n'est pas détectable sur Android,
+  /// équivalence validée par Jay).
+  Future<void> _startVideo() async {
+    final controller = _controller;
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        _busy ||
+        _switching ||
+        _recording) {
+      return;
+    }
+    if (_type == CardType.oneshot) {
+      // Oneshot : photo uniquement pour l'instant (décision Jay — la vidéo
+      // double simultanée attendra le chantier plugin caméra).
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Oneshot : photo uniquement pour l\'instant.'),
+        ),
+      );
+      return;
+    }
+    try {
+      await controller.startVideoRecording();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Vidéo impossible : $e')));
+      }
+      return;
+    }
+    HapticFeedback.mediumImpact();
+    setState(() {
+      _recording = true;
+      _recordLocked = false;
+      _recordSeconds = 0;
+    });
+    _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(() => _recordSeconds++);
+      if (_recordSeconds >= _maxVideoSeconds) _stopVideo();
+    });
+  }
+
+  Future<void> _stopVideo() async {
+    if (!_recording) return;
+    _recordTimer?.cancel();
+    setState(() {
+      _recording = false;
+      _recordLocked = false;
+      _busy = true;
+    });
+    try {
+      final shot = await _controller!.stopVideoRecording();
+      await _applyFace(File(shot.path), imported: false, isVideo: true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Vidéo impossible : $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Tap sur le déclencheur : photo — ou arrêt d'une vidéo verrouillée.
+  void _onShutterTap() {
+    if (_recording) {
+      if (_recordLocked) _stopVideo();
+      return;
+    }
+    _capture();
+  }
+
+  void _onShutterLongPressStart(LongPressStartDetails details) {
+    _startVideo();
+  }
+
+  /// Glisser hors du cercle de commande pendant l'appui = verrouillage de
+  /// l'enregistrement (le doigt est libéré, re-tap pour arrêter).
+  void _onShutterLongPressMove(LongPressMoveUpdateDetails details) {
+    if (_recording &&
+        !_recordLocked &&
+        details.offsetFromOrigin.distance > 70) {
+      HapticFeedback.mediumImpact();
+      setState(() => _recordLocked = true);
+    }
+  }
+
+  void _onShutterLongPressEnd(LongPressEndDetails details) {
+    if (_recording && !_recordLocked) _stopVideo();
+  }
+
   Future<void> _capture() async {
     final controller = _controller;
-    if (controller == null || !controller.value.isInitialized || _busy) {
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        _busy ||
+        _recording) {
       return;
     }
     setState(() => _busy = true);
@@ -273,24 +397,31 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
-  /// Applique un fichier à la face courante (tableau ou import galerie) et
-  /// avance le flux comme après une photo.
-  Future<void> _applyFace(File file, {required bool imported}) async {
+  /// Applique un fichier à la face courante (tableau, import galerie ou
+  /// vidéo) et avance le flux comme après une photo.
+  Future<void> _applyFace(
+    File file, {
+    required bool imported,
+    bool isVideo = false,
+  }) async {
     if (_type == CardType.mono || _step != 0) {
       // Mono : face unique ; sinon on est au verso.
       if (_type == CardType.mono) {
         _front = file;
         _frontImported = imported;
+        _frontIsVideo = isVideo;
         _back = null;
       } else {
         _back = file;
         _backImported = imported;
+        _backIsVideo = isVideo;
       }
       _berealTimer?.cancel();
       setState(() => _step = 2);
     } else {
       _front = file;
       _frontImported = imported;
+      _frontIsVideo = isVideo;
       setState(() => _step = 1);
       await _useCamera(CameraLensDirection.front);
     }
@@ -374,6 +505,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   @override
   void dispose() {
     _berealTimer?.cancel();
+    _recordTimer?.cancel();
     _typeController.dispose();
     _controller?.dispose();
     super.dispose();
@@ -452,6 +584,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         type: _type,
         frontImported: _frontImported,
         backImported: _backImported,
+        frontIsVideo: _frontIsVideo,
+        backIsVideo: _backIsVideo,
       );
     }
 
@@ -460,8 +594,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         : _type.color;
     // Bouton de bascule caméra : Mono (en plus du double-tap) et Oneshot
     // (bascule de l'aperçu — le déclenché prend toujours les deux faces).
+    // Masqué pendant un enregistrement (bascule = arrêt, limitation plugin).
     final showLensToggle =
-        _type == CardType.mono || (_type == CardType.oneshot && _step == 0);
+        !_recording &&
+        (_type == CardType.mono || (_type == CardType.oneshot && _step == 0));
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -543,7 +679,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
             ),
             // Sélecteur de type : AVANT la première photo. Épuré : texte seul,
             // swipe localisé (PageView) et mise en avant animée du mode actif.
-            if (!widget.bereal && _step == 0)
+            // Masqué pendant un enregistrement vidéo.
+            if (!widget.bereal && _step == 0 && !_recording)
               Positioned(
                 bottom: 124,
                 left: 0,
@@ -616,7 +753,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 ),
               ),
             // Import galerie (cards classiques et Mono uniquement)
-            if (_galleryAllowed)
+            if (_galleryAllowed && !_recording)
               Positioned(
                 bottom: 42,
                 left: 28,
@@ -627,15 +764,16 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 ),
               ),
             // Face tableau : fond noir au lieu d'une photo
-            Positioned(
-              bottom: 42,
-              right: 28,
-              child: IconButton.filledTonal(
-                tooltip: 'Face tableau (fond noir à dessiner)',
-                icon: const Icon(Icons.gesture),
-                onPressed: _busy ? null : _useBlackboard,
+            if (!_recording)
+              Positioned(
+                bottom: 42,
+                right: 28,
+                child: IconButton.filledTonal(
+                  tooltip: 'Face tableau (fond noir à dessiner)',
+                  icon: const Icon(Icons.gesture),
+                  onPressed: _busy ? null : _useBlackboard,
+                ),
               ),
-            ),
             if (showLensToggle)
               Positioned(
                 bottom: 108,
@@ -646,24 +784,114 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                   onPressed: _busy || _switching ? null : _toggleLens,
                 ),
               ),
+            // Indicateur d'enregistrement : durée + consigne de verrouillage
+            if (_recording)
+              Positioned(
+                bottom: 124,
+                left: 0,
+                right: 0,
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.fiber_manual_record,
+                            color: Colors.redAccent,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            '${_recordSeconds ~/ 60}:${(_recordSeconds % 60).toString().padLeft(2, '0')}'
+                            ' / ${_maxVideoSeconds ~/ 60}:${(_maxVideoSeconds % 60).toString().padLeft(2, '0')}',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                          if (_recordLocked) ...[
+                            const SizedBox(width: 6),
+                            const Icon(
+                              Icons.lock,
+                              color: Colors.white70,
+                              size: 14,
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _recordLocked
+                          ? 'Vidéo verrouillée — tape le bouton pour arrêter'
+                          : 'Relâche pour arrêter · glisse hors du bouton pour verrouiller',
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Positioned(
               bottom: 28,
               left: 0,
               right: 0,
               child: Center(
-                child: GestureDetector(
-                  onTap: _switching ? null : _capture,
+                // Tap = photo ; appui maintenu = vidéo (verrouillage en
+                // glissant hors du cercle, re-tap pour arrêter). Le seuil de
+                // 300 ms remplace la « pression forte » (indétectable).
+                child: RawGestureDetector(
+                  gestures: {
+                    TapGestureRecognizer:
+                        GestureRecognizerFactoryWithHandlers<
+                          TapGestureRecognizer
+                        >(() => TapGestureRecognizer(), (recognizer) {
+                          recognizer.onTap = _switching ? null : _onShutterTap;
+                        }),
+                    LongPressGestureRecognizer:
+                        GestureRecognizerFactoryWithHandlers<
+                          LongPressGestureRecognizer
+                        >(
+                          () => LongPressGestureRecognizer(
+                            duration: const Duration(milliseconds: 300),
+                          ),
+                          (recognizer) {
+                            recognizer
+                              ..onLongPressStart = _onShutterLongPressStart
+                              ..onLongPressMoveUpdate = _onShutterLongPressMove
+                              ..onLongPressEnd = _onShutterLongPressEnd;
+                          },
+                        ),
+                  },
                   child: Container(
                     height: 76,
                     width: 76,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      border: Border.all(color: shutterColor, width: 5),
-                      color: _type == CardType.oneshot
+                      border: Border.all(
+                        color: _recording ? Colors.redAccent : shutterColor,
+                        width: 5,
+                      ),
+                      color: _recording
+                          ? Colors.redAccent.withValues(alpha: 0.35)
+                          : _type == CardType.oneshot
                           ? shutterColor.withValues(alpha: 0.25)
                           : null,
                     ),
-                    child: _type == CardType.oneshot
+                    child: _recording
+                        ? Icon(
+                            _recordLocked ? Icons.stop : Icons.videocam,
+                            color: Colors.white,
+                          )
+                        : _type == CardType.oneshot
                         ? const Icon(Icons.flip_camera_android)
                         : null,
                   ),
@@ -678,7 +906,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
 }
 
 /// Récap : aperçu recto/verso (ou face unique en Mono), éditeur par face
-/// (désactivé pour une image importée — consigne Jay), type déjà fixé.
+/// (désactivé pour une image importée ou une vidéo — consigne Jay : les
+/// outils d'édition ne s'appliquent qu'aux photos), type déjà fixé.
 class _RecapStep extends StatefulWidget {
   const _RecapStep({
     required this.front,
@@ -686,12 +915,16 @@ class _RecapStep extends StatefulWidget {
     required this.type,
     this.frontImported = false,
     this.backImported = false,
+    this.frontIsVideo = false,
+    this.backIsVideo = false,
   });
   final File front;
   final File? back; // null = Mono (face unique)
   final CardType type;
   final bool frontImported;
   final bool backImported;
+  final bool frontIsVideo;
+  final bool backIsVideo;
 
   @override
   State<_RecapStep> createState() => _RecapStepState();
@@ -767,6 +1000,7 @@ class _RecapStepState extends State<_RecapStep> {
                     file: _front,
                     edited: _front != _originalFront,
                     imported: widget.frontImported,
+                    isVideo: widget.frontIsVideo,
                     onEdit: () => _editFace(true),
                     onRestore: () => _restoreFace(true),
                   ),
@@ -783,6 +1017,7 @@ class _RecapStepState extends State<_RecapStep> {
                     file: _front,
                     edited: _front != _originalFront,
                     imported: widget.frontImported,
+                    isVideo: widget.frontIsVideo,
                     onEdit: () => _editFace(true),
                     onRestore: () => _restoreFace(true),
                   ),
@@ -794,6 +1029,7 @@ class _RecapStepState extends State<_RecapStep> {
                     file: back,
                     edited: back != _originalBack,
                     imported: widget.backImported,
+                    isVideo: widget.backIsVideo,
                     onEdit: () => _editFace(false),
                     onRestore: () => _restoreFace(false),
                   ),
@@ -819,6 +1055,8 @@ class _RecapStepState extends State<_RecapStep> {
                   back: _back,
                   type: type,
                   imported: widget.frontImported || widget.backImported,
+                  frontIsVideo: widget.frontIsVideo,
+                  backIsVideo: widget.backIsVideo,
                 ),
               ),
             ),
@@ -836,6 +1074,7 @@ class _Shot extends StatelessWidget {
     required this.file,
     required this.edited,
     required this.imported,
+    required this.isVideo,
     required this.onEdit,
     required this.onRestore,
   });
@@ -845,6 +1084,10 @@ class _Shot extends StatelessWidget {
 
   /// Image issue de la galerie : pas d'outils dessin/texte (consigne Jay).
   final bool imported;
+
+  /// Face vidéo : aperçu en boucle muet, pas d'outils d'édition (photos
+  /// uniquement pour le moment — consigne Jay).
+  final bool isVideo;
   final VoidCallback onEdit;
   final VoidCallback onRestore;
 
@@ -856,7 +1099,9 @@ class _Shot extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           child: AspectRatio(
             aspectRatio: 9 / 16,
-            child: Image.file(file, fit: BoxFit.cover),
+            child: isVideo
+                ? _VideoThumb(file: file)
+                : Image.file(file, fit: BoxFit.cover),
           ),
         ),
         const SizedBox(height: 4),
@@ -864,7 +1109,12 @@ class _Shot extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            if (imported)
+            if (isVideo)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Icon(Icons.videocam, size: 16, color: Colors.white38),
+              )
+            else if (imported)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 12),
                 child: Icon(
@@ -879,7 +1129,7 @@ class _Shot extends StatelessWidget {
                 tooltip: 'Modifier (dessin, texte)',
                 onPressed: onEdit,
               ),
-            if (edited)
+            if (edited && !isVideo)
               IconButton(
                 icon: const Icon(Icons.restore, size: 20),
                 tooltip: 'Revenir à l\'image initiale',
@@ -888,6 +1138,59 @@ class _Shot extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Aperçu vidéo du récap : lecture en boucle, muette, recadrée cover.
+class _VideoThumb extends StatefulWidget {
+  const _VideoThumb({required this.file});
+  final File file;
+
+  @override
+  State<_VideoThumb> createState() => _VideoThumbState();
+}
+
+class _VideoThumbState extends State<_VideoThumb> {
+  late final VideoPlayerController _controller = VideoPlayerController.file(
+    widget.file,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.initialize().then((_) {
+      if (!mounted) return;
+      _controller
+        ..setLooping(true)
+        ..setVolume(0)
+        ..play();
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_controller.value.isInitialized) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(child: Icon(Icons.videocam, color: Colors.white38)),
+      );
+    }
+    return FittedBox(
+      fit: BoxFit.cover,
+      clipBehavior: Clip.hardEdge,
+      child: SizedBox(
+        width: _controller.value.size.width,
+        height: _controller.value.size.height,
+        child: VideoPlayer(_controller),
+      ),
     );
   }
 }

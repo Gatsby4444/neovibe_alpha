@@ -98,14 +98,21 @@ class FlippableCard extends StatefulWidget {
     required this.front,
     required this.back,
     this.onSideChanged,
+    this.onSideSettled,
     this.invertDrag = false,
   });
 
   final Widget front;
   final Widget back;
 
-  /// Appelé quand la face visible change (true = recto).
+  /// Appelé quand la face visible change (true = recto) — y compris pendant
+  /// le geste (peut osciller si le doigt fait des allers-retours).
   final ValueChanged<bool>? onSideChanged;
+
+  /// Appelé quand la carte se POSE sur une face à la fin de l'animation
+  /// (tap ou relâchement) — c'est le signal fiable d'un vrai retournement,
+  /// utilisé pour la mécanique « retourner = couper court » (consigne Jay).
+  final ValueChanged<bool>? onSideSettled;
 
   /// Inverse le sens de rotation entraîné par le doigt (préférence utilisateur).
   final bool invertDrag;
@@ -197,7 +204,11 @@ class _FlippableCardState extends State<FlippableCard>
     _startAngle = _angle;
     _targetAngle = target.toDouble();
     _startTilt = _tilt;
-    _controller.forward(from: 0);
+    // Le TickerFuture ne se résout que si l'animation va au bout : un
+    // nouveau geste qui interrompt la pose ne déclenche PAS onSideSettled.
+    _controller.forward(from: 0).whenComplete(() {
+      if (mounted) widget.onSideSettled?.call(_showFront);
+    });
   }
 
   @override

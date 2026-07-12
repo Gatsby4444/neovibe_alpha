@@ -124,6 +124,9 @@ class CardModel {
     this.maxViews,
     this.saveable = false,
     this.imported = false,
+    this.frontIsVideo = false,
+    this.backIsVideo = false,
+    this.scrubbable = false,
     required this.createdAt,
   });
 
@@ -148,6 +151,16 @@ class CardModel {
   /// Au moins une face vient de la galerie (pas d'une capture en direct) —
   /// signalé par un petit logo galerie sur le container en chat.
   final bool imported;
+
+  /// Nature de chaque face : photo ou vidéo (mode vidéo, consigne Jay
+  /// 2026-07-12). Une face vidéo se lit en entier — la durée de visionnage
+  /// ne s'applique qu'aux faces photo.
+  final bool frontIsVideo;
+  final bool backIsVideo;
+
+  /// Le destinataire peut contrôler la barre de lecture des vidéos
+  /// (choisi par le créateur à l'envoi ; défaut : barre intouchable).
+  final bool scrubbable;
   final DateTime createdAt;
 
   factory CardModel.fromJson(Map<String, dynamic> json) => CardModel(
@@ -160,6 +173,9 @@ class CardModel {
     maxViews: json['max_views'] as int?,
     saveable: json['saveable'] as bool? ?? false,
     imported: json['imported'] as bool? ?? false,
+    frontIsVideo: json['front_is_video'] as bool? ?? false,
+    backIsVideo: json['back_is_video'] as bool? ?? false,
+    scrubbable: json['scrubbable'] as bool? ?? false,
     createdAt: DateTime.parse(json['created_at'] as String),
   );
 }
