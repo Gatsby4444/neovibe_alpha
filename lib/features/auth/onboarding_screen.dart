@@ -72,9 +72,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       ref.invalidate(myProfileProvider);
     } catch (e) {
       if (mounted) {
+        final message = e.toString().contains('profiles_username_unique')
+            ? 'Ce nom d\'utilisateur est déjà pris — choisis-en un autre.'
+            : 'Erreur : $e';
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
     } finally {
       if (mounted) setState(() => _loading = false);

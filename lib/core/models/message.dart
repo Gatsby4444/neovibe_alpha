@@ -84,11 +84,12 @@ class Conversation {
   final List<Profile> members;
   final Message? lastMessage;
 
-  /// Nom affiché : titre du groupe, ou nom de l'autre membre en 1-à-1.
+  /// Nom affiché : titre du groupe, ou nom de l'autre membre en 1-à-1
+  /// (tag name en priorité — consigne Jay —, sinon username).
   String displayName(String me) {
     if (type == ConversationType.group) return title ?? 'Groupe';
     final other = members.where((m) => m.id != me).firstOrNull;
-    return other?.displayName ?? 'Conversation';
+    return other?.chatName ?? 'Conversation';
   }
 
   Profile? otherMember(String me) =>

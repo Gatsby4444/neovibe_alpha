@@ -7,11 +7,16 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../cards/card_viewer_screen.dart';
+import '../conversations/video_player_screen.dart';
 import '../settings/settings_screen.dart';
 import 'library_repository.dart';
+import 'photo_viewer_screen.dart';
+import 'profile_edit_screen.dart';
+import 'profile_header.dart';
 
-/// Mon profil + ma bibliothèque : l'espace qui PERSISTE, contrairement
-/// à la messagerie (spec 4.10).
+/// Mon profil (consigne Jay 2026-07-12) : PP + username en haut, stats, bio,
+/// puis la bibliothèque PUBLIQUE (partagée avec les amis). La bibliothèque
+/// privée (« Enregistrements ») vit dans les Réglages.
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
@@ -23,8 +28,20 @@ class ProfileScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(profile?.displayName ?? 'Profil'),
+        title: const Text('Profil'),
         actions: [
+          if (profile != null)
+            IconButton(
+              icon: const Icon(Icons.edit),
+              tooltip: 'Modifier le profil',
+              onPressed: () => Navigator.of(context)
+                  .push(
+                    MaterialPageRoute(
+                      builder: (_) => ProfileEditScreen(profile: profile),
+                    ),
+                  )
+                  .then((_) => ref.invalidate(myProfileProvider)),
+            ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () => Navigator.of(
@@ -50,72 +67,88 @@ class ProfileScreen extends ConsumerWidget {
         child: const Icon(Icons.add_photo_alternate),
       ),
       body: RefreshIndicator(
-        onRefresh: () async => ref.invalidate(libraryItemsProvider(me)),
-        child: items.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (e, _) => Center(child: Text('Erreur : $e')),
-          data: (list) => list.isEmpty
-              ? ListView(
-                  children: const [
-                    SizedBox(height: 120),
-                    Icon(
-                      Icons.photo_library_outlined,
-                      size: 56,
-                      color: Colors.white24,
-                    ),
-                    Padding(
-                      padding: EdgeInsets.all(24),
+        onRefresh: () async {
+          ref.invalidate(myProfileProvider);
+          ref.invalidate(libraryItemsProvider(me));
+        },
+        child: ListView(
+          children: [
+            if (profile != null) ProfileHeader(profile: profile),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 20, 16, 8),
+              child: Text(
+                'Bibliothèque',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+            items.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.all(40),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (e, _) => Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text('Erreur : $e'),
+              ),
+              data: (list) => list.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(32),
                       child: Text(
                         'Ta bibliothèque est vide.\nPublie une Card ou ajoute une photo : ici, ça reste.',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.white54),
                       ),
+                    )
+                  : GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 80),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            mainAxisSpacing: 6,
+                            crossAxisSpacing: 6,
+                          ),
+                      itemCount: list.length,
+                      itemBuilder: (context, index) => LibraryTile(
+                        item: list[index],
+                        onLongPress: () async {
+                          final delete = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('Retirer de la bibliothèque ?'),
+                              actions: [
+                                TextButton(
+                                  onPressed: () =>
+                                      Navigator.pop(context, false),
+                                  child: const Text('Annuler'),
+                                ),
+                                FilledButton(
+                                  onPressed: () => Navigator.pop(context, true),
+                                  child: const Text('Retirer'),
+                                ),
+                              ],
+                            ),
+                          );
+                          if (delete == true) {
+                            await ref
+                                .read(libraryRepositoryProvider)
+                                .removeItem(list[index].id);
+                            ref.invalidate(libraryItemsProvider(me));
+                          }
+                        },
+                      ),
                     ),
-                  ],
-                )
-              : GridView.builder(
-                  padding: const EdgeInsets.all(8),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    mainAxisSpacing: 6,
-                    crossAxisSpacing: 6,
-                  ),
-                  itemCount: list.length,
-                  itemBuilder: (context, index) => LibraryTile(
-                    item: list[index],
-                    onLongPress: () async {
-                      final delete = await showDialog<bool>(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('Retirer de la bibliothèque ?'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, false),
-                              child: const Text('Annuler'),
-                            ),
-                            FilledButton(
-                              onPressed: () => Navigator.pop(context, true),
-                              child: const Text('Retirer'),
-                            ),
-                          ],
-                        ),
-                      );
-                      if (delete == true) {
-                        await ref
-                            .read(libraryRepositoryProvider)
-                            .removeItem(list[index].id);
-                        ref.invalidate(libraryItemsProvider(me));
-                      }
-                    },
-                  ),
-                ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
 
-/// Vignette de bibliothèque : photo/vidéo ou Card (avec son liseré de type).
+/// Vignette de bibliothèque : photo/vidéo (plein écran au tap) ou Card
+/// (viewer, lecture illimitée en bibliothèque).
 class LibraryTile extends ConsumerWidget {
   const LibraryTile({super.key, required this.item, this.onLongPress});
   final LibraryItem item;
@@ -127,8 +160,6 @@ class LibraryTile extends ConsumerWidget {
       final card = item.card!;
       return GestureDetector(
         onLongPress: onLongPress,
-        // Bibliothèque : lecture illimitée (les limites de vues/durée ne
-        // s'appliquent qu'en chat — consigne Jay)
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute(
             builder: (_) => CardViewerScreen(card: card, fromLibrary: true),
@@ -147,8 +178,27 @@ class LibraryTile extends ConsumerWidget {
         ),
       );
     }
+    // Photo/vidéo simple : plein écran au tap (correctif consigne Jay)
     return GestureDetector(
       onLongPress: onLongPress,
+      onTap: () async {
+        final path = item.mediaPath;
+        if (path == null) return;
+        final url = await ref.read(libraryRepositoryProvider).mediaUrl(path);
+        if (!context.mounted) return;
+        if (item.kind == 'video') {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => VideoPlayerScreen(url: url)),
+          );
+        } else {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) =>
+                  PhotoViewerScreen(url: url, caption: item.caption),
+            ),
+          );
+        }
+      },
       child: _MediaThumb(path: item.mediaPath!),
     );
   }

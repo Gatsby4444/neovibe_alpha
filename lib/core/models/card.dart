@@ -27,13 +27,21 @@ enum CardType {
     CardType.bereal => 'bereal',
   };
 
-  /// Tag textuel visible sur la Card (spec 4.8.1).
+  /// Tag textuel visible sur la Card (spec 4.8.1 ; « One of One » depuis la
+  /// consigne Jay du 2026-07-12).
   String get tag => switch (this) {
     CardType.standard => 'Card',
     CardType.oneshot => 'Oneshot',
-    CardType.oneOfOne => '1/1',
+    CardType.oneOfOne => 'One of One',
     CardType.hot => 'Hot',
     CardType.bereal => 'BeReal',
+  };
+
+  /// Types pouvant être marqués « sauvegardables » par le créateur
+  /// (jamais Hot ni One of One).
+  bool get canBeSaveable => switch (this) {
+    CardType.standard || CardType.oneshot || CardType.bereal => true,
+    CardType.hot || CardType.oneOfOne => false,
   };
 
   /// Couleur signature du type — code couleur validé par Jay (2026-07-11) :
@@ -97,6 +105,7 @@ class CardModel {
     required this.backPath,
     this.viewDurationSeconds,
     this.maxViews,
+    this.saveable = false,
     required this.createdAt,
   });
 
@@ -112,6 +121,9 @@ class CardModel {
   /// Nombre de vues côté destinataire (1-5, null = illimité). Défaut 2.
   /// Ne s'applique qu'en chat : la bibliothèque est toujours illimitée.
   final int? maxViews;
+
+  /// Les destinataires peuvent l'enregistrer dans leurs Enregistrements.
+  final bool saveable;
   final DateTime createdAt;
 
   factory CardModel.fromJson(Map<String, dynamic> json) => CardModel(
@@ -122,6 +134,7 @@ class CardModel {
     backPath: json['back_path'] as String,
     viewDurationSeconds: json['view_duration_seconds'] as int?,
     maxViews: json['max_views'] as int?,
+    saveable: json['saveable'] as bool? ?? false,
     createdAt: DateTime.parse(json['created_at'] as String),
   );
 }

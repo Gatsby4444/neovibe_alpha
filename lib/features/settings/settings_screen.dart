@@ -5,6 +5,7 @@ import '../../core/models/profile.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
+import '../cards/saved_items_screen.dart';
 import '../connections/connections_repository.dart';
 import '../library/library_repository.dart';
 import '../waves/waves_screen.dart';
@@ -57,6 +58,16 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const _CardDefaultsSection(),
           const _Divulgation(),
+          ListTile(
+            leading: const Icon(Icons.bookmark),
+            title: const Text('Enregistrements'),
+            subtitle: const Text(
+              'Ta bibliothèque privée — visible de toi seul',
+            ),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const SavedItemsScreen())),
+          ),
           const Divider(),
           const _Header('Ma bibliothèque'),
           RadioGroup<LibraryVisibility>(

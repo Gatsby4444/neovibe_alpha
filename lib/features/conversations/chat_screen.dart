@@ -82,7 +82,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final myProfile = ref.read(myProfileProvider).value;
     _typingChannel?.sendBroadcastMessage(
       event: 'typing',
-      payload: {'user_id': me, 'name': myProfile?.displayName ?? ''},
+      payload: {'user_id': me, 'name': myProfile?.chatName ?? ''},
     );
   }
 
@@ -381,7 +381,7 @@ class _MessageBubble extends ConsumerWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 2),
                 child: Text(
-                  senderProfile.displayName,
+                  senderProfile.chatName,
                   style: Theme.of(
                     context,
                   ).textTheme.labelSmall?.copyWith(color: scheme.primary),

@@ -39,6 +39,13 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   var _switching = false;
   late CardType _type = widget.bereal ? CardType.bereal : CardType.standard;
 
+  /// Sélecteur de type : swipe localisé + snap (consigne Jay : épuré, texte
+  /// seul, mise en avant animée du mode sélectionné).
+  late final PageController _typeController = PageController(
+    viewportFraction: 0.34,
+    initialPage: CardType.selectable.indexOf(_type).clamp(0, 3),
+  );
+
   /// Fenêtre BeReal : 5 minutes pour boucler les deux captures (consigne Jay).
   static const _berealWindow = Duration(minutes: 5);
   Timer? _berealTimer;
@@ -151,9 +158,31 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   }
 
   /// « Face tableau » : saute la photo de la face courante et pose un fond
-  /// noir, à dessiner/annoter au récap (consigne Jay).
+  /// noir, à dessiner/annoter au récap (consigne Jay, avec confirmation).
   Future<void> _useBlackboard() async {
     if (_busy) return;
+    final label = _step == 0 ? 'recto' : 'verso';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Face tableau'),
+        content: Text(
+          'Le $label ne sera pas une photo : tu auras un tableau noir à '
+          'dessiner et annoter à l\'étape suivante. Continuer ?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Oui, tableau'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     setState(() => _busy = true);
     try {
       final file = await _generateBlackboard();
@@ -194,6 +223,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   @override
   void dispose() {
     _berealTimer?.cancel();
+    _typeController.dispose();
     _controller?.dispose();
     super.dispose();
   }
@@ -292,38 +322,77 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 ],
               ),
             ),
-            // Sélecteur de type : AVANT la première photo (consigne Jay)
+            // Sélecteur de type : AVANT la première photo. Épuré : texte seul,
+            // swipe localisé (PageView) et mise en avant animée du mode actif.
             if (!widget.bereal && _step == 0)
               Positioned(
-                bottom: 132,
+                bottom: 124,
                 left: 0,
                 right: 0,
                 child: SizedBox(
-                  height: 40,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    children: [
-                      for (final type in CardType.selectable)
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            selected: _type == type,
-                            onSelected: (_) => setState(() => _type = type),
-                            selectedColor: type.color.withValues(alpha: 0.4),
-                            backgroundColor: Colors.black54,
-                            label: Text(
-                              type.tag,
-                              style: TextStyle(
-                                color: _type == type
-                                    ? Colors.white
-                                    : type.color,
-                                fontWeight: FontWeight.bold,
+                  height: 46,
+                  child: PageView.builder(
+                    controller: _typeController,
+                    onPageChanged: (i) =>
+                        setState(() => _type = CardType.selectable[i]),
+                    itemCount: CardType.selectable.length,
+                    itemBuilder: (context, index) {
+                      final type = CardType.selectable[index];
+                      return AnimatedBuilder(
+                        animation: _typeController,
+                        builder: (context, _) {
+                          final page =
+                              _typeController.hasClients &&
+                                  _typeController.position.haveDimensions
+                              ? _typeController.page!
+                              : _typeController.initialPage.toDouble();
+                          final distance = (page - index).abs().clamp(0.0, 1.0);
+                          final selectedness = 1.0 - distance;
+                          return GestureDetector(
+                            onTap: () => _typeController.animateToPage(
+                              index,
+                              duration: const Duration(milliseconds: 280),
+                              curve: Curves.easeOutCubic,
+                            ),
+                            child: Center(
+                              child: Transform.scale(
+                                scale: 0.82 + 0.34 * selectedness,
+                                child: Text(
+                                  type.tag,
+                                  style: TextStyle(
+                                    color: Color.lerp(
+                                      Colors.white38,
+                                      type == CardType.standard
+                                          ? Colors.white
+                                          : type.color,
+                                      selectedness,
+                                    ),
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.1,
+                                    shadows: [
+                                      Shadow(
+                                        blurRadius: 14 * selectedness,
+                                        color:
+                                            (type == CardType.standard
+                                                    ? Colors.white
+                                                    : type.color)
+                                                .withValues(
+                                                  alpha: 0.7 * selectedness,
+                                                ),
+                                      ),
+                                      const Shadow(
+                                        blurRadius: 4,
+                                        color: Colors.black87,
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
-                        ),
-                    ],
+                          );
+                        },
+                      );
+                    },
                   ),
                 ),
               ),

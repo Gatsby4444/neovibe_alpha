@@ -197,11 +197,49 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   @override
   Widget build(BuildContext context) {
     final type = widget.card.type;
+    final me = ref.watch(currentUserIdProvider);
+    // Enregistrable : ses propres cards (sauf Hot), ou une card reçue marquée
+    // sauvegardable par son créateur.
+    final canSave =
+        type != CardType.hot &&
+        (widget.card.ownerId == me ||
+            (widget.card.saveable && type.canBeSaveable));
+    final isSaved = ref.watch(isCardSavedProvider(widget.card.id)).value;
+
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         title: _TypeBadge(type: type),
+        actions: [
+          if (canSave && _phase == _Phase.viewing)
+            IconButton(
+              icon: Icon(
+                isSaved == true ? Icons.bookmark : Icons.bookmark_border,
+              ),
+              tooltip: isSaved == true
+                  ? 'Retirer de mes Enregistrements'
+                  : 'Enregistrer pour moi',
+              onPressed: () async {
+                final repo = ref.read(cardsRepositoryProvider);
+                try {
+                  if (isSaved == true) {
+                    await repo.unsaveCard(widget.card.id);
+                  } else {
+                    await repo.saveCard(widget.card.id);
+                  }
+                  ref.invalidate(isCardSavedProvider(widget.card.id));
+                  ref.invalidate(savedCardsProvider);
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
+                  }
+                }
+              },
+            ),
+        ],
         bottom:
             _phase == _Phase.viewing &&
                 _limitsApply &&

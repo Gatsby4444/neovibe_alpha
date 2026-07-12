@@ -37,6 +37,12 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
   var _publish = false;
   var _loading = false;
 
+  /// Les destinataires pourront l'enregistrer dans leurs Enregistrements.
+  var _saveable = false;
+
+  /// Copie privée dans MES Enregistrements (bibliothèque privée).
+  var _saveForMe = false;
+
   /// Vues par card (1-5). Initialisé depuis les réglages.
   late int _maxViews = ref.read(defaultMaxViewsProvider);
 
@@ -89,10 +95,12 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
   }
 
   Future<void> _send() async {
-    if (_selected.isEmpty && !_publish) {
+    if (_selected.isEmpty && !_publish && !_saveForMe) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Choisis au moins un destinataire ou publie.'),
+          content: Text(
+            'Choisis au moins un destinataire, publie ou enregistre pour toi.',
+          ),
         ),
       );
       return;
@@ -106,12 +114,16 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
         type: widget.type,
         viewDurationSeconds: _durationSlider == 21 ? null : _durationSlider,
         maxViews: _maxViews,
+        saveable: _saveable,
       );
       if (_selected.isNotEmpty) {
         await repo.send(card, _selected.toList());
       }
       if (_publish) {
         await repo.publishToLibrary(card);
+      }
+      if (_saveForMe) {
+        await repo.saveCard(card.id);
       }
       if (mounted) {
         Navigator.of(context).popUntil((r) => r.isFirst);
@@ -218,6 +230,24 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
               ),
               value: _publish,
               onChanged: (v) => setState(() => _publish = v),
+            ),
+          if (type.canBeSaveable)
+            SwitchListTile(
+              title: const Text('Sauvegardable'),
+              subtitle: const Text(
+                'Les destinataires pourront la garder dans leurs Enregistrements',
+              ),
+              value: _saveable,
+              onChanged: (v) => setState(() => _saveable = v),
+            ),
+          if (type != CardType.hot)
+            SwitchListTile(
+              title: const Text('Enregistrer pour moi'),
+              subtitle: const Text(
+                'Copie privée dans mes Enregistrements, visible de moi seul',
+              ),
+              value: _saveForMe,
+              onChanged: (v) => setState(() => _saveForMe = v),
             ),
           const Divider(),
           Expanded(
