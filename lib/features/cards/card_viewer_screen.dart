@@ -198,12 +198,13 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   Widget build(BuildContext context) {
     final type = widget.card.type;
     final me = ref.watch(currentUserIdProvider);
-    // Enregistrable : ses propres cards (sauf Hot), ou une card reçue marquée
-    // sauvegardable par son créateur.
-    final canSave =
-        type != CardType.hot &&
-        (widget.card.ownerId == me ||
-            (widget.card.saveable && type.canBeSaveable));
+    // Enregistrable : ses propres cards (Hot comprise, 1/1 exclue — le
+    // créateur la rouvre depuis le chat à la place), ou une card reçue
+    // marquée sauvegardable par son créateur.
+    final isOwner = widget.card.ownerId == me;
+    final canSave = isOwner
+        ? type != CardType.oneOfOne
+        : (widget.card.saveable && type.canBeSaveable);
     final isSaved = ref.watch(isCardSavedProvider(widget.card.id)).value;
 
     return Scaffold(
@@ -264,7 +265,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
           icon: Icons.local_fire_department,
           color: type.color,
           message: type == CardType.hot
-              ? 'Cette Card Hot a été vue.\nElle a disparu, sans laisser de trace.'
+              ? 'Cette Card Hot a été vue.\nSon contenu a disparu — le container reste bloqué.'
               : 'Cette Card a été détruite.',
         ),
         _Phase.exhausted => _ExhaustedState(

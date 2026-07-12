@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../cards/card_capture_screen.dart';
-import '../connections/connections_screen.dart';
-import '../conversations/conversations_screen.dart';
+import '../circle/circle_screen.dart';
+import '../connections/request_popup.dart';
 import '../library/profile_screen.dart';
 import '../notifications/fomo_listener.dart';
-import '../proximity/nearby_screen.dart';
 
-/// Navigation principale : Conversations / Ping / Capture / Cercle / Profil.
-/// La capture est au centre — c'est le geste signature (caméra-first).
+/// Navigation principale (consigne Jay 2026-07-12) : trois sections —
+/// Cercle (hub social : conversations + ping) | Card (capture, geste
+/// signature au centre) | Profil.
 class HomeShell extends ConsumerStatefulWidget {
   const HomeShell({super.key});
 
@@ -21,10 +21,8 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   var _index = 0;
 
   static const _tabs = [
-    ConversationsScreen(),
-    NearbyScreen(),
+    CircleScreen(),
     SizedBox.shrink(), // emplacement du bouton capture
-    ConnectionsScreen(),
     ProfileScreen(),
   ];
 
@@ -32,13 +30,15 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   Widget build(BuildContext context) {
     // Active l'écouteur FOMO tant que la session est ouverte
     ref.watch(fomoListenerProvider);
+    // Pop-up des demandes de connexion entrantes (consigne Jay)
+    listenForConnectionRequestPopups(ref, context);
 
     return Scaffold(
       body: IndexedStack(index: _index, children: _tabs),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         onDestinationSelected: (i) {
-          if (i == 2) {
+          if (i == 1) {
             _openCapture();
           } else {
             setState(() => _index = i);
@@ -46,17 +46,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         },
         destinations: const [
           NavigationDestination(
-            icon: Icon(Icons.forum_outlined),
-            selectedIcon: Icon(Icons.forum),
-            label: 'Messages',
-          ),
-          NavigationDestination(icon: Icon(Icons.radar), label: 'Ping'),
-          NavigationDestination(icon: Icon(Icons.photo_camera), label: 'Card'),
-          NavigationDestination(
-            icon: Icon(Icons.people_outline),
-            selectedIcon: Icon(Icons.people),
+            icon: Icon(Icons.workspaces_outline),
+            selectedIcon: Icon(Icons.workspaces),
             label: 'Cercle',
           ),
+          NavigationDestination(icon: Icon(Icons.photo_camera), label: 'Card'),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
             selectedIcon: Icon(Icons.person),

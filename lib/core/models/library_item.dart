@@ -10,6 +10,7 @@ class LibraryItem {
     this.caption,
     required this.createdAt,
     this.card,
+    this.isPublic = false,
   });
 
   final String id;
@@ -23,6 +24,10 @@ class LibraryItem {
   final DateTime createdAt;
   final CardModel? card;
 
+  /// Publication publique : visible par toute personne accédant au profil
+  /// par un moyen légitime (un rang au-dessus de « connexions »).
+  final bool isPublic;
+
   factory LibraryItem.fromJson(Map<String, dynamic> json) => LibraryItem(
     id: json['id'] as String,
     ownerId: json['owner_id'] as String,
@@ -34,5 +39,6 @@ class LibraryItem {
     card: json['cards'] == null
         ? null
         : CardModel.fromJson(json['cards'] as Map<String, dynamic>),
+    isPublic: json['is_public'] as bool? ?? false,
   );
 }

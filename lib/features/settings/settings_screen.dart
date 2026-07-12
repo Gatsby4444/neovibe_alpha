@@ -8,7 +8,6 @@ import '../../core/supabase_providers.dart';
 import '../cards/saved_items_screen.dart';
 import '../connections/connections_repository.dart';
 import '../library/library_repository.dart';
-import '../waves/waves_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -38,12 +37,13 @@ class SettingsScreen extends ConsumerWidget {
               ref.invalidate(myProfileProvider);
             },
           ),
-          ListTile(
-            leading: const Icon(Icons.waving_hand),
-            title: const Text('Historique des croisements manqués'),
-            onTap: () => Navigator.of(
-              context,
-            ).push(MaterialPageRoute(builder: (_) => const WavesScreen())),
+          const ListTile(
+            dense: true,
+            leading: Icon(Icons.waving_hand, size: 18),
+            title: Text(
+              'L\'historique des croisements manqués vit dans Profil → ♥',
+              style: TextStyle(color: Colors.white54, fontSize: 13),
+            ),
           ),
           const Divider(),
           const _Header('Cards'),
@@ -173,10 +173,12 @@ class _Divulgation extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: Text(
-        'Dans les chats, tes Cards se voient un nombre de fois et une durée '
-        'limités (que tu choisis). Une trace reste 24 h et le replay ne se '
-        'fait qu\'avec ton accord. La Hot se voit une seule fois puis '
-        'disparaît sans trace. En bibliothèque, la lecture est illimitée.',
+        'Dans les chats, tes Cards apparaissent comme des containers '
+        'cliquables et se voient un nombre de fois et une durée limités '
+        '(que tu choisis). Le container reste 24 h et le replay ne se fait '
+        'qu\'avec ton accord. La Hot se voit une seule fois : son contenu '
+        'disparaît, son container reste bloqué. En bibliothèque, la lecture '
+        'est illimitée.',
         style: Theme.of(
           context,
         ).textTheme.bodySmall?.copyWith(color: Colors.white54),

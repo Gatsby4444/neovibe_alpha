@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -106,6 +107,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       enableAudio: false,
     );
     await controller.initialize();
+    // Sécurité supplémentaire demandée par Jay : la prise est TOUJOURS
+    // verticale, même si le verrou d'orientation de l'app était contourné.
+    await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
     if (!mounted) {
       controller.dispose();
       return;
@@ -201,7 +205,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   }
 
   static Future<File> _generateBlackboard() async {
-    const width = 900.0, height = 1200.0;
+    // Format unifié des cards : 9:16 vertical
+    const width = 900.0, height = 1600.0;
     final recorder = ui.PictureRecorder();
     final canvas = ui.Canvas(recorder);
     canvas.drawRect(
@@ -578,7 +583,10 @@ class _Shot extends StatelessWidget {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(12),
-          child: Image.file(file, height: 220, fit: BoxFit.cover),
+          child: AspectRatio(
+            aspectRatio: 9 / 16,
+            child: Image.file(file, fit: BoxFit.cover),
+          ),
         ),
         const SizedBox(height: 4),
         Text(label, style: Theme.of(context).textTheme.labelMedium),

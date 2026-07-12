@@ -7,6 +7,8 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../cards/card_viewer_screen.dart';
+import '../connections/friends_list_screen.dart';
+import '../connections/heart_screen.dart';
 import '../conversations/video_player_screen.dart';
 import '../settings/settings_screen.dart';
 import 'library_repository.dart';
@@ -44,9 +46,19 @@ class ProfileScreen extends ConsumerWidget {
             ),
           IconButton(
             icon: const Icon(Icons.settings),
+            tooltip: 'Réglages',
             onPressed: () => Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
+          ),
+          // Cœur à droite des paramètres (consigne Jay) : demandes de
+          // connexion, recommandations et Waves.
+          IconButton(
+            icon: const Icon(Icons.favorite_border),
+            tooltip: 'Demandes & rencontres',
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const HeartScreen())),
           ),
         ],
       ),
@@ -58,10 +70,28 @@ class ProfileScreen extends ConsumerWidget {
             imageQuality: 85,
             maxWidth: 1600,
           );
-          if (picked == null) return;
+          if (picked == null || !context.mounted) return;
+          // L'option publique se règle À la publication (consigne Jay)
+          final isPublic = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Qui peut voir cette photo ?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Selon mes règles d\'accès'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('Publique'),
+                ),
+              ],
+            ),
+          );
+          if (isPublic == null) return;
           await ref
               .read(libraryRepositoryProvider)
-              .addMedia(File(picked.path), 'photo');
+              .addMedia(File(picked.path), 'photo', isPublic: isPublic);
           ref.invalidate(libraryItemsProvider(me));
         },
         child: const Icon(Icons.add_photo_alternate),
@@ -73,7 +103,14 @@ class ProfileScreen extends ConsumerWidget {
         },
         child: ListView(
           children: [
-            if (profile != null) ProfileHeader(profile: profile),
+            if (profile != null)
+              ProfileHeader(
+                profile: profile,
+                // Le compteur d'amis ouvre la liste recherchable (consigne Jay)
+                onFriendsTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const FriendsListScreen()),
+                ),
+              ),
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 20, 16, 8),
               child: Text(
@@ -156,6 +193,20 @@ class LibraryTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Tag « Public » indiqué côté créateur uniquement (consigne Jay)
+    final me = ref.watch(currentUserIdProvider);
+    final showPublicTag = item.isPublic && item.ownerId == me;
+
+    Widget tagged(Widget child) => showPublicTag
+        ? Stack(
+            fit: StackFit.expand,
+            children: [
+              child,
+              const Positioned(top: 4, right: 4, child: _PublicBadge()),
+            ],
+          )
+        : child;
+
     if (item.kind == 'card' && item.card != null) {
       final card = item.card!;
       return GestureDetector(
@@ -170,10 +221,12 @@ class LibraryTile extends ConsumerWidget {
             border: Border.all(color: card.type.color, width: 2),
             borderRadius: BorderRadius.circular(10),
           ),
-          child: _CardThumb(
-            path: card.frontPath,
-            tag: card.type.tag,
-            color: card.type.color,
+          child: tagged(
+            _CardThumb(
+              path: card.frontPath,
+              tag: card.type.tag,
+              color: card.type.color,
+            ),
           ),
         ),
       );
@@ -199,7 +252,33 @@ class LibraryTile extends ConsumerWidget {
           );
         }
       },
-      child: _MediaThumb(path: item.mediaPath!),
+      child: tagged(_MediaThumb(path: item.mediaPath!)),
+    );
+  }
+}
+
+/// Badge « Public » affiché sur les publications publiques, uniquement
+/// dans la bibliothèque de leur créateur.
+class _PublicBadge extends StatelessWidget {
+  const _PublicBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: Colors.white38),
+      ),
+      child: const Text(
+        'Public',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+          color: Colors.white,
+        ),
+      ),
     );
   }
 }

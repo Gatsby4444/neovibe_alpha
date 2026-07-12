@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -10,6 +11,9 @@ import 'features/cards/card_capture_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Portrait uniquement : un seul sens de prise, un seul format de card (9:16)
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
   await Supabase.initialize(
     url: Env.supabaseUrl,

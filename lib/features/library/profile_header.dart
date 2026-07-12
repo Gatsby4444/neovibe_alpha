@@ -6,10 +6,12 @@ import '../cards/cards_repository.dart';
 
 /// En-tête de profil (consigne Jay 2026-07-12) : PP + username en haut,
 /// stats (amis / posts / cards 7 jours), bio, tag name.
-/// Réutilisé sur mon profil et sur celui d'une connexion.
+/// Réutilisé sur mon profil et sur celui d'une connexion ou d'un croisé.
+/// [onFriendsTap] : sur MON profil, le compteur d'amis ouvre la liste.
 class ProfileHeader extends ConsumerWidget {
-  const ProfileHeader({super.key, required this.profile});
+  const ProfileHeader({super.key, required this.profile, this.onFriendsTap});
   final Profile profile;
+  final VoidCallback? onFriendsTap;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -50,7 +52,7 @@ class ProfileHeader extends ConsumerWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _Stat(value: stats.friends, label: 'amis'),
+                _Stat(value: stats.friends, label: 'amis', onTap: onFriendsTap),
                 _Stat(value: stats.posts, label: 'posts'),
                 _Stat(value: stats.cardsWeek, label: 'cards / 7 j'),
               ],
@@ -71,27 +73,35 @@ class ProfileHeader extends ConsumerWidget {
 }
 
 class _Stat extends StatelessWidget {
-  const _Stat({required this.value, required this.label});
+  const _Stat({required this.value, required this.label, this.onTap});
   final int value;
   final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Text(
-          '$value',
-          style: Theme.of(
-            context,
-          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        child: Column(
+          children: [
+            Text(
+              '$value',
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            Text(
+              label,
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.white54),
+            ),
+          ],
         ),
-        Text(
-          label,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: Colors.white54),
-        ),
-      ],
+      ),
     );
   }
 }

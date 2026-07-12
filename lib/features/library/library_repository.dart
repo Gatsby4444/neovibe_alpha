@@ -40,7 +40,14 @@ class LibraryRepository {
 
   SupabaseClient get _client => ref.read(supabaseProvider);
 
-  Future<void> addMedia(File file, String kind, {String? caption}) async {
+  /// [isPublic] : publication publique, visible par toute personne accédant
+  /// au profil par un moyen légitime (option réglée à la publication).
+  Future<void> addMedia(
+    File file,
+    String kind, {
+    String? caption,
+    bool isPublic = false,
+  }) async {
     final me = _client.auth.currentUser!.id;
     final ext = kind == 'video' ? 'mp4' : 'jpg';
     final contentType = kind == 'video' ? 'video/mp4' : 'image/jpeg';
@@ -52,6 +59,7 @@ class LibraryRepository {
       'owner_id': me,
       'kind': kind,
       'media_path': path,
+      'is_public': isPublic,
       if (caption != null && caption.isNotEmpty) 'caption': caption,
     });
   }

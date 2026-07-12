@@ -145,8 +145,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   String _friendlyError(Object e) {
     final text = e.toString();
     if (text.contains('Limite de 3 messages')) {
-      return 'Limite atteinte : 3 messages sans réponse. '
-          'Le canal se rouvrira à votre prochaine rencontre.';
+      return 'Limite anti-spam : 3 messages sans réponse. '
+          'Tu pourras réécrire dès que l\'autre te répond.';
     }
     if (text.contains('texte')) {
       return 'Le canal de proximité est limité au texte.';
@@ -359,7 +359,7 @@ class _MessageBubble extends ConsumerWidget {
       case MessageKind.video:
         content = _MediaPreview(message: message);
       case MessageKind.card:
-        content = _CardChip(message: message);
+        content = _CardContainer(message: message);
     }
 
     return Align(
@@ -457,10 +457,18 @@ class _InlineVideo extends StatelessWidget {
   }
 }
 
-/// Pastille Card dans une conversation : tag + couleur du type,
-/// ouverture dans le viewer (avec règles Oneshot/Hot).
-class _CardChip extends ConsumerWidget {
-  const _CardChip({required this.message});
+/// Ma livraison pour une card (état du container côté destinataire).
+final _myDeliveryProvider = FutureProvider.family<CardDelivery?, String>(
+  (ref, cardId) => ref.watch(cardsRepositoryProvider).myDelivery(cardId),
+);
+
+/// Container de Card dans le chat, façon Snapchat (consigne Jay 2026-07-12) :
+/// JAMAIS d'aperçu — un bloc cliquable à la couleur du type, avec son tag et
+/// son état (nouvelle / rouvrable / épuisée / bloquée). Le container vit 24 h
+/// (TTL du message). Le créateur peut rouvrir sa card tant que le container
+/// existe ; la Hot vue reste un container bloqué, non renouvelable.
+class _CardContainer extends ConsumerWidget {
+  const _CardContainer({required this.message});
   final Message message;
 
   @override
@@ -472,7 +480,7 @@ class _CardChip extends ConsumerWidget {
             : ref.watch(_cardProvider(message.cardId!)).value);
     if (card == null) {
       return const Text(
-        '[Card expirée ou détruite]',
+        '[Card expirée]',
         style: TextStyle(fontStyle: FontStyle.italic, color: Colors.white38),
       );
     }
@@ -482,43 +490,120 @@ class _CardChip extends ConsumerWidget {
         ? (ref.watch(pendingReplayForCardProvider(card.id)).value ??
               <CardDelivery>[])
         : <CardDelivery>[];
-    final onGradient = card.type.gradient != null;
+    final delivery = isMine
+        ? null
+        : ref.watch(_myDeliveryProvider(card.id)).value;
+
+    // État du container
+    final String stateLabel;
+    var blocked = false;
+    var unopened = false;
+    if (isMine) {
+      stateLabel = 'Ta Card — rouvrir';
+    } else if (delivery == null) {
+      stateLabel = 'Appuie pour ouvrir';
+      unopened = true;
+    } else if (delivery.destroyedAt != null) {
+      stateLabel = card.type == CardType.hot ? 'Vue — bloquée' : 'Détruite';
+      blocked = true;
+    } else {
+      final remaining = delivery.remainingViews(card);
+      if (delivery.firstViewedAt == null) {
+        stateLabel = 'Nouvelle — appuie pour ouvrir';
+        unopened = true;
+      } else if (remaining != null && remaining <= 0) {
+        stateLabel = card.type == CardType.hot ? 'Vue — bloquée' : 'Épuisée';
+        blocked = card.type == CardType.hot;
+      } else {
+        stateLabel = remaining == null
+            ? 'Rouvrir'
+            : 'Rouvrir · $remaining vue${remaining > 1 ? 's' : ''}';
+      }
+    }
+
+    final baseColor = card.type.color;
+    final gradient = card.type.gradient;
+    final dimmed = blocked;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         InkWell(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => CardViewerScreen(card: card)),
-          ),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              gradient: card.type.gradient,
-              border: onGradient
-                  ? null
-                  : Border.all(color: card.type.color, width: 2),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.style,
-                  color: onGradient ? Colors.white : card.type.color,
+          borderRadius: BorderRadius.circular(14),
+          // Une Hot bloquée ne se rouvre pas — les autres états ouvrent le
+          // viewer (qui gère épuisement et demande de replay).
+          onTap: blocked
+              ? null
+              : () => Navigator.of(context)
+                    .push(
+                      MaterialPageRoute(
+                        builder: (_) => CardViewerScreen(card: card),
+                      ),
+                    )
+                    .then((_) {
+                      ref.invalidate(_myDeliveryProvider(card.id));
+                    }),
+          child: Opacity(
+            opacity: dimmed ? 0.45 : 1,
+            child: Container(
+              width: 190,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                // Non ouverte : remplissage plein (comme le carré Snap) ;
+                // ouverte : simple contour. Jamais d'aperçu de l'image.
+                gradient: unopened ? gradient : null,
+                color: unopened && gradient == null
+                    ? baseColor.withValues(alpha: 0.28)
+                    : null,
+                border: Border.all(
+                  color: dimmed ? Colors.white24 : baseColor,
+                  width: 2,
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  card.type.tag,
-                  style: TextStyle(
-                    color: onGradient ? Colors.white : card.type.color,
-                    fontWeight: FontWeight.bold,
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    blocked
+                        ? Icons.lock
+                        : unopened
+                        ? Icons.crop_portrait
+                        : Icons.crop_portrait_outlined,
+                    color: dimmed
+                        ? Colors.white38
+                        : (gradient != null && unopened
+                              ? Colors.white
+                              : baseColor),
                   ),
-                ),
-                const SizedBox(width: 8),
-                const Text('Ouvrir'),
-              ],
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          card.type.tag,
+                          style: TextStyle(
+                            color: dimmed
+                                ? Colors.white54
+                                : (gradient != null && unopened
+                                      ? Colors.white
+                                      : baseColor),
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          stateLabel,
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: dimmed ? Colors.white38 : Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

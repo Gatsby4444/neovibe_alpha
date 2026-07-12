@@ -79,7 +79,8 @@ enum CardType {
     CardType.oneshot =>
       'Avant + arrière capturés d\'un seul déclenché, sinon comme une classique',
     CardType.oneOfOne => 'Exclusive : un seul destinataire, à jamais',
-    CardType.hot => 'Une seule vue, temps limité, aucune trace après',
+    CardType.hot =>
+      'Une seule vue, temps limité — le contenu disparaît, le container reste',
     CardType.bereal => 'L\'instant imposé du jour, sans mise en scène',
   };
 

@@ -155,12 +155,19 @@ class CardsRepository {
     }
   }
 
-  Future<void> publishToLibrary(CardModel card, {String? caption}) async {
+  /// [isPublic] : visible par toute personne accédant au profil par un moyen
+  /// légitime (croisement ping, recommandation…) — jamais pour les Hot.
+  Future<void> publishToLibrary(
+    CardModel card, {
+    String? caption,
+    bool isPublic = false,
+  }) async {
     final me = _client.auth.currentUser!.id;
     await _client.from('library_items').insert({
       'owner_id': me,
       'kind': 'card',
       'card_id': card.id,
+      'is_public': isPublic && card.type != CardType.hot,
       if (caption != null && caption.isNotEmpty) 'caption': caption,
     });
   }

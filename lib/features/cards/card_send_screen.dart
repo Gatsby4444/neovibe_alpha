@@ -35,6 +35,10 @@ class CardSendScreen extends ConsumerStatefulWidget {
 class _CardSendScreenState extends ConsumerState<CardSendScreen> {
   final _selected = <String>{};
   var _publish = false;
+
+  /// Publication PUBLIQUE : un rang au-dessus de « connexions » — visible par
+  /// toute personne accédant au profil par un moyen légitime (jamais Hot).
+  var _publishPublic = false;
   var _loading = false;
 
   /// Les destinataires pourront l'enregistrer dans leurs Enregistrements.
@@ -76,10 +80,12 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
             '(2 par défaut) et pendant une durée limitée par vue (10 s par '
             'défaut) — tu choisis ces limites pour chaque Card, et tes '
             'défauts se règlent dans Réglages > Cards.\n\n'
-            'Une trace reste dans le chat 24 h et le destinataire peut te '
-            'demander un replay : rien ne se revoit sans ton accord.\n\n'
-            'La Hot, elle, se voit UNE fois, un court instant, puis disparaît '
-            'du chat sans laisser de trace.\n\n'
+            'Chaque Card apparaît dans le chat comme un container : on clique '
+            'pour l\'ouvrir, jamais d\'aperçu. Le container reste 24 h et le '
+            'destinataire peut te demander un replay : rien ne se revoit sans '
+            'ton accord.\n\n'
+            'La Hot, elle, se voit UNE fois, un court instant — son contenu '
+            'disparaît et son container reste bloqué.\n\n'
             'Dans ta bibliothèque, ce que tu publies se regarde sans limite.',
           ),
         ),
@@ -120,7 +126,7 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
         await repo.send(card, _selected.toList());
       }
       if (_publish) {
-        await repo.publishToLibrary(card);
+        await repo.publishToLibrary(card, isPublic: _publishPublic);
       }
       if (_saveForMe) {
         await repo.saveCard(card.id);
@@ -188,7 +194,8 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
             Padding(
               padding: const EdgeInsets.all(12),
               child: Text(
-                'Hot : une seule vue, temps limité, aucune trace après.',
+                'Hot : une seule vue, temps limité — le contenu disparaît, '
+                'seul le container bloqué reste 24 h dans le chat.',
                 style: TextStyle(color: type.color),
               ),
             ),
@@ -222,15 +229,29 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
               ),
             ),
           ],
-          if (_canPublish)
+          if (_canPublish) ...[
             SwitchListTile(
               title: const Text('Publier dans ma bibliothèque'),
               subtitle: const Text(
                 'Là-bas, lecture illimitée — visible selon tes règles d\'accès',
               ),
               value: _publish,
-              onChanged: (v) => setState(() => _publish = v),
+              onChanged: (v) => setState(() {
+                _publish = v;
+                if (!v) _publishPublic = false;
+              }),
             ),
+            if (_publish)
+              SwitchListTile(
+                title: const Text('Publication publique'),
+                subtitle: const Text(
+                  'Visible par toute personne qui accède à ton profil '
+                  '(croisements ping compris) — tag « Public » affiché',
+                ),
+                value: _publishPublic,
+                onChanged: (v) => setState(() => _publishPublic = v),
+              ),
+          ],
           if (type.canBeSaveable)
             SwitchListTile(
               title: const Text('Sauvegardable'),
@@ -240,7 +261,9 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
               value: _saveable,
               onChanged: (v) => setState(() => _saveable = v),
             ),
-          if (type != CardType.hot)
+          // 1/1 exclue : à la place, le créateur peut la rouvrir depuis le
+          // chat tant que le message existe (24 h) — consigne Jay 2026-07-12.
+          if (type != CardType.oneOfOne)
             SwitchListTile(
               title: const Text('Enregistrer pour moi'),
               subtitle: const Text(
