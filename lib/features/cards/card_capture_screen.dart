@@ -58,7 +58,14 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
 
   /// Enregistrement vidéo en cours : appui maintenu sur le déclencheur ;
   /// glisser hors du cercle = verrouillage (doigt libéré), re-tap = stop.
+  /// [_recording] = état UI (affiché dès l'intention, avant que la caméra
+  /// soit prête) ; [_videoStarted] = la caméra enregistre RÉELLEMENT ;
+  /// [_pressHeld] = le doigt est encore posé. Cette séparation corrige le
+  /// bug v0.6.0 : relâcher pendant le démarrage caméra (~0,5 s) laissait la
+  /// vidéo tourner orpheline (retour Jay).
   var _recording = false;
+  var _videoStarted = false;
+  var _pressHeld = false;
   var _recordLocked = false;
   var _recordSeconds = 0;
   Timer? _recordTimer;
@@ -266,34 +273,49 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       );
       return;
     }
+    // Retour haptique et UI rouge IMMÉDIATS (avant le démarrage caméra,
+    // qui prend ~0,5 s) : l'utilisateur sait que la vidéo est engagée.
+    HapticFeedback.heavyImpact();
+    setState(() {
+      _recording = true;
+      _videoStarted = false;
+      _recordLocked = false;
+      _recordSeconds = 0;
+    });
     try {
       await controller.startVideoRecording();
     } catch (e) {
       if (mounted) {
+        setState(() => _recording = false);
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Vidéo impossible : $e')));
       }
       return;
     }
-    HapticFeedback.mediumImpact();
-    setState(() {
-      _recording = true;
-      _recordLocked = false;
-      _recordSeconds = 0;
-    });
+    if (!mounted) return;
+    _videoStarted = true;
     _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() => _recordSeconds++);
       if (_recordSeconds >= _maxVideoSeconds) _stopVideo();
     });
+    // Doigt relâché PENDANT le démarrage caméra (sans verrou) : on coupe
+    // tout de suite — c'était le bug « la vidéo continue après relâcher ».
+    if (!_pressHeld && !_recordLocked) {
+      await _stopVideo();
+    }
   }
 
   Future<void> _stopVideo() async {
-    if (!_recording) return;
+    // Tant que la caméra n'enregistre pas réellement, on ne peut pas
+    // l'arrêter — le relâchement précoce est géré en fin de _startVideo.
+    if (!_recording || !_videoStarted) return;
     _recordTimer?.cancel();
+    HapticFeedback.selectionClick();
     setState(() {
       _recording = false;
+      _videoStarted = false;
       _recordLocked = false;
       _busy = true;
     });
@@ -311,7 +333,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
-  /// Tap sur le déclencheur : photo — ou arrêt d'une vidéo verrouillée.
+  /// Tap sur le déclencheur : photo — ou arrêt d'une vidéo verrouillée
+  /// (un simple tap suffit, consigne Jay).
   void _onShutterTap() {
     if (_recording) {
       if (_recordLocked) _stopVideo();
@@ -321,11 +344,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   }
 
   void _onShutterLongPressStart(LongPressStartDetails details) {
+    _pressHeld = true;
     _startVideo();
   }
 
   /// Glisser hors du cercle de commande pendant l'appui = verrouillage de
-  /// l'enregistrement (le doigt est libéré, re-tap pour arrêter).
+  /// l'enregistrement (le doigt est libéré, un tap pour arrêter).
   void _onShutterLongPressMove(LongPressMoveUpdateDetails details) {
     if (_recording &&
         !_recordLocked &&
@@ -335,7 +359,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
+  /// Relâcher = stop (sauf verrouillage). Si la caméra démarre encore,
+  /// _startVideo s'en charge dès qu'elle est prête (via _pressHeld).
   void _onShutterLongPressEnd(LongPressEndDetails details) {
+    _pressHeld = false;
     if (_recording && !_recordLocked) _stopVideo();
   }
 
@@ -846,8 +873,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
               right: 0,
               child: Center(
                 // Tap = photo ; appui maintenu = vidéo (verrouillage en
-                // glissant hors du cercle, re-tap pour arrêter). Le seuil de
-                // 300 ms remplace la « pression forte » (indétectable).
+                // glissant hors du cercle, tap pour arrêter). Seuil réduit à
+                // 180 ms (300 ms perçu trop long par Jay) — il remplace la
+                // « pression forte », indétectable sur Android.
                 child: RawGestureDetector(
                   gestures: {
                     TapGestureRecognizer:
@@ -861,7 +889,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                           LongPressGestureRecognizer
                         >(
                           () => LongPressGestureRecognizer(
-                            duration: const Duration(milliseconds: 300),
+                            duration: const Duration(milliseconds: 180),
                           ),
                           (recognizer) {
                             recognizer
