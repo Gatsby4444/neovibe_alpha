@@ -15,7 +15,7 @@ import '../cards/card_viewer_screen.dart';
 import '../cards/cards_repository.dart';
 import '../connections/connections_repository.dart';
 import 'video_player_screen.dart';
-import '../proximity/ble_service.dart';
+import '../proximity/proximity_service.dart';
 import 'conversations_repository.dart';
 import 'group_settings_screen.dart';
 
@@ -179,13 +179,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? null
         : partials.where((c) => c.peerIdFor(me) == peer.id).firstOrNull;
 
-    // Canal proximité : visible uniquement en portée BLE, sauf lien établi
-    final ble = ref.watch(bleServiceProvider);
+    // Canal proximité : visible uniquement en portée BLE, sauf lien établi.
+    // NB : depuis le chantier BLE (2026-07-13), les conversations ping sont
+    // 100 % locales (PingChatScreen) — ce canal serveur ne subsiste que pour
+    // les conversations prox héritées, il n'en est plus créé de nouvelles.
+    final proximity = ref.watch(proximityServiceProvider);
     final outOfRange =
         isProximity &&
         peer != null &&
         partial == null &&
-        !ble.nearby.values.any((u) => u.userId == peer.id);
+        !proximity.nearby.containsKey(peer.id);
 
     return Scaffold(
       appBar: AppBar(

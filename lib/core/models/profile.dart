@@ -15,7 +15,6 @@ class Profile {
     this.avatarUrl,
     this.libraryVisibility = LibraryVisibility.connections,
     this.realtimeWaves = false,
-    this.bleToken,
   });
 
   final String id;
@@ -31,8 +30,10 @@ class Profile {
   final LibraryVisibility libraryVisibility;
   final bool realtimeWaves;
 
-  /// Identifiant diffusé en BLE — présent uniquement sur son propre profil.
-  final String? bleToken;
+  // NB : plus de `ble_token` — depuis le chantier BLE (2026-07-13), la
+  // découverte est 100 % locale et l'identifiant diffusé change toutes les
+  // 15 min (rien à stocker côté serveur, donc rien à voler : le risque de
+  // pistage disparaît par conception).
 
   /// Nom affiché dans les conversations : tag name, sinon username.
   String get chatName =>
@@ -48,6 +49,5 @@ class Profile {
       json['library_visibility'] as String? ?? 'connections',
     ),
     realtimeWaves: json['realtime_waves'] as bool? ?? false,
-    bleToken: json['ble_token'] as String?,
   );
 }

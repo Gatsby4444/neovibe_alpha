@@ -4,7 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/connection_request.dart';
 import '../../core/supabase_providers.dart';
-import 'ble_service.dart';
+import 'proximity_service.dart';
+
+/// Demandes de connexion SERVEUR : depuis le chantier BLE (2026-07-13), les
+/// demandes de proximité passent d'appareil à appareil (co-signées, cf.
+/// ProximityService.sendFriendRequest). Ce canal serveur ne sert plus qu'aux
+/// recommandations A→B→C et à l'historique de la section cœur.
 
 /// Demandes de connexion reçues, en attente et non expirées (temps réel).
 final incomingRequestsProvider = StreamProvider<List<ConnectionRequest>>((ref) {
@@ -53,7 +58,7 @@ class ProximityRepository {
   late final Timer _heartbeat;
 
   Future<void> _refresh() async {
-    final ble = ref.read(bleServiceProvider.notifier);
+    final ble = ref.read(proximityServiceProvider.notifier);
     final outgoing = ref.read(outgoingRequestsProvider).value ?? [];
     final client = ref.read(supabaseProvider);
     for (final request in outgoing) {

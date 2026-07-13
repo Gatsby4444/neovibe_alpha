@@ -20,11 +20,12 @@ dependencies:
   image_picker: ^1.1.0
   video_player: ^2.9.0
 
-  # Proximité BLE
-  flutter_blue_plus: ^1.35.0
-  flutter_ble_peripheral: ^1.2.6
+  # Proximité BLE — le lien (advertising/scan/GATT) est NATIF (NativeBle.kt),
+  # le protocole (poignée de main chiffrée, certificats) vit en Dart
   permission_handler: ^12.0.0
   flutter_foreground_task: ^9.1.0
+  cryptography: ^2.7.0
+  flutter_secure_storage: ^9.2.0
 
   # Notifications locales
   flutter_local_notifications: ^19.0.0

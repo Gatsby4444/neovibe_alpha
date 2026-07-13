@@ -1,0 +1,212 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
+
+import 'ping_store.dart';
+import 'proximity_service.dart';
+
+/// Conversation ping : 100 % LOCALE et 100 % BLE (décisions Jay
+/// 2026-07-13) — les messages ne touchent jamais le serveur, vivent 12 h
+/// sur chaque téléphone, et l'envoi n'est possible qu'en portée BLE.
+/// Séparée pour toujours de la messagerie d'amis (aucune migration).
+class PingChatScreen extends ConsumerStatefulWidget {
+  const PingChatScreen({super.key, required this.peerId, required this.peer});
+
+  final String peerId;
+  final PingPeerSnapshot peer;
+
+  @override
+  ConsumerState<PingChatScreen> createState() => _PingChatScreenState();
+}
+
+class _PingChatScreenState extends ConsumerState<PingChatScreen> {
+  final _input = TextEditingController();
+  final _scroll = ScrollController();
+  PingConversation? _conversation;
+  var _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    ref.read(pingStoreProvider).addListener(_reload);
+    _reload();
+  }
+
+  @override
+  void dispose() {
+    ref.read(pingStoreProvider).removeListener(_reload);
+    _input.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  Future<void> _reload() async {
+    final conv = await ref.read(pingStoreProvider).conversation(widget.peerId);
+    if (!mounted) return;
+    setState(() => _conversation = conv);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      }
+    });
+  }
+
+  Future<void> _send() async {
+    final text = _input.text.trim();
+    if (text.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    try {
+      await ref
+          .read(proximityServiceProvider.notifier)
+          .sendMessage(widget.peerId, text);
+      _input.clear();
+      await _reload();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString().replaceFirst('Bad state: ', ''))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final inRange = ref
+        .watch(proximityServiceProvider)
+        .nearby
+        .containsKey(widget.peerId);
+    final messages = _conversation?.messages ?? const <PingMessage>[];
+    final blocked =
+        (_conversation?.unansweredOutgoing ?? 0) >= PingStore.unansweredLimit;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(widget.peer.displayName, style: const TextStyle(fontSize: 17)),
+            Text(
+              inRange ? 'À proximité' : 'Hors de portée',
+              style: TextStyle(
+                fontSize: 12,
+                color: inRange ? Colors.greenAccent : Colors.white38,
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: Column(
+        children: [
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: Text(
+              'Conversation 100 % locale, d\'appareil à appareil — rien ne '
+              'passe par internet. Les messages s\'effacent après 12 h.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.white38, fontSize: 11),
+            ),
+          ),
+          Expanded(
+            child: messages.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Dis bonjour — vous êtes au même endroit.',
+                      style: TextStyle(color: Colors.white54),
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scroll,
+                    padding: const EdgeInsets.all(12),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) =>
+                        _Bubble(message: messages[index]),
+                  ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _input,
+                      enabled: inRange && !blocked,
+                      textInputAction: TextInputAction.send,
+                      onSubmitted: (_) => _send(),
+                      decoration: InputDecoration(
+                        hintText: !inRange
+                            ? 'Hors de portée — recroisez-vous'
+                            : blocked
+                            ? 'Attends une réponse (3 messages max)'
+                            : 'Message…',
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.send),
+                    onPressed: inRange && !blocked && !_sending ? _send : null,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Bubble extends StatelessWidget {
+  const _Bubble({required this.message});
+  final PingMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    final time = DateFormat.Hm().format(message.at);
+    return Align(
+      alignment: message.mine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 3),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.75,
+        ),
+        decoration: BoxDecoration(
+          color: message.mine
+              ? Theme.of(context).colorScheme.primaryContainer
+              : const Color(0xFF23232B),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(message.text),
+            const SizedBox(height: 2),
+            Text(
+              time,
+              style: const TextStyle(fontSize: 10, color: Colors.white38),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

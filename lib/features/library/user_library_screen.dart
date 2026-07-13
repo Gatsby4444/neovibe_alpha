@@ -6,8 +6,9 @@ import '../../core/supabase_providers.dart';
 import '../connections/connections_repository.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
-import '../proximity/ble_service.dart';
-import '../proximity/proximity_repository.dart';
+import '../proximity/ping_chat_screen.dart';
+import '../proximity/ping_store.dart';
+import '../proximity/proximity_service.dart';
 import 'library_repository.dart';
 import 'profile_header.dart';
 import 'profile_screen.dart';
@@ -27,10 +28,8 @@ class UserLibraryScreen extends ConsumerWidget {
     final items = ref.watch(libraryItemsProvider(profile.id));
     final connections = ref.watch(fullConnectionsProvider);
     final isConnected = connections.any((c) => c.peerIdFor(me) == profile.id);
-    final ble = ref.watch(bleServiceProvider);
-    final inRange = ble.nearby.values.any((u) => u.userId == profile.id);
-    final outgoing = ref.watch(outgoingRequestsProvider).value ?? [];
-    final alreadyRequested = outgoing.any((r) => r.receiverId == profile.id);
+    final proximity = ref.watch(proximityServiceProvider);
+    final inRange = proximity.nearby.containsKey(profile.id);
 
     return Scaffold(
       appBar: AppBar(title: Text(profile.displayName)),
@@ -50,40 +49,62 @@ class UserLibraryScreen extends ConsumerWidget {
                     ),
                   )
                 else if (inRange) ...[
-                  // Inconnu en portée BLE : conversation ping (3 messages max
-                  // sans réponse) + demande de connexion, sans lien entre les
-                  // deux (pas de connexion automatique — consigne Jay).
+                  // Inconnu en portée BLE : conversation ping LOCALE (100 %
+                  // BLE, 3 messages max sans réponse) + demande de connexion
+                  // co-signée d'appareil à appareil (chantier BLE
+                  // 2026-07-13) — sans lien entre les deux (pas de connexion
+                  // automatique, consigne Jay).
                   Expanded(
                     child: FilledButton.tonalIcon(
                       icon: const Icon(Icons.podcasts),
                       label: const Text('Message'),
-                      onPressed: () => _openProximity(context, ref),
+                      onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => PingChatScreen(
+                            peerId: profile.id,
+                            peer: PingPeerSnapshot(
+                              userId: profile.id,
+                              username: profile.displayName,
+                              tagName: profile.tagName,
+                              verified: true,
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: alreadyRequested
-                        ? const OutlinedButton(
-                            onPressed: null,
-                            child: Text('Demande envoyée'),
-                          )
-                        : FilledButton.icon(
-                            icon: const Icon(Icons.person_add_alt),
-                            label: const Text('Ajouter'),
-                            onPressed: () async {
-                              try {
-                                await ref
-                                    .read(proximityRepositoryProvider)
-                                    .sendRequest(profile.id);
-                              } catch (e) {
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(content: Text('Erreur : $e')),
-                                  );
-                                }
-                              }
-                            },
-                          ),
+                    child: FilledButton.icon(
+                      icon: const Icon(Icons.person_add_alt),
+                      label: const Text('Ajouter'),
+                      onPressed: () async {
+                        try {
+                          await ref
+                              .read(proximityServiceProvider.notifier)
+                              .sendFriendRequest(profile.id);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Demande envoyée directement à son appareil.',
+                                ),
+                              ),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  e.toString().replaceFirst('Bad state: ', ''),
+                                ),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
                   ),
                 ] else
                   const Expanded(
@@ -146,17 +167,6 @@ class UserLibraryScreen extends ConsumerWidget {
     final convId = await ref
         .read(conversationsRepositoryProvider)
         .getOrCreateDirect(profile.id);
-    if (context.mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ChatScreen(conversationId: convId)),
-      );
-    }
-  }
-
-  Future<void> _openProximity(BuildContext context, WidgetRef ref) async {
-    final convId = await ref
-        .read(conversationsRepositoryProvider)
-        .getOrCreateProximity(profile.id);
     if (context.mounted) {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => ChatScreen(conversationId: convId)),

@@ -1,145 +1,148 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/models/message.dart';
 import '../../core/models/nearby_user.dart';
-import '../../core/supabase_providers.dart';
 import '../../core/utils/formats.dart';
 import '../connections/connections_repository.dart';
-import '../conversations/chat_screen.dart';
-import '../conversations/conversations_repository.dart';
 import '../library/user_library_screen.dart';
-import 'ble_service.dart';
-import 'proximity_repository.dart';
+import 'ping_chat_screen.dart';
+import 'ping_store.dart';
+import 'proximity_service.dart';
 
-/// Croisement ping consigné côté serveur (table encounters, remplie par
-/// resolve_ble_tokens) : le profil minimal d'une personne croisée reste
-/// accessible après l'éloignement (consigne Jay 2026-07-12).
-class Encounter {
-  const Encounter({required this.peerId, required this.lastSeenAt});
-  final String peerId;
-  final DateTime lastSeenAt;
-}
-
-final encountersProvider = FutureProvider<List<Encounter>>((ref) async {
-  final me = ref.watch(currentUserIdProvider);
-  if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('encounters')
-      .select()
-      .order('last_seen_at', ascending: false)
-      .limit(50);
-  return rows
-      .map(
-        (row) => Encounter(
-          peerId: row['user_low'] == me
-              ? row['user_high'] as String
-              : row['user_low'] as String,
-          lastSeenAt: DateTime.parse(row['last_seen_at'] as String),
-        ),
-      )
-      .toList();
-});
-
-/// Module Ping (plein écran, ouvert depuis Cercle) : liste des personnes à
-/// proximité BLE, conversations ping en cours, croisements récents.
-/// Cliquer une personne ouvre son profil (avec Message + Ajouter).
-class PingScreen extends ConsumerWidget {
+/// Module Ping (plein écran, ouvert depuis Cercle) — 100 % BLE LOCAL
+/// (chantier A, décisions Jay 2026-07-13) : personnes à proximité
+/// (amis reconnus par ID rotatif, inconnus révélés par poignée de main
+/// chiffrée), conversations ping locales (TTL 12 h, jamais serveur),
+/// croisements récents certifiés.
+class PingScreen extends ConsumerStatefulWidget {
   const PingScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final me = ref.watch(currentUserIdProvider)!;
-    final ble = ref.watch(bleServiceProvider);
-    // Instancie le repository pour démarrer le heartbeat des demandes.
-    ref.watch(proximityRepositoryProvider);
+  ConsumerState<PingScreen> createState() => _PingScreenState();
+}
 
-    final conversations = ref.watch(conversationsProvider).value ?? [];
-    final partials = ref.watch(partialConnectionsProvider);
-    // Conversations ping visibles : pair en portée BLE ou lien partiel en
-    // cours. Hors de portée, elles disparaissent de la liste (mais restent
-    // 24 h côté serveur : elles reviennent si on se recroise).
-    final pingConversations = conversations.where((c) {
-      if (c.type != ConversationType.proximity || c.lastMessage == null) {
-        return false;
-      }
-      final peer = c.otherMember(me);
-      if (peer == null) return false;
-      final inRange = ble.nearby.values.any((u) => u.userId == peer.id);
-      final hasPartial = partials.any((p) => p.peerIdFor(me) == peer.id);
-      return inRange || hasPartial;
-    }).toList();
+class _PingScreenState extends ConsumerState<PingScreen> {
+  List<PingConversation> _conversations = const [];
+  List<LocalEncounter> _encounters = const [];
 
-    final encounters = ref.watch(encountersProvider).value ?? [];
-    final nearbyIds = ble.nearby.values.map((u) => u.userId).toSet();
-    // Croisés récemment : uniquement ceux qui ne sont plus en portée
-    final pastEncounters = encounters
-        .where((e) => !nearbyIds.contains(e.peerId))
+  @override
+  void initState() {
+    super.initState();
+    ref.read(pingStoreProvider).addListener(_reload);
+    _reload();
+  }
+
+  @override
+  void dispose() {
+    ref.read(pingStoreProvider).removeListener(_reload);
+    super.dispose();
+  }
+
+  Future<void> _reload() async {
+    final store = ref.read(pingStoreProvider);
+    final convs = await store.conversations();
+    final encounters = await store.encounters();
+    if (!mounted) return;
+    setState(() {
+      _conversations = convs;
+      _encounters = encounters;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final proximity = ref.watch(proximityServiceProvider);
+    final nearby = proximity.nearbyList;
+    final nearbyIds = proximity.nearby.keys.toSet();
+
+    // Conversations ping visibles : pair en portée. Hors de portée, elles
+    // sortent de la liste (mais restent 12 h en local : elles reviennent si
+    // on se recroise).
+    final visibleConversations = _conversations
+        .where((c) => nearbyIds.contains(c.peerId))
         .toList();
+
+    // Croisés récemment : plus en portée, profil + certificat en local.
+    final pastEncounters = _encounters
+        .where((e) => !nearbyIds.contains(e.peer.userId))
+        .toList();
+
+    final pendingRequest = proximity.incomingFriendRequest;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Ping')),
       body: RefreshIndicator(
-        onRefresh: () async {
-          ref.invalidate(encountersProvider);
-          ref.invalidate(conversationsProvider);
-        },
+        onRefresh: _reload,
         child: ListView(
           children: [
             SwitchListTile(
               title: const Text('Visible à proximité'),
               subtitle: Text(
-                ble.visible
+                proximity.visible
                     ? 'Les autres membres NeoVibe proches peuvent te voir'
                     : 'Active pour rencontrer ceux qui te croisent',
               ),
-              value: ble.visible,
+              value: proximity.visible,
               onChanged: (on) => on
-                  ? ref.read(bleServiceProvider.notifier).enable()
-                  : ref.read(bleServiceProvider.notifier).disable(),
+                  ? ref.read(proximityServiceProvider.notifier).enable()
+                  : ref.read(proximityServiceProvider.notifier).disable(),
             ),
-            if (ble.error != null)
+            if (proximity.visible)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  'Découverte 100 % locale : ton identifiant change toutes '
+                  'les 15 minutes et ton profil ne circule que dans un canal '
+                  'chiffré, d\'appareil à appareil.',
+                  style: TextStyle(color: Colors.white38, fontSize: 11),
+                ),
+              ),
+            if (proximity.error != null)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  ble.error!,
+                  proximity.error!,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
+            if (pendingRequest != null)
+              _FriendRequestBanner(request: pendingRequest),
             const _SectionTitle('Autour de toi'),
-            if (!ble.visible)
+            if (!proximity.visible)
               const _EmptyHint(
                 icon: Icons.bluetooth_disabled,
                 text:
                     'Ta visibilité est coupée.\nPersonne ne peut te détecter, et tu ne détectes personne.',
               )
-            else if (ble.nearbyList.isEmpty)
+            else if (nearby.isEmpty)
               const _EmptyHint(
                 icon: Icons.radar,
                 text:
                     'Personne à proximité pour l\'instant.\nLes membres NeoVibe proches apparaîtront ici.',
               )
             else
-              for (final user in ble.nearbyList) _NearbyTile(user: user),
-            if (pingConversations.isNotEmpty) ...[
+              for (final peer in nearby) _NearbyTile(peer: peer),
+            if (visibleConversations.isNotEmpty) ...[
               const _SectionTitle('Conversations ping'),
-              for (final conv in pingConversations)
+              for (final conv in visibleConversations)
                 ListTile(
                   leading: const Icon(Icons.podcasts),
-                  title: Text(conv.displayName(me)),
+                  title: Text(conv.peer.displayName),
                   subtitle: Text(
-                    conv.lastMessage?.body ?? '',
+                    conv.messages.isEmpty ? '' : conv.messages.last.text,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  trailing: Text(
-                    shortTime(conv.lastMessage!.createdAt),
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
+                  trailing: conv.messages.isEmpty
+                      ? null
+                      : Text(
+                          shortTime(conv.messages.last.at),
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) => ChatScreen(conversationId: conv.id),
+                      builder: (_) =>
+                          PingChatScreen(peerId: conv.peerId, peer: conv.peer),
                     ),
                   ),
                 ),
@@ -157,34 +160,77 @@ class PingScreen extends ConsumerWidget {
   }
 }
 
-class _NearbyTile extends ConsumerWidget {
-  const _NearbyTile({required this.user});
-  final NearbyUser user;
+/// Demande d'ami reçue en BLE (co-signée) : accepter échange les clés de
+/// reconnaissance et remontera au serveur au retour d'internet.
+class _FriendRequestBanner extends ConsumerWidget {
+  const _FriendRequestBanner({required this.request});
+  final PendingBleFriendRequest request;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final service = ref.read(proximityServiceProvider.notifier);
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${request.snapshot.displayName} veut se connecter avec toi',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const Text(
+              'Vous êtes à proximité en ce moment',
+              style: TextStyle(color: Colors.white54, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () =>
+                      service.respondToFriendRequest(accept: false),
+                  child: const Text('Refuser'),
+                ),
+                const SizedBox(width: 8),
+                FilledButton(
+                  onPressed: () => service.respondToFriendRequest(accept: true),
+                  child: const Text('Accepter'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NearbyTile extends ConsumerWidget {
+  const _NearbyTile({required this.peer});
+  final NearbyPeer peer;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final snapshot = peer.snapshot;
     return ListTile(
       leading: CircleAvatar(
-        backgroundImage: user.avatarUrl == null
-            ? null
-            : NetworkImage(user.avatarUrl!),
-        child: user.avatarUrl == null
-            ? Text(user.displayName.characters.first.toUpperCase())
-            : null,
+        child: Text(snapshot.displayName.characters.first.toUpperCase()),
       ),
-      title: Text(user.displayName),
+      title: Text(snapshot.displayName),
       subtitle: Row(
         children: [
           Icon(
             Icons.circle,
             size: 10,
-            color: user.proximity == ProximityLevel.veryClose
+            color: peer.proximity == ProximityLevel.veryClose
                 ? Colors.greenAccent
                 : Colors.amber,
           ),
           const SizedBox(width: 6),
-          Text(user.proximity.label),
-          if (user.isConnected) ...[
+          Text(peer.proximity.label),
+          if (peer.isFriend) ...[
             const SizedBox(width: 10),
             const Icon(Icons.link, size: 14),
             const SizedBox(width: 4),
@@ -192,49 +238,66 @@ class _NearbyTile extends ConsumerWidget {
           ],
         ],
       ),
-      trailing: const Icon(Icons.chevron_right),
-      // Le clic ouvre le PROFIL (les actions Message / Ajouter y vivent) —
-      // consigne Jay 2026-07-12.
-      onTap: () => _openProfile(context, ref, user.userId),
+      // Message direct (100 % BLE, marche sans internet) + profil complet
+      // (serveur, si internet) au tap — consigne Jay 2026-07-12 conservée.
+      trailing: IconButton(
+        icon: const Icon(Icons.chat_bubble_outline),
+        tooltip: 'Message ping',
+        onPressed: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) =>
+                PingChatScreen(peerId: snapshot.userId, peer: snapshot),
+          ),
+        ),
+      ),
+      onTap: () => _openProfile(context, ref, snapshot),
     );
   }
 }
 
 class _EncounterTile extends ConsumerWidget {
   const _EncounterTile({required this.encounter});
-  final Encounter encounter;
+  final LocalEncounter encounter;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final peer = ref.watch(profileByIdProvider(encounter.peerId)).value;
-    if (peer == null) return const SizedBox.shrink();
     return ListTile(
       leading: CircleAvatar(
-        backgroundImage: peer.avatarUrl == null
-            ? null
-            : NetworkImage(peer.avatarUrl!),
-        child: peer.avatarUrl == null
-            ? Text(peer.displayName.characters.first.toUpperCase())
-            : null,
+        child: Text(encounter.peer.displayName.characters.first.toUpperCase()),
       ),
-      title: Text(peer.displayName),
-      subtitle: Text('Croisé ${vagueTimeAgo(encounter.lastSeenAt)}'),
+      title: Text(encounter.peer.displayName),
+      subtitle: Text('Croisé ${vagueTimeAgo(encounter.at)}'),
       trailing: const Icon(Icons.chevron_right),
-      onTap: () => _openProfile(context, ref, encounter.peerId),
+      onTap: () => _openProfile(context, ref, encounter.peer),
     );
   }
 }
 
+/// Ouvre le profil complet (serveur). Sans internet, retombe sur la
+/// conversation ping locale.
 Future<void> _openProfile(
   BuildContext context,
   WidgetRef ref,
-  String userId,
+  PingPeerSnapshot snapshot,
 ) async {
-  final profile = await ref.read(profileByIdProvider(userId).future);
-  if (profile == null || !context.mounted) return;
-  Navigator.of(context).push(
-    MaterialPageRoute(builder: (_) => UserLibraryScreen(profile: profile)),
-  );
+  try {
+    final profile = await ref.read(profileByIdProvider(snapshot.userId).future);
+    if (profile != null && context.mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => UserLibraryScreen(profile: profile)),
+      );
+      return;
+    }
+  } catch (_) {
+    // Hors ligne : pas de profil serveur.
+  }
+  if (context.mounted) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PingChatScreen(peerId: snapshot.userId, peer: snapshot),
+      ),
+    );
+  }
 }
 
 class _SectionTitle extends StatelessWidget {
