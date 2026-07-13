@@ -5,17 +5,12 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.util.Size
 import android.view.Surface
 import android.view.WindowManager
-import androidx.camera.core.resolutionselector.ResolutionSelector
-import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
-import androidx.camera.core.UseCaseGroup
-import androidx.camera.core.ConcurrentCamera
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.FileOutputOptions
@@ -59,9 +54,6 @@ class NativeCamera(
     companion object {
         /** Débit vidéo plafonné — voir recorder() (limite d'upload Supabase). */
         const val VIDEO_BITRATE = 3_500_000
-
-        /** Concurrent camera : Android impose ≤ 720p par flux. */
-        val CONCURRENT_SIZE = Size(1280, 720)
     }
 
     private val channel = MethodChannel(messenger, "neovibe/camera")
@@ -89,18 +81,14 @@ class NativeCamera(
     private var lensBack = true
 
     // --- Mode double (Oneshot) -------------------------------------------
-    private var dualBackEntry: TextureRegistry.SurfaceProducer? = null
-    private var dualFrontEntry: TextureRegistry.SurfaceProducer? = null
-    private var dualBackImage: ImageCapture? = null
-    private var dualFrontImage: ImageCapture? = null
-    private var dualBackVideo: VideoCapture<Recorder>? = null
-    private var dualFrontVideo: VideoCapture<Recorder>? = null
-    private var dualBackRecording: Recording? = null
-    private var dualFrontRecording: Recording? = null
-    private var dualStopResult: MethodChannel.Result? = null
-    private var dualBackPath: String? = null
-    private var dualFrontPath: String? = null
-    private var dualFinalized = 0
+    // Piloté en Camera2 BRUT (pas CameraX) : le matériel accepte deux flux
+    // que la déclaration concurrente d'Android nie (prouvé par la sonde).
+    private val camera2Dual = Camera2Dual(activity, textureRegistry) { key, w, h, rot ->
+        channel.invokeMethod(
+            "previewInfo",
+            mapOf("key" to key, "width" to w, "height" to h, "rotation" to rot),
+        )
+    }
 
     init {
         channel.setMethodCallHandler(this)
@@ -149,10 +137,21 @@ class NativeCamera(
                 "takePicture" -> takePicture(result)
                 "startVideo" -> startVideo(call, result)
                 "stopVideo" -> stopVideo(result)
-                "openDual" -> withProvider(result) { p -> openDual(p, result) }
-                "takeDualPictures" -> takeDualPictures(result)
-                "startDualVideo" -> startDualVideo(call, result)
-                "stopDualVideo" -> stopDualVideo(result)
+                "openDual" -> withProvider(result) { p ->
+                    // On libère CameraX (une seule pile caméra à la fois) puis
+                    // on ouvre le duo en Camera2 brut.
+                    p.unbindAll()
+                    releaseSingle()
+                    camera2Dual.open(result)
+                }
+                "takeDualPictures" -> camera2Dual.capture(result)
+                "startDualVideo" ->
+                    // Vidéo double simultanée : non couverte par le moteur
+                    // Camera2 dual (deux encodeurs + limite de flux). Le Dart
+                    // retombe en photo seule pour le Oneshot.
+                    result.error("DUAL_VIDEO_UNSUPPORTED", "Vidéo double non gérée", null)
+                "stopDualVideo" ->
+                    result.error("NOT_RECORDING", "Aucun enregistrement double", null)
                 "probeDual" -> {
                     // Sonde Camera2 brute : ouvre les DEUX caméras de force,
                     // sans passer par la déclaration d'Android (demande de
@@ -257,7 +256,8 @@ class NativeCamera(
     // ------------------------------------------------------------------
 
     private fun openSingle(p: ProcessCameraProvider, audio: Boolean) {
-        closeDual(p)
+        // On revient d'un éventuel double flux Camera2 : le fermer.
+        camera2Dual.close()
         entry = entry ?: textureRegistry.createSurfaceProducer()
         preview = Preview.Builder().build().also {
             it.setSurfaceProvider(surfaceProvider(entry!!, "main"))
@@ -352,273 +352,24 @@ class NativeCamera(
         active.stop()
     }
 
-    // ------------------------------------------------------------------
-    // Mode double simultané (Oneshot)
-    // ------------------------------------------------------------------
-
-    /**
-     * On TENTE toujours le bind concurrent, même si `availableConcurrentCameraInfos`
-     * est vide : cette liste est un faux négatif fréquent (des appareils
-     * capables la renvoient vide). Seul l'échec réel du bind fait basculer
-     * en vue simple — sinon on privait Jay du double flux sans raison.
-     */
-    private fun openDual(p: ProcessCameraProvider, result: MethodChannel.Result) {
-        try {
-            p.unbindAll()
-            recording = null
-            dualBackEntry = dualBackEntry ?: textureRegistry.createSurfaceProducer()
-            dualFrontEntry = dualFrontEntry ?: textureRegistry.createSurfaceProducer()
-            // En mode concurrent, Android impose une résolution ≤ 720p par
-            // flux : sans cette contrainte, CameraX demande du 1080p+ et le
-            // bind ÉCHOUE sur des appareils pourtant capables (piste n°1 du
-            // « mon tel en est capable » de Jay).
-            val backPreview = Preview.Builder()
-                .setResolutionSelector(concurrentResolution())
-                .build().also {
-                    it.setSurfaceProvider(surfaceProvider(dualBackEntry!!, "dualBack"))
-                }
-            val frontPreview = Preview.Builder()
-                .setResolutionSelector(concurrentResolution())
-                .build().also {
-                    it.setSurfaceProvider(surfaceProvider(dualFrontEntry!!, "dualFront"))
-                }
-            dualBackImage = ImageCapture.Builder()
-                .setTargetRotation(Surface.ROTATION_0)
-                .setResolutionSelector(concurrentResolution())
-                .build()
-            dualFrontImage = ImageCapture.Builder()
-                .setTargetRotation(Surface.ROTATION_0)
-                .setResolutionSelector(concurrentResolution())
-                .build()
-            val configs = listOf(
-                ConcurrentCamera.SingleCameraConfig(
-                    selector(true),
-                    UseCaseGroup.Builder()
-                        .addUseCase(backPreview)
-                        .addUseCase(dualBackImage!!)
-                        .build(),
-                    activity as LifecycleOwner,
-                ),
-                ConcurrentCamera.SingleCameraConfig(
-                    selector(false),
-                    UseCaseGroup.Builder()
-                        .addUseCase(frontPreview)
-                        .addUseCase(dualFrontImage!!)
-                        .build(),
-                    activity as LifecycleOwner,
-                ),
-            )
-            p.bindToLifecycle(configs)
-            result.success(
-                mapOf(
-                    "backTextureId" to dualBackEntry!!.id(),
-                    "frontTextureId" to dualFrontEntry!!.id(),
-                ),
-            )
-        } catch (e: Exception) {
-            closeDual(p)
-            // La raison exacte remonte au Dart (affichée dans le HUD dev) :
-            // « non supporté » n'apprend rien, le message de CameraX si.
-            lastDualError = "${e.javaClass.simpleName}: ${e.message}"
-            result.error("DUAL_UNSUPPORTED", lastDualError, null)
-        }
-    }
-
-    private fun concurrentResolution() = ResolutionSelector.Builder()
-        .setResolutionStrategy(
-            ResolutionStrategy(
-                CONCURRENT_SIZE,
-                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
-            ),
-        )
-        .build()
-
-    private fun takeDualPictures(result: MethodChannel.Result) {
-        val backCapture = dualBackImage
-        val frontCapture = dualFrontImage
-        if (backCapture == null || frontCapture == null) {
-            result.error("NOT_OPEN", "Double flux non ouvert", null)
-            return
-        }
-        val backFile = File.createTempFile("nv_back_", ".jpg", activity.cacheDir)
-        val frontFile = File.createTempFile("nv_front_", ".jpg", activity.cacheDir)
-        var done = 0
-        var failed = false
-        fun complete() {
-            done++
-            if (done == 2 && !failed) {
-                mainExecutor.execute {
-                    result.success(
-                        mapOf("back" to backFile.path, "front" to frontFile.path),
-                    )
-                }
-            }
-        }
-        fun fail(e: Exception) {
-            if (!failed) {
-                failed = true
-                mainExecutor.execute { result.error("CAPTURE_FAILED", e.message, null) }
-            }
-        }
-        backCapture.takePicture(
-            ImageCapture.OutputFileOptions.Builder(backFile).build(),
-            ioExecutor,
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    bakeRotation(backFile.path)
-                    complete()
-                }
-
-                override fun onError(e: ImageCaptureException) = fail(e)
-            },
-        )
-        frontCapture.takePicture(
-            ImageCapture.OutputFileOptions.Builder(frontFile).build(),
-            ioExecutor,
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                    bakeRotation(frontFile.path)
-                    complete()
-                }
-
-                override fun onError(e: ImageCaptureException) = fail(e)
-            },
-        )
-    }
-
-    /**
-     * Vidéo double simultanée (Oneshot vidéo, priorité 1 de Jay) : rebind
-     * concurrent avec Preview+VideoCapture par caméra, deux fichiers. Le son
-     * n'est pris QUE sur la caméra arrière (un seul micro). Échec de bind →
-     * DUAL_VIDEO_UNSUPPORTED, le Dart repasse en photo seule.
-     */
-    @androidx.annotation.OptIn(androidx.camera.video.ExperimentalPersistentRecording::class)
-    private fun startDualVideo(call: MethodCall, result: MethodChannel.Result) {
-        val p = provider ?: return result.error("NOT_OPEN", "Caméra non ouverte", null)
-        if (dualBackEntry == null || dualFrontEntry == null) {
-            result.error("NOT_OPEN", "Double flux non ouvert", null)
-            return
-        }
-        val audio = call.argument<Boolean>("audio") ?: false
-        try {
-            p.unbindAll()
-            val backPreview = Preview.Builder()
-                .setResolutionSelector(concurrentResolution())
-                .build().also {
-                    it.setSurfaceProvider(surfaceProvider(dualBackEntry!!, "dualBack"))
-                }
-            val frontPreview = Preview.Builder()
-                .setResolutionSelector(concurrentResolution())
-                .build().also {
-                    it.setSurfaceProvider(surfaceProvider(dualFrontEntry!!, "dualFront"))
-                }
-            dualBackVideo = VideoCapture.withOutput(recorder()).also {
-                it.targetRotation = Surface.ROTATION_0
-            }
-            dualFrontVideo = VideoCapture.withOutput(recorder()).also {
-                it.targetRotation = Surface.ROTATION_0
-            }
-            val configs = listOf(
-                ConcurrentCamera.SingleCameraConfig(
-                    selector(true),
-                    UseCaseGroup.Builder()
-                        .addUseCase(backPreview)
-                        .addUseCase(dualBackVideo!!)
-                        .build(),
-                    activity as LifecycleOwner,
-                ),
-                ConcurrentCamera.SingleCameraConfig(
-                    selector(false),
-                    UseCaseGroup.Builder()
-                        .addUseCase(frontPreview)
-                        .addUseCase(dualFrontVideo!!)
-                        .build(),
-                    activity as LifecycleOwner,
-                ),
-            )
-            p.bindToLifecycle(configs)
-
-            val backFile = File.createTempFile("nv_back_", ".mp4", activity.cacheDir)
-            val frontFile = File.createTempFile("nv_front_", ".mp4", activity.cacheDir)
-            dualBackPath = backFile.path
-            dualFrontPath = frontFile.path
-            dualFinalized = 0
-            var backPending = dualBackVideo!!.output
-                .prepareRecording(activity, FileOutputOptions.Builder(backFile).build())
-            if (audio) {
-                try {
-                    backPending = backPending.withAudioEnabled()
-                } catch (_: SecurityException) {
-                }
-            }
-            dualBackRecording = backPending.start(mainExecutor) { onDualEvent(it) }
-            dualFrontRecording = dualFrontVideo!!.output
-                .prepareRecording(activity, FileOutputOptions.Builder(frontFile).build())
-                .start(mainExecutor) { onDualEvent(it) }
-            result.success(null)
-        } catch (e: Exception) {
-            dualBackRecording?.stop()
-            dualFrontRecording?.stop()
-            dualBackRecording = null
-            dualFrontRecording = null
-            result.error("DUAL_VIDEO_UNSUPPORTED", e.message, null)
-        }
-    }
-
-    private fun onDualEvent(event: VideoRecordEvent) {
-        if (event !is VideoRecordEvent.Finalize) return
-        dualFinalized++
-        if (dualFinalized < 2) return
-        val res = dualStopResult
-        dualStopResult = null
-        if (event.hasError() && res != null) {
-            res.error("VIDEO_FAILED", "Erreur vidéo double ${event.error}", null)
-        } else {
-            res?.success(mapOf("back" to dualBackPath, "front" to dualFrontPath))
-        }
-    }
-
-    private fun stopDualVideo(result: MethodChannel.Result) {
-        val back = dualBackRecording
-        val front = dualFrontRecording
-        if (back == null && front == null) {
-            result.error("NOT_RECORDING", "Aucun enregistrement double", null)
-            return
-        }
-        dualStopResult = result
-        dualBackRecording = null
-        dualFrontRecording = null
-        back?.stop()
-        front?.stop()
-    }
 
     // ------------------------------------------------------------------
 
-    private fun closeDual(p: ProcessCameraProvider?) {
-        dualBackRecording?.stop()
-        dualFrontRecording?.stop()
-        dualBackRecording = null
-        dualFrontRecording = null
-        dualBackImage = null
-        dualFrontImage = null
-        dualBackVideo = null
-        dualFrontVideo = null
-    }
-
-    private fun closeAll() {
+    /** Libère la pile CameraX simple (avant un passage au double flux). */
+    private fun releaseSingle() {
         recording?.stop()
         recording = null
-        closeDual(provider)
-        provider?.unbindAll()
         entry?.release()
         entry = null
-        dualBackEntry?.release()
-        dualBackEntry = null
-        dualFrontEntry?.release()
-        dualFrontEntry = null
         preview = null
         imageCapture = null
         videoCapture = null
+    }
+
+    private fun closeAll() {
+        camera2Dual.close()
+        provider?.unbindAll()
+        releaseSingle()
     }
 
     /**
