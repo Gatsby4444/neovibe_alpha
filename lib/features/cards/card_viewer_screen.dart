@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -7,6 +8,7 @@ import 'package:video_player/video_player.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
+import 'card_media_cache.dart';
 import 'cards_repository.dart';
 import 'flippable_card.dart';
 
@@ -47,8 +49,11 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
 
   /// Face sur laquelle la carte est POSÉE (les budgets suivent celle-ci).
   var _settledFront = true;
-  String? _frontUrl;
-  String? _backUrl;
+
+  /// Faces servies depuis le cache local (préchargées ENSEMBLE : le
+  /// retournement n'attend plus jamais le réseau — consigne Jay 2026-07-13).
+  File? _frontFile;
+  File? _backFile;
   String _error = '';
   CardDelivery? _delivery;
 
@@ -83,6 +88,40 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     _load();
   }
 
+  /// Récupère les DEUX faces via le cache local : mes cards depuis `own/`
+  /// (zéro requête si déjà locales), celles des autres depuis `others/`
+  /// avec leur politique de rétention. Téléchargements en parallèle.
+  Future<void> _fetchFaces() async {
+    final repo = ref.read(cardsRepositoryProvider);
+    final cache = ref.read(cardMediaCacheProvider);
+    final card = widget.card;
+    final isOwner = !_isRecipient;
+    Future<File> face(bool front) {
+      final path = front ? card.frontPath : card.backPath!;
+      if (isOwner) {
+        return cache.ownFace(
+          card,
+          front: front,
+          signedUrl: () => repo.imageUrl(path),
+          quotaMb: ref.read(ownCardsQuotaMbProvider),
+        );
+      }
+      return cache.othersFace(
+        card,
+        front: front,
+        policy: _limitsApply ? CardCachePolicy.chat : CardCachePolicy.browse,
+        signedUrl: () => repo.imageUrl(path),
+      );
+    }
+
+    final faces = await Future.wait([
+      face(true),
+      if (card.backPath != null) face(false),
+    ]);
+    _frontFile = faces[0];
+    _backFile = faces.length > 1 ? faces[1] : null;
+  }
+
   Future<void> _load() async {
     setState(() {
       _phase = _Phase.loading;
@@ -90,37 +129,40 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     });
     final repo = ref.read(cardsRepositoryProvider);
     try {
-      // URLs signées d'abord : c'est l'étape fragile côté réseau
-      final front = await repo.imageUrl(widget.card.frontPath);
-      // Mono : pas de verso
-      final back = widget.card.backPath == null
-          ? null
-          : await repo.imageUrl(widget.card.backPath!);
-      if (!mounted) return;
-      _frontUrl = front;
-      _backUrl = back;
-
       if (!_limitsApply) {
+        await _fetchFaces();
+        if (!mounted) return;
         setState(() => _phase = _Phase.viewing);
         return;
       }
 
+      // Destinataire : l'état de la livraison d'abord — inutile de
+      // télécharger les faces d'une card épuisée ou détruite.
       _delivery = await repo.myDelivery(widget.card.id);
       if (!mounted) return;
       if (_delivery == null) {
         // Pas de livraison pour moi (ne devrait pas arriver en chat)
+        await _fetchFaces();
+        if (!mounted) return;
         setState(() => _phase = _Phase.viewing);
         return;
       }
       if (_delivery!.destroyedAt != null) {
+        await ref.read(cardMediaCacheProvider).purgeCard(widget.card.id);
+        if (!mounted) return;
         setState(() => _phase = _Phase.destroyed);
         return;
       }
       final remaining = _delivery!.remainingViews(widget.card);
       if (remaining != null && remaining <= 0) {
+        await ref.read(cardMediaCacheProvider).purgeCard(widget.card.id);
+        if (!mounted) return;
         setState(() => _phase = _Phase.exhausted);
         return;
       }
+
+      await _fetchFaces();
+      if (!mounted) return;
 
       // Consomme une vue (1 vue = 1 ouverture) et démarre le budget du recto
       await repo.markViewed(_delivery!.id);
@@ -209,6 +251,9 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     if (!mounted) return;
     final remaining = _delivery?.remainingViews(widget.card);
     if (remaining != null && remaining <= 0) {
+      // Plus aucune vue : rien ne doit rester sur l'appareil.
+      await ref.read(cardMediaCacheProvider).purgeCard(widget.card.id);
+      if (!mounted) return;
       setState(() => _phase = _Phase.exhausted);
     } else {
       Navigator.of(context).pop();
@@ -221,6 +266,9 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     try {
       await ref.read(cardsRepositoryProvider).finishHotView(_delivery!.id);
     } catch (_) {}
+    // Hot : purge immédiate du cache à la fermeture (consigne Jay —
+    // empêcher la récupération après coup).
+    await ref.read(cardMediaCacheProvider).purgeCard(widget.card.id);
     if (mounted) setState(() => _phase = _Phase.destroyed);
   }
 
@@ -242,7 +290,8 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   @override
   void dispose() {
     _gaugeTimer?.cancel();
-    // Hot : quitter l'écran, même avant la fin du temps, détruit la Card
+    // Hot : quitter l'écran, même avant la fin du temps, détruit la Card —
+    // et purge son cache local immédiatement.
     if (_limitsApply &&
         widget.card.type == CardType.hot &&
         !_hotFinished &&
@@ -250,6 +299,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
         _phase == _Phase.viewing) {
       _hotFinished = true;
       ref.read(cardsRepositoryProvider).finishHotView(_delivery!.id);
+      ref.read(cardMediaCacheProvider).purgeCard(widget.card.id);
     }
     super.dispose();
   }
@@ -265,10 +315,10 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
             : _frontDone,
       );
     }
-    final url = front ? _frontUrl! : _backUrl!;
+    final file = front ? _frontFile! : _backFile!;
     if (_faceIsVideo(front)) {
       return _VideoFace(
-        url: url,
+        file: file,
         type: type,
         // La vidéo ne joue que lorsque sa face est posée à l'écran
         active: _phase == _Phase.viewing && _settledFront == front,
@@ -280,7 +330,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
         onCompleted: _limitsApply ? () => _markFaceDone(front) : null,
       );
     }
-    return _CardFace(url: url, type: type);
+    return _CardFace(file: file, type: type);
   }
 
   @override
@@ -368,7 +418,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
           onReplayRequested: _requestReplay,
         ),
         // Mono : face unique non retournable, le jeu d'angle reste
-        _Phase.viewing when _backUrl == null => Center(
+        _Phase.viewing when _backFile == null => Center(
           child: TiltableCard(child: _buildFace(true)),
         ),
         _Phase.viewing => Center(
@@ -386,7 +436,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Text(
-                  _backUrl == null
+                  _backFile == null
                       ? 'Face unique — fais glisser pour incliner la carte'
                       : _limitsApply
                       ? (_showFront
@@ -596,33 +646,20 @@ class _FaceFrame extends StatelessWidget {
   }
 }
 
-/// Face photo : image avec gestion réseau propre (placeholder + erreur).
+/// Face photo : image servie depuis le cache local (préchargée à
+/// l'ouverture — plus de réseau ici).
 class _CardFace extends StatelessWidget {
-  const _CardFace({required this.url, required this.type});
-  final String url;
+  const _CardFace({required this.file, required this.type});
+  final File file;
   final CardType type;
 
   @override
   Widget build(BuildContext context) {
     return _FaceFrame(
       type: type,
-      child: Image.network(
-        url,
+      child: Image.file(
+        file,
         fit: BoxFit.contain,
-        loadingBuilder: (context, child, progress) {
-          if (progress == null) return child;
-          return AspectRatio(
-            aspectRatio: 3 / 4,
-            child: Center(
-              child: CircularProgressIndicator(
-                value: progress.expectedTotalBytes == null
-                    ? null
-                    : progress.cumulativeBytesLoaded /
-                          progress.expectedTotalBytes!,
-              ),
-            ),
-          );
-        },
         errorBuilder: (context, error, stack) => const AspectRatio(
           aspectRatio: 3 / 4,
           child: Center(
@@ -648,14 +685,14 @@ class _CardFace extends StatelessWidget {
 /// contrôlable uniquement si le créateur l'a permis (consigne Jay).
 class _VideoFace extends StatefulWidget {
   const _VideoFace({
-    required this.url,
+    required this.file,
     required this.type,
     required this.active,
     required this.allowScrub,
     required this.loop,
     this.onCompleted,
   });
-  final String url;
+  final File file;
   final CardType type;
 
   /// La face est posée à l'écran : la vidéo joue ; sinon elle est en pause.
@@ -669,8 +706,9 @@ class _VideoFace extends StatefulWidget {
 }
 
 class _VideoFaceState extends State<_VideoFace> {
-  late final VideoPlayerController _controller =
-      VideoPlayerController.networkUrl(Uri.parse(widget.url));
+  late final VideoPlayerController _controller = VideoPlayerController.file(
+    widget.file,
+  );
   var _completedFired = false;
 
   @override

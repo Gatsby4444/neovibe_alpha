@@ -8,6 +8,7 @@ import '../../core/supabase_providers.dart';
 import '../cards/saved_items_screen.dart';
 import '../connections/connections_repository.dart';
 import '../library/library_repository.dart';
+import 'storage_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -67,6 +68,14 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => const SavedItemsScreen())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.storage),
+            title: const Text('Stockage des Cards'),
+            subtitle: const Text('Copies locales, cache et espace alloué'),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const StorageScreen())),
           ),
           const Divider(),
           const _Header('Ma bibliothèque'),

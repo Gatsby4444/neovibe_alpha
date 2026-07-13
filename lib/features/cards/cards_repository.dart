@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/models/card.dart';
+import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
+import 'card_media_cache.dart';
 
 /// Cards reçues (livraisons non détruites), temps réel.
 final receivedDeliveriesProvider = StreamProvider<List<CardDelivery>>((ref) {
@@ -120,7 +122,29 @@ class CardsRepository {
         })
         .select()
         .single();
-    return CardModel.fromJson(row);
+    final card = CardModel.fromJson(row);
+
+    // Copie locale immédiate de MES faces : plus jamais de téléchargement
+    // serveur pour rouvrir mes propres cards (consigne Jay 2026-07-13).
+    final cache = ref.read(cardMediaCacheProvider);
+    final quota = ref.read(ownCardsQuotaMbProvider);
+    await cache.storeOwnFace(
+      card.id,
+      front,
+      front: true,
+      isVideo: frontIsVideo,
+      quotaMb: quota,
+    );
+    if (back != null) {
+      await cache.storeOwnFace(
+        card.id,
+        back,
+        front: false,
+        isVideo: backIsVideo,
+        quotaMb: quota,
+      );
+    }
+    return card;
   }
 
   /// Envoie une Card à des destinataires : livraison + message par conversation.

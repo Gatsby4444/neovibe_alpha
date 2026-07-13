@@ -109,3 +109,33 @@ class CardsExplainerShown extends Notifier<bool> {
 final cardsExplainerShownProvider = NotifierProvider<CardsExplainerShown, bool>(
   CardsExplainerShown.new,
 );
+
+/// Espace local alloué à MES cards, en Mo (consigne Jay 2026-07-13 :
+/// paramétrable par l'utilisateur ; au-delà, les plus anciennes repassent
+/// en cloud). Défaut : 2 Go.
+class OwnCardsQuotaMb extends Notifier<int> {
+  static const prefsKey = 'own_cards_quota_mb';
+  static const _key = prefsKey;
+  static const choices = [512, 1024, 2048, 4096, 8192];
+
+  @override
+  int build() {
+    _load();
+    return 2048;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getInt(_key) ?? 2048;
+  }
+
+  Future<void> set(int value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_key, value);
+  }
+}
+
+final ownCardsQuotaMbProvider = NotifierProvider<OwnCardsQuotaMb, int>(
+  OwnCardsQuotaMb.new,
+);
