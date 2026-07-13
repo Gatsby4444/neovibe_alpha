@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
-import 'package:camera/camera.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +14,7 @@ import '../../core/models/card.dart';
 import 'card_send_screen.dart';
 import 'face_editor_screen.dart';
 import 'gallery_import_screen.dart';
+import 'native_camera.dart';
 
 /// Flux de création d'une Card.
 /// Le TYPE se choisit AVANT la première photo, dans un sélecteur horizontal
@@ -37,12 +37,20 @@ class CardCaptureScreen extends ConsumerStatefulWidget {
 }
 
 class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
-  CameraController? _controller;
+  /// Couche caméra NATIVE (CameraX) — remplace le plugin `camera`
+  /// (chantier validé par Jay 2026-07-13).
+  final _camera = NativeCameraController();
 
-  /// Info Oneshot déjà montrée (une fois par ouverture de l'écran).
+  /// L'appareil accepte-t-il deux caméras simultanées (Oneshot) ?
+  var _dualSupported = false;
+
+  /// Double flux Oneshot : la vignette PiP montre la frontale par défaut ;
+  /// taper la vignette échange les vues (consigne Jay v0.5.0).
+  var _pipSwapped = false;
+
+  /// Info Oneshot (vue simple de secours) déjà montrée.
   var _oneshotNoticeShown = false;
 
-  List<CameraDescription> _cameras = [];
   File? _front; // recto = caméra arrière (ce que je vois)
   File? _back; // verso = caméra avant (ma réaction) — null en Mono
   var _frontImported = false; // face issue de la galerie
@@ -95,6 +103,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   @override
   void initState() {
     super.initState();
+    _camera.addListener(_onCameraChanged);
     _init();
     if (widget.bereal) {
       _berealTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -113,6 +122,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
+  void _onCameraChanged() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _init() async {
     final status = await Permission.camera.request();
     if (!status.isGranted) {
@@ -122,93 +135,101 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // Micro pour le son des vidéos ; refusé = vidéos muettes, pas bloquant.
     _micGranted = (await Permission.microphone.request()).isGranted;
     try {
-      _cameras = await availableCameras();
-      await _useCamera(CameraLensDirection.back);
+      _dualSupported = await NativeCameraController.concurrentSupported();
+      await _camera.open(back: true, audio: _micGranted);
     } catch (e) {
       setState(() => _error = 'Caméra indisponible : $e');
     }
   }
 
-  /// Bascule de caméra : on libère TOUJOURS l'ancien contrôleur avant d'en
-  /// ouvrir un nouveau — deux contrôleurs ouverts en même temps provoquent
-  /// l'écran noir sur la caméra frontale (bug remonté par Jay). Le double
-  /// flux Oneshot est l'exception assumée : il est TENTÉ, et on retombe sur
-  /// la vue simple si l'appareil refuse.
-  Future<void> _useCamera(CameraLensDirection direction) async {
-    setState(() => _switching = true);
-    final previous = _controller;
-    _controller = null;
-    if (mounted) setState(() {});
-    await previous?.dispose();
+  bool get _previewReady =>
+      (_camera.dualActive && _camera.previews.containsKey('dualBack')) ||
+      (_camera.textureId != null && _camera.previews.containsKey('main'));
 
-    final camera = _cameras.firstWhere(
-      (c) => c.lensDirection == direction,
-      orElse: () => _cameras.first,
-    );
-    final controller = CameraController(
-      camera,
-      ResolutionPreset.high,
-      enableAudio: _micGranted,
-    );
-    await controller.initialize();
-    // Sécurité supplémentaire demandée par Jay : la prise est TOUJOURS
-    // verticale, même si le verrou d'orientation de l'app était contourné.
-    await controller.lockCaptureOrientation(DeviceOrientation.portraitUp);
-    if (!mounted) {
-      controller.dispose();
-      return;
+  /// Passe (ou reste) sur la caméra [back]. La couche native rebinde le
+  /// même flux : pas de destruction/re-création de contrôleur.
+  Future<void> _ensureLens({required bool back}) async {
+    if (_camera.dualActive || _camera.lensBack == back) return;
+    setState(() => _switching = true);
+    try {
+      await _camera.switchLens();
+    } finally {
+      if (mounted) setState(() => _switching = false);
     }
-    setState(() {
-      _controller = controller;
-      _switching = false;
-    });
   }
 
   /// Changement de type dans le sélecteur.
-  /// Le double flux caméra a été testé et RETIRÉ (retour Jay 2026-07-12,
-  /// v0.5.0) : ouvrir une seconde caméra gèle silencieusement le premier
-  /// flux sur Android (l'init « réussit », donc aucun échec détectable) et
-  /// le gel persistait sur les autres modes. Oneshot = vue simple + bouton
-  /// de bascule d'aperçu (le fallback validé par Jay), avec info affichée
-  /// une fois. Ne pas retenter deux contrôleurs simultanés sans changement
-  /// de plugin caméra.
-  void _onTypeChanged(CardType type) {
+  /// Oneshot : le DOUBLE FLUX natif est tenté (chantier caméra 2026-07-13) ;
+  /// si l'appareil refuse (matériel sans concurrent-camera), on retombe sur
+  /// la vue simple + bouton de bascule (fallback validé par Jay en v0.5.1).
+  Future<void> _onTypeChanged(CardType type) async {
     final previous = _type;
     setState(() => _type = type);
-    if (type == CardType.oneshot && !_oneshotNoticeShown) {
-      _oneshotNoticeShown = true;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Une seule caméra s\'affiche à la fois sur cet appareil — '
-            'bascule l\'aperçu avec le bouton, le déclenché prend '
-            'toujours les deux faces.',
-          ),
-        ),
-      );
-    }
-    // En quittant Mono ou Oneshot, le recto redevient caméra arrière.
-    if (type != CardType.mono &&
-        type != CardType.oneshot &&
+    if (type == CardType.oneshot) {
+      await _tryOpenDual();
+    } else if (previous == CardType.oneshot && _camera.dualActive) {
+      // Sortie du Oneshot : retour au flux simple, caméra arrière.
+      await _camera.open(back: true, audio: _micGranted);
+    } else if (type != CardType.mono &&
         (previous == CardType.mono || previous == CardType.oneshot) &&
-        _controller?.description.lensDirection == CameraLensDirection.front) {
-      _useCamera(CameraLensDirection.back);
+        !_camera.lensBack) {
+      // En quittant Mono ou Oneshot, le recto redevient caméra arrière.
+      await _ensureLens(back: true);
     }
   }
 
-  /// Bascule avant/arrière : Mono (double-tap sur l'aperçu OU bouton — les
-  /// deux, consigne Jay) et Oneshot (bouton de bascule d'aperçu ; l'ordre de
-  /// capture reste arrière puis avant). Pas de bascule pendant une vidéo
-  /// (limitation plugin : changer de caméra arrête l'enregistrement —
-  /// décision Jay 2026-07-12, à revoir avec le chantier plugin caméra).
-  Future<void> _toggleLens() async {
-    if (_busy || _switching || _recording || _controller == null) return;
-    final current = _controller!.description.lensDirection;
-    await _useCamera(
-      current == CameraLensDirection.back
-          ? CameraLensDirection.front
-          : CameraLensDirection.back,
+  Future<void> _tryOpenDual() async {
+    if (!_dualSupported) {
+      _showOneshotFallbackNotice();
+      return;
+    }
+    try {
+      await _camera.openDual();
+      _pipSwapped = false;
+      if (mounted) setState(() {});
+    } on DualUnsupportedException {
+      _dualSupported = false;
+      _showOneshotFallbackNotice();
+      // Le bind concurrent a pu débrancher le flux simple : on le rouvre.
+      await _camera.open(back: !_camera.dualActive, audio: _micGranted);
+    }
+  }
+
+  void _showOneshotFallbackNotice() {
+    if (_oneshotNoticeShown || !mounted) return;
+    _oneshotNoticeShown = true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Ton appareil n\'affiche qu\'une caméra à la fois — bascule '
+          'l\'aperçu avec le bouton, le déclenché prend toujours les '
+          'deux faces.',
+        ),
+      ),
     );
+  }
+
+  /// Bascule avant/arrière : Mono (double-tap OU bouton, y compris PENDANT
+  /// une vidéo — l'enregistrement persistant natif survit à la bascule,
+  /// comme Snapchat) et Oneshot en vue simple de secours.
+  Future<void> _toggleLens() async {
+    if (_busy || _switching || _camera.dualActive) return;
+    // Pendant une vidéo : bascule autorisée UNIQUEMENT en Mono (consigne).
+    if (_recording && _type != CardType.mono) return;
+    if (_recording && !_videoStarted) return; // démarrage caméra en cours
+    setState(() => _switching = true);
+    try {
+      await _camera.switchLens();
+      if (_recording) HapticFeedback.selectionClick();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Bascule impossible : $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _switching = false);
+    }
   }
 
   /// Recadre un cliché au cadre 9:16 centré (celui montré à l'aperçu) et le
@@ -251,24 +272,20 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     return file;
   }
 
-  /// Démarre l'enregistrement vidéo (appui maintenu ~300 ms sur le
-  /// déclencheur — la « pression forte » n'est pas détectable sur Android,
-  /// équivalence validée par Jay).
+  /// Démarre l'enregistrement vidéo (appui maintenu sur le déclencheur).
+  /// Oneshot en double flux : les DEUX caméras filment en même temps
+  /// (chantier caméra native — priorité 1 de Jay) ; en vue simple de
+  /// secours, le Oneshot reste photo uniquement.
   Future<void> _startVideo() async {
-    final controller = _controller;
-    if (controller == null ||
-        !controller.value.isInitialized ||
-        _busy ||
-        _switching ||
-        _recording) {
-      return;
-    }
-    if (_type == CardType.oneshot) {
-      // Oneshot : photo uniquement pour l'instant (décision Jay — la vidéo
-      // double simultanée attendra le chantier plugin caméra).
+    if (!_previewReady || _busy || _switching || _recording) return;
+    final dualVideo = _type == CardType.oneshot && _camera.dualActive;
+    if (_type == CardType.oneshot && !dualVideo) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Oneshot : photo uniquement pour l\'instant.'),
+          content: Text(
+            'Oneshot : photo uniquement sur cet appareil (pas de double '
+            'flux vidéo).',
+          ),
         ),
       );
       return;
@@ -283,7 +300,24 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       _recordSeconds = 0;
     });
     try {
-      await controller.startVideoRecording();
+      if (dualVideo) {
+        await _camera.startDualVideo(audio: _micGranted);
+      } else {
+        await _camera.startVideo(audio: _micGranted);
+      }
+    } on DualUnsupportedException {
+      // Le matériel accepte deux préviews mais pas deux vidéos : photo seule.
+      _dualSupported = false;
+      if (mounted) {
+        setState(() => _recording = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Oneshot vidéo non supporté — photo uniquement.'),
+          ),
+        );
+      }
+      await _tryOpenDual();
+      return;
     } catch (e) {
       if (mounted) {
         setState(() => _recording = false);
@@ -311,6 +345,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // Tant que la caméra n'enregistre pas réellement, on ne peut pas
     // l'arrêter — le relâchement précoce est géré en fin de _startVideo.
     if (!_recording || !_videoStarted) return;
+    final dualVideo = _type == CardType.oneshot && _camera.dualActive;
     _recordTimer?.cancel();
     HapticFeedback.selectionClick();
     setState(() {
@@ -320,8 +355,24 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       _busy = true;
     });
     try {
-      final shot = await _controller!.stopVideoRecording();
-      await _applyFace(File(shot.path), imported: false, isVideo: true);
+      if (dualVideo) {
+        // Arrière = recto, avant = verso (ordre inchangé, consigne Jay).
+        final shots = await _camera.stopDualVideo();
+        _front = shots.back;
+        _frontIsVideo = true;
+        _frontImported = false;
+        _back = shots.front;
+        _backIsVideo = true;
+        _backImported = false;
+        _berealTimer?.cancel();
+        // Le double flux vidéo a débranché les ImageCapture : on remet le
+        // double flux photo pour un éventuel retour à la prise.
+        await _tryOpenDual();
+        if (mounted) setState(() => _step = 2);
+      } else {
+        final shot = await _camera.stopVideo();
+        await _applyFace(shot, imported: false, isVideo: true);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -369,47 +420,44 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   }
 
   Future<void> _capture() async {
-    final controller = _controller;
-    if (controller == null ||
-        !controller.value.isInitialized ||
-        _busy ||
-        _recording) {
-      return;
-    }
+    if (!_previewReady || _busy || _recording) return;
     setState(() => _busy = true);
     try {
       if (_type == CardType.mono) {
         // Mono : une seule face, celle de la caméra active — comme un snap.
-        final shot = await controller.takePicture();
-        _front = await _cropTo916(File(shot.path));
+        final shot = await _camera.takePicture();
+        _front = await _cropTo916(shot);
         _back = null;
         setState(() => _step = 2);
         return;
       }
       if (_type == CardType.oneshot && _step == 0) {
-        // Oneshot : les deux faces en un seul déclenché. L'ordre reste
-        // arrière puis avant, même si l'utilisateur regardait la frontale.
-        if (controller.description.lensDirection != CameraLensDirection.back) {
-          await _useCamera(CameraLensDirection.back);
-          // Courte stabilisation après la bascule
+        if (_camera.dualActive) {
+          // Double flux natif : les deux clichés au MÊME instant.
+          final shots = await _camera.takeDualPictures();
+          _front = await _cropTo916(shots.back);
+          _back = await _cropTo916(shots.front);
+        } else {
+          // Vue simple de secours : arrière puis avant, comme avant.
+          await _ensureLens(back: true);
           await Future<void>.delayed(const Duration(milliseconds: 250));
+          final backShot = await _camera.takePicture();
+          await _ensureLens(back: false);
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+          final frontShot = await _camera.takePicture();
+          _front = await _cropTo916(backShot);
+          _back = await _cropTo916(frontShot);
         }
-        final backShot = await _controller!.takePicture();
-        await _useCamera(CameraLensDirection.front);
-        await Future<void>.delayed(const Duration(milliseconds: 250));
-        final frontShot = await _controller!.takePicture();
-        _front = await _cropTo916(File(backShot.path));
-        _back = await _cropTo916(File(frontShot.path));
         _berealTimer?.cancel();
         setState(() => _step = 2);
         return;
       }
-      final shot = await controller.takePicture();
-      final cropped = await _cropTo916(File(shot.path));
+      final shot = await _camera.takePicture();
+      final cropped = await _cropTo916(shot);
       if (_step == 0) {
         _front = cropped;
         setState(() => _step = 1);
-        await _useCamera(CameraLensDirection.front);
+        await _ensureLens(back: false);
       } else {
         _back = cropped;
         _berealTimer?.cancel();
@@ -452,7 +500,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       _frontImported = imported;
       _frontIsVideo = isVideo;
       setState(() => _step = 1);
-      await _useCamera(CameraLensDirection.front);
+      await _ensureLens(back: false);
     }
   }
 
@@ -536,57 +584,57 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     _berealTimer?.cancel();
     _recordTimer?.cancel();
     _typeController.dispose();
-    _controller?.dispose();
+    _camera.removeListener(_onCameraChanged);
+    _camera.dispose();
     super.dispose();
   }
 
-  /// Aperçu d'un flux caméra SANS distorsion : recadrage « cover » dans le
-  /// cadre fourni par le parent (le capteur est plus large que 9:16, on
-  /// centre et on coupe — jamais d'étirement).
-  static Widget _coverPreview(CameraController controller) {
-    final size = controller.value.previewSize;
-    if (size == null) return CameraPreview(controller);
-    return ClipRect(
-      child: FittedBox(
-        fit: BoxFit.cover,
-        clipBehavior: Clip.hardEdge,
-        // En portrait, le capteur livre une preview paysage : on inverse.
-        child: SizedBox(
-          width: size.height,
-          height: size.width,
-          child: CameraPreview(controller),
-        ),
-      ),
+  /// Aperçu d'un flux natif (clé de préview + texture), recadré « cover »
+  /// dans le cadre du parent — jamais d'étirement (fix distorsion conservé).
+  Widget _nativePreview(String key, int? textureId, {required bool mirror}) {
+    if (textureId == null) {
+      return const ColoredBox(
+        color: Colors.black,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return NativeCameraPreview(
+      textureId: textureId,
+      info: _camera.previews[key],
+      mirror: mirror,
     );
   }
 
-  /// Cadre 9:16 : aperçu principal, bascule animée entre caméras.
+  /// Cadre 9:16 : aperçu principal — flux simple (bascule animée entre
+  /// caméras) ou DOUBLE FLUX Oneshot (vignette PiP 9:16 en haut à droite,
+  /// frontale par défaut, tap sur la vignette = échange des vues).
   Widget _previewFrame() {
-    final controller = _controller;
-    final ready = controller != null && controller.value.isInitialized;
+    if (_camera.dualActive && _type == CardType.oneshot) {
+      return _dualPreviewFrame();
+    }
 
-    Widget main = !ready
-        ? const ColoredBox(
-            color: Colors.black,
-            child: Center(child: CircularProgressIndicator()),
-          )
-        : AnimatedSwitcher(
-            duration: const Duration(milliseconds: 260),
-            transitionBuilder: (child, animation) => SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0.12, -0.08),
-                end: Offset.zero,
-              ).animate(animation),
-              child: FadeTransition(opacity: animation, child: child),
-            ),
-            child: KeyedSubtree(
-              key: ValueKey(controller.description.name),
-              child: _coverPreview(controller),
-            ),
-          );
+    Widget main = AnimatedSwitcher(
+      duration: const Duration(milliseconds: 260),
+      transitionBuilder: (child, animation) => SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(0.12, -0.08),
+          end: Offset.zero,
+        ).animate(animation),
+        child: FadeTransition(opacity: animation, child: child),
+      ),
+      child: KeyedSubtree(
+        key: ValueKey(_camera.lensBack),
+        child: _nativePreview(
+          'main',
+          _camera.textureId,
+          mirror: !_camera.lensBack,
+        ),
+      ),
+    );
 
     if (_type == CardType.mono) {
-      // Mono : double-tap = bascule caméra (comme Snapchat, consigne Jay).
+      // Mono : double-tap = bascule caméra (comme Snapchat, consigne Jay) —
+      // y compris pendant une vidéo (enregistrement persistant natif).
       main = GestureDetector(onDoubleTap: _toggleLens, child: main);
     }
 
@@ -594,6 +642,90 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       child: AspectRatio(
         aspectRatio: 9 / 16,
         child: ClipRRect(borderRadius: BorderRadius.circular(18), child: main),
+      ),
+    );
+  }
+
+  /// Double prévisualisation Oneshot (consigne Jay v0.5.0, enfin possible
+  /// avec la couche native) : arrière en grand, frontale en vignette PiP
+  /// 9:16 (~22 % de la largeur) en haut à droite ; taper la vignette
+  /// échange les vues. La CAPTURE reste arrière = recto, avant = verso,
+  /// quel que soit l'agencement.
+  Widget _dualPreviewFrame() {
+    final mainIsBack = !_pipSwapped;
+    final mainView = _nativePreview(
+      mainIsBack ? 'dualBack' : 'dualFront',
+      mainIsBack ? _camera.dualBackTextureId : _camera.dualFrontTextureId,
+      mirror: !mainIsBack,
+    );
+    final pipView = _nativePreview(
+      mainIsBack ? 'dualFront' : 'dualBack',
+      mainIsBack ? _camera.dualFrontTextureId : _camera.dualBackTextureId,
+      mirror: mainIsBack,
+    );
+
+    return Center(
+      child: AspectRatio(
+        aspectRatio: 9 / 16,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final pipWidth = constraints.maxWidth * 0.22;
+              return Stack(
+                children: [
+                  Positioned.fill(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 220),
+                      transitionBuilder: (child, animation) =>
+                          FadeTransition(opacity: animation, child: child),
+                      child: KeyedSubtree(
+                        key: ValueKey('main-$mainIsBack'),
+                        child: mainView,
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 12,
+                    right: 12,
+                    width: pipWidth,
+                    height: pipWidth * 16 / 9,
+                    child: GestureDetector(
+                      onTap: () => setState(() => _pipSwapped = !_pipSwapped),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(10),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.white38),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 220),
+                            transitionBuilder: (child, animation) =>
+                                SlideTransition(
+                                  position: Tween<Offset>(
+                                    begin: const Offset(0.3, -0.3),
+                                    end: Offset.zero,
+                                  ).animate(animation),
+                                  child: FadeTransition(
+                                    opacity: animation,
+                                    child: child,
+                                  ),
+                                ),
+                            child: KeyedSubtree(
+                              key: ValueKey('pip-$mainIsBack'),
+                              child: pipView,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }
@@ -621,12 +753,16 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     final shutterColor = _type == CardType.standard
         ? Colors.white
         : _type.color;
-    // Bouton de bascule caméra : Mono (en plus du double-tap) et Oneshot
-    // (bascule de l'aperçu — le déclenché prend toujours les deux faces).
-    // Masqué pendant un enregistrement (bascule = arrêt, limitation plugin).
+    // Bouton de bascule caméra : Mono (en plus du double-tap, y compris
+    // PENDANT une vidéo — la couche native maintient l'enregistrement à
+    // travers la bascule, comme Snapchat) et Oneshot en vue simple de
+    // secours (bascule de l'aperçu, jamais pendant un enregistrement).
     final showLensToggle =
-        !_recording &&
-        (_type == CardType.mono || (_type == CardType.oneshot && _step == 0));
+        _type == CardType.mono ||
+        (_type == CardType.oneshot &&
+            _step == 0 &&
+            !_camera.dualActive &&
+            !_recording);
 
     return Scaffold(
       backgroundColor: Colors.black,

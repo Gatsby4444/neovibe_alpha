@@ -15,8 +15,8 @@ dependencies:
   flutter_riverpod: ^3.0.0
   supabase_flutter: ^2.10.0
 
-  # Capture & médias
-  camera: ^0.11.0
+  # Capture & médias — la caméra est NATIVE (NativeCamera.kt + platform
+  # channel), le plugin `camera` a été remplacé (chantier Jay 2026-07-13)
   image_picker: ^1.1.0
   video_player: ^2.9.0
 

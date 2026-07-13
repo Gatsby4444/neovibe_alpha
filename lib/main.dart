@@ -11,6 +11,7 @@ import 'core/notifications/notification_service.dart';
 import 'core/prefs.dart';
 import 'features/cards/card_capture_screen.dart';
 import 'features/cards/card_media_cache.dart';
+import 'features/cards/native_camera.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,11 +55,14 @@ Future<void> main() async {
   );
 
   // Balayage du cache des cards au démarrage (TTL + plafonds), sans
-  // bloquer le lancement.
-  SharedPreferences.getInstance().then(
-    (prefs) =>
-        CardMediaCache().sweep(prefs.getInt(OwnCardsQuotaMb.prefsKey) ?? 2048),
-  );
+  // bloquer le lancement — et anti-capture FLAG_SECURE (actif par défaut,
+  // désactivable via l'option développeur des Réglages).
+  SharedPreferences.getInstance().then((prefs) {
+    CardMediaCache().sweep(prefs.getInt(OwnCardsQuotaMb.prefsKey) ?? 2048);
+    NativeCameraController.setSecure(
+      !(prefs.getBool(DevSecureDisabled.prefsKey) ?? false),
+    );
+  });
 
   runApp(const ProviderScope(child: NeoVibeApp()));
 }

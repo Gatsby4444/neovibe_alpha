@@ -5,6 +5,7 @@ import '../../core/models/profile.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
+import '../cards/native_camera.dart';
 import '../cards/saved_items_screen.dart';
 import '../connections/connections_repository.dart';
 import '../library/library_repository.dart';
@@ -103,6 +104,19 @@ class SettingsScreen extends ConsumerWidget {
             const _AccessListEditor(),
           const Divider(),
           const _Header('Développeur (mode test — sera retiré)'),
+          SwitchListTile(
+            dense: true,
+            title: const Text('Autoriser les captures d\'écran'),
+            subtitle: const Text(
+              'Désactive l\'anti-capture (FLAG_SECURE) le temps du dev — '
+              'screenshots et partage d\'écran redeviennent possibles.',
+            ),
+            value: ref.watch(devSecureDisabledProvider),
+            onChanged: (v) async {
+              await ref.read(devSecureDisabledProvider.notifier).set(v);
+              await NativeCameraController.setSecure(!v);
+            },
+          ),
           const _DevBerealSection(),
           const Divider(),
           ListTile(

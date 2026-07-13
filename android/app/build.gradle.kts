@@ -44,6 +44,15 @@ kotlin {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+
+    // Couche caméra native NeoVibe (CameraX) — double flux Oneshot, bascule
+    // en cours de vidéo (enregistrement persistant), FLAG_SECURE.
+    val cameraxVersion = "1.4.2"
+    implementation("androidx.camera:camera-core:$cameraxVersion")
+    implementation("androidx.camera:camera-camera2:$cameraxVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
+    implementation("androidx.camera:camera-video:$cameraxVersion")
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
 }
 
 flutter {

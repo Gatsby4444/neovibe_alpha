@@ -139,3 +139,32 @@ class OwnCardsQuotaMb extends Notifier<int> {
 final ownCardsQuotaMbProvider = NotifierProvider<OwnCardsQuotaMb, int>(
   OwnCardsQuotaMb.new,
 );
+
+/// Anti-capture : FLAG_SECURE est ACTIF par défaut (screenshots bloqués,
+/// écran noir en partage d'écran). Cette option DÉVELOPPEUR le désactive
+/// pour permettre les captures pendant le dev (consigne Jay 2026-07-13) —
+/// à retirer avec la section Développeur.
+class DevSecureDisabled extends Notifier<bool> {
+  static const prefsKey = 'dev_secure_disabled';
+
+  @override
+  bool build() {
+    _load();
+    return false;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(prefsKey) ?? false;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefsKey, value);
+  }
+}
+
+final devSecureDisabledProvider = NotifierProvider<DevSecureDisabled, bool>(
+  DevSecureDisabled.new,
+);
