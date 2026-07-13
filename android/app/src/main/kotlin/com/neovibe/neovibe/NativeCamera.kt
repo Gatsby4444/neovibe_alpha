@@ -59,7 +59,12 @@ class NativeCamera(
     private var provider: ProcessCameraProvider? = null
 
     // --- Mode simple -----------------------------------------------------
-    private var entry: TextureRegistry.SurfaceTextureEntry? = null
+    // SurfaceProducer (et NON SurfaceTextureEntry) : c'est l'API que le
+    // plugin caméra officiel utilise depuis Flutter 3.22 — la variante
+    // SurfaceTexture laisse Flutter appliquer une matrice de transformation
+    // périmée, ce qui étire et fait pivoter l'aperçu (bug remonté par Jay
+    // sur la v0.7.0). SurfaceProducer.setSize règle le buffer proprement.
+    private var entry: TextureRegistry.SurfaceProducer? = null
     private var preview: Preview? = null
     private var imageCapture: ImageCapture? = null
     private var videoCapture: VideoCapture<Recorder>? = null
@@ -69,8 +74,8 @@ class NativeCamera(
     private var lensBack = true
 
     // --- Mode double (Oneshot) -------------------------------------------
-    private var dualBackEntry: TextureRegistry.SurfaceTextureEntry? = null
-    private var dualFrontEntry: TextureRegistry.SurfaceTextureEntry? = null
+    private var dualBackEntry: TextureRegistry.SurfaceProducer? = null
+    private var dualFrontEntry: TextureRegistry.SurfaceProducer? = null
     private var dualBackImage: ImageCapture? = null
     private var dualFrontImage: ImageCapture? = null
     private var dualBackVideo: VideoCapture<Recorder>? = null
@@ -173,13 +178,16 @@ class NativeCamera(
      * Dart de la taille + rotation à appliquer à l'affichage.
      */
     private fun surfaceProvider(
-        entry: TextureRegistry.SurfaceTextureEntry,
+        producer: TextureRegistry.SurfaceProducer,
         key: String,
     ): Preview.SurfaceProvider = Preview.SurfaceProvider { request ->
-        val texture = entry.surfaceTexture()
-        texture.setDefaultBufferSize(request.resolution.width, request.resolution.height)
-        val surface = Surface(texture)
-        request.provideSurface(surface, mainExecutor) { surface.release() }
+        // setSize AVANT getSurface : Flutter dimensionne la texture sur le
+        // buffer réel de la caméra (plus d'étirement).
+        producer.setSize(request.resolution.width, request.resolution.height)
+        val surface = producer.surface
+        // La Surface appartient au producer : ne pas la libérer ici, sinon
+        // l'aperçu meurt au premier rebind (bascule de caméra).
+        request.provideSurface(surface, mainExecutor) { }
         request.setTransformationInfoListener(mainExecutor) { info ->
             channel.invokeMethod(
                 "previewInfo",
@@ -199,7 +207,7 @@ class NativeCamera(
 
     private fun openSingle(p: ProcessCameraProvider, audio: Boolean) {
         closeDual(p)
-        entry = entry ?: textureRegistry.createSurfaceTexture()
+        entry = entry ?: textureRegistry.createSurfaceProducer()
         preview = Preview.Builder().build().also {
             it.setSurfaceProvider(surfaceProvider(entry!!, "main"))
         }
@@ -297,16 +305,18 @@ class NativeCamera(
     // Mode double simultané (Oneshot)
     // ------------------------------------------------------------------
 
+    /**
+     * On TENTE toujours le bind concurrent, même si `availableConcurrentCameraInfos`
+     * est vide : cette liste est un faux négatif fréquent (des appareils
+     * capables la renvoient vide). Seul l'échec réel du bind fait basculer
+     * en vue simple — sinon on privait Jay du double flux sans raison.
+     */
     private fun openDual(p: ProcessCameraProvider, result: MethodChannel.Result) {
-        if (p.availableConcurrentCameraInfos.isEmpty()) {
-            result.error("DUAL_UNSUPPORTED", "Pas de double flux sur cet appareil", null)
-            return
-        }
         try {
             p.unbindAll()
             recording = null
-            dualBackEntry = dualBackEntry ?: textureRegistry.createSurfaceTexture()
-            dualFrontEntry = dualFrontEntry ?: textureRegistry.createSurfaceTexture()
+            dualBackEntry = dualBackEntry ?: textureRegistry.createSurfaceProducer()
+            dualFrontEntry = dualFrontEntry ?: textureRegistry.createSurfaceProducer()
             val backPreview = Preview.Builder().build().also {
                 it.setSurfaceProvider(surfaceProvider(dualBackEntry!!, "dualBack"))
             }

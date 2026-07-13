@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -41,14 +42,20 @@ final conversationsProvider = FutureProvider<List<Conversation>>((ref) async {
   return result;
 });
 
-/// Messages d'une conversation, temps réel, filtrés des expirés côté client
-/// (la RLS et la purge cron les retirent aussi côté serveur).
+/// Messages d'une conversation, temps réel, filtrés des expirés côté client.
+///
+/// Le filtre des expirés est REJOUÉ toutes les 10 s : sur le seul flux
+/// Supabase, il ne s'appliquait qu'à l'arrivée d'un nouvel événement — un
+/// message atteignant ses 24 h restait donc affiché tant que personne
+/// n'écrivait (disparition « buggée » remontée par Jay le 2026-07-13).
+/// Côté serveur, la RLS le rend déjà invisible dès `expires_at` et la purge
+/// cron le supprime physiquement dans les 5 minutes.
 final messagesStreamProvider = StreamProvider.family<List<Message>, String>((
   ref,
   conversationId,
 ) {
   final client = ref.watch(supabaseProvider);
-  return client
+  final source = client
       .from('messages')
       .stream(primaryKey: ['id'])
       .eq('conversation_id', conversationId)
@@ -56,10 +63,27 @@ final messagesStreamProvider = StreamProvider.family<List<Message>, String>((
       // (l'inverse du REST) — c'est ce qui empilait les messages en haut
       // du chat (bug remonté par Jay, 2026-07-12).
       .order('created_at', ascending: true)
-      .map(
-        (rows) =>
-            rows.map(Message.fromJson).where((m) => !m.isExpired).toList(),
-      );
+      .map((rows) => rows.map(Message.fromJson).toList());
+
+  final controller = StreamController<List<Message>>();
+  var latest = <Message>[];
+  void emit() {
+    if (!controller.isClosed) {
+      controller.add(latest.where((m) => !m.isExpired).toList());
+    }
+  }
+
+  final sub = source.listen((rows) {
+    latest = rows;
+    emit();
+  }, onError: controller.addError);
+  final ticker = Timer.periodic(const Duration(seconds: 10), (_) => emit());
+  ref.onDispose(() {
+    sub.cancel();
+    ticker.cancel();
+    controller.close();
+  });
+  return controller.stream;
 });
 
 class ConversationsRepository {

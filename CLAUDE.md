@@ -23,6 +23,21 @@ Chaque décision produit ou technique doit être évaluée à l'aune de cette qu
 
 ---
 
+## Règle impérative : fichier de rappels
+
+Le fichier **`RAPPELS.md`** à la racine du repo est la mémoire longue de Jay.
+
+- **Tenir ce fichier à jour** : dès que Jay demande de « garder ça pour plus
+  tard », de « me le rappeler », ou dès qu'une limite/dette connue est
+  identifiée, l'y consigner (sujet, détail, date).
+- **Le ressortir au bon moment** : avant une release de production, ou quand
+  le chantier concerné revient sur la table, rappeler à Jay les entrées
+  pertinentes — sans attendre qu'il le demande.
+- Ne rien y supprimer sans validation explicite de Jay.
+- Le relire en début de session, avec les derniers rapports.
+
+---
+
 ## Stack
 
 - **Frontend** : Flutter/Dart (choisi pour perf caméra, cohérence cross-platform, écosystème BLE/WiFi Direct)

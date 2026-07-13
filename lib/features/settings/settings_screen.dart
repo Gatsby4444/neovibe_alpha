@@ -117,6 +117,16 @@ class SettingsScreen extends ConsumerWidget {
               await NativeCameraController.setSecure(!v);
             },
           ),
+          SwitchListTile(
+            dense: true,
+            title: const Text('Diagnostic caméra sur l\'aperçu'),
+            subtitle: const Text(
+              'Affiche résolution, rotation et état du double flux — pour '
+              'diagnostiquer un aperçu distordu.',
+            ),
+            value: ref.watch(devCameraHudProvider),
+            onChanged: (v) => ref.read(devCameraHudProvider.notifier).set(v),
+          ),
           const _DevBerealSection(),
           const Divider(),
           ListTile(

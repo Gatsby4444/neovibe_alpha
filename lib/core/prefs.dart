@@ -168,3 +168,32 @@ class DevSecureDisabled extends Notifier<bool> {
 final devSecureDisabledProvider = NotifierProvider<DevSecureDisabled, bool>(
   DevSecureDisabled.new,
 );
+
+/// Diagnostic caméra (DÉVELOPPEUR) : affiche sur l'aperçu la résolution du
+/// buffer, la rotation annoncée par CameraX et l'état du double flux — de
+/// quoi identifier une distorsion d'aperçu sans deviner. À retirer avec la
+/// section Développeur.
+class DevCameraHud extends Notifier<bool> {
+  static const prefsKey = 'dev_camera_hud';
+
+  @override
+  bool build() {
+    _load();
+    return false;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(prefsKey) ?? false;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefsKey, value);
+  }
+}
+
+final devCameraHudProvider = NotifierProvider<DevCameraHud, bool>(
+  DevCameraHud.new,
+);

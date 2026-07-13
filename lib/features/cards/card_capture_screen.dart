@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/models/card.dart';
+import '../../core/prefs.dart';
 import 'card_send_screen.dart';
 import 'face_editor_screen.dart';
 import 'gallery_import_screen.dart';
@@ -178,20 +179,21 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
+  /// Le double flux est TOUJOURS tenté (la liste des caméras concurrentes
+  /// renvoyée par Android est un faux négatif fréquent — v0.7.0 privait Jay
+  /// du double flux sans même essayer). Seul un échec réel du bind fait
+  /// basculer en vue simple.
   Future<void> _tryOpenDual() async {
-    if (!_dualSupported) {
-      _showOneshotFallbackNotice();
-      return;
-    }
     try {
       await _camera.openDual();
+      _dualSupported = true;
       _pipSwapped = false;
       if (mounted) setState(() {});
     } on DualUnsupportedException {
       _dualSupported = false;
       _showOneshotFallbackNotice();
-      // Le bind concurrent a pu débrancher le flux simple : on le rouvre.
-      await _camera.open(back: !_camera.dualActive, audio: _micGranted);
+      // Le bind concurrent a débranché le flux simple : on le rouvre.
+      await _camera.open(back: true, audio: _micGranted);
     }
   }
 
@@ -217,10 +219,13 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // Pendant une vidéo : bascule autorisée UNIQUEMENT en Mono (consigne).
     if (_recording && _type != CardType.mono) return;
     if (_recording && !_videoStarted) return; // démarrage caméra en cours
+    // La réouverture de la caméra prend quelques centaines de ms : haptique
+    // immédiate + voile flouté pendant la bascule, pour que l'attente se
+    // lise comme une transition et non comme un gel (retour Jay v0.7.0).
+    HapticFeedback.selectionClick();
     setState(() => _switching = true);
     try {
       await _camera.switchLens();
-      if (_recording) HapticFeedback.selectionClick();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -613,23 +618,26 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       return _dualPreviewFrame();
     }
 
-    Widget main = AnimatedSwitcher(
-      duration: const Duration(milliseconds: 260),
-      transitionBuilder: (child, animation) => SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(0.12, -0.08),
-          end: Offset.zero,
-        ).animate(animation),
-        child: FadeTransition(opacity: animation, child: child),
-      ),
-      child: KeyedSubtree(
-        key: ValueKey(_camera.lensBack),
-        child: _nativePreview(
-          'main',
-          _camera.textureId,
-          mirror: !_camera.lensBack,
+    // La texture reste la MÊME à travers la bascule (la couche native
+    // rebinde le flux dessus) : on ne recrée plus le widget Texture — c'est
+    // ce qui montrait un trou noir pendant la réouverture de la caméra.
+    // Pendant la bascule, un voile flouté couvre la dernière image.
+    Widget main = Stack(
+      fit: StackFit.expand,
+      children: [
+        _nativePreview('main', _camera.textureId, mirror: !_camera.lensBack),
+        AnimatedOpacity(
+          opacity: _switching ? 1 : 0,
+          duration: const Duration(milliseconds: 140),
+          curve: Curves.easeOut,
+          child: IgnorePointer(
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: const ColoredBox(color: Color(0x33000000)),
+            ),
+          ),
         ),
-      ),
+      ],
     );
 
     if (_type == CardType.mono) {
@@ -794,6 +802,16 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                       ],
                     ),
                   ),
+                ),
+              ),
+            if (ref.watch(devCameraHudProvider))
+              Positioned(
+                key: const ValueKey('hud'),
+                top: 60,
+                left: 12,
+                child: _CameraHud(
+                  camera: _camera,
+                  dualSupported: _dualSupported,
                 ),
               ),
             Positioned(
@@ -1084,6 +1102,57 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Diagnostic caméra (dev) : ce que la couche native annonce réellement à
+/// Flutter. Sert à trancher un bug d'aperçu (distorsion/rotation) sur chiffres
+/// plutôt qu'au jugé. Activable dans Réglages → Développeur.
+class _CameraHud extends StatelessWidget {
+  const _CameraHud({required this.camera, required this.dualSupported});
+  final NativeCameraController camera;
+  final bool dualSupported;
+
+  @override
+  Widget build(BuildContext context) {
+    String line(String key) {
+      final info = camera.previews[key];
+      if (info == null) return '$key : —';
+      return '$key : ${info.width}×${info.height} · rot ${info.rotationDegrees}°';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            camera.dualActive
+                ? 'DOUBLE FLUX actif'
+                : 'flux simple · ${camera.lensBack ? "arrière" : "avant"}',
+            style: const TextStyle(
+              color: Colors.amberAccent,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            'double flux possible : ${dualSupported ? "oui" : "non testé/non"}',
+            style: const TextStyle(color: Colors.white70, fontSize: 11),
+          ),
+          for (final key in ['main', 'dualBack', 'dualFront'])
+            Text(
+              line(key),
+              style: const TextStyle(color: Colors.white70, fontSize: 11),
+            ),
+        ],
       ),
     );
   }
