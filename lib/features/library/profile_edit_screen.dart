@@ -149,7 +149,7 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _bio,
-            maxLength: 300,
+            maxLength: 500,
             maxLines: 4,
             decoration: const InputDecoration(labelText: 'Biographie'),
           ),

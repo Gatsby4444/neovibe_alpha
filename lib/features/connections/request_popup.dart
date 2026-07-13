@@ -60,7 +60,7 @@ class _RequestDialog extends ConsumerWidget {
           ),
           if (sender?.tagName != null && sender!.tagName!.isNotEmpty)
             Text(
-              '« ${sender.tagName} »',
+              sender.tagName!,
               style: Theme.of(
                 context,
               ).textTheme.bodySmall?.copyWith(color: Colors.white54),

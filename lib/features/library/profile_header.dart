@@ -1,11 +1,14 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
 import '../cards/cards_repository.dart';
 
-/// En-tête de profil (consigne Jay 2026-07-12) : PP + username en haut,
-/// stats (amis / posts / cards 7 jours), bio, tag name.
+/// En-tête de profil (consigne Jay 2026-07-13) : PP à gauche avec les stats
+/// à sa droite, puis en dessous et alignés à gauche : username, tag name
+/// (typo distincte, sans guillemets ni mention), bio repliable (« voir
+/// plus » au-delà de 130 caractères).
 /// Réutilisé sur mon profil et sur celui d'une connexion ou d'un croisé.
 /// [onFriendsTap] : sur MON profil, le compteur d'amis ouvre la liste.
 class ProfileHeader extends ConsumerWidget {
@@ -20,18 +23,38 @@ class ProfileHeader extends ConsumerWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CircleAvatar(
-            radius: 44,
-            backgroundImage: profile.avatarUrl == null
-                ? null
-                : NetworkImage(profile.avatarUrl!),
-            child: profile.avatarUrl == null
-                ? Text(
-                    profile.displayName.characters.first.toUpperCase(),
-                    style: const TextStyle(fontSize: 30),
-                  )
-                : null,
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 44,
+                backgroundImage: profile.avatarUrl == null
+                    ? null
+                    : NetworkImage(profile.avatarUrl!),
+                child: profile.avatarUrl == null
+                    ? Text(
+                        profile.displayName.characters.first.toUpperCase(),
+                        style: const TextStyle(fontSize: 30),
+                      )
+                    : null,
+              ),
+              if (stats != null)
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _Stat(
+                        value: stats.friends,
+                        label: 'amis',
+                        onTap: onFriendsTap,
+                      ),
+                      _Stat(value: stats.posts, label: 'posts'),
+                      _Stat(value: stats.cardsWeek, label: 'cards / 7 j'),
+                    ],
+                  ),
+                ),
+            ],
           ),
           const SizedBox(height: 10),
           Text(
@@ -41,33 +64,82 @@ class ProfileHeader extends ConsumerWidget {
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
           if (profile.tagName != null && profile.tagName!.isNotEmpty)
-            Text(
-              '« ${profile.tagName} » en conversation',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: Colors.white54),
-            ),
-          const SizedBox(height: 14),
-          if (stats != null)
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _Stat(value: stats.friends, label: 'amis', onTap: onFriendsTap),
-                _Stat(value: stats.posts, label: 'posts'),
-                _Stat(value: stats.cardsWeek, label: 'cards / 7 j'),
-              ],
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                profile.tagName!,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Colors.white60,
+                  fontStyle: FontStyle.italic,
+                  letterSpacing: 0.6,
+                ),
+              ),
             ),
           if (profile.bio != null && profile.bio!.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.only(top: 12),
-              child: Text(
-                profile.bio!,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
+              padding: const EdgeInsets.only(top: 10),
+              child: _ExpandableBio(bio: profile.bio!),
             ),
         ],
       ),
+    );
+  }
+}
+
+/// Bio repliée au-delà de 130 caractères affichés : « voir plus » (même typo
+/// que la bio, plus blanc et lumineux) déplie le reste, « voir moins » à la
+/// fin replie.
+class _ExpandableBio extends StatefulWidget {
+  const _ExpandableBio({required this.bio});
+  final String bio;
+
+  static const foldLength = 130;
+
+  @override
+  State<_ExpandableBio> createState() => _ExpandableBioState();
+}
+
+class _ExpandableBioState extends State<_ExpandableBio> {
+  var _expanded = false;
+  late final TapGestureRecognizer _toggle = TapGestureRecognizer()
+    ..onTap = () => setState(() => _expanded = !_expanded);
+
+  @override
+  void dispose() {
+    _toggle.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final base = Theme.of(context).textTheme.bodyMedium;
+    final link = base?.copyWith(
+      color: Colors.white,
+      fontWeight: FontWeight.w600,
+      shadows: const [Shadow(color: Colors.white38, blurRadius: 8)],
+    );
+    if (widget.bio.length <= _ExpandableBio.foldLength) {
+      return Text(widget.bio, style: base);
+    }
+    return Text.rich(
+      _expanded
+          ? TextSpan(
+              style: base,
+              children: [
+                TextSpan(text: widget.bio),
+                TextSpan(text: ' voir moins', style: link, recognizer: _toggle),
+              ],
+            )
+          : TextSpan(
+              style: base,
+              children: [
+                TextSpan(
+                  text:
+                      '${widget.bio.substring(0, _ExpandableBio.foldLength).trimRight()}… ',
+                ),
+                TextSpan(text: 'voir plus', style: link, recognizer: _toggle),
+              ],
+            ),
     );
   }
 }

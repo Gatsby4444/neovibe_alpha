@@ -93,7 +93,7 @@ class _FriendTile extends ConsumerWidget {
       title: Text(peer.displayName),
       subtitle: peer.tagName == null || peer.tagName!.isEmpty
           ? null
-          : Text('« ${peer.tagName} »'),
+          : Text(peer.tagName!),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => UserLibraryScreen(profile: peer)),
       ),
