@@ -106,15 +106,16 @@ class SettingsScreen extends ConsumerWidget {
           const _Header('Développeur (mode test — sera retiré)'),
           SwitchListTile(
             dense: true,
-            title: const Text('Autoriser les captures d\'écran'),
+            title: const Text('Anti-capture (FLAG_SECURE)'),
             subtitle: const Text(
-              'Désactive l\'anti-capture (FLAG_SECURE) le temps du dev — '
-              'screenshots et partage d\'écran redeviennent possibles.',
+              'DÉSACTIVÉ pendant le dev : les captures d\'écran sont '
+              'possibles. Active pour tester le blocage des screenshots et '
+              'du partage d\'écran. À réactiver par défaut avant la prod.',
             ),
-            value: ref.watch(devSecureDisabledProvider),
+            value: ref.watch(devSecureEnabledProvider),
             onChanged: (v) async {
-              await ref.read(devSecureDisabledProvider.notifier).set(v);
-              await NativeCameraController.setSecure(!v);
+              await ref.read(devSecureEnabledProvider.notifier).set(v);
+              await NativeCameraController.setSecure(v);
             },
           ),
           SwitchListTile(

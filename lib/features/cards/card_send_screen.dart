@@ -174,9 +174,20 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
         setState(() => _loading = false);
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
+        ).showSnackBar(SnackBar(content: Text(_friendlyError(e))));
       }
     }
+  }
+
+  /// Le 413 du Storage (« exceeded the maximum allowed size ») est illisible
+  /// pour un utilisateur : on dit ce qui s'est passé et quoi faire.
+  String _friendlyError(Object e) {
+    final text = e.toString();
+    if (text.contains('413') || text.contains('maximum allowed size')) {
+      return 'Média trop lourd pour l\'envoi (limite serveur). '
+          'Refais une vidéo plus courte.';
+    }
+    return 'Erreur : $text';
   }
 
   @override

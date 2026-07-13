@@ -42,15 +42,31 @@ class NativeCameraController extends ChangeNotifier {
     return null;
   }
 
-  /// Le matériel supporte-t-il deux caméras ouvertes en même temps ?
-  static Future<bool> concurrentSupported() async {
+  /// Ce que l'appareil déclare RÉELLEMENT sur le double flux : ce que CameraX
+  /// annonce, ce que le pilote Camera2 annonce (source de vérité matérielle),
+  /// le modèle, et la dernière erreur de bind. Sert le HUD de diagnostic.
+  static Future<CameraCapabilities> capabilities() async {
     try {
       final res = await _channel.invokeMapMethod<String, dynamic>(
         'capabilities',
       );
-      return res?['concurrent'] as bool? ?? false;
-    } catch (_) {
-      return false;
+      return CameraCapabilities(
+        concurrent: res?['concurrent'] as bool? ?? false,
+        cameraXCombos: res?['cameraXCombos'] as int? ?? 0,
+        camera2Combos: res?['camera2Combos'] as int? ?? 0,
+        device: res?['device'] as String? ?? '?',
+        sdk: res?['sdk'] as int? ?? 0,
+        lastDualError: res?['lastDualError'] as String?,
+      );
+    } catch (e) {
+      return CameraCapabilities(
+        concurrent: false,
+        cameraXCombos: 0,
+        camera2Combos: 0,
+        device: '?',
+        sdk: 0,
+        lastDualError: e.toString(),
+      );
     }
   }
 
@@ -107,7 +123,9 @@ class NativeCameraController extends ChangeNotifier {
       textureId = null;
       notifyListeners();
     } on PlatformException catch (e) {
-      if (e.code == 'DUAL_UNSUPPORTED') throw const DualUnsupportedException();
+      if (e.code == 'DUAL_UNSUPPORTED') {
+        throw DualUnsupportedException(e.message);
+      }
       rethrow;
     }
   }
@@ -131,7 +149,7 @@ class NativeCameraController extends ChangeNotifier {
       await _channel.invokeMethod('startDualVideo', {'audio': audio});
     } on PlatformException catch (e) {
       if (e.code == 'DUAL_VIDEO_UNSUPPORTED') {
-        throw const DualUnsupportedException();
+        throw DualUnsupportedException(e.message);
       }
       rethrow;
     }
@@ -179,7 +197,35 @@ class NativePreviewInfo {
 }
 
 class DualUnsupportedException implements Exception {
-  const DualUnsupportedException();
+  const DualUnsupportedException([this.reason]);
+
+  /// Message brut de CameraX (affiché dans le HUD développeur).
+  final String? reason;
+
+  @override
+  String toString() => reason ?? 'Double flux non supporté';
+}
+
+/// Diagnostic du double flux, tel que l'appareil le déclare.
+class CameraCapabilities {
+  const CameraCapabilities({
+    required this.concurrent,
+    required this.cameraXCombos,
+    required this.camera2Combos,
+    required this.device,
+    required this.sdk,
+    this.lastDualError,
+  });
+
+  /// CameraX annonce au moins une combinaison de caméras concurrentes.
+  final bool concurrent;
+  final int cameraXCombos;
+
+  /// Combinaisons annoncées par le pilote Camera2 (-1 : Android < 11).
+  final int camera2Combos;
+  final String device;
+  final int sdk;
+  final String? lastDualError;
 }
 
 /// Aperçu d'un flux natif SANS distorsion : rotation portrait + miroir pour

@@ -54,13 +54,15 @@ Future<void> main() async {
     ),
   );
 
-  // Balayage du cache des cards au démarrage (TTL + plafonds), sans
-  // bloquer le lancement — et anti-capture FLAG_SECURE (actif par défaut,
-  // désactivable via l'option développeur des Réglages).
+  // Balayage du cache des cards au démarrage (TTL + plafonds), sans bloquer
+  // le lancement — et anti-capture FLAG_SECURE : DÉSACTIVÉ par défaut le
+  // temps du développement (Jay doit pouvoir prendre des captures d'écran),
+  // activable dans Réglages → Développeur. À réactiver avant la prod
+  // (RAPPELS.md).
   SharedPreferences.getInstance().then((prefs) {
     CardMediaCache().sweep(prefs.getInt(OwnCardsQuotaMb.prefsKey) ?? 2048);
     NativeCameraController.setSecure(
-      !(prefs.getBool(DevSecureDisabled.prefsKey) ?? false),
+      prefs.getBool(DevSecureEnabled.prefsKey) ?? false,
     );
   });
 

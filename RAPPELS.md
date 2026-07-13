@@ -14,7 +14,9 @@ Ne rien y supprimer sans validation explicite de Jay.
 | 1 | **Durée max des vidéos** | Fixée à **61 s** en dev. Jay veut repenser cette limite avant la prod. | 2026-07-12 |
 | 2 | **Usurpation de username hors ligne** | En BLE, le mini-profil est signé par la clé de l'appareil mais **pas attesté par le serveur** : un pair jamais vu en ligne pourrait annoncer un username qui n'est pas le sien. Parade prévue : attestation serveur signée du couple (userId, username), distribuée avec les clés d'appareil. | 2026-07-13 |
 | 3 | **Consommation batterie du scan BLE en arrière-plan** | Le scan tourne app fermée (service de premier plan, validé par Jay). À **mesurer et optimiser** (scan par intervalles / duty cycle) dès les premiers tests réels à deux appareils, et avant la prod. | 2026-07-13 |
-| 4 | **Section Développeur des Réglages** | À retirer avant la prod : anti-capture désactivable, diagnostic caméra, déclenchement BeReal manuel. | 2026-07-11 |
+| 4 | **Section Développeur des Réglages** | À retirer avant la prod : interrupteur anti-capture, diagnostic caméra, déclenchement BeReal manuel. | 2026-07-11 |
+| 6 | **RÉACTIVER L'ANTI-CAPTURE (FLAG_SECURE)** | Il est **désactivé par défaut** pendant le développement (demande de Jay 2026-07-14 : pouvoir prendre des captures d'écran pour montrer les bugs). Le code fonctionne et reste testable via Réglages → Développeur → « Anti-capture ». **Repasser le défaut à ACTIF avant la prod** (`DevSecureEnabled` dans `lib/core/prefs.dart` + `main.dart`). | 2026-07-14 |
+| 7 | **Limite d'upload Supabase (50 Mo/fichier)** | Cause du `StorageException 413` sur une vidéo Mono. Contourné en plafonnant le débit vidéo à 3,5 Mbit/s (61 s ≈ 28 Mo). Si la qualité vidéo doit remonter, il faudra un plan Supabase supérieur (limite d'upload plus haute) ou une compression côté client. | 2026-07-14 |
 | 5 | **Fichiers orphelins du Storage** | Les fichiers des cards supprimées restent dans le bucket (`delete from storage.objects` est interdit par Supabase). Prévoir une edge function de purge physique. | 2026-07-12 |
 
 ## Chantiers promis, à ne pas oublier

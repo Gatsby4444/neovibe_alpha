@@ -42,8 +42,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// (chantier validé par Jay 2026-07-13).
   final _camera = NativeCameraController();
 
-  /// L'appareil accepte-t-il deux caméras simultanées (Oneshot) ?
-  var _dualSupported = false;
+  /// Diagnostic du double flux (déclarations de l'appareil + dernière erreur
+  /// réelle de bind) — affiché dans le HUD développeur.
+  CameraCapabilities? _caps;
+  String? _dualError;
 
   /// Double flux Oneshot : la vignette PiP montre la frontale par défaut ;
   /// taper la vignette échange les vues (consigne Jay v0.5.0).
@@ -136,7 +138,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // Micro pour le son des vidéos ; refusé = vidéos muettes, pas bloquant.
     _micGranted = (await Permission.microphone.request()).isGranted;
     try {
-      _dualSupported = await NativeCameraController.concurrentSupported();
+      _caps = await NativeCameraController.capabilities();
       await _camera.open(back: true, audio: _micGranted);
     } catch (e) {
       setState(() => _error = 'Caméra indisponible : $e');
@@ -186,11 +188,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   Future<void> _tryOpenDual() async {
     try {
       await _camera.openDual();
-      _dualSupported = true;
+      _dualError = null;
       _pipSwapped = false;
       if (mounted) setState(() {});
-    } on DualUnsupportedException {
-      _dualSupported = false;
+    } on DualUnsupportedException catch (e) {
+      _dualError = e.reason;
       _showOneshotFallbackNotice();
       // Le bind concurrent a débranché le flux simple : on le rouvre.
       await _camera.open(back: true, audio: _micGranted);
@@ -310,9 +312,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       } else {
         await _camera.startVideo(audio: _micGranted);
       }
-    } on DualUnsupportedException {
+    } on DualUnsupportedException catch (e) {
       // Le matériel accepte deux préviews mais pas deux vidéos : photo seule.
-      _dualSupported = false;
+      _dualError = e.reason;
       if (mounted) {
         setState(() => _recording = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -811,7 +813,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 left: 12,
                 child: _CameraHud(
                   camera: _camera,
-                  dualSupported: _dualSupported,
+                  caps: _caps,
+                  dualError: _dualError,
                 ),
               ),
             Positioned(
@@ -1111,9 +1114,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
 /// Flutter. Sert à trancher un bug d'aperçu (distorsion/rotation) sur chiffres
 /// plutôt qu'au jugé. Activable dans Réglages → Développeur.
 class _CameraHud extends StatelessWidget {
-  const _CameraHud({required this.camera, required this.dualSupported});
+  const _CameraHud({required this.camera, this.caps, this.dualError});
   final NativeCameraController camera;
-  final bool dualSupported;
+  final CameraCapabilities? caps;
+  final String? dualError;
 
   @override
   Widget build(BuildContext context) {
@@ -1123,7 +1127,11 @@ class _CameraHud extends StatelessWidget {
       return '$key : ${info.width}×${info.height} · rot ${info.rotationDegrees}°';
     }
 
+    const style = TextStyle(color: Colors.white70, fontSize: 11);
+    final c = caps;
+
     return Container(
+      constraints: const BoxConstraints(maxWidth: 260),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.black87,
@@ -1135,7 +1143,7 @@ class _CameraHud extends StatelessWidget {
         children: [
           Text(
             camera.dualActive
-                ? 'DOUBLE FLUX actif'
+                ? 'DOUBLE FLUX ACTIF'
                 : 'flux simple · ${camera.lensBack ? "arrière" : "avant"}',
             style: const TextStyle(
               color: Colors.amberAccent,
@@ -1143,14 +1151,20 @@ class _CameraHud extends StatelessWidget {
               fontWeight: FontWeight.bold,
             ),
           ),
-          Text(
-            'double flux possible : ${dualSupported ? "oui" : "non testé/non"}',
-            style: const TextStyle(color: Colors.white70, fontSize: 11),
-          ),
-          for (final key in ['main', 'dualBack', 'dualFront'])
+          if (c != null) ...[
+            Text('${c.device} · SDK ${c.sdk}', style: style),
             Text(
-              line(key),
-              style: const TextStyle(color: Colors.white70, fontSize: 11),
+              'concurrent — CameraX : ${c.cameraXCombos} · Camera2 : '
+              '${c.camera2Combos == -1 ? "API<30" : c.camera2Combos}',
+              style: style,
+            ),
+          ],
+          for (final key in ['main', 'dualBack', 'dualFront'])
+            Text(line(key), style: style),
+          if (dualError != null)
+            Text(
+              'échec double flux : $dualError',
+              style: const TextStyle(color: Colors.redAccent, fontSize: 10),
             ),
         ],
       ),

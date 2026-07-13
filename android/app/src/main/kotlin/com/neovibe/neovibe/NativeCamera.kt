@@ -1,11 +1,15 @@
 package com.neovibe.neovibe
 
 import android.app.Activity
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.util.Size
 import android.view.Surface
 import android.view.WindowManager
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -52,9 +56,20 @@ class NativeCamera(
     messenger: BinaryMessenger,
 ) : MethodChannel.MethodCallHandler {
 
+    companion object {
+        /** Débit vidéo plafonné — voir recorder() (limite d'upload Supabase). */
+        const val VIDEO_BITRATE = 3_500_000
+
+        /** Concurrent camera : Android impose ≤ 720p par flux. */
+        val CONCURRENT_SIZE = Size(1280, 720)
+    }
+
     private val channel = MethodChannel(messenger, "neovibe/camera")
     private val mainExecutor: Executor = ContextCompat.getMainExecutor(activity)
     private val ioExecutor = Executors.newSingleThreadExecutor()
+
+    /** Dernière raison d'échec du double flux (diagnostic, HUD développeur). */
+    private var lastDualError: String? = null
 
     private var provider: ProcessCameraProvider? = null
 
@@ -95,8 +110,30 @@ class NativeCamera(
         try {
             when (call.method) {
                 "capabilities" -> withProvider(result) { p ->
+                    // Diagnostic complet : ce que CameraX annonce, ce que le
+                    // pilote Camera2 annonce (source de vérité du matériel),
+                    // et l'appareil — pour trancher un « mon tel en est
+                    // capable » sur des faits (demande de Jay).
+                    val camera2Ids = try {
+                        if (android.os.Build.VERSION.SDK_INT >= 30) {
+                            val manager = activity.getSystemService(Context.CAMERA_SERVICE)
+                                as android.hardware.camera2.CameraManager
+                            manager.concurrentCameraIds.size
+                        } else {
+                            -1 // API < 30 : l'API publique n'existe pas
+                        }
+                    } catch (e: Exception) {
+                        -2
+                    }
                     result.success(
-                        mapOf("concurrent" to p.availableConcurrentCameraInfos.isNotEmpty()),
+                        mapOf(
+                            "concurrent" to p.availableConcurrentCameraInfos.isNotEmpty(),
+                            "cameraXCombos" to p.availableConcurrentCameraInfos.size,
+                            "camera2Combos" to camera2Ids,
+                            "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+                            "sdk" to android.os.Build.VERSION.SDK_INT,
+                            "lastDualError" to lastDualError,
+                        ),
                     )
                 }
                 "open" -> withProvider(result) { p ->
@@ -162,6 +199,12 @@ class NativeCamera(
     private fun selector(back: Boolean): CameraSelector =
         if (back) CameraSelector.DEFAULT_BACK_CAMERA else CameraSelector.DEFAULT_FRONT_CAMERA
 
+    /**
+     * 720p à débit PLAFONNÉ (~3,5 Mbit/s). Au débit par défaut de CameraX
+     * (≈12 Mbit/s), une vidéo dépassait les 50 Mo autorisés par Supabase dès
+     * ~35 s → StorageException 413 (bug remonté par Jay sur une vidéo Mono).
+     * Avec ce plafond, la limite de 61 s tient dans ~28 Mo.
+     */
     private fun recorder(): Recorder = Recorder.Builder()
         .setQualitySelector(
             QualitySelector.from(
@@ -169,6 +212,7 @@ class NativeCamera(
                 FallbackStrategy.higherQualityOrLowerThan(Quality.HD),
             ),
         )
+        .setTargetVideoEncodingBitRate(VIDEO_BITRATE)
         .build()
 
     /**
@@ -317,17 +361,27 @@ class NativeCamera(
             recording = null
             dualBackEntry = dualBackEntry ?: textureRegistry.createSurfaceProducer()
             dualFrontEntry = dualFrontEntry ?: textureRegistry.createSurfaceProducer()
-            val backPreview = Preview.Builder().build().also {
-                it.setSurfaceProvider(surfaceProvider(dualBackEntry!!, "dualBack"))
-            }
-            val frontPreview = Preview.Builder().build().also {
-                it.setSurfaceProvider(surfaceProvider(dualFrontEntry!!, "dualFront"))
-            }
+            // En mode concurrent, Android impose une résolution ≤ 720p par
+            // flux : sans cette contrainte, CameraX demande du 1080p+ et le
+            // bind ÉCHOUE sur des appareils pourtant capables (piste n°1 du
+            // « mon tel en est capable » de Jay).
+            val backPreview = Preview.Builder()
+                .setResolutionSelector(concurrentResolution())
+                .build().also {
+                    it.setSurfaceProvider(surfaceProvider(dualBackEntry!!, "dualBack"))
+                }
+            val frontPreview = Preview.Builder()
+                .setResolutionSelector(concurrentResolution())
+                .build().also {
+                    it.setSurfaceProvider(surfaceProvider(dualFrontEntry!!, "dualFront"))
+                }
             dualBackImage = ImageCapture.Builder()
                 .setTargetRotation(Surface.ROTATION_0)
+                .setResolutionSelector(concurrentResolution())
                 .build()
             dualFrontImage = ImageCapture.Builder()
                 .setTargetRotation(Surface.ROTATION_0)
+                .setResolutionSelector(concurrentResolution())
                 .build()
             val configs = listOf(
                 ConcurrentCamera.SingleCameraConfig(
@@ -356,9 +410,21 @@ class NativeCamera(
             )
         } catch (e: Exception) {
             closeDual(p)
-            result.error("DUAL_UNSUPPORTED", e.message, null)
+            // La raison exacte remonte au Dart (affichée dans le HUD dev) :
+            // « non supporté » n'apprend rien, le message de CameraX si.
+            lastDualError = "${e.javaClass.simpleName}: ${e.message}"
+            result.error("DUAL_UNSUPPORTED", lastDualError, null)
         }
     }
+
+    private fun concurrentResolution() = ResolutionSelector.Builder()
+        .setResolutionStrategy(
+            ResolutionStrategy(
+                CONCURRENT_SIZE,
+                ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER,
+            ),
+        )
+        .build()
 
     private fun takeDualPictures(result: MethodChannel.Result) {
         val backCapture = dualBackImage
@@ -429,12 +495,16 @@ class NativeCamera(
         val audio = call.argument<Boolean>("audio") ?: false
         try {
             p.unbindAll()
-            val backPreview = Preview.Builder().build().also {
-                it.setSurfaceProvider(surfaceProvider(dualBackEntry!!, "dualBack"))
-            }
-            val frontPreview = Preview.Builder().build().also {
-                it.setSurfaceProvider(surfaceProvider(dualFrontEntry!!, "dualFront"))
-            }
+            val backPreview = Preview.Builder()
+                .setResolutionSelector(concurrentResolution())
+                .build().also {
+                    it.setSurfaceProvider(surfaceProvider(dualBackEntry!!, "dualBack"))
+                }
+            val frontPreview = Preview.Builder()
+                .setResolutionSelector(concurrentResolution())
+                .build().also {
+                    it.setSurfaceProvider(surfaceProvider(dualFrontEntry!!, "dualFront"))
+                }
             dualBackVideo = VideoCapture.withOutput(recorder()).also {
                 it.targetRotation = Surface.ROTATION_0
             }

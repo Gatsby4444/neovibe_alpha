@@ -140,12 +140,13 @@ final ownCardsQuotaMbProvider = NotifierProvider<OwnCardsQuotaMb, int>(
   OwnCardsQuotaMb.new,
 );
 
-/// Anti-capture : FLAG_SECURE est ACTIF par défaut (screenshots bloqués,
-/// écran noir en partage d'écran). Cette option DÉVELOPPEUR le désactive
-/// pour permettre les captures pendant le dev (consigne Jay 2026-07-13) —
-/// à retirer avec la section Développeur.
-class DevSecureDisabled extends Notifier<bool> {
-  static const prefsKey = 'dev_secure_disabled';
+/// Anti-capture (FLAG_SECURE) : **DÉSACTIVÉ par défaut pendant le
+/// développement** (consigne Jay 2026-07-14 : il doit pouvoir prendre des
+/// captures d'écran pour montrer les bugs). Interrupteur dans Réglages →
+/// Développeur pour l'activer et le tester. ⚠️ À RÉACTIVER PAR DÉFAUT avant
+/// la production (inscrit dans RAPPELS.md).
+class DevSecureEnabled extends Notifier<bool> {
+  static const prefsKey = 'dev_secure_enabled';
 
   @override
   bool build() {
@@ -165,8 +166,8 @@ class DevSecureDisabled extends Notifier<bool> {
   }
 }
 
-final devSecureDisabledProvider = NotifierProvider<DevSecureDisabled, bool>(
-  DevSecureDisabled.new,
+final devSecureEnabledProvider = NotifierProvider<DevSecureEnabled, bool>(
+  DevSecureEnabled.new,
 );
 
 /// Diagnostic caméra (DÉVELOPPEUR) : affiche sur l'aperçu la résolution du
