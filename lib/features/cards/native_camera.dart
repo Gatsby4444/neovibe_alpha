@@ -70,6 +70,15 @@ class NativeCameraController extends ChangeNotifier {
     }
   }
 
+  /// Sonde double flux en Camera2 BRUT : ouvre les deux caméras de force,
+  /// sans passer par la déclaration `getConcurrentCameraIds()` d'Android
+  /// (que CameraX respecte, et qui est un faux négatif fréquent). Dit si le
+  /// matériel accepte RÉELLEMENT deux flux simultanés.
+  static Future<Map<String, dynamic>> probeDual() async {
+    final res = await _channel.invokeMapMethod<String, dynamic>('probeDual');
+    return res ?? const {};
+  }
+
   /// FLAG_SECURE global : screenshots bloqués, écran noir en partage.
   /// Désactivable via l'option développeur (consigne Jay).
   static Future<void> setSecure(bool on) async {

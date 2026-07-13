@@ -153,6 +153,13 @@ class NativeCamera(
                 "takeDualPictures" -> takeDualPictures(result)
                 "startDualVideo" -> startDualVideo(call, result)
                 "stopDualVideo" -> stopDualVideo(result)
+                "probeDual" -> {
+                    // Sonde Camera2 brute : ouvre les DEUX caméras de force,
+                    // sans passer par la déclaration d'Android (demande de
+                    // Jay : « existe-t-il un moyen de contourner l'API ? »).
+                    closeAll()
+                    DualCameraProbe(activity).run { report -> result.success(report) }
+                }
                 "close" -> {
                     closeAll()
                     result.success(null)

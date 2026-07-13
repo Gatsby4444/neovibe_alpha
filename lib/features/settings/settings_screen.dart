@@ -128,6 +128,7 @@ class SettingsScreen extends ConsumerWidget {
             value: ref.watch(devCameraHudProvider),
             onChanged: (v) => ref.read(devCameraHudProvider.notifier).set(v),
           ),
+          const _DualProbeTile(),
           const _DevBerealSection(),
           const Divider(),
           ListTile(
@@ -217,6 +218,101 @@ class _Divulgation extends StatelessWidget {
           context,
         ).textTheme.bodySmall?.copyWith(color: Colors.white54),
       ),
+    );
+  }
+}
+
+/// Sonde double flux (dev) : ouvre les DEUX caméras de force en Camera2
+/// brut, en ignorant la déclaration d'Android que CameraX respecte. Dit si le
+/// matériel accepte vraiment deux flux simultanés — ou s'il évince le premier
+/// (le « gel » silencieux qu'on avait en v0.5.0).
+class _DualProbeTile extends StatefulWidget {
+  const _DualProbeTile();
+
+  @override
+  State<_DualProbeTile> createState() => _DualProbeTileState();
+}
+
+class _DualProbeTileState extends State<_DualProbeTile> {
+  var _running = false;
+  Map<String, dynamic>? _result;
+
+  Future<void> _run() async {
+    setState(() {
+      _running = true;
+      _result = null;
+    });
+    try {
+      final res = await NativeCameraController.probeDual();
+      if (mounted) setState(() => _result = res);
+    } catch (e) {
+      if (mounted) setState(() => _result = {'error': e.toString()});
+    } finally {
+      if (mounted) setState(() => _running = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = _result;
+    final works = r?['works'] == true;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ListTile(
+          dense: true,
+          leading: _running
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.switch_camera),
+          title: const Text('Tester le double flux (Camera2 brut)'),
+          subtitle: const Text(
+            'Ouvre les deux caméras de force, sans passer par la '
+            'déclaration d\'Android. ~3 s.',
+          ),
+          onTap: _running ? null : _run,
+        ),
+        if (r != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.black45,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    r.containsKey('error')
+                        ? 'Erreur : ${r['error']}'
+                        : works
+                        ? 'DOUBLE FLUX POSSIBLE ✓ — le matériel accepte'
+                        : 'DOUBLE FLUX REFUSÉ par le matériel',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: works ? Colors.greenAccent : Colors.redAccent,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'images arrière seule : ${r['backAlone'] ?? '—'}\n'
+                    'images arrière APRÈS ouverture frontale : '
+                    '${r['backAfterFront'] ?? '—'}\n'
+                    'images frontale : ${r['frontFrames'] ?? '—'}\n'
+                    'arrière évincée : ${r['backEvicted'] == true ? 'OUI' : 'non'}\n'
+                    '${(r['errors'] as String?)?.isNotEmpty == true ? r['errors'] : ''}',
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
