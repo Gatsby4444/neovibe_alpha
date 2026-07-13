@@ -334,10 +334,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   }
 
   /// Tap sur le déclencheur : photo — ou arrêt d'une vidéo verrouillée
-  /// (un simple tap suffit, consigne Jay).
+  /// (un simple tap suffit, consigne Jay). Filet de sécurité : un
+  /// enregistrement sans doigt posé ni verrou (état orphelin si un geste a
+  /// été perdu) s'arrête aussi d'un simple tap.
   void _onShutterTap() {
     if (_recording) {
-      if (_recordLocked) _stopVideo();
+      if (_recordLocked || !_pressHeld) _stopVideo();
       return;
     }
     _capture();
@@ -629,11 +631,21 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
+        // Chaque enfant du Stack porte une clé : plusieurs sont
+        // conditionnels (masqués pendant l'enregistrement) et, sans clé,
+        // le rebuild déclenché PENDANT l'appui long recréait l'élément du
+        // déclencheur — son LongPressGestureRecognizer était détruit en
+        // plein geste et onLongPressEnd n'arrivait jamais (relâcher ne
+        // stoppait plus la vidéo).
         child: Stack(
           children: [
-            Positioned.fill(child: _previewFrame()),
+            Positioned.fill(
+              key: const ValueKey('preview'),
+              child: _previewFrame(),
+            ),
             if (_busy && _type == CardType.oneshot)
               const Positioned.fill(
+                key: ValueKey('oneshot-busy'),
                 child: ColoredBox(
                   color: Colors.black54,
                   child: Center(
@@ -649,6 +661,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 ),
               ),
             Positioned(
+              key: const ValueKey('close'),
               top: 12,
               left: 12,
               child: IconButton(
@@ -657,6 +670,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
               ),
             ),
             Positioned(
+              key: const ValueKey('header'),
               top: 16,
               right: 16,
               child: Column(
@@ -709,6 +723,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
             // Masqué pendant un enregistrement vidéo.
             if (!widget.bereal && _step == 0 && !_recording)
               Positioned(
+                key: const ValueKey('type-selector'),
                 bottom: 124,
                 left: 0,
                 right: 0,
@@ -782,6 +797,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
             // Import galerie (cards classiques et Mono uniquement)
             if (_galleryAllowed && !_recording)
               Positioned(
+                key: const ValueKey('gallery'),
                 bottom: 42,
                 left: 28,
                 child: IconButton.filledTonal(
@@ -793,6 +809,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
             // Face tableau : fond noir au lieu d'une photo
             if (!_recording)
               Positioned(
+                key: const ValueKey('blackboard'),
                 bottom: 42,
                 right: 28,
                 child: IconButton.filledTonal(
@@ -803,6 +820,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
               ),
             if (showLensToggle)
               Positioned(
+                key: const ValueKey('lens-toggle'),
                 bottom: 108,
                 right: 28,
                 child: IconButton.filledTonal(
@@ -814,6 +832,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
             // Indicateur d'enregistrement : durée + consigne de verrouillage
             if (_recording)
               Positioned(
+                key: const ValueKey('record-status'),
                 bottom: 124,
                 left: 0,
                 right: 0,
@@ -868,6 +887,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 ),
               ),
             Positioned(
+              key: const ValueKey('shutter'),
               bottom: 28,
               left: 0,
               right: 0,
