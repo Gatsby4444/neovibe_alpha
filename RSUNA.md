@@ -5,7 +5,9 @@ Deux parties : la **partie 1 est pour Jay** (ce qu'il fait à la main), la
 **partie 2 est pour Claude Code** (ce qu'il vérifie et reconstruit tout seul
 à la première session sur la nouvelle machine).
 
-Dernière mise à jour : **2026-07-14**, état du projet : **v0.9.0**.
+Dernière mise à jour : **2026-07-14**, état du projet : **v0.9.2**
+(⚠️ **en attente du retour de test de Jay sur la v0.9.2** — c'est le premier
+point à traiter à la reprise, voir §2.4).
 
 ---
 
@@ -181,11 +183,18 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
   la base de dev n'y sera plus : le signaler à Jay plutôt que d'en créer un
   sans lui demander.
 
-### 2.3 État du projet à la bascule (2026-07-14, v0.9.0)
+### 2.3 État du projet à la bascule (2026-07-14, v0.9.2)
 
-- **Dernière release** : v0.9.0 — le **double live Oneshot fonctionne** sur le
+- **Dernière release** : v0.9.2. Le **double live Oneshot fonctionne** sur le
   Redmi Note 10 Pro de Jay (Camera2 brut, **1 flux par caméra**, rendu logiciel
-  de l'aperçu, capture simultanée des deux faces). Encore **opt-in développeur**.
+  de l'aperçu, capture simultanée des deux faces). Encore **opt-in développeur**
+  (Réglages → Développeur → « Double flux Oneshot » → bouton « Double live »
+  dans le Oneshot).
+- **Capture rapide** : ~87 ms pour les deux faces + ~200 ms par normalisation
+  (mesuré dans le journal). Le recadrage/format des cards se fait en natif
+  (`NativeCamera.normalize`).
+- **Type de card figé au déclenchement** (`_lockedType`) : correction du bug
+  critique qui permettait de fabriquer une Mono à deux faces.
 - **À ne JAMAIS refaire** (chaque point a coûté une version, tout est détaillé
   dans le rapport du 2026-07-14) :
   - appeler une API Flutter (TextureRegistry, MethodChannel) hors du thread
@@ -194,23 +203,28 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
   - demander 2 flux par caméra en double flux (la frontale est affamée) ;
   - reconfigurer une session caméra pendant que l'autre caméra tourne ;
   - **sonder des configurations caméra au moment de l'usage** : un essai raté
-    tue le service caméra d'Android jusqu'au redémarrage de l'app.
+    tue le service caméra d'Android jusqu'au redémarrage de l'app ;
+  - juger du matériel sur un **délai en dur** (« 0 image après 600 ms ») : une
+    caméra ne démarre pas en un temps fixe → attendre le FAIT, pas le
+    chronomètre ;
+  - faire du travail lourd (rendu, conversion) **sur le thread caméra** ;
+  - utiliser `ref` (Riverpod) dans un `dispose()`.
 - **Outil de diagnostic** : Réglages → Développeur → **Journal caméra**
   (persistant, survit aux crashes, bouton Copier). C'est lui qui a débloqué tout
   le chantier — s'en servir avant de deviner.
 
 ### 2.4 Ce qui attend (par priorité, à confirmer avec Jay)
 
-1. **Bug prioritaire** : pendant le traitement d'une capture Oneshot (long), le
-   sélecteur de type reste actionnable → l'aperçu s'affiche avec le mauvais type
-   (Jay a obtenu un « One of One » à partir d'une prise Oneshot). Verrouiller le
-   sélecteur dès le déclenchement + réduire le temps de traitement.
-   Voir `RAPPELS.md` → « Bugs connus ».
+1. **Retour de test de la v0.9.2** (Jay teste juste après la bascule de
+   machine) — attendu : le double live s'ouvre **du premier coup** (plus de faux
+   « appareil non compatible »), aperçu fluide, journal propre. Lui demander le
+   journal.
 2. **Vidéo double simultanée** en Oneshot (deux encodeurs) — pas encore faite.
 3. **Streaks de proximité** — chantier promis, Jay a insisté pour ne pas
    l'oublier.
-4. Le reste de `RAPPELS.md` (dont : réactiver FLAG_SECURE et retirer la section
-   Développeur avant la prod).
+4. Le reste de `RAPPELS.md` (dont : réactiver FLAG_SECURE, retirer la section
+   Développeur et le journal caméra avant la prod ; vignettes des grilles à
+   câbler sur le cache local).
 
 ### 2.5 Premier message à Jay
 
