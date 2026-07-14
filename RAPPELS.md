@@ -27,6 +27,7 @@ Ne rien y supprimer sans validation explicite de Jay.
 | 2 | **Stories** | Format à part ; les cards pourront être mises en story. Emplacement déjà réservé en haut du hub Cercle. | 2026-07-12 |
 | 3 | **Wi-Fi Direct pour les cards en conversation ping** | Le chat ping est en BLE (texte et petits paquets). L'envoi de cards/médias dans les conversations éphémères passera par Wi-Fi Direct. | 2026-07-13 |
 | 4 | **Vignettes des grilles (bibliothèque / enregistrements)** | Elles passent encore par le réseau : seul le viewer utilise le cache local. À câbler sur le cache. | 2026-07-13 |
+| 6 | **Double flux Oneshot (Camera2 brut) instable** | Le matériel de Jay (Redmi Note 10 Pro) accepte le double flux (sonde OK), mais le moteur `Camera2Dual` affiche du noir + a crashé/verrouillé la caméra. Rendu **opt-in développeur** (défaut OFF), Oneshot par défaut = mode simple. À reprendre : fixer le rendu SurfaceProducer←Camera2 et la libération, puis **vidéo double simultanée** (deux encodeurs) encore à faire. | 2026-07-14 |
 | 5 | **`contentType` d'upload** | Les fichiers sont des PNG mais uploadés en `image/jpeg`. Sans effet visible, à nettoyer. | 2026-07-12 |
 
 ## Décisions verrouillées à ne PAS reproposer

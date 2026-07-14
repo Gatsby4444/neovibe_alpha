@@ -66,40 +66,57 @@ class Camera2Dual(
     private val previewSize = android.util.Size(1280, 720)
 
     fun open(result: MethodChannel.Result) {
-        thread = HandlerThread("nv-cam2-dual").also { it.start() }
-        handler = Handler(thread!!.looper)
+        // Toute exception pendant l'ouverture DOIT libérer les caméras :
+        // sinon elles restent ouvertes au niveau OS et CameraX voit ensuite
+        // « 0 caméra » (blocage remonté par Jay le 2026-07-14).
+        try {
+            thread = HandlerThread("nv-cam2-dual").also { it.start() }
+            handler = Handler(thread!!.looper)
 
-        val backId = firstCamera(CameraCharacteristics.LENS_FACING_BACK)
-        val frontId = firstCamera(CameraCharacteristics.LENS_FACING_FRONT)
-        if (backId == null || frontId == null) {
-            fail(result, "Caméra avant ou arrière introuvable")
-            return
-        }
-
-        var opened = 0
-        var failed = false
-        fun onOneReady(ok: Boolean) {
-            if (failed) return
-            if (!ok) {
-                failed = true
-                closeInternal()
-                fail(result, "Session double flux refusée (bind Camera2)")
+            val backId = firstCamera(CameraCharacteristics.LENS_FACING_BACK)
+            val frontId = firstCamera(CameraCharacteristics.LENS_FACING_FRONT)
+            if (backId == null || frontId == null) {
+                fail(result, "Caméra avant ou arrière introuvable")
                 return
             }
-            opened++
-            if (opened == 2) {
-                active = true
-                result.success(
-                    mapOf(
-                        "backTextureId" to backTextureId,
-                        "frontTextureId" to frontTextureId,
-                    ),
-                )
-            }
-        }
 
-        openCam("dualBack", backId, true, ::onOneReady)
-        openCam("dualFront", frontId, false, ::onOneReady)
+            var opened = 0
+            var settled = false
+            fun onOneReady(ok: Boolean) {
+                if (settled) return
+                if (!ok) {
+                    settled = true
+                    closeInternal()
+                    activity.runOnUiThread {
+                        result.error(
+                            "DUAL_UNSUPPORTED",
+                            "Session double flux refusée (bind Camera2)",
+                            null,
+                        )
+                    }
+                    return
+                }
+                opened++
+                if (opened == 2) {
+                    settled = true
+                    active = true
+                    activity.runOnUiThread {
+                        result.success(
+                            mapOf(
+                                "backTextureId" to backTextureId,
+                                "frontTextureId" to frontTextureId,
+                            ),
+                        )
+                    }
+                }
+            }
+
+            openCam("dualBack", backId, true, ::onOneReady)
+            openCam("dualFront", frontId, false, ::onOneReady)
+        } catch (e: Exception) {
+            closeInternal()
+            fail(result, "${e.javaClass.simpleName}: ${e.message}")
+        }
     }
 
     private fun openCam(

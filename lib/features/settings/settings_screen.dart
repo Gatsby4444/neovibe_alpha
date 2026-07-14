@@ -128,6 +128,17 @@ class SettingsScreen extends ConsumerWidget {
             value: ref.watch(devCameraHudProvider),
             onChanged: (v) => ref.read(devCameraHudProvider.notifier).set(v),
           ),
+          SwitchListTile(
+            dense: true,
+            title: const Text('Double flux Oneshot (expérimental)'),
+            subtitle: const Text(
+              'Active les deux caméras en même temps pour le Oneshot '
+              '(Camera2 brut). Peut planter selon l\'appareil — désactivé '
+              'par défaut. Sinon le Oneshot affiche une caméra à la fois.',
+            ),
+            value: ref.watch(devDualOneshotProvider),
+            onChanged: (v) => ref.read(devDualOneshotProvider.notifier).set(v),
+          ),
           const _DualProbeTile(),
           const _DevBerealSection(),
           const Divider(),

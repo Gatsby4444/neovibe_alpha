@@ -198,3 +198,33 @@ class DevCameraHud extends Notifier<bool> {
 final devCameraHudProvider = NotifierProvider<DevCameraHud, bool>(
   DevCameraHud.new,
 );
+
+/// Double flux Oneshot en Camera2 brut (EXPÉRIMENTAL, DÉVELOPPEUR).
+/// Désactivé par défaut : le moteur Camera2 dual peut planter/verrouiller la
+/// caméra sur certains appareils (crash remonté par Jay le 2026-07-14). Par
+/// défaut le Oneshot reste sur le mode simple fiable (une caméra affichée,
+/// les deux faces capturées). Interrupteur pour tester le double flux.
+class DevDualOneshot extends Notifier<bool> {
+  static const prefsKey = 'dev_dual_oneshot';
+
+  @override
+  bool build() {
+    _load();
+    return false;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(prefsKey) ?? false;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefsKey, value);
+  }
+}
+
+final devDualOneshotProvider = NotifierProvider<DevDualOneshot, bool>(
+  DevDualOneshot.new,
+);

@@ -137,11 +137,28 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
     // Micro pour le son des vidéos ; refusé = vidéos muettes, pas bloquant.
     _micGranted = (await Permission.microphone.request()).isGranted;
-    try {
-      _caps = await NativeCameraController.capabilities();
-      await _camera.open(back: true, audio: _micGranted);
-    } catch (e) {
-      setState(() => _error = 'Caméra indisponible : $e');
+    _caps = await NativeCameraController.capabilities();
+    await _openWithRetry();
+  }
+
+  /// Ouvre la caméra arrière avec UN réessai : une init CameraX peut échouer
+  /// temporairement (« Available cameras: 0 » — typiquement quand la pile
+  /// caméra n'est pas encore libérée). Le message d'erreur Android lui-même
+  /// conseille de réessayer.
+  Future<void> _openWithRetry() async {
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        await _camera.open(back: true, audio: _micGranted);
+        if (mounted) setState(() => _error = '');
+        return;
+      } catch (e) {
+        if (attempt == 0) {
+          await _camera.close();
+          await Future<void>.delayed(const Duration(milliseconds: 400));
+          continue;
+        }
+        if (mounted) setState(() => _error = 'Caméra indisponible : $e');
+      }
     }
   }
 
@@ -169,10 +186,17 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     final previous = _type;
     setState(() => _type = type);
     if (type == CardType.oneshot) {
-      await _tryOpenDual();
+      // Double flux Camera2 : uniquement si l'option dev est activée (le
+      // moteur peut planter/verrouiller la caméra — crash 2026-07-14). Par
+      // défaut, Oneshot = mode simple fiable.
+      if (ref.read(devDualOneshotProvider)) {
+        await _tryOpenDual();
+      } else {
+        _showOneshotFallbackNotice();
+      }
     } else if (previous == CardType.oneshot && _camera.dualActive) {
       // Sortie du Oneshot : retour au flux simple, caméra arrière.
-      await _camera.open(back: true, audio: _micGranted);
+      await _openWithRetry();
     } else if (type != CardType.mono &&
         (previous == CardType.mono || previous == CardType.oneshot) &&
         !_camera.lensBack) {
@@ -181,10 +205,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
-  /// Le double flux est TOUJOURS tenté (la liste des caméras concurrentes
-  /// renvoyée par Android est un faux négatif fréquent — v0.7.0 privait Jay
-  /// du double flux sans même essayer). Seul un échec réel du bind fait
-  /// basculer en vue simple.
+  /// Double flux Camera2 brut (opt-in dev). En cas d'échec, on revient
+  /// PROPREMENT à la vue simple — jamais de crash, jamais de caméra
+  /// verrouillée.
   Future<void> _tryOpenDual() async {
     try {
       await _camera.openDual();
@@ -194,8 +217,13 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     } on DualUnsupportedException catch (e) {
       _dualError = e.reason;
       _showOneshotFallbackNotice();
-      // Le bind concurrent a débranché le flux simple : on le rouvre.
-      await _camera.open(back: true, audio: _micGranted);
+      await _camera.close();
+      await _openWithRetry();
+    } catch (e) {
+      _dualError = e.toString();
+      _showOneshotFallbackNotice();
+      await _camera.close();
+      await _openWithRetry();
     }
   }
 
@@ -205,9 +233,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
-          'Ton appareil n\'affiche qu\'une caméra à la fois — bascule '
-          'l\'aperçu avec le bouton, le déclenché prend toujours les '
-          'deux faces.',
+          'Oneshot : bascule l\'aperçu avec le bouton — le déclenché prend '
+          'toujours les deux faces.',
         ),
       ),
     );
