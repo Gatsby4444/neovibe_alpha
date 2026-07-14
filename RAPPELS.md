@@ -35,7 +35,7 @@ Ne rien y supprimer sans validation explicite de Jay.
 
 | # | Sujet | Détail | Depuis |
 |---|-------|--------|--------|
-| 1 | **Changement de mode pendant la prise Oneshot** | Retour de Jay (v0.9.0) : la capture Oneshot est **longue** (temps de prise + chargement), et **pendant ce chargement le sélecteur de type reste actionnable** → Jay a changé de mode et l'app lui a affiché l'aperçu/récap **en One of One** alors que la prise était un Oneshot. Deux choses à corriger : (a) **verrouiller le sélecteur de type dès le déclenchement** et jusqu'à la fin du traitement (le type d'une card est figé à la prise) ; (b) **réduire le temps de traitement** de la capture Oneshot (recadrage 9:16 + normalisation 900×1600 des deux faces, en série sur l'isolate principal — à mesurer, puis paralléliser ou passer en `compute`). | 2026-07-14 |
+| 1 | ~~**Changement de mode pendant la prise**~~ **CORRIGÉ en v0.9.1** | Jay avait pu créer une **Mono à deux faces** en changeant de mode pendant le traitement d'une capture Oneshot. Corrigé par trois barrières : type figé au déclenchement (`_lockedType`), sélecteur inerte et grisé pendant la prise, et vérification de cohérence faces/type avant le récap. Capture accélérée dans la foulée (écriture des deux faces en parallèle + un seul encodage ; recadrage/mise au format en natif au lieu d'un encodage PNG en Dart). **À revérifier au test** : durées affichées dans le journal caméra. | 2026-07-14 |
 
 ## Décisions verrouillées à ne PAS reproposer
 
