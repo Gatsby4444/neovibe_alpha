@@ -54,6 +54,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// Info Oneshot (vue simple de secours) déjà montrée.
   var _oneshotNoticeShown = false;
 
+  /// Le moteur natif essaie plusieurs configurations de double flux : on
+  /// affiche un cadre d'attente au lieu d'un écran noir.
+  var _dualOpening = false;
+
   File? _front; // recto = caméra arrière (ce que je vois)
   File? _back; // verso = caméra avant (ma réaction) — null en Mono
   var _frontImported = false; // face issue de la galerie
@@ -210,6 +214,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// verrouillée.
   Future<void> _tryOpenDual() async {
     await NativeCameraController.log('Oneshot : tentative de double flux');
+    if (mounted) setState(() => _dualOpening = true);
     try {
       await _camera.openDual();
       _dualError = null;
@@ -234,6 +239,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       _showOneshotFallbackNotice();
       await _camera.close();
       await _openWithRetry();
+    } finally {
+      if (mounted) setState(() => _dualOpening = false);
     }
   }
 
@@ -653,6 +660,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// caméras) ou DOUBLE FLUX Oneshot (vignette PiP 9:16 en haut à droite,
   /// frontale par défaut, tap sur la vignette = échange des vues).
   Widget _previewFrame() {
+    if (_dualOpening) return _dualSearchFrame();
     if (_camera.dualActive && _type == CardType.oneshot) {
       return _dualPreviewFrame();
     }
@@ -689,6 +697,38 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       child: AspectRatio(
         aspectRatio: 9 / 16,
         child: ClipRRect(borderRadius: BorderRadius.circular(18), child: main),
+      ),
+    );
+  }
+
+  /// Le moteur double flux teste plusieurs configurations matérielles à la
+  /// suite (jusqu'à ~10 s) : sans ce cadre, l'écran resterait NOIR pendant la
+  /// recherche — c'est ce que Jay a vu en v0.8.3.
+  Widget _dualSearchFrame() {
+    return Center(
+      child: AspectRatio(
+        aspectRatio: 9 / 16,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: const ColoredBox(
+            color: Colors.black,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(),
+                  SizedBox(height: 14),
+                  Text(
+                    'Double flux : recherche d\'une configuration\n'
+                    'acceptée par ton appareil…',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
