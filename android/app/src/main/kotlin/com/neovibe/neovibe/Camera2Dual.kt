@@ -104,6 +104,16 @@ class Camera2Dual(
         var surface: Surface? = null
         var sensorOrientation = 0
 
+        /**
+         * Thread PROPRE à cette caméra pour la conversion + le dessin des
+         * images. Sans lui, le rendu s'exécutait sur le thread caméra et le
+         * bloquait : les minuteries de vérification partaient en retard et le
+         * débit d'images s'effondrait (journal du 2026-07-14 : la frontale
+         * plafonnait à 8 images en 1,2 s).
+         */
+        var renderThread: HandlerThread? = null
+        var renderHandler: Handler? = null
+
         /** Images reçues : la seule preuve de vie d'un flux. */
         val frames = AtomicInteger(0)
         var evicted = false
@@ -170,12 +180,17 @@ class Camera2Dual(
                     closeAndReply(reply, "la caméra arrière n'a pas démarré")
                     return@openCam
                 }
-                handler?.postDelayed({
-                    val alone = cams["dualBack"]?.frames?.get() ?: 0
-                    CamLog.i("dual", "arrière seule : $alone images en 600 ms")
+                // On ATTEND ses premières images, au lieu de regarder une seule
+                // fois après 600 ms : à froid (juste après la libération de
+                // CameraX), la première image peut mettre plus d'une seconde à
+                // arriver — et l'app annonçait alors « appareil non compatible »
+                // à tort (retour Jay, v0.9.1 : « 0 images en 600 ms », puis la
+                // première image 370 ms plus tard…).
+                awaitFrames(cams["dualBack"], minFrames = 3, timeoutMs = 4000) { alone ->
+                    CamLog.i("dual", "arrière seule : $alone images")
                     if (alone == 0) {
-                        closeAndReply(reply, "l'arrière ne délivre aucune image")
-                        return@postDelayed
+                        closeAndReply(reply, "l'arrière ne délivre aucune image (4 s)")
+                        return@awaitFrames
                     }
                     onUi {
                         openCam("dualFront", frontId, back = false) { frontOk ->
@@ -183,15 +198,52 @@ class Camera2Dual(
                                 closeAndReply(reply, "la caméra frontale n'a pas démarré")
                                 return@openCam
                             }
-                            verify(alone, reply)
+                            // Même patience pour la frontale : elle démarre plus
+                            // lentement quand l'arrière tourne déjà.
+                            awaitFrames(
+                                cams["dualFront"],
+                                minFrames = 1,
+                                timeoutMs = 4000,
+                            ) { first ->
+                                CamLog.i("dual", "frontale : $first première(s) image(s)")
+                                verify(alone, reply)
+                            }
                         }
                     }
-                }, 600)
+                }
             }
         } catch (e: Exception) {
             CamLog.e("dual", "exception à l'ouverture", e)
             closeAndReply(reply, "${e.javaClass.simpleName}: ${e.message}")
         }
+    }
+
+    /**
+     * Attend que [cam] ait délivré [minFrames] images (sondage toutes les
+     * 100 ms), au plus [timeoutMs]. Rend le nombre d'images atteint.
+     *
+     * Une caméra ne démarre pas en un temps fixe : un délai en dur produit des
+     * faux « appareil non compatible ». On attend le FAIT (des images), pas
+     * l'écoulement d'un chronomètre.
+     */
+    private fun awaitFrames(
+        cam: Cam?,
+        minFrames: Int,
+        timeoutMs: Long,
+        onDone: (Int) -> Unit,
+    ) {
+        if (cam == null) return onDone(0)
+        val deadline = android.os.SystemClock.elapsedRealtime() + timeoutMs
+        fun poll() {
+            val n = cam.frames.get()
+            val expired = android.os.SystemClock.elapsedRealtime() >= deadline
+            if (n >= minFrames || expired || cam.evicted) {
+                onDone(n)
+                return
+            }
+            handler?.postDelayed({ poll() }, 100)
+        }
+        handler?.post { poll() }
     }
 
     /** Les deux caméras doivent livrer des images EN MÊME TEMPS. */
@@ -250,6 +302,10 @@ class Camera2Dual(
         cam.surface = Surface(entry.surfaceTexture())
         if (back) backTextureId = entry.id() else frontTextureId = entry.id()
 
+        val renderThread = HandlerThread("nv-render-$key").also { it.start() }
+        cam.renderThread = renderThread
+        cam.renderHandler = Handler(renderThread.looper)
+
         val reader = ImageReader.newInstance(
             previewSize.width, previewSize.height, ImageFormat.YUV_420_888, 2,
         )
@@ -282,7 +338,10 @@ class Camera2Dual(
             } finally {
                 image.close()
             }
-        }, handler)
+            // Les images arrivent sur le thread de rendu PROPRE à cette caméra :
+            // le thread caméra (ouverture, session, minuteries de vérification)
+            // reste libre, et les deux caméras se dessinent en parallèle.
+        }, cam.renderHandler)
 
         var settled = false
         fun ready(ok: Boolean) {
@@ -574,6 +633,7 @@ class Camera2Dual(
                 if (!done) CamLog.e("dual", "${cam.key} : fermeture non confirmée après 1,5 s")
                 runCatching { cam.reader?.close() }
                 runCatching { cam.surface?.release() }
+                runCatching { cam.renderThread?.quitSafely() }
             }
             camThread?.quitSafely()
             CamLog.i("dual", "double flux fermé, matériel rendu")

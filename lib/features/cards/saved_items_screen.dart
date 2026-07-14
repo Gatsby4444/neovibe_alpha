@@ -5,6 +5,7 @@ import '../../core/models/card.dart';
 import '../../core/supabase_providers.dart';
 import 'card_viewer_screen.dart';
 import 'cards_repository.dart';
+import 'face_thumb.dart';
 
 enum _SavedFilter { mine, friends, others }
 
@@ -181,9 +182,7 @@ class _SavedThumb extends ConsumerWidget {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(8),
-            child: url.value == null
-                ? const ColoredBox(color: Color(0xFF1C1C24))
-                : Image.network(url.value!, fit: BoxFit.cover),
+            child: FaceThumb(path: card.frontPath, url: url.value),
           ),
           Positioned(
             bottom: 4,

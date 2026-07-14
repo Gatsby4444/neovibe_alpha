@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../cards/card_viewer_screen.dart';
+import '../cards/face_thumb.dart';
 import '../connections/friends_list_screen.dart';
 import '../connections/heart_screen.dart';
 import '../conversations/video_player_screen.dart';
@@ -301,9 +302,7 @@ class _CardThumb extends ConsumerWidget {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: url.value == null
-              ? const ColoredBox(color: Color(0xFF1C1C24))
-              : Image.network(url.value!, fit: BoxFit.cover),
+          child: FaceThumb(path: path, url: url.value),
         ),
         Positioned(
           bottom: 4,
@@ -338,9 +337,7 @@ class _MediaThumb extends ConsumerWidget {
     final url = ref.watch(_libraryUrlProvider(path));
     return ClipRRect(
       borderRadius: BorderRadius.circular(10),
-      child: url.value == null
-          ? const ColoredBox(color: Color(0xFF1C1C24))
-          : Image.network(url.value!, fit: BoxFit.cover),
+      child: FaceThumb(path: path, url: url.value),
     );
   }
 }

@@ -193,10 +193,19 @@ class NativeCamera(
                     }
                 }
                 "switchLens" -> withProvider(result) { p ->
-                    lensBack = !lensBack
-                    CamLog.i("simple", "bascule caméra → arrière=$lensBack")
-                    rebindSingle(p)
-                    result.success(mapOf("back" to lensBack))
+                    // La pile CameraX peut être libérée (ouverture du double flux
+                    // en cours) : basculer ferait un NullPointerException sur les
+                    // use cases (vu dans le journal de Jay, v0.9.1 — Jay a tapé la
+                    // bascule pendant que le double live s'ouvrait).
+                    if (preview == null || imageCapture == null || videoCapture == null) {
+                        CamLog.e("simple", "bascule ignorée : flux simple non ouvert")
+                        result.error("NOT_OPEN", "Caméra non ouverte", null)
+                    } else {
+                        lensBack = !lensBack
+                        CamLog.i("simple", "bascule caméra → arrière=$lensBack")
+                        rebindSingle(p)
+                        result.success(mapOf("back" to lensBack))
+                    }
                 }
                 "takePicture" -> takePicture(result)
                 "startVideo" -> startVideo(call, result)

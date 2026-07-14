@@ -25,23 +25,28 @@ class _PingChatScreenState extends ConsumerState<PingChatScreen> {
   PingConversation? _conversation;
   var _sending = false;
 
+  /// Capturé à l'initialisation : `ref` est INTERDIT dans `dispose()` (le
+  /// widget est déjà démonté — Riverpod lève « Using "ref" when a widget is
+  /// about to or has been unmounted », vu dans le journal de Jay).
+  late final _store = ref.read(pingStoreProvider);
+
   @override
   void initState() {
     super.initState();
-    ref.read(pingStoreProvider).addListener(_reload);
+    _store.addListener(_reload);
     _reload();
   }
 
   @override
   void dispose() {
-    ref.read(pingStoreProvider).removeListener(_reload);
+    _store.removeListener(_reload);
     _input.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
   Future<void> _reload() async {
-    final conv = await ref.read(pingStoreProvider).conversation(widget.peerId);
+    final conv = await _store.conversation(widget.peerId);
     if (!mounted) return;
     setState(() => _conversation = conv);
     WidgetsBinding.instance.addPostFrameCallback((_) {

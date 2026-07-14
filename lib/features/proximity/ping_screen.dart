@@ -25,16 +25,21 @@ class _PingScreenState extends ConsumerState<PingScreen> {
   List<PingConversation> _conversations = const [];
   List<LocalEncounter> _encounters = const [];
 
+  /// Capturé à l'initialisation : `ref` est INTERDIT dans `dispose()` (le
+  /// widget est déjà démonté — Riverpod lève « Using "ref" when a widget is
+  /// about to or has been unmounted », vu dans le journal de Jay).
+  late final _store = ref.read(pingStoreProvider);
+
   @override
   void initState() {
     super.initState();
-    ref.read(pingStoreProvider).addListener(_reload);
+    _store.addListener(_reload);
     _reload();
   }
 
   @override
   void dispose() {
-    ref.read(pingStoreProvider).removeListener(_reload);
+    _store.removeListener(_reload);
     super.dispose();
   }
 

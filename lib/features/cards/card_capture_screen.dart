@@ -327,7 +327,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// une vidéo — l'enregistrement persistant natif survit à la bascule,
   /// comme Snapchat) et Oneshot en vue simple de secours.
   Future<void> _toggleLens() async {
-    if (_busy || _switching || _camera.dualActive) return;
+    // Pendant l'ouverture du double live, CameraX est libéré : une bascule
+    // taperait dans le vide (NullPointerException natif, journal v0.9.1).
+    if (_busy || _switching || _camera.dualActive || _dualOpening) return;
     // Pendant une vidéo : bascule autorisée UNIQUEMENT en Mono (consigne).
     if (_recording && _type != CardType.mono) return;
     if (_recording && !_videoStarted) return; // démarrage caméra en cours
