@@ -211,13 +211,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     _cameraType = type;
 
     if (type == CardType.oneshot) {
-      // Double flux Camera2 : uniquement si l'option dev est activée. Par
-      // défaut, Oneshot = mode simple fiable.
-      if (ref.read(devDualOneshotProvider)) {
-        await _tryOpenDual();
-      } else {
-        _showOneshotFallbackNotice();
-      }
+      // Le changement de mode ne touche PLUS au double flux (décision Jay,
+      // 2026-07-14) : le Oneshot ouvre l'aperçu simple, immédiat et fiable.
+      // Le double live se demande explicitement, par le bouton dédié.
+      _showOneshotFallbackNotice();
     } else if (previous == CardType.oneshot && _camera.dualActive) {
       // Sortie du Oneshot : retour au flux simple, caméra arrière.
       await _openWithRetry();
@@ -229,36 +226,48 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
-  /// Double flux Camera2 brut (opt-in dev). En cas d'échec, on revient
-  /// PROPREMENT à la vue simple — jamais de crash, jamais de caméra
-  /// verrouillée.
+  /// Le double live est-il proposable ? (Bouton explicite — le changement de
+  /// mode ne le déclenche jamais.) Un échec le retire jusqu'au prochain
+  /// lancement de l'app : sonder le matériel n'est pas gratuit, un échec peut
+  /// laisser le service caméra d'Android hors service.
+  bool get _canOfferDual =>
+      _type == CardType.oneshot &&
+      _step == 0 &&
+      !_camera.dualActive &&
+      !_dualOpening &&
+      !NativeCameraController.dualFailedThisSession &&
+      ref.read(devDualOneshotProvider);
+
+  /// Ouvre le double live (demande explicite de l'utilisateur). En cas
+  /// d'échec : retour à la vue simple, message clair, et on ne le repropose
+  /// plus de la session.
   Future<void> _tryOpenDual() async {
-    await NativeCameraController.log('Oneshot : tentative de double flux');
+    await NativeCameraController.log('Oneshot : double live demandé');
     if (mounted) setState(() => _dualOpening = true);
     try {
       await _camera.openDual();
       _dualError = null;
       _pipSwapped = false;
       await NativeCameraController.log(
-        'Oneshot : double flux ouvert — textures '
-        'back=${_camera.dualBackTextureId} front=${_camera.dualFrontTextureId}, '
-        'infos=${_camera.previews.keys.join(",")}',
+        'Oneshot : double live actif — textures '
+        'back=${_camera.dualBackTextureId} front=${_camera.dualFrontTextureId}',
       );
       if (mounted) setState(() {});
-    } on DualUnsupportedException catch (e) {
-      _dualError = e.reason;
-      await NativeCameraController.log(
-        'Oneshot : double flux refusé — ${e.reason}',
-      );
-      _showOneshotFallbackNotice();
-      await _camera.close();
-      await _openWithRetry();
     } catch (e) {
-      _dualError = e.toString();
-      await NativeCameraController.log('Oneshot : double flux en erreur — $e');
-      _showOneshotFallbackNotice();
+      _dualError = e is DualUnsupportedException ? e.reason : e.toString();
+      await NativeCameraController.log('Oneshot : double live refusé — $e');
       await _camera.close();
       await _openWithRetry();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Double live impossible sur cet appareil. Le Oneshot capture '
+              'quand même les deux faces, l\'une après l\'autre.',
+            ),
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _dualOpening = false);
       // Le sélecteur a pu bouger pendant les quelques secondes d'ouverture :
@@ -276,8 +285,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
-          'Oneshot : bascule l\'aperçu avec le bouton — le déclenché prend '
-          'toujours les deux faces.',
+          'Oneshot : le déclenché prend les deux faces. Bascule l\'aperçu avec '
+          'le bouton.',
         ),
       ),
     );
@@ -750,9 +759,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     );
   }
 
-  /// Le moteur double flux teste plusieurs configurations matérielles à la
-  /// suite (jusqu'à ~10 s) : sans ce cadre, l'écran resterait NOIR pendant la
-  /// recherche — c'est ce que Jay a vu en v0.8.3.
+  /// Ouverture du double live (~2 s) : cadre d'attente explicite, jamais un
+  /// écran noir muet (retour Jay, v0.8.5).
   Widget _dualSearchFrame() {
     return Center(
       child: AspectRatio(
@@ -768,8 +776,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                   CircularProgressIndicator(),
                   SizedBox(height: 14),
                   Text(
-                    'Double flux : recherche d\'une configuration\n'
-                    'acceptée par ton appareil…',
+                    'Ouverture du double live…',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: Colors.white70, fontSize: 13),
                   ),
@@ -1001,6 +1008,16 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 ],
               ),
             ),
+            // Double live (Oneshot) : demandé EXPLICITEMENT (décision Jay,
+            // 2026-07-14). Changer de mode ne réveille plus la caméra double :
+            // c'est ce bouton, et lui seul, qui l'ouvre.
+            if (_canOfferDual)
+              Positioned(
+                key: const ValueKey('dual-live'),
+                bottom: 190,
+                right: 16,
+                child: _DualLiveButton(onPressed: _tryOpenDual),
+              ),
             // Sélecteur de type : AVANT la première photo. Épuré : texte seul,
             // swipe localisé (PageView) et mise en avant animée du mode actif.
             // Masqué pendant un enregistrement vidéo.
@@ -1239,6 +1256,38 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
 /// Diagnostic caméra (dev) : ce que la couche native annonce réellement à
 /// Flutter. Sert à trancher un bug d'aperçu (distorsion/rotation) sur chiffres
 /// plutôt qu'au jugé. Activable dans Réglages → Développeur.
+/// Bouton « double live » du Oneshot : les deux caméras en direct, à la
+/// demande. Volontairement explicite — le double flux mobilise le matériel et
+/// tous les appareils ne le supportent pas (décision Jay, 2026-07-14).
+class _DualLiveButton extends StatelessWidget {
+  const _DualLiveButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black45,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: TextButton.icon(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.white,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        ),
+        icon: const Icon(Icons.flip_camera_android, size: 18),
+        label: const Text(
+          'Double live',
+          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+}
+
 class _CameraHud extends StatelessWidget {
   const _CameraHud({required this.camera, this.caps, this.dualError});
   final NativeCameraController camera;

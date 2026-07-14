@@ -115,10 +115,14 @@ class NativeCameraController extends ChangeNotifier {
   }
 
   Future<void> open({required bool back, required bool audio}) async {
-    final res = await _channel.invokeMapMethod<String, dynamic>('open', {
-      'back': back,
-      'audio': audio,
-    });
+    // Borné : l'ouverture attend la fermeture réelle d'un éventuel double flux
+    // (côté natif), mais elle ne doit jamais bloquer l'écran indéfiniment.
+    final res = await _channel
+        .invokeMapMethod<String, dynamic>('open', {
+          'back': back,
+          'audio': audio,
+        })
+        .timeout(const Duration(seconds: 10));
     lensBack = back;
     dualActive = false;
     textureId = res?['textureId'] as int?;
@@ -134,7 +138,9 @@ class NativeCameraController extends ChangeNotifier {
   }
 
   Future<File> takePicture() async {
-    final res = await _channel.invokeMapMethod<String, dynamic>('takePicture');
+    final res = await _channel
+        .invokeMapMethod<String, dynamic>('takePicture')
+        .timeout(const Duration(seconds: 8));
     return File(res!['path'] as String);
   }
 
@@ -146,17 +152,42 @@ class NativeCameraController extends ChangeNotifier {
     return File(res!['path'] as String);
   }
 
+  /// Le double flux a échoué depuis le lancement de l'app : on ne le retente
+  /// PAS avant le prochain démarrage (décision Jay : un réessai par session).
+  /// Sonder le matériel a un coût réel — un échec peut laisser le service
+  /// caméra d'Android hors service jusqu'au redémarrage.
+  static var dualFailedThisSession = false;
+
+  /// Le service caméra d'Android répond-il encore ? (Après certains échecs, il
+  /// tombe : `cameraIdList` devient vide et plus rien ne s'ouvre.)
+  static Future<bool> isCameraServiceAlive() async {
+    try {
+      return await _channel.invokeMethod<bool>('isCameraServiceAlive') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Ouvre le double flux (Oneshot). Lève [DualUnsupportedException] si
   /// l'appareil refuse — l'appelant repasse en vue simple.
+  ///
+  /// Toujours borné dans le temps : une caméra qui ne répond pas ne doit
+  /// JAMAIS laisser l'écran en chargement infini (retour Jay, v0.8.5).
   Future<void> openDual() async {
     try {
-      final res = await _channel.invokeMapMethod<String, dynamic>('openDual');
+      final res = await _channel
+          .invokeMapMethod<String, dynamic>('openDual')
+          .timeout(const Duration(seconds: 10));
       dualBackTextureId = res?['backTextureId'] as int?;
       dualFrontTextureId = res?['frontTextureId'] as int?;
       dualActive = true;
       textureId = null;
       notifyListeners();
+    } on TimeoutException {
+      dualFailedThisSession = true;
+      throw const DualUnsupportedException('La caméra ne répond pas (10 s)');
     } on PlatformException catch (e) {
+      dualFailedThisSession = true;
       if (e.code == 'DUAL_UNSUPPORTED') {
         throw DualUnsupportedException(e.message);
       }
@@ -164,11 +195,13 @@ class NativeCameraController extends ChangeNotifier {
     }
   }
 
-  /// Les deux photos d'un coup : arrière = recto, avant = verso.
+  /// Les deux photos d'un coup : arrière = recto, avant = verso. En double
+  /// flux, ce sont les DERNIÈRES IMAGES REÇUES des deux capteurs — donc
+  /// instantané, et vraiment simultané.
   Future<({File back, File front})> takeDualPictures() async {
-    final res = await _channel.invokeMapMethod<String, dynamic>(
-      'takeDualPictures',
-    );
+    final res = await _channel
+        .invokeMapMethod<String, dynamic>('takeDualPictures')
+        .timeout(const Duration(seconds: 8));
     return (
       back: File(res!['back'] as String),
       front: File(res['front'] as String),
@@ -201,7 +234,10 @@ class NativeCameraController extends ChangeNotifier {
 
   Future<void> close() async {
     try {
-      await _channel.invokeMethod('close');
+      // La réponse native n'arrive qu'une fois le matériel RENDU (attente des
+      // callbacks onClosed) : c'est ce qui permet de rouvrir sans casser le
+      // service caméra. Bornée quand même.
+      await _channel.invokeMethod('close').timeout(const Duration(seconds: 6));
     } catch (_) {}
     textureId = null;
     dualBackTextureId = null;

@@ -170,9 +170,20 @@ class NativeCamera(
                 }
                 "open" -> withProvider(result) { p ->
                     lensBack = call.argument<Boolean>("back") ?: true
-                    CamLog.i("simple", "ouverture flux simple (arrière=$lensBack)")
-                    openSingle(p, call.argument<Boolean>("audio") ?: false)
-                    result.success(mapOf("textureId" to entry!!.id()))
+                    val audio = call.argument<Boolean>("audio") ?: false
+                    // On ATTEND que le double flux ait rendu le matériel : rouvrir
+                    // CameraX trop tôt laissait le service caméra en vrac
+                    // (« Available cameras: 0 », puis « unknown device »).
+                    camera2Dual.close {
+                        CamLog.i("simple", "ouverture flux simple (arrière=$lensBack)")
+                        try {
+                            openSingle(p, audio)
+                            result.success(mapOf("textureId" to entry!!.id()))
+                        } catch (e: Exception) {
+                            CamLog.e("simple", "ouverture impossible", e)
+                            result.error("CAMERA_ERROR", e.message, null)
+                        }
+                    }
                 }
                 "switchLens" -> withProvider(result) { p ->
                     lensBack = !lensBack
@@ -199,16 +210,31 @@ class NativeCamera(
                     result.error("DUAL_VIDEO_UNSUPPORTED", "Vidéo double non gérée", null)
                 "stopDualVideo" ->
                     result.error("NOT_RECORDING", "Aucun enregistrement double", null)
-                "probeDual" -> {
+                "isCameraServiceAlive" -> {
+                    // Le service caméra peut être tombé (cameraIdList vide) :
+                    // le Dart doit pouvoir le savoir sans provoquer d'erreur.
+                    val alive = try {
+                        val cm = activity.getSystemService(Context.CAMERA_SERVICE)
+                            as android.hardware.camera2.CameraManager
+                        cm.cameraIdList.isNotEmpty()
+                    } catch (e: Exception) {
+                        CamLog.e("camera", "service caméra injoignable", e)
+                        false
+                    }
+                    result.success(alive)
+                }
+                "probeDual" -> closeAll {
                     // Sonde Camera2 brute : ouvre les DEUX caméras de force,
                     // sans passer par la déclaration d'Android (demande de
                     // Jay : « existe-t-il un moyen de contourner l'API ? »).
-                    closeAll()
                     DualCameraProbe(activity).run { report -> result.success(report) }
                 }
                 "close" -> {
-                    closeAll()
-                    result.success(null)
+                    provider?.unbindAll()
+                    releaseSingle()
+                    // La réponse n'arrive qu'une fois le matériel RENDU : le Dart
+                    // peut alors rouvrir sans risque.
+                    camera2Dual.close { result.success(null) }
                 }
                 "setSecure" -> {
                     val on = call.argument<Boolean>("on") ?: true
@@ -303,9 +329,8 @@ class NativeCamera(
     // Mode simple (tous les modes sauf Oneshot double)
     // ------------------------------------------------------------------
 
+    /** Appelé UNIQUEMENT après `camera2Dual.close { … }` (matériel rendu). */
     private fun openSingle(p: ProcessCameraProvider, audio: Boolean) {
-        // On revient d'un éventuel double flux Camera2 : le fermer.
-        camera2Dual.close()
         entry = entry ?: textureRegistry.createSurfaceProducer()
         preview = Preview.Builder().build().also {
             it.setSurfaceProvider(surfaceProvider(entry!!, "main"))
@@ -414,10 +439,10 @@ class NativeCamera(
         videoCapture = null
     }
 
-    private fun closeAll() {
-        camera2Dual.close()
+    private fun closeAll(onDone: (() -> Unit)? = null) {
         provider?.unbindAll()
         releaseSingle()
+        camera2Dual.close(onDone)
     }
 
     /**
