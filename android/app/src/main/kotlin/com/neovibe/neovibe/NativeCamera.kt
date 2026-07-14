@@ -94,7 +94,39 @@ class NativeCamera(
         channel.setMethodCallHandler(this)
     }
 
-    override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
+    /**
+     * Répond AU PLUS UNE fois au canal. Sans ce filet, une seconde réponse
+     * (typiquement : le `catch` ci-dessous après qu'un callback caméra a déjà
+     * répondu) lève « Reply already submitted » et **tue l'app** — c'est
+     * exactement le crash de la capture Oneshot du 2026-07-14.
+     */
+    private class OnceResult(
+        private val delegate: MethodChannel.Result,
+        private val method: String,
+    ) : MethodChannel.Result {
+        private var done = false
+
+        override fun success(value: Any?) {
+            if (done) return CamLog.e("canal", "réponse ignorée (déjà répondu) : $method")
+            done = true
+            delegate.success(value)
+        }
+
+        override fun error(code: String, message: String?, details: Any?) {
+            if (done) return CamLog.e("canal", "erreur ignorée (déjà répondu) : $method — $message")
+            done = true
+            delegate.error(code, message, details)
+        }
+
+        override fun notImplemented() {
+            if (done) return
+            done = true
+            delegate.notImplemented()
+        }
+    }
+
+    override fun onMethodCall(call: MethodCall, rawResult: MethodChannel.Result) {
+        val result = OnceResult(rawResult, call.method)
         try {
             when (call.method) {
                 // --- Journal (diagnostic, Réglages → Développeur) ----------

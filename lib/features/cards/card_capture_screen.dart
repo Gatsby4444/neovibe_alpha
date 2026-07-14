@@ -58,6 +58,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// affiche un cadre d'attente au lieu d'un écran noir.
   var _dualOpening = false;
 
+  /// Type que la CAMÉRA sert actuellement (≠ [_type] tant que le sélecteur
+  /// n'est pas posé) + minuterie de stabilisation du sélecteur.
+  late CardType _cameraType = _type;
+  Timer? _typeSettle;
+
   File? _front; // recto = caméra arrière (ce que je vois)
   File? _back; // verso = caméra avant (ma réaction) — null en Mono
   var _frontImported = false; // face issue de la galerie
@@ -183,15 +188,30 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   }
 
   /// Changement de type dans le sélecteur.
-  /// Oneshot : le DOUBLE FLUX natif est tenté (chantier caméra 2026-07-13) ;
-  /// si l'appareil refuse (matériel sans concurrent-camera), on retombe sur
-  /// la vue simple + bouton de bascule (fallback validé par Jay en v0.5.1).
-  Future<void> _onTypeChanged(CardType type) async {
-    final previous = _type;
+  ///
+  /// Le PageView émet un changement pour CHAQUE type traversé pendant le
+  /// swipe : sans temporisation, un simple passage sur Oneshot lançait une
+  /// ouverture de double flux (~3 s) — parfois plusieurs en parallèle, et
+  /// l'écran d'attente restait affiché sur le mode d'arrivée (retour Jay,
+  /// v0.8.4). On ne reconfigure donc la caméra qu'une fois le sélecteur POSÉ.
+  void _onTypeChanged(CardType type) {
     setState(() => _type = type);
+    _typeSettle?.cancel();
+    _typeSettle = Timer(const Duration(milliseconds: 350), _applyTypeToCamera);
+  }
+
+  /// Applique à la caméra le type réellement choisi (une fois posé).
+  Future<void> _applyTypeToCamera() async {
+    final type = _type;
+    if (type == _cameraType) return;
+    // Une ouverture de double flux est en cours : elle se réaligne toute
+    // seule à la fin (voir la fin de _tryOpenDual).
+    if (_dualOpening) return;
+    final previous = _cameraType;
+    _cameraType = type;
+
     if (type == CardType.oneshot) {
-      // Double flux Camera2 : uniquement si l'option dev est activée (le
-      // moteur peut planter/verrouiller la caméra — crash 2026-07-14). Par
+      // Double flux Camera2 : uniquement si l'option dev est activée. Par
       // défaut, Oneshot = mode simple fiable.
       if (ref.read(devDualOneshotProvider)) {
         await _tryOpenDual();
@@ -241,6 +261,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       await _openWithRetry();
     } finally {
       if (mounted) setState(() => _dualOpening = false);
+      // Le sélecteur a pu bouger pendant les quelques secondes d'ouverture :
+      // on réaligne la caméra sur le type réellement affiché.
+      if (_type != CardType.oneshot) {
+        _cameraType = _type;
+        if (_camera.dualActive) await _openWithRetry();
+      }
     }
   }
 
@@ -470,6 +496,19 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     if (_recording && !_recordLocked) _stopVideo();
   }
 
+  /// Oneshot en vue simple : les deux faces l'une après l'autre (arrière puis
+  /// avant). C'est le mode fiable, et celui de BeReal.
+  Future<void> _captureBothSequentially() async {
+    await _ensureLens(back: true);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    final backShot = await _camera.takePicture();
+    await _ensureLens(back: false);
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+    final frontShot = await _camera.takePicture();
+    _front = await _cropTo916(backShot);
+    _back = await _cropTo916(frontShot);
+  }
+
   Future<void> _capture() async {
     if (!_previewReady || _busy || _recording) return;
     setState(() => _busy = true);
@@ -483,21 +522,30 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         return;
       }
       if (_type == CardType.oneshot && _step == 0) {
+        var shot = false;
         if (_camera.dualActive) {
-          // Double flux natif : les deux clichés au MÊME instant.
-          final shots = await _camera.takeDualPictures();
-          _front = await _cropTo916(shots.back);
-          _back = await _cropTo916(shots.front);
-        } else {
-          // Vue simple de secours : arrière puis avant, comme avant.
-          await _ensureLens(back: true);
-          await Future<void>.delayed(const Duration(milliseconds: 250));
-          final backShot = await _camera.takePicture();
-          await _ensureLens(back: false);
-          await Future<void>.delayed(const Duration(milliseconds: 250));
-          final frontShot = await _camera.takePicture();
-          _front = await _cropTo916(backShot);
-          _back = await _cropTo916(frontShot);
+          try {
+            // Double flux natif : les deux faces d'un coup.
+            final shots = await _camera.takeDualPictures();
+            _front = await _cropTo916(shots.back);
+            _back = await _cropTo916(shots.front);
+            shot = true;
+          } catch (e) {
+            // La capture en double flux peut échouer (le matériel refuse de
+            // reconfigurer une caméra pendant que l'autre tourne — crash
+            // v0.8.4). Le moteur natif a tout refermé : on reprend en vue
+            // simple, qui, elle, marche toujours. La card est capturée quand
+            // même : Jay ne perd pas sa prise.
+            await NativeCameraController.log(
+              'Oneshot : capture en double flux échouée ($e) → repli séquentiel',
+            );
+            await _camera.close();
+            await _openWithRetry();
+          }
+        }
+        if (!shot) {
+          // Vue simple : arrière puis avant (c'est aussi ce que fait BeReal).
+          await _captureBothSequentially();
         }
         _berealTimer?.cancel();
         setState(() => _step = 2);
@@ -634,6 +682,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   void dispose() {
     _berealTimer?.cancel();
     _recordTimer?.cancel();
+    _typeSettle?.cancel();
     _typeController.dispose();
     _camera.removeListener(_onCameraChanged);
     _camera.dispose();

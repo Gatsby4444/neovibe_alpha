@@ -24,33 +24,32 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Moteur double flux Oneshot en **Camera2 BRUT** — contourne la déclaration
  * `getConcurrentCameraIds()` d'Android (que CameraX respecte, et qui dit
- * « non » sur le Redmi Note 10 Pro alors que la sonde `DualCameraProbe`
- * prouve que le matériel accepte deux flux d'aperçu).
+ * « non » sur le Redmi Note 10 Pro alors que le matériel, lui, accepte).
  *
- * ## Règles apprises à la dure (v0.8.0 → v0.8.4)
+ * ## Ce que les journaux de Jay ont établi (v0.8.0 → v0.8.5)
  *
- * 1. **Tout ce qui touche à Flutter (TextureRegistry, SurfaceProducer,
- *    MethodChannel) DOIT s'exécuter sur le thread principal** (elles sont
- *    annotées `@UiThread`). Les callbacks Camera2 arrivent, eux, sur un thread
- *    secondaire : repasser par `runOnUiThread` avant de toucher à Flutter.
- *    C'était la cause du crash v0.8.2.
- * 2. **Une réponse de canal, une seule fois** (`Reply`) : répondre deux fois à
- *    un `MethodChannel.Result` lève « Reply already submitted » et tue l'app.
- * 3. **Ouverture séquentielle** (arrière, puis frontale).
- * 4. **Une session qui se configure ne prouve RIEN** : sur le Redmi (journal du
- *    2026-07-14), la session de la frontale se configure, la requête répétitive
- *    est acceptée… et **zéro image** n'arrive, pendant que l'arrière tombe de
- *    11 à 3 images/s. Le matériel accepte la configuration puis affame le
- *    second flux. **Seul le compteur d'images fait foi.**
- * 5. **Toujours libérer** : une caméra laissée ouverte verrouille le matériel
- *    (« Available cameras: 0 » jusqu'au redémarrage).
+ * 1. **Toute API Flutter (TextureRegistry, SurfaceProducer, MethodChannel) est
+ *    `@UiThread`** : les callbacks Camera2 arrivant sur un thread secondaire,
+ *    il faut repasser par `runOnUiThread`. (Crash v0.8.2.)
+ * 2. **Une réponse de canal, une seule fois** — sinon « Reply already
+ *    submitted » tue l'app. (Crash de la capture, v0.8.4.)
+ * 3. **Une session qui se configure ne prouve RIEN** : en 2 flux/caméra 720p,
+ *    la session de la frontale se configure, la requête est acceptée, et zéro
+ *    image n'arrive. **Seul le compteur d'images fait foi.**
+ * 4. **Ce qui MARCHE sur le Redmi : 1 flux par caméra en 720p** — les deux
+ *    capteurs livrent en parallèle (≈30 et ≈17 images/s).
+ * 5. **Ne JAMAIS reconfigurer les deux caméras en même temps** : le service
+ *    caméra n'arrive pas à vider ses tampons (« Error waiting to drain :
+ *    Connection timed out ») et casse les deux flux. Les captures se font donc
+ *    **l'une après l'autre**, sur le thread caméra (jamais le thread principal :
+ *    `createCaptureSession` y bloquait 5 s).
  *
- * ## Échelle de configurations (essayées dans l'ordre, la 1re qui LIVRE gagne)
+ * ## Échelle de configurations
  *
- * La sonde qui a réussi ouvrait **1 flux par caméra en 640×480**. La v0.8.3
- * demandait **2 flux par caméra en 720p** (aperçu + photo) : trop gourmand →
- * la frontale n'était pas alimentée. On part donc du plus léger et on ne monte
- * que si ça tient. Le journal indique la configuration retenue.
+ * Essayées dans l'ordre, la première qui **livre réellement des images sur les
+ * deux caméras** gagne. La gagnante est **mémorisée** : les ouvertures
+ * suivantes la retentent en premier (sinon on repaie le prix des essais ratés
+ * à chaque entrée dans le Oneshot).
  */
 @SuppressLint("MissingPermission") // permission caméra déjà accordée
 class Camera2Dual(
@@ -60,6 +59,9 @@ class Camera2Dual(
 ) {
     private val manager =
         activity.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+
+    private val prefs =
+        activity.getSharedPreferences("neovibe_camera", Context.MODE_PRIVATE)
 
     private var thread: HandlerThread? = null
     private var handler: Handler? = null
@@ -77,23 +79,29 @@ class Camera2Dual(
         private set
 
     /**
-     * Numéro de l'essai en cours. Les callbacks d'un essai abandonné peuvent
-     * encore arriver (messages déjà partis sur le thread caméra) : on les
-     * ignore, sinon ils font sauter deux barreaux d'un coup dans l'échelle.
+     * Numéro de l'essai en cours : les callbacks d'un essai abandonné peuvent
+     * encore arriver — on les ignore, sinon ils font sauter des barreaux.
      */
     private var epoch = 0
 
     /**
-     * Une configuration à tester. [streams] = nombre de flux par caméra
-     * (1 = aperçu seul, la photo passera par une reconfiguration ponctuelle ;
-     * 2 = aperçu + ImageReader JPEG, plus confortable mais plus gourmand).
+     * Une configuration à tester. [photo] non nul = un ImageReader JPEG est
+     * dans la session (2 flux/caméra) → capture des deux faces au MÊME instant.
+     * [photo] nul = 1 flux/caméra → capture par reconfiguration séquentielle.
      */
-    private data class Config(val streams: Int, val size: Size, val label: String)
+    private data class Config(val preview: Size, val photo: Size?, val label: String)
 
     private val configs = listOf(
-        Config(1, Size(1280, 720), "1 flux/caméra en 720p"),
-        Config(1, Size(640, 480), "1 flux/caméra en 640×480 (config validée par la sonde)"),
-        Config(2, Size(1280, 720), "2 flux/caméra en 720p (aperçu + photo)"),
+        Config(
+            Size(1280, 720), Size(640, 480),
+            "2 flux/caméra : aperçu 720p + photo 640×480 (capture simultanée)",
+        ),
+        Config(Size(1280, 720), null, "1 flux/caméra en 720p"),
+        Config(Size(640, 480), null, "1 flux/caméra en 640×480"),
+        Config(
+            Size(1280, 720), Size(1280, 720),
+            "2 flux/caméra : aperçu 720p + photo 720p",
+        ),
     )
 
     /** État d'une caméra du duo. */
@@ -115,11 +123,9 @@ class Camera2Dual(
         /** Images réellement délivrées par le capteur : la seule preuve de vie. */
         val frames = AtomicInteger(0)
         var evicted = false
-
-        val hasReader: Boolean get() = reader != null
     }
 
-    /** Garantit une réponse unique au canal (sinon : crash Flutter). */
+    /** Garantit une réponse unique au canal. */
     private inner class Reply(private val result: MethodChannel.Result) {
         private var done = false
 
@@ -141,7 +147,7 @@ class Camera2Dual(
     private fun onUi(block: () -> Unit) = activity.runOnUiThread(block)
 
     // ------------------------------------------------------------------
-    // Ouverture : on descend l'échelle des configurations
+    // Ouverture
     // ------------------------------------------------------------------
 
     fun open(result: MethodChannel.Result) {
@@ -149,26 +155,32 @@ class Camera2Dual(
         CamLog.i("dual", "=== OUVERTURE DOUBLE FLUX (Camera2 brut) ===")
         val backId = firstCamera(CameraCharacteristics.LENS_FACING_BACK)
         val frontId = firstCamera(CameraCharacteristics.LENS_FACING_FRONT)
-        CamLog.i(
-            "dual",
-            "caméras : arrière=$backId avant=$frontId (liste=${manager.cameraIdList.joinToString()})",
-        )
+        CamLog.i("dual", "caméras : arrière=$backId avant=$frontId")
         if (backId == null || frontId == null) {
             reply.error("DUAL_UNSUPPORTED", "Caméra avant ou arrière introuvable")
             return
         }
-        tryConfig(0, backId, frontId, reply, mutableListOf())
+
+        // La configuration qui a marché la dernière fois passe en tête : on ne
+        // repaie pas les essais ratés à chaque entrée dans le Oneshot.
+        val known = prefs.getInt(PREF_CONFIG, -1)
+        val order = configs.indices.sortedBy { if (it == known) -1 else it }
+        if (known in configs.indices) {
+            CamLog.i("dual", "configuration mémorisée : « ${configs[known].label} » → essayée en premier")
+        }
+        tryConfig(order, 0, backId, frontId, reply, mutableListOf())
     }
 
-    /** Essaie la configuration [index] ; en cas d'échec, passe à la suivante. */
+    /** Essaie la configuration [order]\[[step]] ; en cas d'échec, la suivante. */
     private fun tryConfig(
-        index: Int,
+        order: List<Int>,
+        step: Int,
         backId: String,
         frontId: String,
         reply: Reply,
         failures: MutableList<String>,
     ) {
-        if (index >= configs.size) {
+        if (step >= order.size) {
             closeInternal()
             reply.error(
                 "DUAL_UNSUPPORTED",
@@ -176,8 +188,9 @@ class Camera2Dual(
             )
             return
         }
+        val index = order[step]
         val config = configs[index]
-        CamLog.i("dual", "--- essai ${index + 1}/${configs.size} : ${config.label} ---")
+        CamLog.i("dual", "--- essai ${step + 1}/${order.size} : ${config.label} ---")
 
         try {
             closeInternal() // repart d'un état propre à chaque essai
@@ -187,47 +200,46 @@ class Camera2Dual(
 
             fun next(reason: String) {
                 if (mine != epoch) return // callback d'un essai déjà abandonné
-                CamLog.e("dual", "essai ${index + 1} abandonné : $reason")
+                CamLog.e("dual", "essai ${step + 1} abandonné : $reason")
                 failures += "${config.label} → $reason"
                 closeInternal()
-                onUi { tryConfig(index + 1, backId, frontId, reply, failures) }
+                onUi { tryConfig(order, step + 1, backId, frontId, reply, failures) }
             }
 
-            // 1) Arrière seule d'abord (ouvrir les deux d'un coup fait évincer).
+            // Arrière seule d'abord : ouvrir les deux d'un coup fait évincer.
             openCam("dualBack", backId, back = true, config = config) { backOk ->
                 if (!backOk) return@openCam next("la caméra arrière n'a pas démarré")
                 handler?.postDelayed({
                     val backAlone = cams["dualBack"]?.frames?.get() ?: 0
-                    CamLog.i("dual", "arrière seule : $backAlone images en 700 ms")
+                    CamLog.i("dual", "arrière seule : $backAlone images en 600 ms")
                     if (backAlone == 0) {
                         return@postDelayed next("l'arrière ne délivre aucune image")
                     }
-                    // 2) Frontale — createSurfaceProducer = THREAD PRINCIPAL.
-                    onUi {
+                    onUi { // createSurfaceProducer = THREAD PRINCIPAL
                         openCam("dualFront", frontId, back = false, config = config) { frontOk ->
                             if (!frontOk) {
                                 return@openCam next("la caméra frontale n'a pas démarré")
                             }
-                            verifyBoth(config, backAlone, reply, ::next)
+                            verifyBoth(index, config, backAlone, reply, ::next)
                         }
                     }
-                }, 700)
+                }, 600)
             }
         } catch (e: Exception) {
-            CamLog.e("dual", "exception pendant l'essai ${index + 1}", e)
+            CamLog.e("dual", "exception pendant l'essai ${step + 1}", e)
             failures += "${config.label} → ${e.javaClass.simpleName}: ${e.message}"
             closeInternal()
-            onUi { tryConfig(index + 1, backId, frontId, reply, failures) }
+            onUi { tryConfig(order, step + 1, backId, frontId, reply, failures) }
         }
     }
 
     /**
-     * Les deux caméras sont ouvertes : elles doivent **livrer des images toutes
-     * les deux, en même temps**, pendant 1,5 s. Une session configurée ne prouve
-     * rien (leçon du journal du 2026-07-14 : la frontale se configurait puis
-     * restait à zéro image).
+     * Les deux caméras doivent **livrer des images en même temps**. Contrôle à
+     * 500 ms (abandon immédiat si la frontale est encore à zéro : c'est le
+     * symptôme du flux affamé) puis verdict à 1200 ms.
      */
     private fun verifyBoth(
+        index: Int,
         config: Config,
         backAlone: Int,
         reply: Reply,
@@ -237,17 +249,15 @@ class Camera2Dual(
         val front = cams["dualFront"]
         val backBefore = back?.frames?.get() ?: 0
 
-        // Relevés intermédiaires : ils montrent si un flux démarre lentement
-        // ou s'il ne démarre jamais.
-        for (ms in listOf(500L, 1000L)) {
-            handler?.postDelayed({
-                CamLog.i(
-                    "dual",
-                    "à $ms ms : arrière +${(back?.frames?.get() ?: 0) - backBefore} | " +
-                        "frontale ${front?.frames?.get() ?: 0}",
-                )
-            }, ms)
-        }
+        handler?.postDelayed({
+            val backNow = (back?.frames?.get() ?: 0) - backBefore
+            val frontNow = front?.frames?.get() ?: 0
+            CamLog.i("dual", "à 700 ms : arrière +$backNow | frontale $frontNow")
+            if (frontNow == 0) {
+                // Flux affamé : inutile d'attendre, on descend d'un barreau.
+                return@postDelayed next("la frontale ne délivre aucune image (flux affamé)")
+            }
+        }, 700)
 
         handler?.postDelayed({
             val backAfter = (back?.frames?.get() ?: 0) - backBefore
@@ -256,10 +266,9 @@ class Camera2Dual(
             val report =
                 "${config.label} | arrière seule=$backAlone | arrière avec la frontale=$backAfter | " +
                     "frontale=$frontFrames | éviction=$evicted"
-            CamLog.i("dual", "VÉRIFICATION 1500 ms → $report")
+            CamLog.i("dual", "VÉRIFICATION 1200 ms → $report")
 
-            // Seuils : les deux doivent tourner à au moins ~3 images/s.
-            if (evicted || backAfter < 5 || frontFrames < 5) {
+            if (evicted || backAfter < 4 || frontFrames < 4) {
                 return@postDelayed next(
                     "flux non tenus ensemble (arrière=$backAfter, frontale=$frontFrames" +
                         (if (evicted) ", ÉVICTION" else "") + ")",
@@ -268,20 +277,17 @@ class Camera2Dual(
 
             active = true
             lastReport = report
-            CamLog.i(
-                "dual",
-                "SUCCÈS avec « ${config.label} » — textures back=$backTextureId " +
-                    "front=$frontTextureId. Si l'aperçu est NOIR alors que ces compteurs " +
-                    "montent, le problème est le RENDU (texture Flutter), pas la caméra.",
-            )
+            prefs.edit().putInt(PREF_CONFIG, index).apply()
+            CamLog.i("dual", "SUCCÈS avec « ${config.label} » (mémorisée pour les prochaines fois)")
             reply.success(
                 mapOf(
                     "backTextureId" to backTextureId,
                     "frontTextureId" to frontTextureId,
                     "report" to report,
+                    "simultaneous" to (config.photo != null),
                 ),
             )
-        }, 1500)
+        }, 1200)
     }
 
     /**
@@ -301,7 +307,7 @@ class Camera2Dual(
             .get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
 
         val producer = textureRegistry.createSurfaceProducer()
-        producer.setSize(config.size.width, config.size.height)
+        producer.setSize(config.preview.width, config.preview.height)
         cam.producer = producer
         // setSize AVANT getSurface, et sur le thread principal : la Surface est
         // ensuite utilisable telle quelle depuis le thread caméra.
@@ -310,11 +316,10 @@ class Camera2Dual(
         CamLog.i(
             "dual",
             "$key : ouverture caméra $id (capteur ${cam.sensorOrientation}°, " +
-                "texture ${producer.id()}, aperçu ${config.size.width}×${config.size.height})",
+                "texture ${producer.id()}, aperçu ${config.preview.width}×${config.preview.height})",
         )
 
-        // Le Dart doit connaître taille + rotation AVANT les premières images.
-        previewInfoSink(key, config.size.width, config.size.height, cam.sensorOrientation)
+        previewInfoSink(key, config.preview.width, config.preview.height, cam.sensorOrientation)
 
         var settled = false
         fun ready(ok: Boolean) {
@@ -329,19 +334,21 @@ class Camera2Dual(
                 override fun onOpened(device: CameraDevice) {
                     CamLog.i("dual", "$key : caméra ouverte")
                     cam.device = device
-                    configure(cam, ::ready)
+                    configure(cam, withPhoto = config.photo != null, ready = ::ready)
                 }
 
                 override fun onDisconnected(device: CameraDevice) {
                     CamLog.e("dual", "$key : ÉVINCÉE (onDisconnected) — le matériel a coupé ce flux")
                     cam.evicted = true
+                    active = false
                     runCatching { device.close() }
                     ready(false)
                 }
 
                 override fun onError(device: CameraDevice, error: Int) {
-                    CamLog.e("dual", "$key : erreur d'ouverture $error (${errorName(error)})")
+                    CamLog.e("dual", "$key : erreur $error (${errorName(error)})")
                     cam.evicted = true
+                    active = false
                     runCatching { device.close() }
                     ready(false)
                 }
@@ -350,17 +357,17 @@ class Camera2Dual(
         )
     }
 
-    /** Configure la session selon la config de l'essai en cours. */
+    /** Configure la session : aperçu, plus le flux photo si la config en a un. */
     @Suppress("DEPRECATION")
-    private fun configure(cam: Cam, ready: (Boolean) -> Unit) {
+    private fun configure(cam: Cam, withPhoto: Boolean, ready: (Boolean) -> Unit) {
         val device = cam.device ?: return ready(false)
         val previewSurface = cam.previewSurface ?: return ready(false)
-        val config = cam.config
 
         val targets = mutableListOf(previewSurface)
-        if (config.streams >= 2) {
+        if (withPhoto) {
+            val photo = cam.config.photo ?: Size(640, 480)
             val reader = ImageReader.newInstance(
-                config.size.width, config.size.height, ImageFormat.JPEG, 2,
+                photo.width, photo.height, ImageFormat.JPEG, 2,
             )
             cam.reader = reader
             targets += reader.surface
@@ -407,54 +414,68 @@ class Camera2Dual(
     }
 
     // ------------------------------------------------------------------
-    // Photo
+    // Photo — arrière = recto, avant = verso
     // ------------------------------------------------------------------
 
-    /** Photo simultanée des deux caméras : arrière = recto, avant = verso. */
     fun capture(result: MethodChannel.Result) {
         val reply = Reply(result)
-        if (!active) return reply.error("NOT_OPEN", "Double flux non ouvert")
+        val back = cams["dualBack"]
+        val front = cams["dualFront"]
+        if (!active || back == null || front == null) {
+            return reply.error("NOT_OPEN", "Double flux non ouvert")
+        }
         CamLog.i("dual", "capture des deux faces demandée")
 
-        val files = HashMap<String, File?>()
-        var done = 0
-        fun collect(key: String, file: File?) {
-            if (file == null) {
-                CamLog.e("dual", "$key : capture échouée")
-                reply.error("CAPTURE_FAILED", "Capture $key échouée (voir le journal)")
-                return
-            }
-            files[key] = file
-            done++
-            CamLog.i("dual", "$key : photo écrite (${file.length() / 1024} Ko)")
-            if (done == 2) {
-                reply.success(
-                    mapOf(
-                        "back" to files["dualBack"]?.path,
-                        "front" to files["dualFront"]?.path,
-                    ),
-                )
+        // TOUT se passe sur le thread caméra : createCaptureSession bloque
+        // plusieurs secondes et gelait le thread principal (journal du
+        // 2026-07-14). Et les caméras sont traitées L'UNE APRÈS L'AUTRE : les
+        // reconfigurer ensemble casse le service caméra (« error waiting to
+        // drain »).
+        handler?.post {
+            try {
+                captureOne(back) { backFile ->
+                    if (backFile == null) {
+                        return@captureOne fail(reply, "capture arrière impossible")
+                    }
+                    captureOne(front) { frontFile ->
+                        if (frontFile == null) {
+                            return@captureOne fail(reply, "capture frontale impossible")
+                        }
+                        CamLog.i("dual", "deux faces capturées")
+                        reply.success(
+                            mapOf("back" to backFile.path, "front" to frontFile.path),
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                CamLog.e("dual", "exception pendant la capture", e)
+                fail(reply, "${e.javaClass.simpleName}: ${e.message}")
             }
         }
-        captureOne(cams["dualBack"]) { collect("dualBack", it) }
-        captureOne(cams["dualFront"]) { collect("dualFront", it) }
     }
 
-    private fun captureOne(cam: Cam?, onFile: (File?) -> Unit) {
-        if (cam == null) return onFile(null)
-        if (!cam.hasReader) {
-            // Config à 1 flux : pas de flux photo dans la session → on la
-            // reconfigure le temps du cliché, puis on rend l'aperçu.
-            captureByReconfig(cam, onFile)
-            return
-        }
+    /**
+     * Une capture ratée laisse souvent le matériel dans un état bancal : on
+     * ferme tout, le Dart repasse en vue simple (qui, elle, marche toujours).
+     */
+    private fun fail(reply: Reply, reason: String) {
+        closeInternal()
+        reply.error("CAPTURE_FAILED", reason)
+    }
+
+    private fun captureOne(cam: Cam, onFile: (File?) -> Unit) {
         val device = cam.device ?: return onFile(null)
-        val session = cam.session ?: return onFile(null)
-        val reader = cam.reader ?: return onFile(null)
-        shoot(cam, device, session, reader, onFile)
+        val reader = cam.reader
+        if (reader != null) {
+            // Le flux photo est déjà dans la session : déclenchement immédiat.
+            val session = cam.session ?: return onFile(null)
+            shoot(cam, device, session, reader, onFile)
+        } else {
+            captureByReconfig(cam, onFile)
+        }
     }
 
-    /** Déclenche un JPEG sur un ImageReader déjà présent dans la session. */
+    /** Déclenche un JPEG sur un ImageReader présent dans la session. */
     private fun shoot(
         cam: Cam,
         device: CameraDevice,
@@ -472,6 +493,7 @@ class Camera2Dual(
                 val bytes = ByteArray(buffer.remaining()).also { buffer.get(it) }
                 val file = File.createTempFile("nv_${cam.key}_", ".jpg", activity.cacheDir)
                 FileOutputStream(file).use { it.write(bytes) }
+                CamLog.i("dual", "${cam.key} : photo écrite (${file.length() / 1024} Ko)")
                 onFile(file)
             } catch (e: Exception) {
                 CamLog.e("dual", "${cam.key} : écriture du JPEG impossible", e)
@@ -496,19 +518,27 @@ class Camera2Dual(
     }
 
     /**
-     * Config à 1 flux : la session ne contient que l'aperçu. On la remplace par
-     * une session aperçu + JPEG le temps du cliché, puis on remet l'aperçu seul.
-     * L'aperçu se fige ~300 ms, mais la photo est prise.
+     * Config à 1 flux : on remplace la session (aperçu) par une session
+     * aperçu + JPEG le temps du cliché, puis on remet l'aperçu seul. L'aperçu
+     * de CETTE caméra se fige ~500 ms ; l'autre continue.
+     *
+     * `stopRepeating` + `abortCaptures` AVANT de fermer la session : sans ça,
+     * le service caméra n'arrive pas à vider ses tampons pendant que l'autre
+     * caméra tourne (« Error waiting to drain », qui a cassé les deux flux).
      */
     @Suppress("DEPRECATION")
     private fun captureByReconfig(cam: Cam, onFile: (File?) -> Unit) {
         val device = cam.device ?: return onFile(null)
         val previewSurface = cam.previewSurface ?: return onFile(null)
         CamLog.i("dual", "${cam.key} : capture par reconfiguration de la session")
-        val reader = ImageReader.newInstance(
-            cam.config.size.width, cam.config.size.height, ImageFormat.JPEG, 2,
-        )
+
+        runCatching {
+            cam.session?.stopRepeating()
+            cam.session?.abortCaptures()
+        }.onFailure { CamLog.e("dual", "${cam.key} : arrêt du flux répétitif", it) }
         runCatching { cam.session?.close() }
+
+        val reader = ImageReader.newInstance(640, 480, ImageFormat.JPEG, 2)
         device.createCaptureSession(
             listOf(previewSurface, reader.surface),
             object : CameraCaptureSession.StateCallback() {
@@ -516,22 +546,19 @@ class Camera2Dual(
                     cam.session = session
                     cam.reader = reader
                     shoot(cam, device, session, reader) { file ->
-                        onFile(file)
-                        // Retour à l'aperçu seul (1 flux) pour tenir le duo.
+                        // On rend l'aperçu AVANT de répondre : la caméra suivante
+                        // doit trouver un matériel au repos.
                         cam.reader = null
                         runCatching { reader.close() }
-                        configure(cam) { ok ->
+                        configure(cam, withPhoto = false) { ok ->
                             CamLog.i("dual", "${cam.key} : aperçu restauré (ok=$ok)")
+                            onFile(file)
                         }
                     }
                 }
 
                 override fun onConfigureFailed(session: CameraCaptureSession) {
-                    CamLog.e(
-                        "dual",
-                        "${cam.key} : session de capture refusée — le matériel ne veut pas " +
-                            "aperçu+photo pendant le double flux",
-                    )
+                    CamLog.e("dual", "${cam.key} : session de capture refusée")
                     runCatching { reader.close() }
                     onFile(null)
                 }
@@ -551,7 +578,9 @@ class Camera2Dual(
 
     private fun closeInternal() {
         active = false
+        epoch++ // invalide les callbacks en vol
         cams.values.forEach { cam ->
+            runCatching { cam.session?.stopRepeating() }
             runCatching { cam.session?.close() }
             runCatching { cam.device?.close() }
             runCatching { cam.reader?.close() }
@@ -580,5 +609,9 @@ class Camera2Dual(
         CameraDevice.StateCallback.ERROR_CAMERA_DEVICE -> "erreur matérielle"
         CameraDevice.StateCallback.ERROR_CAMERA_SERVICE -> "erreur du service caméra"
         else -> "inconnue"
+    }
+
+    private companion object {
+        const val PREF_CONFIG = "dual_config_index"
     }
 }
