@@ -82,6 +82,11 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
 
   bool _faceDone(bool front) => front ? _frontDone : _backDone;
 
+  /// Dépendances capturées à l'initialisation : `dispose()` en a besoin, et
+  /// `ref` n'y est plus utilisable (le widget est démonté).
+  late final _cards = ref.read(cardsRepositoryProvider);
+  late final _cache = ref.read(cardMediaCacheProvider);
+
   @override
   void initState() {
     super.initState();
@@ -292,14 +297,19 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     _gaugeTimer?.cancel();
     // Hot : quitter l'écran, même avant la fin du temps, détruit la Card —
     // et purge son cache local immédiatement.
+    //
+    // `ref` est INTERDIT ici (le widget est déjà démonté : Riverpod lève
+    // « Using "ref" when a widget is about to or has been unmounted » — vu
+    // dans le journal de Jay le 2026-07-14). Les dépendances nécessaires ont
+    // donc été capturées à l'initialisation.
     if (_limitsApply &&
         widget.card.type == CardType.hot &&
         !_hotFinished &&
         _delivery != null &&
         _phase == _Phase.viewing) {
       _hotFinished = true;
-      ref.read(cardsRepositoryProvider).finishHotView(_delivery!.id);
-      ref.read(cardMediaCacheProvider).purgeCard(widget.card.id);
+      _cards.finishHotView(_delivery!.id);
+      _cache.purgeCard(widget.card.id);
     }
     super.dispose();
   }

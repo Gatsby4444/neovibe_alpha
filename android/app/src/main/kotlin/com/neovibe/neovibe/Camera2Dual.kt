@@ -21,6 +21,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.util.Size
 import android.view.Surface
+import androidx.exifinterface.media.ExifInterface
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
 import java.io.ByteArrayOutputStream
@@ -464,16 +465,30 @@ class Camera2Dual(
             return reply.error("NOT_OPEN", "Double flux non ouvert")
         }
         CamLog.i("dual", "capture : les deux dernières images reçues (aucune action caméra)")
-        handler?.post {
+        // Les deux faces sont écrites EN PARALLÈLE (deux cœurs, deux images
+        // indépendantes) : la capture Oneshot doit être quasi instantanée
+        // (retour Jay, 2026-07-14).
+        val started = System.currentTimeMillis()
+        closer.execute {
             try {
-                val backFile = writeJpeg(backCam, back) ?: return@post reply.error(
-                    "CAPTURE_FAILED", "Écriture de la face arrière impossible",
+                var backFile: File? = null
+                var frontFile: File? = null
+                val worker = Thread { frontFile = writeJpeg(frontCam, front) }
+                worker.start()
+                backFile = writeJpeg(backCam, back)
+                worker.join(5000)
+
+                val b = backFile
+                val f = frontFile
+                if (b == null || f == null) {
+                    reply.error("CAPTURE_FAILED", "Écriture des faces impossible")
+                    return@execute
+                }
+                CamLog.i(
+                    "dual",
+                    "deux faces écrites en ${System.currentTimeMillis() - started} ms",
                 )
-                val frontFile = writeJpeg(frontCam, front) ?: return@post reply.error(
-                    "CAPTURE_FAILED", "Écriture de la face avant impossible",
-                )
-                CamLog.i("dual", "deux faces écrites")
-                reply.success(mapOf("back" to backFile.path, "front" to frontFile.path))
+                reply.success(mapOf("back" to b.path, "front" to f.path))
             } catch (e: Exception) {
                 CamLog.e("dual", "capture impossible", e)
                 reply.error("CAPTURE_FAILED", "${e.javaClass.simpleName}: ${e.message}")
@@ -481,19 +496,38 @@ class Camera2Dual(
         }
     }
 
-    /** Image brute → JPEG droit (rotation cuite dans les pixels, comme CameraX). */
-    private fun writeJpeg(cam: Cam, frame: Frame): File? {
-        val bitmap = decode(frame, sample = 1, quality = 92) ?: return null
-        val matrix = Matrix().apply { postRotate(cam.sensorOrientation.toFloat()) }
-        val upright = Bitmap.createBitmap(
-            bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true,
-        )
+    /**
+     * Image brute → JPEG, **en un seul encodage**.
+     *
+     * La rotation n'est PAS cuite dans les pixels ici (décoder + tourner +
+     * ré-encoder coûtait ~350 ms par face) : elle est posée en **métadonnée
+     * EXIF**, et la normalisation qui suit (`normalize` côté NativeCamera —
+     * recadrage 9:16 + mise au format des cards) l'applique au passage, sans
+     * décodage supplémentaire.
+     */
+    private fun writeJpeg(cam: Cam, frame: Frame): File? = try {
+        val out = ByteArrayOutputStream()
+        YuvImage(frame.nv21, ImageFormat.NV21, frame.width, frame.height, null)
+            .compressToJpeg(Rect(0, 0, frame.width, frame.height), 92, out)
         val file = File.createTempFile("nv_${cam.key}_", ".jpg", activity.cacheDir)
-        FileOutputStream(file).use { upright.compress(Bitmap.CompressFormat.JPEG, 92, it) }
-        if (upright != bitmap) bitmap.recycle()
-        upright.recycle()
+        FileOutputStream(file).use { it.write(out.toByteArray()) }
+        ExifInterface(file.path).apply {
+            setAttribute(
+                ExifInterface.TAG_ORIENTATION,
+                when (cam.sensorOrientation) {
+                    90 -> ExifInterface.ORIENTATION_ROTATE_90
+                    180 -> ExifInterface.ORIENTATION_ROTATE_180
+                    270 -> ExifInterface.ORIENTATION_ROTATE_270
+                    else -> ExifInterface.ORIENTATION_NORMAL
+                }.toString(),
+            )
+            saveAttributes()
+        }
         CamLog.i("dual", "${cam.key} : photo écrite (${file.length() / 1024} Ko)")
-        return file
+        file
+    } catch (e: Exception) {
+        CamLog.e("dual", "${cam.key} : écriture impossible", e)
+        null
     }
 
     // ------------------------------------------------------------------

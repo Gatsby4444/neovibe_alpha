@@ -63,6 +63,33 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   late CardType _cameraType = _type;
   Timer? _typeSettle;
 
+  /// **Type FIGÉ de la card, verrouillé au déclenchement.**
+  ///
+  /// Le type d'une card est décidé AU MOMENT DE LA PRISE : une fois le
+  /// déclencheur pressé, il ne doit plus jamais changer. Sans ce verrou, Jay a
+  /// pu changer de mode PENDANT le traitement d'une capture Oneshot et
+  /// obtenir une **Mono à deux faces** — un objet qui ne devrait pas exister
+  /// (bug critique, 2026-07-14).
+  ///
+  /// Tout ce qui définit la card (branches de capture, récap, envoi) lit
+  /// [_cardType], jamais [_type] (qui, lui, ne sert qu'à l'affichage du
+  /// sélecteur).
+  CardType? _lockedType;
+
+  CardType get _cardType => _lockedType ?? _type;
+
+  /// Le type est-il déjà figé (prise en cours ou faites) ?
+  bool get _typeLocked => _lockedType != null || _busy || _recording;
+
+  /// Fige le type. Appelé au tout premier acte de création (déclencheur,
+  /// vidéo, tableau, import).
+  void _lockType() {
+    if (_lockedType != null) return;
+    _lockedType = _type;
+    _typeSettle
+        ?.cancel(); // aucun changement de mode en vol ne doit s'appliquer
+  }
+
   File? _front; // recto = caméra arrière (ce que je vois)
   File? _back; // verso = caméra avant (ma réaction) — null en Mono
   var _frontImported = false; // face issue de la galerie
@@ -195,6 +222,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// l'écran d'attente restait affiché sur le mode d'arrivée (retour Jay,
   /// v0.8.4). On ne reconfigure donc la caméra qu'une fois le sélecteur POSÉ.
   void _onTypeChanged(CardType type) {
+    // Verrou : après le déclenchement, le type de la card est figé. Le
+    // sélecteur est déjà bloqué à l'affichage — ceci est la seconde barrière
+    // (un événement de page peut être en vol au moment du déclenchement).
+    if (_typeLocked) return;
     setState(() => _type = type);
     _typeSettle?.cancel();
     _typeSettle = Timer(const Duration(milliseconds: 350), _applyTypeToCamera);
@@ -321,7 +352,22 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// Recadre un cliché au cadre 9:16 centré (celui montré à l'aperçu) et le
   /// normalise au format unifié des cards (900×1600). WYSIWYG : c'est le fix
   /// de la distorsion (l'aperçu n'est plus étiré, la photo correspond).
+  ///
+  /// Fait **en natif** (rapide : un décodage sous-échantillonné + un encodage
+  /// JPEG). Le chemin Dart ci-dessous n'est plus qu'un secours : il encode du
+  /// PNG en 900×1600, ce qui coûtait des secondes par face.
   static Future<File> _cropTo916(File source) async {
+    try {
+      return await NativeCameraController.normalize(source);
+    } catch (e) {
+      await NativeCameraController.log(
+        'normalisation native indisponible ($e) → repli Dart',
+      );
+      return _cropTo916Dart(source);
+    }
+  }
+
+  static Future<File> _cropTo916Dart(File source) async {
     final bytes = await source.readAsBytes();
     final codec = await ui.instantiateImageCodec(bytes);
     final frame = await codec.getNextFrame();
@@ -364,8 +410,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// secours, le Oneshot reste photo uniquement.
   Future<void> _startVideo() async {
     if (!_previewReady || _busy || _switching || _recording) return;
-    final dualVideo = _type == CardType.oneshot && _camera.dualActive;
-    if (_type == CardType.oneshot && !dualVideo) {
+    _lockType(); // le type est figé dès le début de l'enregistrement
+    final dualVideo = _cardType == CardType.oneshot && _camera.dualActive;
+    if (_cardType == CardType.oneshot && !dualVideo) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -431,7 +478,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // Tant que la caméra n'enregistre pas réellement, on ne peut pas
     // l'arrêter — le relâchement précoce est géré en fin de _startVideo.
     if (!_recording || !_videoStarted) return;
-    final dualVideo = _type == CardType.oneshot && _camera.dualActive;
+    final dualVideo = _cardType == CardType.oneshot && _camera.dualActive;
     _recordTimer?.cancel();
     HapticFeedback.selectionClick();
     setState(() {
@@ -518,19 +565,50 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     _back = await _cropTo916(frontShot);
   }
 
+  /// Dernier rempart avant le récap : **le contenu doit correspondre au type**.
+  /// Une Mono a UNE face, un Oneshot/BeReal/standard en a DEUX. Si ce n'est pas
+  /// le cas, c'est un bug — on le consigne et on refuse de continuer plutôt que
+  /// de fabriquer une card impossible (une Mono à deux faces a été créée le
+  /// 2026-07-14).
+  bool _facesMatchType() {
+    final type = _cardType;
+    final twoFaces = _back != null;
+    final ok = type == CardType.mono ? !twoFaces : twoFaces;
+    if (!ok) {
+      NativeCameraController.log(
+        'INCOHÉRENCE : type=${type.name} mais faces=${twoFaces ? 2 : 1} '
+        '— card refusée',
+      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Prise incohérente avec le mode choisi — recommence la prise.',
+            ),
+          ),
+        );
+      }
+    }
+    return ok;
+  }
+
   Future<void> _capture() async {
     if (!_previewReady || _busy || _recording) return;
+    // Le type est FIGÉ ici, avant le moindre await : tout ce qui suit décrit
+    // une card de ce type-là, quoi que fasse le sélecteur ensuite.
+    _lockType();
     setState(() => _busy = true);
     try {
-      if (_type == CardType.mono) {
+      if (_cardType == CardType.mono) {
         // Mono : une seule face, celle de la caméra active — comme un snap.
         final shot = await _camera.takePicture();
         _front = await _cropTo916(shot);
         _back = null;
+        if (!_facesMatchType()) return;
         setState(() => _step = 2);
         return;
       }
-      if (_type == CardType.oneshot && _step == 0) {
+      if (_cardType == CardType.oneshot && _step == 0) {
         var shot = false;
         if (_camera.dualActive) {
           try {
@@ -556,6 +634,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
           // Vue simple : arrière puis avant (c'est aussi ce que fait BeReal).
           await _captureBothSequentially();
         }
+        if (!_facesMatchType()) return;
         _berealTimer?.cancel();
         setState(() => _step = 2);
         return;
@@ -568,6 +647,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         await _ensureLens(back: false);
       } else {
         _back = cropped;
+        if (!_facesMatchType()) return;
         _berealTimer?.cancel();
         setState(() => _step = 2);
       }
@@ -589,9 +669,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     required bool imported,
     bool isVideo = false,
   }) async {
-    if (_type == CardType.mono || _step != 0) {
+    _lockType(); // une face posée = le type de la card est décidé
+    if (_cardType == CardType.mono || _step != 0) {
       // Mono : face unique ; sinon on est au verso.
-      if (_type == CardType.mono) {
+      if (_cardType == CardType.mono) {
         _front = file;
         _frontImported = imported;
         _frontIsVideo = isVideo;
@@ -885,7 +966,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       return _RecapStep(
         front: _front!,
         back: _back,
-        type: _type,
+        // Type FIGÉ à la prise — surtout pas _type (que le sélecteur peut
+        // encore refléter) : c'est ce qui a produit une Mono à deux faces.
+        type: _cardType,
         frontImported: _frontImported,
         backImported: _backImported,
         frontIsVideo: _frontIsVideo,
@@ -1027,70 +1110,88 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 bottom: 124,
                 left: 0,
                 right: 0,
-                child: SizedBox(
-                  height: 46,
-                  child: PageView.builder(
-                    controller: _typeController,
-                    onPageChanged: (i) =>
-                        _onTypeChanged(CardType.selectable[i]),
-                    itemCount: CardType.selectable.length,
-                    itemBuilder: (context, index) {
-                      final type = CardType.selectable[index];
-                      return AnimatedBuilder(
-                        animation: _typeController,
-                        builder: (context, _) {
-                          final page =
-                              _typeController.hasClients &&
-                                  _typeController.position.haveDimensions
-                              ? _typeController.page!
-                              : _typeController.initialPage.toDouble();
-                          final distance = (page - index).abs().clamp(0.0, 1.0);
-                          final selectedness = 1.0 - distance;
-                          return GestureDetector(
-                            onTap: () => _typeController.animateToPage(
-                              index,
-                              duration: const Duration(milliseconds: 280),
-                              curve: Curves.easeOutCubic,
-                            ),
-                            child: Center(
-                              child: Transform.scale(
-                                scale: 0.82 + 0.34 * selectedness,
-                                child: Text(
-                                  type.tag,
-                                  style: TextStyle(
-                                    color: Color.lerp(
-                                      Colors.white38,
-                                      type == CardType.standard
-                                          ? Colors.white
-                                          : type.color,
-                                      selectedness,
+                // VERROU : dès le déclenchement, le type de la card est figé
+                // (bug critique du 2026-07-14 : mode changé pendant le
+                // traitement → Mono à deux faces). Le sélecteur devient
+                // inerte ET grisé — l'utilisateur voit que c'est verrouillé,
+                // il ne se demande pas pourquoi son geste n'a rien fait.
+                child: IgnorePointer(
+                  ignoring: _typeLocked,
+                  child: AnimatedOpacity(
+                    opacity: _typeLocked ? 0.35 : 1,
+                    duration: const Duration(milliseconds: 150),
+                    child: SizedBox(
+                      height: 46,
+                      child: PageView.builder(
+                        controller: _typeController,
+                        physics: _typeLocked
+                            ? const NeverScrollableScrollPhysics()
+                            : null,
+                        onPageChanged: (i) =>
+                            _onTypeChanged(CardType.selectable[i]),
+                        itemCount: CardType.selectable.length,
+                        itemBuilder: (context, index) {
+                          final type = CardType.selectable[index];
+                          return AnimatedBuilder(
+                            animation: _typeController,
+                            builder: (context, _) {
+                              final page =
+                                  _typeController.hasClients &&
+                                      _typeController.position.haveDimensions
+                                  ? _typeController.page!
+                                  : _typeController.initialPage.toDouble();
+                              final distance = (page - index).abs().clamp(
+                                0.0,
+                                1.0,
+                              );
+                              final selectedness = 1.0 - distance;
+                              return GestureDetector(
+                                onTap: () => _typeController.animateToPage(
+                                  index,
+                                  duration: const Duration(milliseconds: 280),
+                                  curve: Curves.easeOutCubic,
+                                ),
+                                child: Center(
+                                  child: Transform.scale(
+                                    scale: 0.82 + 0.34 * selectedness,
+                                    child: Text(
+                                      type.tag,
+                                      style: TextStyle(
+                                        color: Color.lerp(
+                                          Colors.white38,
+                                          type == CardType.standard
+                                              ? Colors.white
+                                              : type.color,
+                                          selectedness,
+                                        ),
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 1.1,
+                                        shadows: [
+                                          Shadow(
+                                            blurRadius: 14 * selectedness,
+                                            color:
+                                                (type == CardType.standard
+                                                        ? Colors.white
+                                                        : type.color)
+                                                    .withValues(
+                                                      alpha: 0.7 * selectedness,
+                                                    ),
+                                          ),
+                                          const Shadow(
+                                            blurRadius: 4,
+                                            color: Colors.black87,
+                                          ),
+                                        ],
+                                      ),
                                     ),
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 1.1,
-                                    shadows: [
-                                      Shadow(
-                                        blurRadius: 14 * selectedness,
-                                        color:
-                                            (type == CardType.standard
-                                                    ? Colors.white
-                                                    : type.color)
-                                                .withValues(
-                                                  alpha: 0.7 * selectedness,
-                                                ),
-                                      ),
-                                      const Shadow(
-                                        blurRadius: 4,
-                                        color: Colors.black87,
-                                      ),
-                                    ],
                                   ),
                                 ),
-                              ),
-                            ),
+                              );
+                            },
                           );
                         },
-                      );
-                    },
+                      ),
+                    ),
                   ),
                 ),
               ),

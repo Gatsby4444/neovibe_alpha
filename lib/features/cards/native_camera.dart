@@ -79,6 +79,19 @@ class NativeCameraController extends ChangeNotifier {
     return res ?? const {};
   }
 
+  /// Image quelconque → **face de card prête** (rotation EXIF appliquée,
+  /// recadrage 9:16 centré, format unifié 900×1600, JPEG), fait en natif.
+  ///
+  /// Le même travail en Dart (décodage + `PictureRecorder` + encodage **PNG**)
+  /// prenait plusieurs secondes pour un Oneshot — assez pour que l'utilisateur
+  /// ait le temps de changer de mode pendant le traitement (bug du 2026-07-14).
+  static Future<File> normalize(File source) async {
+    final res = await _channel
+        .invokeMapMethod<String, dynamic>('normalize', {'path': source.path})
+        .timeout(const Duration(seconds: 10));
+    return File(res!['path'] as String);
+  }
+
   /// Journal caméra PERSISTANT (fichier natif, survit aux crashes — voir
   /// CamLog.kt). Le Dart et le natif écrivent au même endroit : une seule
   /// trace à copier pour diagnostiquer.

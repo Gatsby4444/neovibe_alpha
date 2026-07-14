@@ -4,7 +4,10 @@ import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
 import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Rect
 import android.view.Surface
 import android.view.WindowManager
 import androidx.camera.core.CameraSelector
@@ -54,6 +57,10 @@ class NativeCamera(
     companion object {
         /** Débit vidéo plafonné — voir recorder() (limite d'upload Supabase). */
         const val VIDEO_BITRATE = 3_500_000
+
+        /** Format unifié d'une face de card (9:16). */
+        const val CARD_WIDTH = 900
+        const val CARD_HEIGHT = 1600
     }
 
     private val channel = MethodChannel(messenger, "neovibe/camera")
@@ -210,6 +217,34 @@ class NativeCamera(
                     result.error("DUAL_VIDEO_UNSUPPORTED", "Vidéo double non gérée", null)
                 "stopDualVideo" ->
                     result.error("NOT_RECORDING", "Aucun enregistrement double", null)
+                "normalize" -> {
+                    // Recadrage 9:16 + mise au format des cards, EN NATIF.
+                    // Le faisait en Dart : décodage + PictureRecorder + encodage
+                    // PNG 900×1600 par face → plusieurs secondes pour un Oneshot
+                    // (les deux faces). Ici : un décodage sous-échantillonné et
+                    // un encodage JPEG, sur un thread de fond.
+                    val src = call.argument<String>("path")
+                        ?: return result.error("BAD_ARGS", "chemin manquant", null)
+                    ioExecutor.execute {
+                        val started = System.currentTimeMillis()
+                        try {
+                            val out = normalize916(src)
+                            CamLog.i(
+                                "image",
+                                "normalisation en ${System.currentTimeMillis() - started} ms " +
+                                    "(${out.length() / 1024} Ko)",
+                            )
+                            mainExecutor.execute {
+                                result.success(mapOf("path" to out.path))
+                            }
+                        } catch (e: Exception) {
+                            CamLog.e("image", "normalisation impossible", e)
+                            mainExecutor.execute {
+                                result.error("NORMALIZE_FAILED", e.message, null)
+                            }
+                        }
+                    }
+                }
                 "isCameraServiceAlive" -> {
                     // Le service caméra peut être tombé (cameraIdList vide) :
                     // le Dart doit pouvoir le savoir sans provoquer d'erreur.
@@ -443,6 +478,82 @@ class NativeCamera(
         provider?.unbindAll()
         releaseSingle()
         camera2Dual.close(onDone)
+    }
+
+    /**
+     * Image quelconque → **face de card prête** : rotation EXIF appliquée,
+     * recadrage 9:16 centré (exactement le cadre montré à l'aperçu — WYSIWYG),
+     * mise à l'échelle au format unifié 900×1600, encodage JPEG.
+     *
+     * Tout en un seul décodage sous-échantillonné. Remplace le pipeline Dart
+     * (décodage + `PictureRecorder` + encodage **PNG** 900×1600 par face), qui
+     * faisait durer une capture Oneshot plusieurs secondes — assez longtemps
+     * pour que Jay change de mode pendant le traitement.
+     */
+    private fun normalize916(sourcePath: String): File {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(sourcePath, bounds)
+
+        // On ne décode pas 12 Mpx pour en sortir 900×1600 : on divise tant que
+        // l'image reste plus grande que la cible.
+        var sample = 1
+        while (
+            bounds.outWidth / (sample * 2) >= CARD_WIDTH &&
+            bounds.outHeight / (sample * 2) >= CARD_HEIGHT
+        ) {
+            sample *= 2
+        }
+        var bitmap = BitmapFactory.decodeFile(
+            sourcePath,
+            BitmapFactory.Options().apply { inSampleSize = sample },
+        ) ?: throw IllegalStateException("image illisible : $sourcePath")
+
+        // Rotation EXIF (posée par le double flux, ou venant de la galerie).
+        val degrees = when (
+            ExifInterface(sourcePath).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        ) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+            else -> 0f
+        }
+        if (degrees != 0f) {
+            val rotated = Bitmap.createBitmap(
+                bitmap, 0, 0, bitmap.width, bitmap.height,
+                Matrix().apply { postRotate(degrees) }, true,
+            )
+            if (rotated != bitmap) bitmap.recycle()
+            bitmap = rotated
+        }
+
+        // Recadrage centré au ratio de la card, puis mise à l'échelle.
+        val ratio = CARD_WIDTH.toFloat() / CARD_HEIGHT
+        var cropW = bitmap.width.toFloat()
+        var cropH = bitmap.height.toFloat()
+        if (cropW / cropH > ratio) cropW = cropH * ratio else cropH = cropW / ratio
+        val src = Rect(
+            ((bitmap.width - cropW) / 2).toInt(),
+            ((bitmap.height - cropH) / 2).toInt(),
+            ((bitmap.width + cropW) / 2).toInt(),
+            ((bitmap.height + cropH) / 2).toInt(),
+        )
+
+        val card = Bitmap.createBitmap(CARD_WIDTH, CARD_HEIGHT, Bitmap.Config.ARGB_8888)
+        Canvas(card).drawBitmap(
+            bitmap,
+            src,
+            Rect(0, 0, CARD_WIDTH, CARD_HEIGHT),
+            Paint(Paint.FILTER_BITMAP_FLAG),
+        )
+        bitmap.recycle()
+
+        val file = File.createTempFile("nv_face_", ".jpg", activity.cacheDir)
+        FileOutputStream(file).use { card.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+        card.recycle()
+        return file
     }
 
     /**
