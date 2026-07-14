@@ -1,3 +1,5 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
@@ -15,6 +17,19 @@ import 'features/cards/native_camera.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Toute erreur Dart part dans le MÊME journal que la couche caméra native
+  // (Réglages → Développeur → Journal caméra) : Jay peut copier une trace
+  // unique, y compris après un crash.
+  final flutterOnError = FlutterError.onError;
+  FlutterError.onError = (details) {
+    NativeCameraController.log('ERREUR FLUTTER : ${details.exception}');
+    flutterOnError?.call(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    NativeCameraController.log('ERREUR DART : $error');
+    return false;
+  };
 
   // Portrait uniquement : un seul sens de prise, un seul format de card (9:16)
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);

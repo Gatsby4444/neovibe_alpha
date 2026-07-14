@@ -11,6 +11,9 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // Journal persistant AVANT tout : il doit capter les crashes de la
+        // couche caméra (le processus meurt, le fichier reste).
+        CamLog.init(applicationContext)
         nativeCamera = NativeCamera(
             this,
             flutterEngine.renderer,

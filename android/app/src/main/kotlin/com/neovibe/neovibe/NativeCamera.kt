@@ -97,6 +97,18 @@ class NativeCamera(
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         try {
             when (call.method) {
+                // --- Journal (diagnostic, Réglages → Développeur) ----------
+                "readLog" -> result.success(CamLog.read())
+                "clearLog" -> {
+                    CamLog.clear()
+                    result.success(null)
+                }
+                // Le Dart écrit dans le MÊME journal que le natif : une seule
+                // trace à copier, dans l'ordre chronologique.
+                "log" -> {
+                    CamLog.i("dart", call.argument<String>("message") ?: "")
+                    result.success(null)
+                }
                 "capabilities" -> withProvider(result) { p ->
                     // Diagnostic complet : ce que CameraX annonce, ce que le
                     // pilote Camera2 annonce (source de vérité du matériel),
@@ -120,17 +132,19 @@ class NativeCamera(
                             "camera2Combos" to camera2Ids,
                             "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
                             "sdk" to android.os.Build.VERSION.SDK_INT,
-                            "lastDualError" to lastDualError,
+                            "lastDualError" to (camera2Dual.lastReport ?: lastDualError),
                         ),
                     )
                 }
                 "open" -> withProvider(result) { p ->
                     lensBack = call.argument<Boolean>("back") ?: true
+                    CamLog.i("simple", "ouverture flux simple (arrière=$lensBack)")
                     openSingle(p, call.argument<Boolean>("audio") ?: false)
                     result.success(mapOf("textureId" to entry!!.id()))
                 }
                 "switchLens" -> withProvider(result) { p ->
                     lensBack = !lensBack
+                    CamLog.i("simple", "bascule caméra → arrière=$lensBack")
                     rebindSingle(p)
                     result.success(mapOf("back" to lensBack))
                 }
@@ -140,6 +154,7 @@ class NativeCamera(
                 "openDual" -> withProvider(result) { p ->
                     // On libère CameraX (une seule pile caméra à la fois) puis
                     // on ouvre le duo en Camera2 brut.
+                    CamLog.i("dual", "libération de CameraX avant le double flux")
                     p.unbindAll()
                     releaseSingle()
                     camera2Dual.open(result)
@@ -177,6 +192,7 @@ class NativeCamera(
                 else -> result.notImplemented()
             }
         } catch (e: Exception) {
+            CamLog.e("camera", "échec de « ${call.method} »", e)
             result.error("CAMERA_ERROR", e.message, null)
         }
     }

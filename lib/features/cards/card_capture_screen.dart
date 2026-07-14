@@ -209,18 +209,28 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// PROPREMENT à la vue simple — jamais de crash, jamais de caméra
   /// verrouillée.
   Future<void> _tryOpenDual() async {
+    await NativeCameraController.log('Oneshot : tentative de double flux');
     try {
       await _camera.openDual();
       _dualError = null;
       _pipSwapped = false;
+      await NativeCameraController.log(
+        'Oneshot : double flux ouvert — textures '
+        'back=${_camera.dualBackTextureId} front=${_camera.dualFrontTextureId}, '
+        'infos=${_camera.previews.keys.join(",")}',
+      );
       if (mounted) setState(() {});
     } on DualUnsupportedException catch (e) {
       _dualError = e.reason;
+      await NativeCameraController.log(
+        'Oneshot : double flux refusé — ${e.reason}',
+      );
       _showOneshotFallbackNotice();
       await _camera.close();
       await _openWithRetry();
     } catch (e) {
       _dualError = e.toString();
+      await NativeCameraController.log('Oneshot : double flux en erreur — $e');
       _showOneshotFallbackNotice();
       await _camera.close();
       await _openWithRetry();

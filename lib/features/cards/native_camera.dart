@@ -79,6 +79,31 @@ class NativeCameraController extends ChangeNotifier {
     return res ?? const {};
   }
 
+  /// Journal caméra PERSISTANT (fichier natif, survit aux crashes — voir
+  /// CamLog.kt). Le Dart et le natif écrivent au même endroit : une seule
+  /// trace à copier pour diagnostiquer.
+  static Future<void> log(String message) async {
+    try {
+      await _channel.invokeMethod('log', {'message': message});
+    } catch (_) {
+      // Journal indisponible : ne doit jamais faire échouer l'appelant.
+    }
+  }
+
+  static Future<String> readLog() async {
+    try {
+      return await _channel.invokeMethod<String>('readLog') ?? '';
+    } catch (e) {
+      return 'Journal illisible : $e';
+    }
+  }
+
+  static Future<void> clearLog() async {
+    try {
+      await _channel.invokeMethod('clearLog');
+    } catch (_) {}
+  }
+
   /// FLAG_SECURE global : screenshots bloqués, écran noir en partage.
   /// Désactivable via l'option développeur (consigne Jay).
   static Future<void> setSecure(bool on) async {

@@ -9,6 +9,7 @@ import '../cards/native_camera.dart';
 import '../cards/saved_items_screen.dart';
 import '../connections/connections_repository.dart';
 import '../library/library_repository.dart';
+import 'camera_log_screen.dart';
 import 'storage_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -140,6 +141,18 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: (v) => ref.read(devDualOneshotProvider.notifier).set(v),
           ),
           const _DualProbeTile(),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.receipt_long),
+            title: const Text('Journal caméra'),
+            subtitle: const Text(
+              'Trace détaillée (natif + Dart), conservée même après un crash. '
+              'Bouton Copier pour me l\'envoyer.',
+            ),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const CameraLogScreen())),
+          ),
           const _DevBerealSection(),
           const Divider(),
           ListTile(
