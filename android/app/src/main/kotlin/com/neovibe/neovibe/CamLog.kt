@@ -37,11 +37,18 @@ object CamLog {
             trimIfNeeded()
         }
         installCrashHandler()
+        // Version de l'app écrite au démarrage : sans ça, impossible de savoir
+        // quel build tourne réellement (Jay a testé une v0.9.2 en croyant tester
+        // la v0.9.3 — le versionCode figé à 1 empêchait Android de mettre à
+        // jour). Le versionName doit maintenant coller au tag de release.
+        val version = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: "?"
         i(
             "app",
-            "démarrage — ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} " +
-                "(Android ${android.os.Build.VERSION.RELEASE}, SDK " +
-                "${android.os.Build.VERSION.SDK_INT})",
+            "démarrage — NeoVibe v$version — ${android.os.Build.MANUFACTURER} " +
+                "${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE}, " +
+                "SDK ${android.os.Build.VERSION.SDK_INT})",
         )
     }
 

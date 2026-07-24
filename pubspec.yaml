@@ -2,7 +2,11 @@ name: neovibe
 description: "NeoVibe — le réseau social de la présence physique."
 publish_to: 'none'
 
-version: 0.1.0+1
+# versionName+versionCode. À INCRÉMENTER à chaque release à tester : sans un
+# versionCode plus élevé, Android refuse de mettre à jour un APK sideloadé (Jay
+# est resté bloqué en v0.9.2 en croyant installer la v0.9.3). Convention :
+# 0.9.4+94 → versionName 0.9.4, versionCode 94 (suffixe = version sans points).
+version: 0.9.4+94
 
 environment:
   sdk: ^3.12.2
