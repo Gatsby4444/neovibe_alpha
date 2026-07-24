@@ -121,15 +121,14 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   tailles des fichiers à l'arrêt.
 - [x] **Étape 4 vidéo — VALIDÉE (v0.9.13).** Jay : « approuvé ». Deux encodeurs
   à 30 i/s constants, fichiers cohérents, lecture propre (un lecteur à la fois).
-- [x] **Étape 4 (suite) — Audio partagé. CODÉE (v0.9.14), EN ATTENTE DE TEST.**
-  Un seul micro (confirmé par Jay) → `DualAudioEncoder.kt` (`AudioRecord` 44,1 kHz
-  mono → AAC 96 kb/s) → **muxé dans les DEUX .mp4** (chaque `Camera2Gl` est un
-  `AudioSink`, piste audio propre, accès muxer sous `muxerLock`). Démarrage muxer
-  différé jusqu'à vidéo+audio connus ; PTS des deux pistes normalisés à ~0.
+- [x] **Étape 4 (suite) — Audio partagé. VALIDÉE (v0.9.14).** Jay : « approuvé ».
+  Un seul micro → `DualAudioEncoder.kt` (`AudioRecord` 44,1 kHz mono → AAC
+  96 kb/s) → **muxé dans les DEUX .mp4** (chaque `Camera2Gl` est un `AudioSink`,
+  piste audio propre, accès muxer sous `muxerLock`). Démarrage muxer différé
+  jusqu'à vidéo+audio connus ; PTS des deux pistes normalisés à ~0.
   `stopGlDualVideo` arrête l'audio EN PREMIER (flush) avant la vidéo. Repli vidéo
-  muette si l'audio échoue. Permission micro demandée dans l'écran de test.
-  *À VÉRIFIER par Jay : les deux vidéos ont-elles le SON ? synchro correcte
-  (pas de décalage gênant) ? pas de régression sur la vidéo/les 30 i/s ?*
+  muette si l'audio échoue. **Journal : « capture partagée démarrée », deux .mp4
+  cohérents (9061/8995 Ko), 30 i/s tenus.** → **ÉTAPE 4 COMPLÈTE.**
 - [ ] **Étape 5 — Repli & universalité.** Séquentiel propre + instantané
   (« dernière image ») sur appareils incapables. + brancher le moteur GPU dans
   le VRAI Oneshot (remplacer `Camera2Dual` logiciel) + supprimer le code mort.
