@@ -79,16 +79,26 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
 
 ## État courant
 
-**Étape 1 CODÉE et releasée en v0.9.5 — en attente du test de Jay.** Prochain
-pas : Jay ouvre Réglages → Développeur → « Aperçu GPU (étape 1) », dit si c'est
-fluide et dans le bon sens, et envoie le journal. Selon le résultat :
-- OK → **Étape 2** (double aperçu GPU : dupliquer la logique de `Camera2Gl` pour
-  deux caméras + deux textures, ouvrir arrière puis avant comme `Camera2Dual`).
-- Orientation/miroir faux → corriger `mvpMatrix` dans `Camera2Gl.onFrame()`.
-- Aperçu noir / erreur → lire le journal (EGL/shader/caméra tracés) ; `close`
-  puis diagnostiquer.
+**Étape 1 : la plomberie GPU MARCHE (v0.9.5) — rendu à ~30 i/s CONSTANT, zéro
+freeze** (journal de Jay : 120 images / ~4,04 s, pile le [30,30] du capteur).
+C'est la validation clé : le GPU tue les à-coups du rendu logiciel.
 
-Dernière release : **v0.9.5** (versionCode 95).
+Défauts géométriques v0.9.5 : orientation fausse + image distordue. **Corrigé en
+v0.9.6** : on ne tourne plus dans le GPU (tourner la géométrie dans un viewport
+non carré distordait). Le GPU rend l'image **brute (paysage)** ; la rotation +
+le miroir sont délégués au Dart (`NativeCameraPreview` : RotatedBox + cover),
+exactement comme l'aperçu CameraX simple qui n'est pas distordu. `previewInfo`
+renvoie désormais `(1280, 720, sensorOrientation)` ; l'écran de test passe
+`mirror: !back`.
+
+Prochain pas : Jay teste v0.9.6 (« Aperçu GPU (étape 1) »). Si orientation/miroir
+OK et fluide → **Étape 2** (double aperçu GPU : deux instances de la logique
+`Camera2Gl`, ouverture arrière puis avant comme `Camera2Dual`, deux textures
+Flutter, rendues sur le même thread GL ou un par caméra). Si un quart de tour
+manque → ajuster la valeur passée à `previewInfoSink` (rotation) dans
+`Camera2Gl.open()`.
+
+Dernière release : **v0.9.6** (versionCode 96).
 
 ## Rappel build + release (toolchain hors PATH)
 

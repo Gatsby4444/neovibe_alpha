@@ -83,12 +83,13 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
                       aspectRatio: 9 / 16,
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(18),
-                        // Rotation + miroir déjà appliqués par le shader :
-                        // ici on ne fait que « couvrir » la texture.
+                        // Le GPU rend l'image BRUTE (paysage) ; la rotation et
+                        // le miroir sont faits ici, comme l'aperçu CameraX
+                        // simple (RotatedBox + cover) — sans distorsion.
                         child: NativeCameraPreview(
                           textureId: id,
                           info: _camera.previews['gl'],
-                          mirror: false,
+                          mirror: !_back,
                         ),
                       ),
                     ),

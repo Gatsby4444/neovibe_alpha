@@ -136,19 +136,22 @@ class Camera2Gl(
             mirror = !back
             fpsRange = pickFpsRange(chars)
 
-            // La sortie affichée est portrait (le capteur est paysage → on tourne
-            // dans le shader). 1280×720 tourné = 720×1280 = 9:16 exact.
-            val turned = sensorOrientation % 180 != 0
-            val outW = if (turned) camSize.height else camSize.width
-            val outH = if (turned) camSize.width else camSize.height
-
-            // Texture Flutter — thread principal obligatoire.
+            // On rend l'image caméra BRUTE (paysage, sans rotation ni miroir
+            // côté GPU). La rotation et le miroir sont faits côté Dart par
+            // NativeCameraPreview (RotatedBox + cover) — exactement comme
+            // l'aperçu CameraX simple, qui n'est PAS distordu. Tourner la
+            // géométrie dans un viewport non carré distordait l'image (retour
+            // Jay, étape 1 : « orientation fausse et image distordue »).
             val p = textureRegistry.createSurfaceProducer()
-            p.setSize(outW, outH)
+            p.setSize(camSize.width, camSize.height)
             producer = p
             textureId = p.id()
-            previewInfoSink("gl", outW, outH, 0)
-            CamLog.i("gl", "texture Flutter ${p.id()} (${outW}×$outH), capteur $sensorOrientation°, miroir=$mirror")
+            previewInfoSink("gl", camSize.width, camSize.height, sensorOrientation)
+            CamLog.i(
+                "gl",
+                "texture Flutter ${p.id()} (${camSize.width}×${camSize.height} brut), " +
+                    "capteur $sensorOrientation° (rotation déléguée au Dart), miroir=$mirror",
+            )
 
             glThread = HandlerThread("nv-gl").also { it.start() }
             glHandler = Handler(glThread!!.looper)
@@ -261,16 +264,15 @@ class Camera2Gl(
             st.getTransformMatrix(stMatrix)
 
             EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-            GLES20.glViewport(0, 0, producerWidth(), producerHeight())
+            GLES20.glViewport(0, 0, camSize.width, camSize.height)
             GLES20.glClearColor(0f, 0f, 0f, 1f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
             GLES20.glUseProgram(program)
 
-            // MVP : rotation portrait + miroir éventuel (caméra frontale).
+            // Rendu BRUT : aucune rotation ni miroir ici (délégués au Dart, qui
+            // les fait sans distorsion via RotatedBox + cover).
             Matrix.setIdentityM(mvpMatrix, 0)
-            Matrix.rotateM(mvpMatrix, 0, sensorOrientation.toFloat(), 0f, 0f, 1f)
-            if (mirror) Matrix.scaleM(mvpMatrix, 0, -1f, 1f, 1f)
 
             GLES20.glUniformMatrix4fv(uMvpLoc, 1, false, mvpMatrix, 0)
             GLES20.glUniformMatrix4fv(uStMatrixLoc, 1, false, stMatrix, 0)
@@ -295,16 +297,6 @@ class Camera2Gl(
         } catch (e: Exception) {
             CamLog.e("gl", "rendu d'une image impossible", e)
         }
-    }
-
-    private fun producerWidth(): Int {
-        val turned = sensorOrientation % 180 != 0
-        return if (turned) camSize.height else camSize.width
-    }
-
-    private fun producerHeight(): Int {
-        val turned = sensorOrientation % 180 != 0
-        return if (turned) camSize.width else camSize.height
     }
 
     // ------------------------------------------------------------------
