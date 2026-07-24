@@ -19,6 +19,7 @@ import android.media.Image
 import android.media.ImageReader
 import android.os.Handler
 import android.os.HandlerThread
+import android.util.Range
 import android.util.Size
 import android.view.Surface
 import androidx.exifinterface.media.ExifInterface
@@ -103,6 +104,13 @@ class Camera2Dual(
         var texture: TextureRegistry.SurfaceTextureEntry? = null
         var surface: Surface? = null
         var sensorOrientation = 0
+
+        /**
+         * Plage de débit (i/s) forcée sur le capteur. Sans elle, l'auto-
+         * exposition d'Android descend librement les images/seconde en
+         * intérieur (souvent 15) pour éclaircir l'image → aperçu saccadé.
+         */
+        var fpsRange: Range<Int>? = null
 
         /**
          * Thread PROPRE à cette caméra pour la conversion + le dessin des
@@ -255,9 +263,12 @@ class Camera2Dual(
             val backAfter = (back?.frames?.get() ?: 0) - before
             val frontFrames = front?.frames?.get() ?: 0
             val evicted = back?.evicted == true || front?.evicted == true
+            // backAfter est mesuré sur la fenêtre de 1200 ms → i/s réel de
+            // l'arrière (repère de fluidité pour la mesure du levier FPS).
+            val backFps = backAfter * 1000 / 1200
             val report =
                 "arrière seule=$backAlone | arrière avec la frontale=$backAfter | " +
-                    "frontale=$frontFrames | éviction=$evicted"
+                    "frontale=$frontFrames | éviction=$evicted | ~$backFps i/s (arrière)"
             CamLog.i("dual", "VÉRIFICATION 1200 ms → $report")
 
             if (evicted || backAfter < 4 || frontFrames < 4) {
@@ -286,8 +297,9 @@ class Camera2Dual(
     private fun openCam(key: String, id: String, back: Boolean, onReady: (Boolean) -> Unit) {
         val cam = Cam(key, back)
         cams[key] = cam
-        cam.sensorOrientation = manager.getCameraCharacteristics(id)
-            .get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+        val chars = manager.getCameraCharacteristics(id)
+        cam.sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+        cam.fpsRange = pickFpsRange(chars)
 
         // Le capteur est monté « paysage » : on tourne l'image NOUS-MÊMES au
         // rendu, donc la texture est déjà en portrait et le Dart n'a plus
@@ -395,7 +407,18 @@ class Camera2Dual(
                 override fun onConfigured(session: CameraCaptureSession) {
                     cam.session = session
                     val request = device.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
-                        .apply { addTarget(reader.surface) }
+                        .apply {
+                            addTarget(reader.surface)
+                            // Forcer la plage d'images haute : sans ça, l'auto-
+                            // exposition descend les i/s en intérieur (aperçu
+                            // saccadé) — c'est le premier levier FPS (Jay,
+                            // 2026-07-24). Aucun CONTROL_AE_TARGET_FPS_RANGE
+                            // n'était posé jusqu'ici.
+                            cam.fpsRange?.let {
+                                set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, it)
+                                CamLog.i("dual", "${cam.key} : plage d'images forcée à $it i/s")
+                            }
+                        }
                     runCatching { session.setRepeatingRequest(request.build(), null, handler) }
                         .onFailure {
                             CamLog.e("dual", "${cam.key} : flux répétitif refusé", it)
@@ -642,6 +665,21 @@ class Camera2Dual(
                 onDone?.invoke()
             }
         }
+    }
+
+    /**
+     * Choisit la plage de débit la plus RÉGULIÈRE parmi celles annoncées par le
+     * capteur : on maximise la borne basse (moins de marge pour que l'auto-
+     * exposition ralentisse le capteur), puis, à borne basse égale, on préfère
+     * la plage fixe (borne haute la plus basse). Ainsi [30,30] est retenue
+     * avant [15,30], et [30,30] avant [30,60] (inutile de chauffer le capteur
+     * au-delà de 30 : le rendu logiciel ne suivrait pas).
+     */
+    private fun pickFpsRange(chars: CameraCharacteristics): Range<Int>? {
+        val ranges = chars.get(
+            CameraCharacteristics.CONTROL_AE_AVAILABLE_TARGET_FPS_RANGES,
+        ) ?: return null
+        return ranges.maxWithOrNull(compareBy<Range<Int>>({ it.lower }, { -it.upper }))
     }
 
     private fun firstCamera(facing: Int): String? =

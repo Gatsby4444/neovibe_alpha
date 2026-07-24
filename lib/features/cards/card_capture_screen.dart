@@ -242,10 +242,21 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     _cameraType = type;
 
     if (type == CardType.oneshot) {
-      // Le changement de mode ne touche PLUS au double flux (décision Jay,
-      // 2026-07-14) : le Oneshot ouvre l'aperçu simple, immédiat et fiable.
-      // Le double live se demande explicitement, par le bouton dédié.
-      _showOneshotFallbackNotice();
+      // Le Oneshot ouvre MAINTENANT le double flux par DÉFAUT (décision Jay,
+      // 2026-07-24) : c'est le seul moyen de capturer les deux faces au MÊME
+      // instant. La bascule séquentielle laissait un écart de plusieurs
+      // centaines de ms (le temps de fermer une caméra et d'ouvrir l'autre) où
+      // l'utilisateur pouvait tricher — ce n'était plus un Oneshot.
+      // Repli automatique en séquentiel si l'appareil refuse (géré dans
+      // _tryOpenDual). Deux court-circuits : le toggle dev « vue simple forcée »
+      // et un échec déjà survenu dans la session (on ne re-sonde pas — un échec
+      // peut laisser le service caméra d'Android hors service).
+      final forceSimple = ref.read(devDualOneshotProvider);
+      if (!forceSimple && !NativeCameraController.dualFailedThisSession) {
+        await _tryOpenDual();
+      } else {
+        _showOneshotFallbackNotice();
+      }
     } else if (previous == CardType.oneshot && _camera.dualActive) {
       // Sortie du Oneshot : retour au flux simple, caméra arrière.
       await _openWithRetry();
@@ -257,10 +268,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
-  /// Le double live est-il proposable ? (Bouton explicite — le changement de
-  /// mode ne le déclenche jamais.) Un échec le retire jusqu'au prochain
-  /// lancement de l'app : sonder le matériel n'est pas gratuit, un échec peut
-  /// laisser le service caméra d'Android hors service.
+  /// Bouton « Double live » manuel. Le Oneshot ouvre déjà le double flux par
+  /// défaut ; ce bouton ne sert donc plus que d'échappatoire lorsque
+  /// l'utilisateur a FORCÉ la vue simple via le toggle dev (`devDualOneshot` =
+  /// « vue simple forcée ») et veut malgré tout tenter le double une fois.
+  /// Un échec le retire jusqu'au prochain lancement (sonder le matériel n'est
+  /// pas gratuit — un échec peut laisser le service caméra hors service).
   bool get _canOfferDual =>
       _type == CardType.oneshot &&
       _step == 0 &&

@@ -131,11 +131,13 @@ class SettingsScreen extends ConsumerWidget {
           ),
           SwitchListTile(
             dense: true,
-            title: const Text('Double flux Oneshot (expérimental)'),
+            title: const Text('Forcer la vue simple Oneshot'),
             subtitle: const Text(
-              'Active les deux caméras en même temps pour le Oneshot '
-              '(Camera2 brut). Peut planter selon l\'appareil — désactivé '
-              'par défaut. Sinon le Oneshot affiche une caméra à la fois.',
+              'Le Oneshot ouvre le double flux (les deux caméras) PAR DÉFAUT '
+              'pour capturer les deux faces au même instant. Activer cet '
+              'interrupteur force la vue simple (une caméra à la fois, prises '
+              'séquentielles) — utile si le double flux se comporte mal sur '
+              'l\'appareil.',
             ),
             value: ref.watch(devDualOneshotProvider),
             onChanged: (v) => ref.read(devDualOneshotProvider.notifier).set(v),
