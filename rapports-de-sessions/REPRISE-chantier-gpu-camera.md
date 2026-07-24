@@ -72,7 +72,12 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   construction de `mvpMatrix` (`Matrix.rotateM(..., sensorOrientation, 0,0,1)` —
   changer le signe / l'angle) et/ou le miroir. C'est le point que cette étape
   isole exprès — correctif d'une ligne.
-- [x] **Étape 2 — Double aperçu GPU. CODÉE (v0.9.9), EN ATTENTE DE TEST.**
+- [x] **Étape 2 — Double aperçu GPU. VALIDÉE (v0.9.9).** Journal de Jay :
+  « DOUBLE FLUX GPU vivant » + **les DEUX caméras à ~30 i/s CONSTANT en même
+  temps** (arrière 30,0 ; avant 29,7 ; mesuré sur 240 images / 8 s chacune),
+  zéro freeze, aucune affamée. Le rendu logiciel (20-27 i/s + freezes +
+  frontale affamée) est battu. Détails ci-dessous.
+- [x] **Étape 2 (détail) — Double aperçu GPU. CODÉE (v0.9.9), TESTÉE OK.**
   Deux instances `Camera2Gl` (`glBack`/`glFront`, clés preview distinctes),
   ouvertes en séquence : arrière → **attend sa 1re image RENDUE** (refactor :
   `open(...onReady)` signale « prêt » à la 1re image, pas à la config session)
@@ -135,12 +140,22 @@ GPU juste après peut coincer (libération caméra entre deux tests). À traiter
 après l'orientation (probable : attendre `isCameraServiceAlive` / fermeture
 complète avant d'ouvrir le GPU).
 
-**v0.9.8 → orientation trouvée : 0°/off pour les deux caméras.** Étape 1 close.
-**v0.9.9 → Étape 2 (double aperçu GPU) codée**, en attente du test de Jay :
-les deux caméras s'affichent-elles ensemble, fluides ? Si oui → Étape 3 (photo
-GPU instantanée). Si une caméra affame l'autre → ajuster la choréographie.
+**v0.9.8 → orientation 0°/off.** **v0.9.9 → Étape 2 VALIDÉE : double aperçu GPU,
+2 caméras à 30 i/s constant simultanées.** Le socle GPU est prouvé de bout en
+bout (interop Flutter, orientation, double flux fluide).
 
-Dernière release : **v0.9.9** (versionCode 99) — double aperçu GPU.
+**Prochain pas : Étape 3 — photo GPU instantanée.** Approche prévue : au
+déclenchement, chaque `Camera2Gl` rend sa dernière image dans un framebuffer
+offscreen (ou lit la texture) → `glReadPixels` → JPEG. Les deux faces d'un coup,
+instantané, toujours 1 flux/caméra. Puis Étape 4 (vidéo double : chaque texture
+→ surface `MediaCodec`), puis Étape 5 (brancher ce moteur GPU dans le VRAI
+Oneshot à la place de `Camera2Dual` logiciel + repli séquentiel universel).
+
+Détail à ne pas oublier : les instances dual loguent encore « ÉTAPE 1 » (cosmé-
+tique) ; le point Jay « sonde/double puis test GPU juste après coince » reste à
+traiter (libération caméra entre tests).
+
+Dernière release : **v0.9.9** (versionCode 99) — double aperçu GPU (VALIDÉ).
 
 ## Rappel build + release (toolchain hors PATH)
 
