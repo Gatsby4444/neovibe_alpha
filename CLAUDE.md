@@ -38,6 +38,23 @@ Le fichier **`RAPPELS.md`** à la racine du repo est la mémoire longue de Jay.
 
 ---
 
+## Règle impérative : catalogue des parties natives
+
+Le fichier **`docs/parties-natives-par-os.md`** recense tout le code natif
+(non-Dart) et son équivalent iOS à écrire. C'est la source de vérité du périmètre
+natif, pour ne rien découvrir au dernier moment lors du portage iOS.
+
+- **À chaque changement du code natif** (fichier `.kt`/`.swift` ajouté, supprimé
+  ou renommé ; méthode de platform channel modifiée ; nouvelle capacité
+  matérielle), **mettre ce fichier à jour**.
+- **En fin de session**, **vérifier** que ce fichier reflète l'état réel du code
+  natif ; le corriger sinon.
+- Stratégie plateforme (Android d'abord, iOS additif, pas de fork) :
+  `docs/strategie-multiplateforme.md`. **On développe Android d'abord** ; iOS ne
+  démarre que sur décision explicite de Jay, une fois Android terminé.
+
+---
+
 ## Stack
 
 - **Frontend** : Flutter/Dart (choisi pour perf caméra, cohérence cross-platform, écosystème BLE/WiFi Direct)

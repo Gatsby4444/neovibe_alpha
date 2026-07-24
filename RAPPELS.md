@@ -18,6 +18,7 @@ Ne rien y supprimer sans validation explicite de Jay.
 | 6 | **RÉACTIVER L'ANTI-CAPTURE (FLAG_SECURE)** | Il est **désactivé par défaut** pendant le développement (demande de Jay 2026-07-14 : pouvoir prendre des captures d'écran pour montrer les bugs). Le code fonctionne et reste testable via Réglages → Développeur → « Anti-capture ». **Repasser le défaut à ACTIF avant la prod** (`DevSecureEnabled` dans `lib/core/prefs.dart` + `main.dart`). | 2026-07-14 |
 | 7 | **Limite d'upload Supabase (50 Mo/fichier)** | Cause du `StorageException 413` sur une vidéo Mono. Contourné en plafonnant le débit vidéo à 3,5 Mbit/s (61 s ≈ 28 Mo). Si la qualité vidéo doit remonter, il faudra un plan Supabase supérieur (limite d'upload plus haute) ou une compression côté client. | 2026-07-14 |
 | 5 | **Fichiers orphelins du Storage** | Les fichiers des cards supprimées restent dans le bucket (`delete from storage.objects` est interdit par Supabase). Prévoir une edge function de purge physique. | 2026-07-12 |
+| 8 | **Fiabilité dual-cam : repli universel + test multi-appareils** | Le double flux dépend du matériel (pas universel). Pour que le Oneshot soit fiable pour TOUS : (a) **repli séquentiel automatique** sur appareils incapables (étape 5 du chantier GPU), et (b) **test multi-appareils** avant la prod (Firebase Test Lab ou bêta-testeurs variés) — on ne valide aujourd'hui que sur le Redmi Note 10 Pro. Voir `docs/strategie-multiplateforme.md`. | 2026-07-24 |
 
 ## Chantiers promis, à ne pas oublier
 
