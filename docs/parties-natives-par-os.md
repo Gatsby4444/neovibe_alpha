@@ -42,11 +42,12 @@
 caméras en même temps).
 
 **Canal** : `neovibe/camera`. Méthodes actuelles (contrat partagé) :
-`open`, `switchLens`, `takePicture`, `startVideo`, `stopVideo`, `openDual`,
-`takeDualPictures`, `startDualVideo`, `stopDualVideo`, `normalize`,
+`open`, `close`, `switchLens`, `takePicture`, `startVideo`, `stopVideo`,
+`openDual`, `takeDualPictures`, `startDualVideo`, `stopDualVideo`, `normalize`,
 `capabilities`, `probeDual`, `isCameraServiceAlive`, `setSecure`, `log`,
 `readLog`, `clearLog`, `openGlPreview`, `closeGlPreview`, `openGlDual`,
 `closeGlDual`, `captureGlDual`. Événement natif→Dart : `previewInfo`.
+*(Vérifié conforme au code le 2026-07-24.)*
 
 **Android (fait)** :
 - `NativeCamera.kt` — orchestration + **CameraX** pour tous les modes à une
