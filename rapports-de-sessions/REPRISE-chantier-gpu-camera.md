@@ -103,14 +103,25 @@ Une rotation 90° des texcoords aligne 1280↔1280 et 720↔720 → **aucune
 distorsion** (déterministe, contrairement à la rotation de géométrie de v0.9.5).
 Côté Dart : rotation 0, `mirror: false`.
 
-Prochain pas : Jay teste v0.9.7. Attendu : **image droite + non distordue**.
-- Si tête en bas / miroir inversé → **une valeur** : le SIGNE de l'angle
-  (`-sensorOrientation` → `+sensorOrientation`) et/ou le `Matrix.scaleM` miroir,
-  dans `Camera2Gl.open()`. C'est le seul degré de liberté restant.
-- Si droite → **Étape 2** (double aperçu GPU : deux instances de la logique
-  `Camera2Gl`, ouverture arrière puis avant comme `Camera2Dual`, deux textures).
+**v0.9.7 → toujours paysage, « autre sens ».** 3e essai raté à deviner
+l'orientation. Décision : **arrêter de deviner**. `openGlPreview` prend
+maintenant `rotation` (0/90/180/270) + `mirror` en PARAMÈTRES, et l'écran de
+test a des boutons (Tourner / Miroir / Caméra) qui montrent la combinaison
+courante. **v0.9.8** : Jay tourne jusqu'à ce que l'image soit droite et NOTE la
+combinaison (caméra + rotation° + miroir) affichée à l'écran.
 
-Dernière release : **v0.9.7** (versionCode 97).
+**Quand Jay aura la/les bonnes combinaisons (arrière + avant)** : les figer —
+c.-à-d. déduire la formule `rotation = f(sensorOrientation)` (probablement
+`rotation = sensorOrientation` ou `360 - sensorOrientation`) et `mirror = !back`,
+la câbler par défaut dans `Camera2Gl` / l'appelant, retirer le bandeau de
+réglage du test, puis passer à l'**Étape 2** (double aperçu GPU).
+
+Autre point remonté par Jay (v0.9.7) : lancer la sonde/double cam PUIS le test
+GPU juste après peut coincer (libération caméra entre deux tests). À traiter
+après l'orientation (probable : attendre `isCameraServiceAlive` / fermeture
+complète avant d'ouvrir le GPU).
+
+Dernière release : **v0.9.8** (versionCode 98) — sélecteur d'orientation.
 
 ## Rappel build + release (toolchain hors PATH)
 

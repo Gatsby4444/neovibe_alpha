@@ -134,10 +134,11 @@ class Camera2Gl(
     // Ouverture
     // ------------------------------------------------------------------
 
-    fun open(back: Boolean, result: MethodChannel.Result) {
+    fun open(back: Boolean, rotationDeg: Int, mirrorParam: Boolean, result: MethodChannel.Result) {
         CamLog.i(
             "gl",
-            "=== ÉTAPE 1 : OUVERTURE APERÇU GPU (une caméra, ${if (back) "arrière" else "avant"}) ===",
+            "=== ÉTAPE 1 : OUVERTURE APERÇU GPU (une caméra, ${if (back) "arrière" else "avant"}, " +
+                "rotation=$rotationDeg°, miroir=$mirrorParam) ===",
         )
         try {
             val id = firstCamera(
@@ -150,23 +151,20 @@ class Camera2Gl(
             }
             val chars = manager.getCameraCharacteristics(id)
             sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
-            mirror = !back
+            mirror = mirrorParam
             fpsRange = pickFpsRange(chars)
 
-            // Sortie PORTRAIT (le capteur est paysage → on tourne l'échantillon-
-            // nage dans le shader). 1280×720 tourné = 720×1280 = 9:16 exact.
-            val turned = sensorOrientation % 180 != 0
-            outW = if (turned) camSize.height else camSize.width
-            outH = if (turned) camSize.width else camSize.height
+            // Sortie PORTRAIT (720×1280 = 9:16). L'orientation est ici un
+            // PARAMÈTRE testable (0/90/180/270) au lieu d'être devinée : Jay
+            // essaie en direct et dit laquelle est droite (fini les 5 essais à
+            // l'aveugle). On tourne l'ÉCHANTILLONNAGE de -rotationDeg pour faire
+            // tourner l'IMAGE de +rotationDeg. Miroir inclus.
+            outW = camSize.height
+            outH = camSize.width
 
-            // Matrice de rotation des coordonnées de texture (autour du centre
-            // 0.5,0.5). On tourne l'ÉCHANTILLONNAGE de -sensorOrientation pour
-            // faire tourner l'IMAGE de +sensorOrientation (droite). Miroir de la
-            // frontale inclus. Si l'image sort tête en bas / inversée au test :
-            // c'est le SIGNE de l'angle (ou le miroir) à ajuster — une valeur.
             Matrix.setIdentityM(texRotMatrix, 0)
             Matrix.translateM(texRotMatrix, 0, 0.5f, 0.5f, 0f)
-            Matrix.rotateM(texRotMatrix, 0, -sensorOrientation.toFloat(), 0f, 0f, 1f)
+            Matrix.rotateM(texRotMatrix, 0, -rotationDeg.toFloat(), 0f, 0f, 1f)
             if (mirror) Matrix.scaleM(texRotMatrix, 0, -1f, 1f, 1f)
             Matrix.translateM(texRotMatrix, 0, -0.5f, -0.5f, 0f)
 

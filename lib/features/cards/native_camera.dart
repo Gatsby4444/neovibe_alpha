@@ -250,9 +250,17 @@ class NativeCameraController extends ChangeNotifier {
   /// shader → côté Dart, `mirror: false` et rotation 0. Voir Camera2Gl.kt.
   int? glTextureId;
 
-  Future<void> openGlPreview({required bool back}) async {
+  Future<void> openGlPreview({
+    required bool back,
+    int rotation = 90,
+    bool mirror = false,
+  }) async {
     final res = await _channel
-        .invokeMapMethod<String, dynamic>('openGlPreview', {'back': back})
+        .invokeMapMethod<String, dynamic>('openGlPreview', {
+          'back': back,
+          'rotation': rotation,
+          'mirror': mirror,
+        })
         .timeout(const Duration(seconds: 10));
     glTextureId = res?['textureId'] as int?;
     notifyListeners();

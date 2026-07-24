@@ -232,12 +232,14 @@ class NativeCamera(
                 // --- Étape 1 du rendu GPU (écran de test dev, isolé) --------
                 "openGlPreview" -> withProvider(result) { p ->
                     val back = call.argument<Boolean>("back") ?: true
+                    val rotation = call.argument<Int>("rotation") ?: 90
+                    val mirror = call.argument<Boolean>("mirror") ?: false
                     CamLog.i("gl", "libération de CameraX avant l'aperçu GPU")
                     p.unbindAll()
                     releaseSingle()
                     // Une seule pile caméra à la fois : on ferme aussi le double
                     // flux logiciel s'il traînait, puis on ouvre le moteur GPU.
-                    camera2Dual.close { camera2Gl.open(back, result) }
+                    camera2Dual.close { camera2Gl.open(back, rotation, mirror, result) }
                 }
                 "closeGlPreview" -> camera2Gl.close { result.success(null) }
                 "startDualVideo" ->
