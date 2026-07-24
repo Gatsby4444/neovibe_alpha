@@ -10,6 +10,7 @@ import '../cards/saved_items_screen.dart';
 import '../connections/connections_repository.dart';
 import '../library/library_repository.dart';
 import 'camera_log_screen.dart';
+import 'gl_preview_test_screen.dart';
 import 'storage_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -143,6 +144,19 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: (v) => ref.read(devDualOneshotProvider.notifier).set(v),
           ),
           const _DualProbeTile(),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.view_in_ar),
+            title: const Text('Aperçu GPU (étape 1)'),
+            subtitle: const Text(
+              'Nouveau rendu OpenGL, testé sur UNE caméra. À vérifier : '
+              'fluide ? bon sens (pas pivoté ni en miroir) ? Base du futur '
+              'double flux GPU.',
+            ),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const GlPreviewTestScreen()),
+            ),
+          ),
           ListTile(
             dense: true,
             leading: const Icon(Icons.receipt_long),

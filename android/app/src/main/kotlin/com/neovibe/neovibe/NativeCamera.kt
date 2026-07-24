@@ -97,6 +97,16 @@ class NativeCamera(
         )
     }
 
+    // --- Rendu GPU (chantier étape 1 : aperçu OpenGL d'une caméra) --------
+    // Isolé du flux de capture réel (écran de test développeur). Voir
+    // Camera2Gl.kt et rapports-de-sessions/REPRISE-chantier-gpu-camera.md.
+    private val camera2Gl = Camera2Gl(activity, textureRegistry) { key, w, h, rot ->
+        channel.invokeMethod(
+            "previewInfo",
+            mapOf("key" to key, "width" to w, "height" to h, "rotation" to rot),
+        )
+    }
+
     init {
         channel.setMethodCallHandler(this)
     }
@@ -219,6 +229,17 @@ class NativeCamera(
                     camera2Dual.open(result)
                 }
                 "takeDualPictures" -> camera2Dual.capture(result)
+                // --- Étape 1 du rendu GPU (écran de test dev, isolé) --------
+                "openGlPreview" -> withProvider(result) { p ->
+                    val back = call.argument<Boolean>("back") ?: true
+                    CamLog.i("gl", "libération de CameraX avant l'aperçu GPU")
+                    p.unbindAll()
+                    releaseSingle()
+                    // Une seule pile caméra à la fois : on ferme aussi le double
+                    // flux logiciel s'il traînait, puis on ouvre le moteur GPU.
+                    camera2Dual.close { camera2Gl.open(back, result) }
+                }
+                "closeGlPreview" -> camera2Gl.close { result.success(null) }
                 "startDualVideo" ->
                     // Vidéo double simultanée : non couverte par le moteur
                     // Camera2 dual (deux encodeurs + limite de flux). Le Dart

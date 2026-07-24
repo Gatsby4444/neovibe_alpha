@@ -245,6 +245,27 @@ class NativeCameraController extends ChangeNotifier {
     );
   }
 
+  /// ÉTAPE 1 du rendu GPU — aperçu OpenGL d'UNE caméra (écran de test dev,
+  /// isolé du flux de capture réel). Rotation + miroir sont faits dans le
+  /// shader → côté Dart, `mirror: false` et rotation 0. Voir Camera2Gl.kt.
+  int? glTextureId;
+
+  Future<void> openGlPreview({required bool back}) async {
+    final res = await _channel
+        .invokeMapMethod<String, dynamic>('openGlPreview', {'back': back})
+        .timeout(const Duration(seconds: 10));
+    glTextureId = res?['textureId'] as int?;
+    notifyListeners();
+  }
+
+  Future<void> closeGlPreview() async {
+    try {
+      await _channel.invokeMethod('closeGlPreview');
+    } catch (_) {}
+    glTextureId = null;
+    notifyListeners();
+  }
+
   Future<void> close() async {
     try {
       // La réponse native n'arrive qu'une fois le matériel RENDU (attente des
