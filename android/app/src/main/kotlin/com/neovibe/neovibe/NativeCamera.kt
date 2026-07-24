@@ -308,6 +308,48 @@ class NativeCamera(
                     glFront.close()
                     glBack.close { result.success(null) }
                 }
+                // --- Étape 4 du rendu GPU : vidéo double (un .mp4 par caméra) ---
+                "startGlDualVideo" -> {
+                    ioExecutor.execute {
+                        val okBack = glBack.startRecording()
+                        val okFront = if (okBack) glFront.startRecording() else false
+                        if (!okBack || !okFront) {
+                            // Repli propre : on coupe ce qui a démarré.
+                            glBack.stopRecording()
+                            glFront.stopRecording()
+                            mainExecutor.execute {
+                                result.error(
+                                    "GL_VIDEO_FAILED",
+                                    "Double encodeur vidéo refusé par le matériel",
+                                    null,
+                                )
+                            }
+                        } else {
+                            CamLog.i("gl", "VIDÉO DOUBLE GPU démarrée (deux encodeurs H264)")
+                            mainExecutor.execute { result.success(null) }
+                        }
+                    }
+                }
+                "stopGlDualVideo" -> {
+                    ioExecutor.execute {
+                        val back = glBack.stopRecording()
+                        val front = glFront.stopRecording()
+                        if (back == null || front == null) {
+                            mainExecutor.execute {
+                                result.error("GL_VIDEO_FAILED", "Arrêt vidéo double impossible", null)
+                            }
+                        } else {
+                            CamLog.i(
+                                "gl",
+                                "vidéo double GPU : arrière ${back.length() / 1024} Ko, " +
+                                    "avant ${front.length() / 1024} Ko",
+                            )
+                            mainExecutor.execute {
+                                result.success(mapOf("back" to back.path, "front" to front.path))
+                            }
+                        }
+                    }
+                }
                 "startDualVideo" ->
                     // Vidéo double simultanée : non couverte par le moteur
                     // Camera2 dual (deux encodeurs + limite de flux). Le Dart

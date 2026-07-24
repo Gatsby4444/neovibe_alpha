@@ -10,10 +10,15 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraDevice
 import android.hardware.camera2.CameraManager
 import android.hardware.camera2.CaptureRequest
+import android.media.MediaCodec
+import android.media.MediaCodecInfo
+import android.media.MediaFormat
+import android.media.MediaMuxer
 import android.opengl.EGL14
 import android.opengl.EGLConfig
 import android.opengl.EGLContext
 import android.opengl.EGLDisplay
+import android.opengl.EGLExt
 import android.opengl.EGLSurface
 import android.opengl.GLES11Ext
 import android.opengl.GLES20
@@ -81,6 +86,24 @@ class Camera2Gl(
     private var eglDisplay: EGLDisplay = EGL14.EGL_NO_DISPLAY
     private var eglContext: EGLContext = EGL14.EGL_NO_CONTEXT
     private var eglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+
+    /** Config EGL retenue (réutilisée pour la surface de l'encodeur, étape 4). */
+    private var eglConfig: EGLConfig? = null
+
+    // --- Étape 4 : encodeur vidéo (une piste .mp4 par caméra) ---------------
+    // Le rendu dessine la même image dans DEUX surfaces EGL : l'aperçu ET la
+    // surface d'entrée du MediaCodec (même contexte → texture OES + shader
+    // partagés). Toujours 1 flux/caméra ; coût CPU ≈ 0 (le GPU fait le double
+    // dessin, le codec matériel encode).
+    private var recording = false
+    private var encoder: MediaCodec? = null
+    private var encoderInputSurface: Surface? = null
+    private var encoderEglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
+    private var muxer: MediaMuxer? = null
+    private var muxerTrack = -1
+    private var muxerStarted = false
+    private var videoFile: File? = null
+    private val encoderBufferInfo = MediaCodec.BufferInfo()
 
     // Texture Flutter (sortie affichée)
     private var producer: TextureRegistry.SurfaceProducer? = null
@@ -329,32 +352,14 @@ class Camera2Gl(
             st.updateTexImage()
             st.getTransformMatrix(stMatrix)
 
+            // 1) Aperçu affiché.
             EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-            GLES20.glViewport(0, 0, outW, outH)
-            GLES20.glClearColor(0f, 0f, 0f, 1f)
-            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-
-            GLES20.glUseProgram(program)
-
-            // Positions : quad plein écran, pas de transformation.
-            Matrix.setIdentityM(mvpMatrix, 0)
-            GLES20.glUniformMatrix4fv(uMvpLoc, 1, false, mvpMatrix, 0)
-            GLES20.glUniformMatrix4fv(uStMatrixLoc, 1, false, stMatrix, 0)
-            GLES20.glUniformMatrix4fv(uTexRotLoc, 1, false, texRotMatrix, 0)
-
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexId)
-
-            quadVertices.position(0)
-            GLES20.glVertexAttribPointer(aPositionLoc, 2, GLES20.GL_FLOAT, false, 0, quadVertices)
-            GLES20.glEnableVertexAttribArray(aPositionLoc)
-            quadTexCoords.position(0)
-            GLES20.glVertexAttribPointer(aTexCoordLoc, 2, GLES20.GL_FLOAT, false, 0, quadTexCoords)
-            GLES20.glEnableVertexAttribArray(aTexCoordLoc)
-
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-
+            drawCurrentFrame()
             EGL14.eglSwapBuffers(eglDisplay, eglSurface)
+
+            // 2) Encodeur vidéo (étape 4) : MÊME image, dessinée dans la surface
+            // d'entrée du codec, avec le timestamp du capteur → un .mp4 par caméra.
+            if (recording) encodeCurrentFrame(st.timestamp)
 
             frames++
             if (frames == 1) {
@@ -365,6 +370,38 @@ class Camera2Gl(
         } catch (e: Exception) {
             CamLog.e("gl", "rendu d'une image impossible", e)
         }
+    }
+
+    /**
+     * Dessine l'image courante (dernière `updateTexImage`) dans la surface EGL
+     * ACTUELLEMENT courante. Le programme, la texture OES et les buffers sont des
+     * objets de CONTEXTE (partagés entre les deux surfaces du même contexte), donc
+     * ce même dessin sert l'aperçu ET l'encodeur.
+     */
+    private fun drawCurrentFrame() {
+        GLES20.glViewport(0, 0, outW, outH)
+        GLES20.glClearColor(0f, 0f, 0f, 1f)
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+
+        GLES20.glUseProgram(program)
+
+        // Positions : quad plein écran, pas de transformation.
+        Matrix.setIdentityM(mvpMatrix, 0)
+        GLES20.glUniformMatrix4fv(uMvpLoc, 1, false, mvpMatrix, 0)
+        GLES20.glUniformMatrix4fv(uStMatrixLoc, 1, false, stMatrix, 0)
+        GLES20.glUniformMatrix4fv(uTexRotLoc, 1, false, texRotMatrix, 0)
+
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexId)
+
+        quadVertices.position(0)
+        GLES20.glVertexAttribPointer(aPositionLoc, 2, GLES20.GL_FLOAT, false, 0, quadVertices)
+        GLES20.glEnableVertexAttribArray(aPositionLoc)
+        quadTexCoords.position(0)
+        GLES20.glVertexAttribPointer(aTexCoordLoc, 2, GLES20.GL_FLOAT, false, 0, quadTexCoords)
+        GLES20.glEnableVertexAttribArray(aTexCoordLoc)
+
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
     }
 
     // ------------------------------------------------------------------
@@ -456,6 +493,179 @@ class Camera2Gl(
     }
 
     // ------------------------------------------------------------------
+    // Vidéo — un encodeur H264 par caméra (étape 4)
+    // ------------------------------------------------------------------
+
+    /**
+     * Démarre l'enregistrement vidéo de CETTE caméra. Crée le `MediaCodec` H264
+     * (surface d'entrée), une surface EGL adossée à cette entrée (même contexte
+     * → OES + shader partagés) et le `MediaMuxer`. Tout se fait sur le thread GL
+     * (les surfaces EGL sont liées au thread). Renvoie false si le codec refuse.
+     */
+    fun startRecording(): Boolean {
+        if (!active || recording) return false
+        val gl = glHandler ?: return false
+        val latch = CountDownLatch(1)
+        var ok = false
+        gl.post {
+            ok = runCatching { setupEncoder() }.getOrElse {
+                CamLog.e("gl", "$previewKey : démarrage encodeur impossible", it)
+                releaseEncoder()
+                false
+            }
+            latch.countDown()
+        }
+        latch.await(3, TimeUnit.SECONDS)
+        return ok
+    }
+
+    /** Setup du codec + muxer + surface EGL de l'encodeur (thread GL). */
+    private fun setupEncoder(): Boolean {
+        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, outW, outH).apply {
+            setInteger(
+                MediaFormat.KEY_COLOR_FORMAT,
+                MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface,
+            )
+            setInteger(MediaFormat.KEY_BIT_RATE, VIDEO_BITRATE)
+            setInteger(MediaFormat.KEY_FRAME_RATE, 30)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+        }
+        val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        val inputSurface = codec.createInputSurface()
+        codec.start()
+
+        val attribs = intArrayOf(EGL14.EGL_NONE)
+        val encSurf = EGL14.eglCreateWindowSurface(eglDisplay, eglConfig, inputSurface, attribs, 0)
+        if (encSurf == EGL14.EGL_NO_SURFACE) {
+            runCatching { codec.stop() }
+            runCatching { codec.release() }
+            runCatching { inputSurface.release() }
+            throw RuntimeException("eglCreateWindowSurface (encodeur) a échoué")
+        }
+
+        val file = File.createTempFile("nv_gl_video_${previewKey}_", ".mp4", activity.cacheDir)
+        val mux = MediaMuxer(file.path, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+
+        encoder = codec
+        encoderInputSurface = inputSurface
+        encoderEglSurface = encSurf
+        muxer = mux
+        muxerTrack = -1
+        muxerStarted = false
+        videoFile = file
+        recording = true
+        CamLog.i(
+            "gl",
+            "$previewKey : encodeur vidéo démarré (${outW}×$outH @30, " +
+                "${VIDEO_BITRATE / 1_000_000} Mb/s)",
+        )
+        return true
+    }
+
+    /** Dessine l'image courante dans la surface d'entrée du codec + draine. */
+    private fun encodeCurrentFrame(timestampNs: Long) {
+        val encSurf = encoderEglSurface
+        if (encSurf == EGL14.EGL_NO_SURFACE) return
+        EGL14.eglMakeCurrent(eglDisplay, encSurf, encSurf, eglContext)
+        drawCurrentFrame()
+        EGLExt.eglPresentationTimeANDROID(eglDisplay, encSurf, timestampNs)
+        EGL14.eglSwapBuffers(eglDisplay, encSurf)
+        // Repasser sur l'aperçu pour la suite du rendu.
+        EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
+        drainEncoder(endOfStream = false)
+    }
+
+    /** Sort les paquets encodés du codec vers le muxer. */
+    private fun drainEncoder(endOfStream: Boolean) {
+        val codec = encoder ?: return
+        val mux = muxer ?: return
+        if (endOfStream) runCatching { codec.signalEndOfInputStream() }
+        while (true) {
+            val outIndex = codec.dequeueOutputBuffer(
+                encoderBufferInfo,
+                if (endOfStream) 10_000 else 0,
+            )
+            if (outIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                if (!endOfStream) break // rien de prêt pour l'instant
+                // fin de flux : on continue d'attendre le drain complet
+            } else if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                if (muxerStarted) throw RuntimeException("format de sortie changé deux fois")
+                muxerTrack = mux.addTrack(codec.outputFormat)
+                mux.start()
+                muxerStarted = true
+            } else if (outIndex >= 0) {
+                val encoded = codec.getOutputBuffer(outIndex)
+                if (encoded != null) {
+                    // Le paquet de config (SPS/PPS) est déjà dans le format du
+                    // muxer → ne pas l'écrire comme échantillon.
+                    if (encoderBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
+                        encoderBufferInfo.size = 0
+                    }
+                    if (encoderBufferInfo.size != 0 && muxerStarted) {
+                        encoded.position(encoderBufferInfo.offset)
+                        encoded.limit(encoderBufferInfo.offset + encoderBufferInfo.size)
+                        mux.writeSampleData(muxerTrack, encoded, encoderBufferInfo)
+                    }
+                }
+                codec.releaseOutputBuffer(outIndex, false)
+                if (encoderBufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+            }
+        }
+    }
+
+    /**
+     * Arrête l'enregistrement et renvoie le fichier .mp4 (ou null en cas
+     * d'échec). Draine la fin de flux puis libère codec + muxer, sur le thread GL.
+     */
+    fun stopRecording(): File? {
+        if (!recording) return null
+        val gl = glHandler ?: return null
+        val latch = CountDownLatch(1)
+        var out: File? = null
+        gl.post {
+            recording = false
+            out = runCatching {
+                drainEncoder(endOfStream = true)
+                videoFile
+            }.getOrElse {
+                CamLog.e("gl", "$previewKey : arrêt encodeur", it)
+                null
+            }
+            releaseEncoder()
+            latch.countDown()
+        }
+        latch.await(4, TimeUnit.SECONDS)
+        if (out != null) {
+            CamLog.i("gl", "$previewKey : vidéo GPU écrite (${(out!!.length()) / 1024} Ko)")
+        }
+        return out
+    }
+
+    /** Libère codec + muxer + surface EGL de l'encodeur (thread GL). */
+    private fun releaseEncoder() {
+        runCatching { if (muxerStarted) muxer?.stop() }
+        runCatching { muxer?.release() }
+        runCatching { encoder?.stop() }
+        runCatching { encoder?.release() }
+        if (encoderEglSurface != EGL14.EGL_NO_SURFACE) {
+            runCatching { EGL14.eglDestroySurface(eglDisplay, encoderEglSurface) }
+        }
+        runCatching { encoderInputSurface?.release() }
+        encoder = null
+        encoderInputSurface = null
+        encoderEglSurface = EGL14.EGL_NO_SURFACE
+        muxer = null
+        muxerTrack = -1
+        muxerStarted = false
+        recording = false
+        // L'aperçu redevient la surface courante : le rendu continue normalement.
+        if (eglDisplay != EGL14.EGL_NO_DISPLAY && eglSurface != EGL14.EGL_NO_SURFACE) {
+            runCatching { EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext) }
+        }
+    }
+
+    // ------------------------------------------------------------------
     // EGL / GL — installation
     // ------------------------------------------------------------------
 
@@ -481,6 +691,7 @@ class Camera2Gl(
             throw RuntimeException("aucune configuration EGL")
         }
         val config = configs[0]
+        eglConfig = config
         val contextAttribs = intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE)
         eglContext = EGL14.eglCreateContext(
             eglDisplay, config, EGL14.EGL_NO_CONTEXT, contextAttribs, 0,
@@ -565,6 +776,8 @@ class Camera2Gl(
         active = false
         val gl = glHandler
         val finish = {
+            // Coupe un enregistrement en cours avant de démonter EGL/caméra.
+            if (recording || encoder != null) runCatching { releaseEncoder() }
             runCatching { session?.close() }
             runCatching { device?.close() }
             session = null
@@ -630,6 +843,14 @@ class Camera2Gl(
             }
 
     companion object {
+        /**
+         * Débit vidéo de l'encodeur GPU (étape 4). ~6 Mb/s à 720×1280@30 = bonne
+         * qualité pour valider le pipeline. NOTE : au branchement dans le vrai
+         * Oneshot (étape 5), réconcilier avec le plafond Supabase (RAPPELS #7 :
+         * 3,5 Mb/s pour tenir 61 s sous 50 Mo) — ici pas d'upload, fichier local.
+         */
+        private const val VIDEO_BITRATE = 6_000_000
+
         // aTexCoord (0..1) est d'abord tourné/mis en miroir (uTexRot, autour du
         // centre), puis transformé par la matrice de la SurfaceTexture (uStMatrix,
         // recadrage/flip de la texture externe).

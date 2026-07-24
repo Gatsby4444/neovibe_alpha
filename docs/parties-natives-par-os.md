@@ -46,15 +46,17 @@ caméras en même temps).
 `openDual`, `takeDualPictures`, `startDualVideo`, `stopDualVideo`, `normalize`,
 `capabilities`, `probeDual`, `isCameraServiceAlive`, `setSecure`, `log`,
 `readLog`, `clearLog`, `openGlPreview`, `closeGlPreview`, `openGlDual`,
-`closeGlDual`, `captureGlDual`. Événement natif→Dart : `previewInfo`.
-*(Vérifié conforme au code le 2026-07-24.)*
+`closeGlDual`, `captureGlDual`, `startGlDualVideo`, `stopGlDualVideo`.
+Événement natif→Dart : `previewInfo`.
+*(Vérifié conforme au code le 2026-07-25.)*
 
 **Android (fait)** :
 - `NativeCamera.kt` — orchestration + **CameraX** pour tous les modes à une
   caméra (aperçu simple, Mono, recto/verso, vidéo simple, bascule pendant vidéo).
 - `Camera2Gl.kt` — **double flux GPU** (chantier en cours) : Camera2 brut +
   OpenGL ES (texture externe OES → shader → texture Flutter), photo par
-  `glReadPixels`. Deux instances = les deux caméras.
+  `glReadPixels`, **vidéo par `MediaCodec` H264 + `MediaMuxer`** (2e surface EGL
+  sur l'input du codec — un `.mp4` par caméra). Deux instances = les deux caméras.
 - `Camera2Dual.kt` — ancien double flux **logiciel** (`lockCanvas`). **À
   SUPPRIMER** une fois le GPU complet (étape 5). Ne pas porter sur iOS.
 - `DualCameraProbe.kt` — sonde de capacité (dev). À retirer avec la section dev.

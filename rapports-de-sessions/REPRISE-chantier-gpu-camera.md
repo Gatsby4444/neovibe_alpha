@@ -106,10 +106,24 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   par Jay : les 2 photos sortent-elles DROITES, non distordues, couleurs OK
   (pas de rouge/bleu inversé) ? Instantané ?* Si couleurs inversées → swizzle
   R/B ; si tête en bas → retirer le miroir vertical dans `renderToJpeg`.
-- [ ] **Étape 4 — Vidéo double.** Chaque texture caméra → surface `MediaCodec` →
-  2 vidéos (recto/verso).
+- [x] **Étape 4 — Vidéo double. CODÉE (v0.9.12), EN ATTENTE DE TEST.** Chaque
+  `Camera2Gl` encode son propre `.mp4` via un `MediaCodec` H264 alimenté par une
+  **2e surface EGL** posée sur l'input Surface du codec (même contexte EGL → OES
+  + shader partagés, aucun flux caméra en plus) + `MediaMuxer` par caméra.
+  `onFrame` dessine la même image dans l'aperçu ET la surface du codec
+  (`drawCurrentFrame` factorisé), timestamp = `SurfaceTexture.timestamp`.
+  Canal : `startGlDualVideo`/`stopGlDualVideo`. Test : écran « Aperçu GPU » →
+  Double → bouton « Vidéo (2 faces) » → lecture des 2 .mp4 côte à côte.
+  **Débit 6 Mb/s** (local). **SANS AUDIO** (simplification assumée — incrément
+  suivant). *À VÉRIFIER par Jay : 30 i/s tenus par les DEUX encodeurs sans
+  s'affamer ? sens/couleurs OK (mêmes que la photo GPU) ? pas de crash si on
+  quitte en cours d'enregistrement ?* Journal : « VIDÉO DOUBLE GPU démarrée » +
+  tailles des fichiers à l'arrêt.
+- [ ] **Étape 4 (suite) — Audio.** Micro partagé (`AudioRecord`) + encodeur AAC
+  + muxing synchronisé dans chaque `.mp4`. À faire après validation vidéo.
 - [ ] **Étape 5 — Repli & universalité.** Séquentiel propre + instantané
-  (« dernière image ») sur appareils incapables.
+  (« dernière image ») sur appareils incapables. + brancher le moteur GPU dans
+  le VRAI Oneshot (remplacer `Camera2Dual` logiciel) + supprimer le code mort.
 
 ## État courant
 
@@ -184,7 +198,11 @@ d'un `MediaCodec` H264) + un muxer `MediaMuxer` par caméra → deux .mp4
 Puis Étape 5 : brancher dans le vrai Oneshot (remplacer `Camera2Dual`) + repli
 séquentiel universel + supprimer le code mort (Camera2Dual logiciel, sonde).
 
-Dernière release : **v0.9.11** (versionCode 101) — photo GPU + correctif crash.
+**v0.9.12 → Étape 4 (vidéo double GPU) codée**, en attente du test de Jay. Si
+validée → Étape 4 (suite) audio, puis Étape 5 (brancher dans le vrai Oneshot +
+repli universel).
+
+Dernière release : **v0.9.12** (versionCode 102) — vidéo double GPU (sans audio).
 
 ## Rappel build + release (toolchain hors PATH)
 

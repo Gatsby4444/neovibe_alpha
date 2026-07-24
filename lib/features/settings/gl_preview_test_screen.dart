@@ -1,4 +1,8 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 
 import '../cards/native_camera.dart';
 
@@ -22,6 +26,10 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
   var _dual = false;
   var _back = true; // mode simple : caméra affichée
   var _busy = false; // une ouverture/fermeture est en cours
+  var _recording = false; // enregistrement vidéo double en cours
+  var _videoBusy = false; // start/stop vidéo en cours
+  DateTime? _recStart;
+  Timer? _recTimer;
   String? _error;
 
   @override
@@ -125,8 +133,54 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
     }
   }
 
+  Future<void> _toggleRecord() async {
+    if (_videoBusy) return;
+    setState(() => _videoBusy = true);
+    try {
+      if (_recording) {
+        _recTimer?.cancel();
+        final files = await _camera.stopGlDualVideo();
+        if (!mounted) return;
+        setState(() {
+          _recording = false;
+          _recStart = null;
+        });
+        await Navigator.of(context).push<void>(
+          MaterialPageRoute(
+            builder: (_) =>
+                _DualVideoPlayback(back: files.back, front: files.front),
+          ),
+        );
+      } else {
+        await _camera.startGlDualVideo();
+        if (!mounted) return;
+        setState(() {
+          _recording = true;
+          _recStart = DateTime.now();
+        });
+        // Rafraîchit le chrono affiché.
+        _recTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+          if (mounted) setState(() {});
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _recording = false;
+          _recStart = null;
+        });
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Vidéo GPU impossible : $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _videoBusy = false);
+    }
+  }
+
   @override
   void dispose() {
+    _recTimer?.cancel();
     _camera.removeListener(_onChanged);
     _closeAll();
     _camera.dispose();
@@ -184,6 +238,36 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
                       child: _preview('glFront', front),
                     ),
                   ),
+                  if (_recording)
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.black54,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.fiber_manual_record,
+                              color: Colors.red,
+                              size: 14,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _elapsed(),
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               );
             },
@@ -202,6 +286,47 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
     );
   }
 
+  Widget _simpleControls() => FilledButton.tonalIcon(
+    onPressed: _busy ? null : _flipCamera,
+    icon: const Icon(Icons.cameraswitch),
+    label: Text(_back ? 'Caméra arrière' : 'Caméra avant'),
+  );
+
+  Widget _dualControls() {
+    final ready =
+        _camera.glBackTextureId != null && _camera.glFrontTextureId != null;
+    return Row(
+      children: [
+        Expanded(
+          child: FilledButton.tonalIcon(
+            onPressed: (!_busy && !_recording && ready) ? _capture : null,
+            icon: const Icon(Icons.camera),
+            label: const Text('Photo (2 faces)'),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: (!_busy && !_videoBusy && ready) ? _toggleRecord : null,
+            style: _recording
+                ? FilledButton.styleFrom(backgroundColor: Colors.red)
+                : null,
+            icon: Icon(_recording ? Icons.stop : Icons.videocam),
+            label: Text(_recording ? 'Arrêter' : 'Vidéo (2 faces)'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _elapsed() {
+    final start = _recStart;
+    if (start == null) return '';
+    final s = DateTime.now().difference(start).inSeconds;
+    return '${(s ~/ 60).toString().padLeft(2, '0')}:'
+        '${(s % 60).toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -217,31 +342,97 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
                 ButtonSegment(value: true, label: Text('Double (2 caméras)')),
               ],
               selected: {_dual},
-              onSelectionChanged: _busy ? null : (s) => _setMode(s.first),
+              onSelectionChanged: (_busy || _recording)
+                  ? null
+                  : (s) => _setMode(s.first),
             ),
           ),
           Expanded(child: Center(child: _body())),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: _dual
-                ? FilledButton.icon(
-                    onPressed:
-                        (!_busy &&
-                            _camera.glBackTextureId != null &&
-                            _camera.glFrontTextureId != null)
-                        ? _capture
-                        : null,
-                    icon: const Icon(Icons.camera),
-                    label: const Text('Capturer les 2 faces (GPU)'),
-                  )
-                : FilledButton.tonalIcon(
-                    onPressed: _busy ? null : _flipCamera,
-                    icon: const Icon(Icons.cameraswitch),
-                    label: Text(_back ? 'Caméra arrière' : 'Caméra avant'),
-                  ),
+            child: _dual ? _dualControls() : _simpleControls(),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Lecture des DEUX vidéos GPU (recto/verso) côte à côte, en boucle. Sert à
+/// vérifier au test que la vidéo double GPU sort droite, fluide, couleurs OK.
+class _DualVideoPlayback extends StatefulWidget {
+  const _DualVideoPlayback({required this.back, required this.front});
+  final File back;
+  final File front;
+
+  @override
+  State<_DualVideoPlayback> createState() => _DualVideoPlaybackState();
+}
+
+class _DualVideoPlaybackState extends State<_DualVideoPlayback> {
+  late final VideoPlayerController _back;
+  late final VideoPlayerController _front;
+  var _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _back = VideoPlayerController.file(widget.back);
+    _front = VideoPlayerController.file(widget.front);
+    Future.wait([_back.initialize(), _front.initialize()]).then((_) {
+      if (!mounted) return;
+      _back
+        ..setLooping(true)
+        ..play();
+      _front
+        ..setLooping(true)
+        ..play();
+      setState(() => _ready = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _back.dispose();
+    _front.dispose();
+    super.dispose();
+  }
+
+  Widget _tile(String label, VideoPlayerController c) => Expanded(
+    child: Column(
+      children: [
+        Text(label, style: const TextStyle(color: Colors.white70)),
+        const SizedBox(height: 6),
+        Expanded(
+          child: AspectRatio(
+            aspectRatio: c.value.aspectRatio,
+            child: VideoPlayer(c),
+          ),
+        ),
+      ],
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        title: const Text('Vidéo GPU — deux faces'),
+      ),
+      body: !_ready
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                children: [
+                  _tile('Arrière (recto)', _back),
+                  const SizedBox(width: 8),
+                  _tile('Avant (verso)', _front),
+                ],
+              ),
+            ),
     );
   }
 }
