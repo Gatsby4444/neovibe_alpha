@@ -89,7 +89,15 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   **Si une caméra affame l'autre / éviction** : revoir la choréographie
   (délai entre arrière et avant) — mais l'attente de la 1re image devrait
   suffire (c'est ce qui marche pour le double flux logiciel).
-- [x] **Étape 3 — Photo instantanée GPU. CODÉE (v0.9.10), EN ATTENTE DE TEST.**
+- [x] **Étape 3 — Photo instantanée GPU. VALIDÉE (v0.9.10).** Jay : « ça marche
+  super bien, capture instantanée vraiment comme je voulais ». Journal :
+  « capture GPU des deux faces en **83-119 ms** », caméras toujours à 30 i/s.
+  **Correctif crash v0.9.11** : basculer les modes vite lançait 2 ouvertures de
+  la même caméra en //  → « Error configuring streams -38 » NON rattrapée →
+  crash. Fix : try/catch autour de `createCaptureSession` dans `Camera2Gl`
+  (un souci caméra ne crashe plus) + garde anti-ré-entrance `_busy` dans
+  l'écran de test (opérations sérialisées, boutons désactivés pendant).
+- [x] **Étape 3 (détail) — Photo GPU. CODÉE (v0.9.10), TESTÉE OK.**
   `Camera2Gl.capturePhoto()` : rend la dernière image dans un FBO offscreen
   (720×1280, même shader → déjà droit), `glReadPixels`, miroir vertical
   (glReadPixels lit bas→haut), JPEG. `captureGlDual` (NativeCamera) capture les
@@ -166,7 +174,17 @@ traiter (libération caméra entre tests).
 (photos droites, non distordues, couleurs OK, instantané ?). Si OK → Étape 4
 (vidéo double : chaque texture → surface `MediaCodec`).
 
-Dernière release : **v0.9.10** (versionCode 100) — photo GPU des 2 faces.
+**v0.9.10 → Étape 3 VALIDÉE (photo instantanée 83-119 ms).** **v0.9.11 →
+correctif crash** (double ouverture caméra + exception non rattrapée).
+
+**Prochain pas : Étape 4 — vidéo double.** Chaque `Camera2Gl` alimente un
+encodeur : ajouter au rendu une 2e cible EGL (window surface sur l'input Surface
+d'un `MediaCodec` H264) + un muxer `MediaMuxer` par caméra → deux .mp4
+(recto/verso). Le rendu dessine alors dans DEUX surfaces (aperçu + encodeur).
+Puis Étape 5 : brancher dans le vrai Oneshot (remplacer `Camera2Dual`) + repli
+séquentiel universel + supprimer le code mort (Camera2Dual logiciel, sonde).
+
+Dernière release : **v0.9.11** (versionCode 101) — photo GPU + correctif crash.
 
 ## Rappel build + release (toolchain hors PATH)
 

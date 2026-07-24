@@ -21,6 +21,7 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
   final _camera = NativeCameraController();
   var _dual = false;
   var _back = true; // mode simple : caméra affichée
+  var _busy = false; // une ouverture/fermeture est en cours
   String? _error;
 
   @override
@@ -52,20 +53,34 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
     }
   }
 
-  Future<void> _setMode(bool dual) async {
+  /// Sérialise les ouvertures/fermetures : sans ça, basculer les modes vite
+  /// lançait DEUX ouvertures de la même caméra en parallèle → le service caméra
+  /// refuse (« Error configuring streams -38 ») et l'app crashait (journal Jay,
+  /// v0.9.10).
+  Future<void> _guarded(Future<void> Function() op) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await op();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _setMode(bool dual) => _guarded(() async {
     if (dual == _dual) return;
     await _closeAll();
     if (!mounted) return;
     setState(() => _dual = dual);
     await _open();
-  }
+  });
 
-  Future<void> _flipCamera() async {
+  Future<void> _flipCamera() => _guarded(() async {
     await _camera.closeGlPreview();
     if (!mounted) return;
     setState(() => _back = !_back);
     await _open();
-  }
+  });
 
   Future<void> _capture() async {
     try {
@@ -202,7 +217,7 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
                 ButtonSegment(value: true, label: Text('Double (2 caméras)')),
               ],
               selected: {_dual},
-              onSelectionChanged: (s) => _setMode(s.first),
+              onSelectionChanged: _busy ? null : (s) => _setMode(s.first),
             ),
           ),
           Expanded(child: Center(child: _body())),
@@ -211,7 +226,8 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
             child: _dual
                 ? FilledButton.icon(
                     onPressed:
-                        (_camera.glBackTextureId != null &&
+                        (!_busy &&
+                            _camera.glBackTextureId != null &&
                             _camera.glFrontTextureId != null)
                         ? _capture
                         : null,
@@ -219,7 +235,7 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
                     label: const Text('Capturer les 2 faces (GPU)'),
                   )
                 : FilledButton.tonalIcon(
-                    onPressed: _flipCamera,
+                    onPressed: _busy ? null : _flipCamera,
                     icon: const Icon(Icons.cameraswitch),
                     label: Text(_back ? 'Caméra arrière' : 'Caméra avant'),
                   ),

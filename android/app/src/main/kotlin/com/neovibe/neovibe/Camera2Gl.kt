@@ -254,10 +254,17 @@ class Camera2Gl(
                 override fun onOpened(cam: CameraDevice) {
                     CamLog.i("gl", "caméra ouverte")
                     device = cam
-                    @Suppress("DEPRECATION")
-                    cam.createCaptureSession(
-                        listOf(surface),
-                        object : CameraCaptureSession.StateCallback() {
+                    // createCaptureSession peut lever synchroniquement une
+                    // CameraAccessException (ex. « Error configuring streams:
+                    // Function not implemented (-38) » quand deux ouvertures se
+                    // chevauchent). Sans ce try/catch, elle remontait NON
+                    // rattrapée sur le thread caméra → crash (journal Jay,
+                    // v0.9.10). Un souci caméra ne doit jamais tuer l'app.
+                    try {
+                        @Suppress("DEPRECATION")
+                        cam.createCaptureSession(
+                            listOf(surface),
+                            object : CameraCaptureSession.StateCallback() {
                             override fun onConfigured(s: CameraCaptureSession) {
                                 session = s
                                 val req = cam.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW)
@@ -289,6 +296,9 @@ class Camera2Gl(
                         },
                         camHandler,
                     )
+                    } catch (e: Exception) {
+                        fail("création de session impossible : ${e.message}")
+                    }
                 }
 
                 override fun onDisconnected(cam: CameraDevice) {
