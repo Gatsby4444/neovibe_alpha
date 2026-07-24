@@ -97,15 +97,21 @@ class NativeCamera(
         )
     }
 
-    // --- Rendu GPU (chantier étape 1 : aperçu OpenGL d'une caméra) --------
+    // --- Rendu GPU (chantier : aperçu OpenGL) -----------------------------
     // Isolé du flux de capture réel (écran de test développeur). Voir
     // Camera2Gl.kt et rapports-de-sessions/REPRISE-chantier-gpu-camera.md.
-    private val camera2Gl = Camera2Gl(activity, textureRegistry) { key, w, h, rot ->
+    // Étape 1 : une caméra (camera2Gl). Étape 2 : deux caméras (glBack/glFront)
+    // en GPU, rendues chacune sur sa texture, ouvertes en séquence (arrière puis
+    // avant, comme le double flux logiciel — évite l'éviction).
+    private val glSink: (String, Int, Int, Int) -> Unit = { key, w, h, rot ->
         channel.invokeMethod(
             "previewInfo",
             mapOf("key" to key, "width" to w, "height" to h, "rotation" to rot),
         )
     }
+    private val camera2Gl = Camera2Gl(activity, textureRegistry, "gl", glSink)
+    private val glBack = Camera2Gl(activity, textureRegistry, "glBack", glSink)
+    private val glFront = Camera2Gl(activity, textureRegistry, "glFront", glSink)
 
     init {
         channel.setMethodCallHandler(this)
@@ -242,6 +248,42 @@ class NativeCamera(
                     camera2Dual.close { camera2Gl.open(back, rotation, mirror, result) }
                 }
                 "closeGlPreview" -> camera2Gl.close { result.success(null) }
+                // --- Étape 2 du rendu GPU : les DEUX caméras en OpenGL --------
+                "openGlDual" -> withProvider(result) { p ->
+                    CamLog.i("gl", "libération de CameraX avant le double flux GPU")
+                    p.unbindAll()
+                    releaseSingle()
+                    camera2Dual.close {
+                        // Orientation trouvée au test : rotation 0, miroir off
+                        // (la matrice de la SurfaceTexture gère déjà le sens).
+                        // Ouverture séquentielle : arrière (attend sa 1re image
+                        // rendue) PUIS avant → évite l'éviction.
+                        glBack.open(true, 0, false) { okBack ->
+                            if (!okBack) {
+                                result.error("GL_UNSUPPORTED", "arrière GPU : échec", null)
+                                return@open
+                            }
+                            glFront.open(false, 0, false) { okFront ->
+                                if (!okFront) {
+                                    glBack.close()
+                                    result.error("GL_UNSUPPORTED", "avant GPU : échec", null)
+                                } else {
+                                    CamLog.i("gl", "DOUBLE FLUX GPU vivant (deux caméras rendues)")
+                                    result.success(
+                                        mapOf(
+                                            "backTextureId" to glBack.textureId,
+                                            "frontTextureId" to glFront.textureId,
+                                        ),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                "closeGlDual" -> {
+                    glFront.close()
+                    glBack.close { result.success(null) }
+                }
                 "startDualVideo" ->
                     // Vidéo double simultanée : non couverte par le moteur
                     // Camera2 dual (deux encodeurs + limite de flux). Le Dart

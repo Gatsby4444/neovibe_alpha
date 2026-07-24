@@ -60,6 +60,7 @@ import java.nio.FloatBuffer
 class Camera2Gl(
     private val activity: Activity,
     private val textureRegistry: TextureRegistry,
+    private val previewKey: String,
     private val previewInfoSink: (key: String, w: Int, h: Int, rot: Int) -> Unit,
 ) {
     private val manager =
@@ -130,11 +131,45 @@ class Camera2Gl(
 
     private var frames = 0
 
+    /** Nombre d'images déjà rendues (preuve de vie pour la choréographie dual). */
+    val renderedFrames: Int get() = frames
+    val isActive: Boolean get() = active
+
+    /** Prêt = la PREMIÈRE image est réellement rendue (pas « session configurée » :
+     * leçon du double flux — une session qui se configure ne prouve rien). */
+    private var onReadyCb: ((Boolean) -> Unit)? = null
+    private var readyFired = false
+    private var lastError: String? = null
+
+    private fun fireReady(ok: Boolean) = activity.runOnUiThread {
+        if (readyFired) return@runOnUiThread
+        readyFired = true
+        onReadyCb?.invoke(ok)
+    }
+
+    private fun fail(message: String) {
+        CamLog.e("gl", "échec : $message")
+        lastError = message
+        close { fireReady(false) }
+    }
+
     // ------------------------------------------------------------------
     // Ouverture
     // ------------------------------------------------------------------
 
+    /** Version canal (test simple) : répond avec la texture, ou l'erreur. */
     fun open(back: Boolean, rotationDeg: Int, mirrorParam: Boolean, result: MethodChannel.Result) {
+        open(back, rotationDeg, mirrorParam) { ok ->
+            if (ok) result.success(mapOf("textureId" to textureId))
+            else result.error("GL_UNSUPPORTED", lastError ?: "échec GPU", null)
+        }
+    }
+
+    /** Version callback (réutilisée par le double flux GPU — étape 2). */
+    fun open(back: Boolean, rotationDeg: Int, mirrorParam: Boolean, onReady: (Boolean) -> Unit) {
+        onReadyCb = onReady
+        readyFired = false
+        lastError = null
         CamLog.i(
             "gl",
             "=== ÉTAPE 1 : OUVERTURE APERÇU GPU (une caméra, ${if (back) "arrière" else "avant"}, " +
@@ -146,7 +181,7 @@ class Camera2Gl(
                 else CameraCharacteristics.LENS_FACING_FRONT,
             )
             if (id == null) {
-                result.error("GL_UNSUPPORTED", "Caméra introuvable", null)
+                fail("Caméra introuvable")
                 return
             }
             val chars = manager.getCameraCharacteristics(id)
@@ -174,7 +209,7 @@ class Camera2Gl(
             p.setSize(outW, outH)
             producer = p
             textureId = p.id()
-            previewInfoSink("gl", outW, outH, 0)
+            previewInfoSink(previewKey, outW, outH, 0)
             CamLog.i(
                 "gl",
                 "texture Flutter ${p.id()} (sortie ${outW}×$outH portrait), " +
@@ -196,21 +231,17 @@ class Camera2Gl(
                     cameraSurfaceTexture = st
                     cameraSurface = Surface(st)
                     CamLog.i("gl", "EGL + GL prêts, SurfaceTexture caméra créée")
-                    openCamera(id, result)
+                    openCamera(id)
                 } catch (e: Exception) {
-                    CamLog.e("gl", "init GL impossible", e)
-                    activity.runOnUiThread {
-                        close { result.error("GL_UNSUPPORTED", "init GL : ${e.message}", null) }
-                    }
+                    fail("init GL : ${e.message}")
                 }
             }
         } catch (e: Exception) {
-            CamLog.e("gl", "exception à l'ouverture", e)
-            close { result.error("GL_UNSUPPORTED", e.message, null) }
+            fail("exception à l'ouverture : ${e.message}")
         }
     }
 
-    private fun openCamera(id: String, result: MethodChannel.Result) {
+    private fun openCamera(id: String) {
         val surface = cameraSurface ?: return
         manager.openCamera(
             id,
@@ -235,24 +266,20 @@ class Camera2Gl(
                                 runCatching {
                                     s.setRepeatingRequest(req.build(), null, camHandler)
                                 }.onFailure {
-                                    CamLog.e("gl", "flux répétitif refusé", it)
-                                    activity.runOnUiThread {
-                                        close { result.error("GL_UNSUPPORTED", "flux refusé", null) }
-                                    }
+                                    fail("flux répétitif refusé : ${it.message}")
                                     return
                                 }
                                 active = true
-                                CamLog.i("gl", "session GPU configurée — aperçu en cours")
-                                activity.runOnUiThread {
-                                    result.success(mapOf("textureId" to textureId))
-                                }
+                                CamLog.i("gl", "session GPU configurée — attente de la 1re image")
+                                // « Prêt » sera signalé par onFrame à la 1re image
+                                // RENDUE : une session configurée ne prouve rien
+                                // (leçon du double flux). Ça sécurise aussi la
+                                // choréographie dual (ouvrir la 2e caméra seulement
+                                // quand la 1re délivre vraiment).
                             }
 
                             override fun onConfigureFailed(s: CameraCaptureSession) {
-                                CamLog.e("gl", "session REFUSÉE")
-                                activity.runOnUiThread {
-                                    close { result.error("GL_UNSUPPORTED", "session refusée", null) }
-                                }
+                                fail("session refusée")
                             }
                         },
                         camHandler,
@@ -269,9 +296,7 @@ class Camera2Gl(
                     CamLog.e("gl", "erreur caméra $error")
                     active = false
                     runCatching { cam.close() }
-                    activity.runOnUiThread {
-                        close { result.error("GL_UNSUPPORTED", "erreur caméra $error", null) }
-                    }
+                    fail("erreur caméra $error")
                 }
             },
             camHandler,
@@ -317,7 +342,10 @@ class Camera2Gl(
             EGL14.eglSwapBuffers(eglDisplay, eglSurface)
 
             frames++
-            if (frames == 1) CamLog.i("gl", "PREMIÈRE image rendue par le GPU")
+            if (frames == 1) {
+                CamLog.i("gl", "PREMIÈRE image rendue par le GPU")
+                fireReady(true) // prêt = ça rend vraiment
+            }
             if (frames % 120 == 0) CamLog.i("gl", "$frames images rendues (GPU)")
         } catch (e: Exception) {
             CamLog.e("gl", "rendu d'une image impossible", e)
@@ -448,7 +476,10 @@ class Camera2Gl(
                 )
                 if (eglSurface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(eglDisplay, eglSurface)
                 if (eglContext != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(eglDisplay, eglContext)
-                EGL14.eglTerminate(eglDisplay)
+                // PAS d'eglTerminate : le display (EGL_DEFAULT_DISPLAY) est
+                // partagé par les deux instances en mode double flux GPU ; le
+                // terminer casserait le contexte de l'autre caméra. On se
+                // contente de détruire NOTRE surface et NOTRE contexte.
             }
             eglDisplay = EGL14.EGL_NO_DISPLAY
             eglContext = EGL14.EGL_NO_CONTEXT

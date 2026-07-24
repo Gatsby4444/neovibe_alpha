@@ -274,6 +274,28 @@ class NativeCameraController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// ÉTAPE 2 du rendu GPU — les DEUX caméras en OpenGL, chacune sur sa texture.
+  int? glBackTextureId;
+  int? glFrontTextureId;
+
+  Future<void> openGlDual() async {
+    final res = await _channel
+        .invokeMapMethod<String, dynamic>('openGlDual')
+        .timeout(const Duration(seconds: 12));
+    glBackTextureId = res?['backTextureId'] as int?;
+    glFrontTextureId = res?['frontTextureId'] as int?;
+    notifyListeners();
+  }
+
+  Future<void> closeGlDual() async {
+    try {
+      await _channel.invokeMethod('closeGlDual');
+    } catch (_) {}
+    glBackTextureId = null;
+    glFrontTextureId = null;
+    notifyListeners();
+  }
+
   Future<void> close() async {
     try {
       // La réponse native n'arrive qu'une fois le matériel RENDU (attente des

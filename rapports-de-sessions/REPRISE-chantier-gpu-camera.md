@@ -55,7 +55,11 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
 
 ## Feuille de route (statut par étape)
 
-- [x] **Étape 1 — Harnais GPU, UNE caméra. CODÉE (v0.9.5), EN ATTENTE DE TEST.**
+- [x] **Étape 1 — Harnais GPU, UNE caméra. VALIDÉE (v0.9.8).** ~30 i/s constant,
+  zéro freeze. **Orientation trouvée par Jay au sélecteur : rotation 0, miroir
+  off pour les DEUX caméras** (la matrice de la SurfaceTexture gère déjà le sens
+  sur cet appareil). Figé dans le code.
+- [x] **Étape 1 (détail) — Harnais GPU. CODÉE (v0.9.5), EN ATTENTE DE TEST.**
   EGL + thread GL + shader OES, caméra arrière/avant → texture Flutter. Écran de
   test dev ISOLÉ (Réglages → Développeur → « Aperçu GPU (étape 1) »). Fichiers :
   `Camera2Gl.kt` (moteur), `NativeCamera.kt` (cas `openGlPreview`/`closeGlPreview`
@@ -68,8 +72,18 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   construction de `mvpMatrix` (`Matrix.rotateM(..., sensorOrientation, 0,0,1)` —
   changer le signe / l'angle) et/ou le miroir. C'est le point que cette étape
   isole exprès — correctif d'une ligne.
-- [ ] **Étape 2 — Double aperçu GPU.** 2 caméras → 2 textures → GPU. Remplace le
-  `lockCanvas`. Cible : ~45 i/s constant.
+- [x] **Étape 2 — Double aperçu GPU. CODÉE (v0.9.9), EN ATTENTE DE TEST.**
+  Deux instances `Camera2Gl` (`glBack`/`glFront`, clés preview distinctes),
+  ouvertes en séquence : arrière → **attend sa 1re image RENDUE** (refactor :
+  `open(...onReady)` signale « prêt » à la 1re image, pas à la config session)
+  → avant. `openGlDual`/`closeGlDual` dans NativeCamera ; écran de test avec un
+  mode « Double » (arrière plein + avant en vignette). `eglTerminate` retiré de
+  `close()` (display EGL partagé entre les 2 instances). Orientation figée
+  0°/off. *À VÉRIFIER par Jay : les deux aperçus s'affichent-ils en même temps,
+  fluides ? Le journal doit montrer « DOUBLE FLUX GPU vivant ».*
+  **Si une caméra affame l'autre / éviction** : revoir la choréographie
+  (délai entre arrière et avant) — mais l'attente de la 1re image devrait
+  suffire (c'est ce qui marche pour le double flux logiciel).
 - [ ] **Étape 3 — Photo instantanée GPU.** Capture = rendu offscreen + readback,
   les 2 faces d'un coup.
 - [ ] **Étape 4 — Vidéo double.** Chaque texture caméra → surface `MediaCodec` →
@@ -121,7 +135,12 @@ GPU juste après peut coincer (libération caméra entre deux tests). À traiter
 après l'orientation (probable : attendre `isCameraServiceAlive` / fermeture
 complète avant d'ouvrir le GPU).
 
-Dernière release : **v0.9.8** (versionCode 98) — sélecteur d'orientation.
+**v0.9.8 → orientation trouvée : 0°/off pour les deux caméras.** Étape 1 close.
+**v0.9.9 → Étape 2 (double aperçu GPU) codée**, en attente du test de Jay :
+les deux caméras s'affichent-elles ensemble, fluides ? Si oui → Étape 3 (photo
+GPU instantanée). Si une caméra affame l'autre → ajuster la choréographie.
+
+Dernière release : **v0.9.9** (versionCode 99) — double aperçu GPU.
 
 ## Rappel build + release (toolchain hors PATH)
 
