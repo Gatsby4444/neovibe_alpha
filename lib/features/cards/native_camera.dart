@@ -309,11 +309,13 @@ class NativeCameraController extends ChangeNotifier {
   }
 
   /// ÉTAPE 4 : vidéo double GPU. Chaque caméra encode son propre .mp4
-  /// (recto/verso) via un `MediaCodec` alimenté par une 2e surface EGL. Lève une
-  /// [PlatformException] `GL_VIDEO_FAILED` si le matériel refuse deux encodeurs.
-  Future<void> startGlDualVideo() async {
+  /// (recto/verso) via un `MediaCodec` alimenté par une 2e surface EGL. Avec
+  /// [audio], un seul micro est capturé et muxé dans LES DEUX vidéos (piste
+  /// audio identique). Lève une [PlatformException] `GL_VIDEO_FAILED` si le
+  /// matériel refuse deux encodeurs.
+  Future<void> startGlDualVideo({required bool audio}) async {
     await _channel
-        .invokeMethod('startGlDualVideo')
+        .invokeMethod('startGlDualVideo', {'audio': audio})
         .timeout(const Duration(seconds: 6));
   }
 

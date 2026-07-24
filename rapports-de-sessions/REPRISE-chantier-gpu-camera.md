@@ -119,8 +119,17 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   s'affamer ? sens/couleurs OK (mêmes que la photo GPU) ? pas de crash si on
   quitte en cours d'enregistrement ?* Journal : « VIDÉO DOUBLE GPU démarrée » +
   tailles des fichiers à l'arrêt.
-- [ ] **Étape 4 (suite) — Audio.** Micro partagé (`AudioRecord`) + encodeur AAC
-  + muxing synchronisé dans chaque `.mp4`. À faire après validation vidéo.
+- [x] **Étape 4 vidéo — VALIDÉE (v0.9.13).** Jay : « approuvé ». Deux encodeurs
+  à 30 i/s constants, fichiers cohérents, lecture propre (un lecteur à la fois).
+- [x] **Étape 4 (suite) — Audio partagé. CODÉE (v0.9.14), EN ATTENTE DE TEST.**
+  Un seul micro (confirmé par Jay) → `DualAudioEncoder.kt` (`AudioRecord` 44,1 kHz
+  mono → AAC 96 kb/s) → **muxé dans les DEUX .mp4** (chaque `Camera2Gl` est un
+  `AudioSink`, piste audio propre, accès muxer sous `muxerLock`). Démarrage muxer
+  différé jusqu'à vidéo+audio connus ; PTS des deux pistes normalisés à ~0.
+  `stopGlDualVideo` arrête l'audio EN PREMIER (flush) avant la vidéo. Repli vidéo
+  muette si l'audio échoue. Permission micro demandée dans l'écran de test.
+  *À VÉRIFIER par Jay : les deux vidéos ont-elles le SON ? synchro correcte
+  (pas de décalage gênant) ? pas de régression sur la vidéo/les 30 i/s ?*
 - [ ] **Étape 5 — Repli & universalité.** Séquentiel propre + instantané
   (« dernière image ») sur appareils incapables. + brancher le moteur GPU dans
   le VRAI Oneshot (remplacer `Camera2Dual` logiciel) + supprimer le code mort.
@@ -204,10 +213,13 @@ séquentiel universel + supprimer le code mort (Camera2Dual logiciel, sonde).
 portraits côte à côte. **L'encodeur est bon** (37 Mo = vidéo animée réelle).
 
 **v0.9.13 → correctif lecture** : `_DualVideoPlayback` = un seul lecteur à la
-fois, plein écran, bascule Arrière/Avant. Encodeur natif inchangé. En attente du
-re-test de Jay : les DEUX vidéos sont-elles animées, droites, bonnes couleurs ?
+fois, plein écran, bascule Arrière/Avant. **Validé par Jay : étape 4 vidéo OK.**
 
-Dernière release : **v0.9.13** (versionCode 103) — correctif lecture vidéo double.
+**v0.9.14 → Étape 4 (suite) audio partagé** : un micro → `DualAudioEncoder` →
+piste audio identique muxée dans les deux .mp4. En attente du test de Jay (son
+présent dans les deux vidéos ? synchro ? pas de régression vidéo ?).
+
+Dernière release : **v0.9.14** (versionCode 104) — audio partagé (vidéo double).
 
 ## Rappel build + release (toolchain hors PATH)
 

@@ -113,6 +113,9 @@ class NativeCamera(
     private val glBack = Camera2Gl(activity, textureRegistry, "glBack", glSink)
     private val glFront = Camera2Gl(activity, textureRegistry, "glFront", glSink)
 
+    /** Capture audio PARTAGÉE de la vidéo double GPU (un micro → les 2 muxers). */
+    private var glAudioEncoder: DualAudioEncoder? = null
+
     init {
         channel.setMethodCallHandler(this)
     }
@@ -310,9 +313,10 @@ class NativeCamera(
                 }
                 // --- Étape 4 du rendu GPU : vidéo double (un .mp4 par caméra) ---
                 "startGlDualVideo" -> {
+                    val audio = call.argument<Boolean>("audio") ?: false
                     ioExecutor.execute {
-                        val okBack = glBack.startRecording()
-                        val okFront = if (okBack) glFront.startRecording() else false
+                        val okBack = glBack.startRecording(audio)
+                        val okFront = if (okBack) glFront.startRecording(audio) else false
                         if (!okBack || !okFront) {
                             // Repli propre : on coupe ce qui a démarré.
                             glBack.stopRecording()
@@ -325,13 +329,35 @@ class NativeCamera(
                                 )
                             }
                         } else {
-                            CamLog.i("gl", "VIDÉO DOUBLE GPU démarrée (deux encodeurs H264)")
+                            // Audio partagé : une capture → les DEUX muxers. Si
+                            // elle échoue, on continue en vidéo muette (les
+                            // caméras cessent d'attendre la piste audio).
+                            if (audio) {
+                                val enc = DualAudioEncoder(listOf(glBack, glFront))
+                                if (enc.start()) {
+                                    glAudioEncoder = enc
+                                } else {
+                                    CamLog.e("gl", "audio indisponible → vidéo double muette")
+                                    glBack.disableAudio()
+                                    glFront.disableAudio()
+                                }
+                            }
+                            CamLog.i(
+                                "gl",
+                                "VIDÉO DOUBLE GPU démarrée (deux encodeurs H264" +
+                                    "${if (glAudioEncoder != null) " + audio partagé" else ""})",
+                            )
                             mainExecutor.execute { result.success(null) }
                         }
                     }
                 }
                 "stopGlDualVideo" -> {
                     ioExecutor.execute {
+                        // Arrêter l'audio EN PREMIER : il pousse ses derniers
+                        // paquets (EOS) dans les deux muxers, qui démarrent alors
+                        // si besoin, AVANT qu'on arrête les pistes vidéo.
+                        glAudioEncoder?.stop()
+                        glAudioEncoder = null
                         val back = glBack.stopRecording()
                         val front = glFront.stopRecording()
                         if (back == null || front == null) {

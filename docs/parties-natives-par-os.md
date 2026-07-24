@@ -57,10 +57,18 @@ caméras en même temps).
   OpenGL ES (texture externe OES → shader → texture Flutter), photo par
   `glReadPixels`, **vidéo par `MediaCodec` H264 + `MediaMuxer`** (2e surface EGL
   sur l'input du codec — un `.mp4` par caméra). Deux instances = les deux caméras.
+  Chaque instance est aussi un `DualAudioEncoder.AudioSink` (piste audio muxée).
+- `DualAudioEncoder.kt` — **capture audio PARTAGÉE** (`AudioRecord` micro →
+  encodeur AAC) pour la vidéo double : un seul flux audio muxé dans les DEUX
+  vidéos (deux `AudioRecord` sur le même micro se battraient). Thread `nv-audio`.
 - `Camera2Dual.kt` — ancien double flux **logiciel** (`lockCanvas`). **À
   SUPPRIMER** une fois le GPU complet (étape 5). Ne pas porter sur iOS.
 - `DualCameraProbe.kt` — sonde de capacité (dev). À retirer avec la section dev.
 - `CamLog.kt` — journal (voir bloc 6).
+
+**Audio (double vidéo)** : côté Android, `DualAudioEncoder` capture UNE fois
+(`AudioRecord` + AAC) et muxe la même piste dans les deux `.mp4`. iOS : un seul
+`AVCaptureAudioDataOutput` / entrée micro, écrit dans les deux `AVAssetWriter`.
 
 **iOS (à faire)** :
 - **AVFoundation** : `AVCaptureSession` (une caméra) ; **`AVCaptureMultiCamSession`**

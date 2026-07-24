@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player/video_player.dart';
 
 import '../cards/native_camera.dart';
@@ -152,7 +153,9 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
           ),
         );
       } else {
-        await _camera.startGlDualVideo();
+        // Micro pour le son ; refusé = vidéos muettes, pas bloquant.
+        final audio = (await Permission.microphone.request()).isGranted;
+        await _camera.startGlDualVideo(audio: audio);
         if (!mounted) return;
         setState(() {
           _recording = true;

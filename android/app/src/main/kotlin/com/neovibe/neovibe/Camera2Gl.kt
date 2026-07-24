@@ -72,7 +72,7 @@ class Camera2Gl(
     private val textureRegistry: TextureRegistry,
     private val previewKey: String,
     private val previewInfoSink: (key: String, w: Int, h: Int, rot: Int) -> Unit,
-) {
+) : DualAudioEncoder.AudioSink {
     private val manager =
         activity.getSystemService(Context.CAMERA_SERVICE) as CameraManager
 
@@ -99,11 +99,25 @@ class Camera2Gl(
     private var encoder: MediaCodec? = null
     private var encoderInputSurface: Surface? = null
     private var encoderEglSurface: EGLSurface = EGL14.EGL_NO_SURFACE
-    private var muxer: MediaMuxer? = null
-    private var muxerTrack = -1
-    private var muxerStarted = false
     private var videoFile: File? = null
     private val encoderBufferInfo = MediaCodec.BufferInfo()
+
+    /** Origine des PTS vidéo (1re image encodée) → piste vidéo démarre à ~0,
+     * pour rester synchro avec la piste audio (elle aussi normalisée à ~0). */
+    private var videoFirstTimestampNs = 0L
+
+    // Le muxer est touché par DEUX threads : le thread GL (piste vidéo) et le
+    // thread audio (piste audio). MediaMuxer n'est PAS thread-safe → tout accès
+    // (addTrack/start/writeSampleData/stop) passe par [muxerLock].
+    private val muxerLock = Any()
+    private var muxer: MediaMuxer? = null
+    private var videoTrackIndex = -1
+    private var audioTrackIndex = -1
+    private var muxerStarted = false
+
+    /** Cet enregistrement inclut-il l'audio ? (le muxer attend alors la piste
+     * audio avant de démarrer). Mis à false si la capture audio échoue. */
+    private var hasAudio = false
 
     // Texture Flutter (sortie affichée)
     private var producer: TextureRegistry.SurfaceProducer? = null
@@ -502,13 +516,13 @@ class Camera2Gl(
      * → OES + shader partagés) et le `MediaMuxer`. Tout se fait sur le thread GL
      * (les surfaces EGL sont liées au thread). Renvoie false si le codec refuse.
      */
-    fun startRecording(): Boolean {
+    fun startRecording(withAudio: Boolean): Boolean {
         if (!active || recording) return false
         val gl = glHandler ?: return false
         val latch = CountDownLatch(1)
         var ok = false
         gl.post {
-            ok = runCatching { setupEncoder() }.getOrElse {
+            ok = runCatching { setupEncoder(withAudio) }.getOrElse {
                 CamLog.e("gl", "$previewKey : démarrage encodeur impossible", it)
                 releaseEncoder()
                 false
@@ -520,7 +534,7 @@ class Camera2Gl(
     }
 
     /** Setup du codec + muxer + surface EGL de l'encodeur (thread GL). */
-    private fun setupEncoder(): Boolean {
+    private fun setupEncoder(withAudio: Boolean): Boolean {
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, outW, outH).apply {
             setInteger(
                 MediaFormat.KEY_COLOR_FORMAT,
@@ -551,35 +565,75 @@ class Camera2Gl(
         encoderInputSurface = inputSurface
         encoderEglSurface = encSurf
         muxer = mux
-        muxerTrack = -1
+        videoTrackIndex = -1
+        audioTrackIndex = -1
         muxerStarted = false
         videoFile = file
+        videoFirstTimestampNs = 0L
+        hasAudio = withAudio
         recording = true
         CamLog.i(
             "gl",
             "$previewKey : encodeur vidéo démarré (${outW}×$outH @30, " +
-                "${VIDEO_BITRATE / 1_000_000} Mb/s)",
+                "${VIDEO_BITRATE / 1_000_000} Mb/s${if (withAudio) " + audio" else ""})",
         )
         return true
     }
+
+    /** Démarre le muxer une fois TOUTES les pistes attendues connues (la vidéo,
+     * et l'audio si l'enregistrement en comporte). Appelé sous [muxerLock]. */
+    private fun maybeStartMuxer() {
+        if (muxerStarted) return
+        if (videoTrackIndex < 0) return
+        if (hasAudio && audioTrackIndex < 0) return
+        muxer?.start()
+        muxerStarted = true
+    }
+
+    /** La capture audio a échoué : ne plus attendre la piste audio. */
+    fun disableAudio() = synchronized(muxerLock) {
+        hasAudio = false
+        maybeStartMuxer()
+    }
+
+    // --- AudioSink : la piste audio PARTAGÉE (thread audio) -----------------
+
+    override fun onAudioFormat(format: MediaFormat) = synchronized(muxerLock) {
+        val mux = muxer ?: return
+        if (recording && audioTrackIndex < 0) {
+            audioTrackIndex = mux.addTrack(format)
+            maybeStartMuxer()
+        }
+    }
+
+    override fun onAudioSample(buffer: ByteBuffer, info: MediaCodec.BufferInfo) =
+        synchronized(muxerLock) {
+            val mux = muxer ?: return
+            if (muxerStarted && audioTrackIndex >= 0) {
+                mux.writeSampleData(audioTrackIndex, buffer, info)
+            }
+        }
 
     /** Dessine l'image courante dans la surface d'entrée du codec + draine. */
     private fun encodeCurrentFrame(timestampNs: Long) {
         val encSurf = encoderEglSurface
         if (encSurf == EGL14.EGL_NO_SURFACE) return
+        // Normalise le PTS vidéo sur la 1re image → la piste démarre à ~0, comme
+        // la piste audio, pour qu'elles soient alignées dans le fichier.
+        if (videoFirstTimestampNs == 0L) videoFirstTimestampNs = timestampNs
+        val ptsNs = (timestampNs - videoFirstTimestampNs).coerceAtLeast(0)
         EGL14.eglMakeCurrent(eglDisplay, encSurf, encSurf, eglContext)
         drawCurrentFrame()
-        EGLExt.eglPresentationTimeANDROID(eglDisplay, encSurf, timestampNs)
+        EGLExt.eglPresentationTimeANDROID(eglDisplay, encSurf, ptsNs)
         EGL14.eglSwapBuffers(eglDisplay, encSurf)
         // Repasser sur l'aperçu pour la suite du rendu.
         EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
         drainEncoder(endOfStream = false)
     }
 
-    /** Sort les paquets encodés du codec vers le muxer. */
+    /** Sort les paquets vidéo encodés du codec vers le muxer (thread GL). */
     private fun drainEncoder(endOfStream: Boolean) {
         val codec = encoder ?: return
-        val mux = muxer ?: return
         if (endOfStream) runCatching { codec.signalEndOfInputStream() }
         while (true) {
             val outIndex = codec.dequeueOutputBuffer(
@@ -590,10 +644,12 @@ class Camera2Gl(
                 if (!endOfStream) break // rien de prêt pour l'instant
                 // fin de flux : on continue d'attendre le drain complet
             } else if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                if (muxerStarted) throw RuntimeException("format de sortie changé deux fois")
-                muxerTrack = mux.addTrack(codec.outputFormat)
-                mux.start()
-                muxerStarted = true
+                synchronized(muxerLock) {
+                    if (videoTrackIndex < 0) {
+                        videoTrackIndex = muxer?.addTrack(codec.outputFormat) ?: -1
+                        maybeStartMuxer()
+                    }
+                }
             } else if (outIndex >= 0) {
                 val encoded = codec.getOutputBuffer(outIndex)
                 if (encoded != null) {
@@ -602,10 +658,14 @@ class Camera2Gl(
                     if (encoderBufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
                         encoderBufferInfo.size = 0
                     }
-                    if (encoderBufferInfo.size != 0 && muxerStarted) {
-                        encoded.position(encoderBufferInfo.offset)
-                        encoded.limit(encoderBufferInfo.offset + encoderBufferInfo.size)
-                        mux.writeSampleData(muxerTrack, encoded, encoderBufferInfo)
+                    if (encoderBufferInfo.size != 0) {
+                        synchronized(muxerLock) {
+                            if (muxerStarted && videoTrackIndex >= 0) {
+                                encoded.position(encoderBufferInfo.offset)
+                                encoded.limit(encoderBufferInfo.offset + encoderBufferInfo.size)
+                                muxer?.writeSampleData(videoTrackIndex, encoded, encoderBufferInfo)
+                            }
+                        }
                     }
                 }
                 codec.releaseOutputBuffer(outIndex, false)
@@ -644,8 +704,15 @@ class Camera2Gl(
 
     /** Libère codec + muxer + surface EGL de l'encodeur (thread GL). */
     private fun releaseEncoder() {
-        runCatching { if (muxerStarted) muxer?.stop() }
-        runCatching { muxer?.release() }
+        synchronized(muxerLock) {
+            runCatching { if (muxerStarted) muxer?.stop() }
+            runCatching { muxer?.release() }
+            muxer = null
+            videoTrackIndex = -1
+            audioTrackIndex = -1
+            muxerStarted = false
+            hasAudio = false
+        }
         runCatching { encoder?.stop() }
         runCatching { encoder?.release() }
         if (encoderEglSurface != EGL14.EGL_NO_SURFACE) {
@@ -655,9 +722,6 @@ class Camera2Gl(
         encoder = null
         encoderInputSurface = null
         encoderEglSurface = EGL14.EGL_NO_SURFACE
-        muxer = null
-        muxerTrack = -1
-        muxerStarted = false
         recording = false
         // L'aperçu redevient la surface courante : le rendu continue normalement.
         if (eglDisplay != EGL14.EGL_NO_DISPLAY && eglSurface != EGL14.EGL_NO_SURFACE) {
