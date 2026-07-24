@@ -67,6 +67,49 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
     await _open();
   }
 
+  Future<void> _capture() async {
+    try {
+      final shots = await _camera.captureGlDual();
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (_) => AlertDialog(
+          title: const Text('Photo GPU — deux faces'),
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Expanded(
+                child: AspectRatio(
+                  aspectRatio: 9 / 16,
+                  child: Image.file(shots.back, fit: BoxFit.cover),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: AspectRatio(
+                  aspectRatio: 9 / 16,
+                  child: Image.file(shots.front, fit: BoxFit.cover),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Fermer'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Capture GPU impossible : $e')));
+      }
+    }
+  }
+
   @override
   void dispose() {
     _camera.removeListener(_onChanged);
@@ -163,15 +206,24 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
             ),
           ),
           Expanded(child: Center(child: _body())),
-          if (!_dual)
-            Padding(
-              padding: const EdgeInsets.all(16),
-              child: FilledButton.tonalIcon(
-                onPressed: _flipCamera,
-                icon: const Icon(Icons.cameraswitch),
-                label: Text(_back ? 'Caméra arrière' : 'Caméra avant'),
-              ),
-            ),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: _dual
+                ? FilledButton.icon(
+                    onPressed:
+                        (_camera.glBackTextureId != null &&
+                            _camera.glFrontTextureId != null)
+                        ? _capture
+                        : null,
+                    icon: const Icon(Icons.camera),
+                    label: const Text('Capturer les 2 faces (GPU)'),
+                  )
+                : FilledButton.tonalIcon(
+                    onPressed: _flipCamera,
+                    icon: const Icon(Icons.cameraswitch),
+                    label: Text(_back ? 'Caméra arrière' : 'Caméra avant'),
+                  ),
+          ),
         ],
       ),
     );

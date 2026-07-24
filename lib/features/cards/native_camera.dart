@@ -296,6 +296,18 @@ class NativeCameraController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// ÉTAPE 3 : photo GPU des deux faces d'un coup (dernière image de chaque
+  /// caméra → instantané, vraiment simultané).
+  Future<({File back, File front})> captureGlDual() async {
+    final res = await _channel
+        .invokeMapMethod<String, dynamic>('captureGlDual')
+        .timeout(const Duration(seconds: 6));
+    return (
+      back: File(res!['back'] as String),
+      front: File(res['front'] as String),
+    );
+  }
+
   Future<void> close() async {
     try {
       // La réponse native n'arrive qu'une fois le matériel RENDU (attente des

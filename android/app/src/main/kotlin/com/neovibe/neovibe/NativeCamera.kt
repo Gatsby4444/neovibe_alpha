@@ -280,6 +280,30 @@ class NativeCamera(
                         }
                     }
                 }
+                "captureGlDual" -> {
+                    // Photo GPU des DEUX faces : chaque moteur rend sa dernière
+                    // image (instantané, aucune action caméra). Hors thread
+                    // principal (capturePhoto attend le thread GL).
+                    ioExecutor.execute {
+                        val started = System.currentTimeMillis()
+                        val back = glBack.capturePhoto()
+                        val front = glFront.capturePhoto()
+                        if (back == null || front == null) {
+                            mainExecutor.execute {
+                                result.error("GL_CAPTURE_FAILED", "capture GPU impossible", null)
+                            }
+                        } else {
+                            CamLog.i(
+                                "gl",
+                                "capture GPU des deux faces en " +
+                                    "${System.currentTimeMillis() - started} ms",
+                            )
+                            mainExecutor.execute {
+                                result.success(mapOf("back" to back.path, "front" to front.path))
+                            }
+                        }
+                    }
+                }
                 "closeGlDual" -> {
                     glFront.close()
                     glBack.close { result.success(null) }

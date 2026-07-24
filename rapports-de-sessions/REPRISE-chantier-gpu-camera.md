@@ -89,8 +89,15 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   **Si une caméra affame l'autre / éviction** : revoir la choréographie
   (délai entre arrière et avant) — mais l'attente de la 1re image devrait
   suffire (c'est ce qui marche pour le double flux logiciel).
-- [ ] **Étape 3 — Photo instantanée GPU.** Capture = rendu offscreen + readback,
-  les 2 faces d'un coup.
+- [x] **Étape 3 — Photo instantanée GPU. CODÉE (v0.9.10), EN ATTENTE DE TEST.**
+  `Camera2Gl.capturePhoto()` : rend la dernière image dans un FBO offscreen
+  (720×1280, même shader → déjà droit), `glReadPixels`, miroir vertical
+  (glReadPixels lit bas→haut), JPEG. `captureGlDual` (NativeCamera) capture les
+  deux faces d'affilée (hors thread principal) → instantané. Bouton « Capturer
+  les 2 faces (GPU) » en mode Double du test, affiche les 2 photos. *À VÉRIFIER
+  par Jay : les 2 photos sortent-elles DROITES, non distordues, couleurs OK
+  (pas de rouge/bleu inversé) ? Instantané ?* Si couleurs inversées → swizzle
+  R/B ; si tête en bas → retirer le miroir vertical dans `renderToJpeg`.
 - [ ] **Étape 4 — Vidéo double.** Chaque texture caméra → surface `MediaCodec` →
   2 vidéos (recto/verso).
 - [ ] **Étape 5 — Repli & universalité.** Séquentiel propre + instantané
@@ -155,7 +162,11 @@ Détail à ne pas oublier : les instances dual loguent encore « ÉTAPE 1 » (co
 tique) ; le point Jay « sonde/double puis test GPU juste après coince » reste à
 traiter (libération caméra entre tests).
 
-Dernière release : **v0.9.9** (versionCode 99) — double aperçu GPU (VALIDÉ).
+**v0.9.10 → Étape 3 (photo GPU instantanée) codée**, en attente du test de Jay
+(photos droites, non distordues, couleurs OK, instantané ?). Si OK → Étape 4
+(vidéo double : chaque texture → surface `MediaCodec`).
+
+Dernière release : **v0.9.10** (versionCode 100) — photo GPU des 2 faces.
 
 ## Rappel build + release (toolchain hors PATH)
 

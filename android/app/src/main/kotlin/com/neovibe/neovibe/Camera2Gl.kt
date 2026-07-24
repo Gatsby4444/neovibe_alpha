@@ -3,6 +3,7 @@ package com.neovibe.neovibe
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CameraCharacteristics
@@ -24,9 +25,13 @@ import android.util.Size
 import android.view.Surface
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.TextureRegistry
+import java.io.File
+import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * ÉTAPE 1 du chantier « rendu caméra GPU » — **une seule caméra, rendu OpenGL**.
@@ -350,6 +355,94 @@ class Camera2Gl(
         } catch (e: Exception) {
             CamLog.e("gl", "rendu d'une image impossible", e)
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Photo — la dernière image, rendue en offscreen puis lue (instantané)
+    // ------------------------------------------------------------------
+
+    /**
+     * Capture la DERNIÈRE image (celle affichée) en JPEG. Rendu dans un
+     * framebuffer offscreen au même format que l'aperçu (720×1280, déjà droit),
+     * puis `glReadPixels`. Instantané : on ne reparle jamais à la caméra. Bloque
+     * l'appelant jusqu'à ~3 s (à lancer hors du thread principal).
+     */
+    fun capturePhoto(): File? {
+        if (!active) return null
+        val gl = glHandler ?: return null
+        val latch = CountDownLatch(1)
+        var out: File? = null
+        gl.post {
+            out = runCatching { renderToJpeg() }
+                .onFailure { CamLog.e("gl", "capture GPU impossible", it) }
+                .getOrNull()
+            latch.countDown()
+        }
+        latch.await(3, TimeUnit.SECONDS)
+        return out
+    }
+
+    /** Rend l'image courante dans un FBO et l'encode en JPEG (thread GL). */
+    private fun renderToJpeg(): File? {
+        val st = cameraSurfaceTexture ?: return null
+        EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
+        st.updateTexImage()
+        st.getTransformMatrix(stMatrix)
+
+        val fbo = IntArray(1)
+        GLES20.glGenFramebuffers(1, fbo, 0)
+        val fboTex = IntArray(1)
+        GLES20.glGenTextures(1, fboTex, 0)
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, fboTex[0])
+        GLES20.glTexImage2D(
+            GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, outW, outH, 0,
+            GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, null,
+        )
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0])
+        GLES20.glFramebufferTexture2D(
+            GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0, GLES20.GL_TEXTURE_2D, fboTex[0], 0,
+        )
+
+        GLES20.glViewport(0, 0, outW, outH)
+        GLES20.glClearColor(0f, 0f, 0f, 1f)
+        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+        GLES20.glUseProgram(program)
+        Matrix.setIdentityM(mvpMatrix, 0)
+        GLES20.glUniformMatrix4fv(uMvpLoc, 1, false, mvpMatrix, 0)
+        GLES20.glUniformMatrix4fv(uStMatrixLoc, 1, false, stMatrix, 0)
+        GLES20.glUniformMatrix4fv(uTexRotLoc, 1, false, texRotMatrix, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexId)
+        quadVertices.position(0)
+        GLES20.glVertexAttribPointer(aPositionLoc, 2, GLES20.GL_FLOAT, false, 0, quadVertices)
+        GLES20.glEnableVertexAttribArray(aPositionLoc)
+        quadTexCoords.position(0)
+        GLES20.glVertexAttribPointer(aTexCoordLoc, 2, GLES20.GL_FLOAT, false, 0, quadTexCoords)
+        GLES20.glEnableVertexAttribArray(aTexCoordLoc)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+
+        val buf = ByteBuffer.allocateDirect(outW * outH * 4).order(ByteOrder.nativeOrder())
+        GLES20.glReadPixels(0, 0, outW, outH, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, buf)
+        buf.rewind()
+
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        GLES20.glDeleteFramebuffers(1, fbo, 0)
+        GLES20.glDeleteTextures(1, fboTex, 0)
+
+        val raw = Bitmap.createBitmap(outW, outH, Bitmap.Config.ARGB_8888)
+        raw.copyPixelsFromBuffer(buf)
+        // glReadPixels lit de bas en haut → miroir vertical pour un JPEG droit.
+        val flip = android.graphics.Matrix().apply { preScale(1f, -1f) }
+        val bmp = Bitmap.createBitmap(raw, 0, 0, outW, outH, flip, false)
+        raw.recycle()
+
+        val file = File.createTempFile("nv_gl_${previewKey}_", ".jpg", activity.cacheDir)
+        FileOutputStream(file).use { bmp.compress(Bitmap.CompressFormat.JPEG, 92, it) }
+        bmp.recycle()
+        CamLog.i("gl", "$previewKey : photo GPU écrite (${file.length() / 1024} Ko)")
+        return file
     }
 
     // ------------------------------------------------------------------
