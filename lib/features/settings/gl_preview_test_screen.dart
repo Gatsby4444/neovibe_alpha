@@ -358,8 +358,14 @@ class _GlPreviewTestScreenState extends State<GlPreviewTestScreen> {
   }
 }
 
-/// Lecture des DEUX vidéos GPU (recto/verso) côte à côte, en boucle. Sert à
-/// vérifier au test que la vidéo double GPU sort droite, fluide, couleurs OK.
+/// Lecture des deux vidéos GPU (recto/verso), **UNE à la fois**, plein écran.
+///
+/// Deux `VideoPlayer` simultanés posaient deux problèmes au test v0.9.12 :
+/// (a) côte à côte, deux portraits 9:16 sur un écran portrait = écrasés en
+/// largeur ; (b) deux ExoPlayer en parallèle → l'un reste figé sur sa 1re image
+/// (travers connu de `video_player`). Ici : un seul lecteur actif, ratio
+/// respecté (`AspectRatio` + `contain`), bascule Arrière/Avant. Le fichier
+/// caché est libéré → jamais deux lecteurs à la fois.
 class _DualVideoPlayback extends StatefulWidget {
   const _DualVideoPlayback({required this.back, required this.front});
   final File back;
@@ -370,69 +376,80 @@ class _DualVideoPlayback extends StatefulWidget {
 }
 
 class _DualVideoPlaybackState extends State<_DualVideoPlayback> {
-  late final VideoPlayerController _back;
-  late final VideoPlayerController _front;
+  var _showBack = true;
+  VideoPlayerController? _controller;
   var _ready = false;
 
   @override
   void initState() {
     super.initState();
-    _back = VideoPlayerController.file(widget.back);
-    _front = VideoPlayerController.file(widget.front);
-    Future.wait([_back.initialize(), _front.initialize()]).then((_) {
-      if (!mounted) return;
-      _back
-        ..setLooping(true)
-        ..play();
-      _front
-        ..setLooping(true)
-        ..play();
-      setState(() => _ready = true);
-    });
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _ready = false);
+    await _controller?.dispose();
+    final c = VideoPlayerController.file(
+      _showBack ? widget.back : widget.front,
+    );
+    _controller = c;
+    await c.initialize();
+    if (!mounted) return;
+    c
+      ..setLooping(true)
+      ..play();
+    setState(() => _ready = true);
+  }
+
+  void _select(bool back) {
+    if (back == _showBack) return;
+    setState(() => _showBack = back);
+    _load();
   }
 
   @override
   void dispose() {
-    _back.dispose();
-    _front.dispose();
+    _controller?.dispose();
     super.dispose();
   }
 
-  Widget _tile(String label, VideoPlayerController c) => Expanded(
-    child: Column(
-      children: [
-        Text(label, style: const TextStyle(color: Colors.white70)),
-        const SizedBox(height: 6),
-        Expanded(
-          child: AspectRatio(
-            aspectRatio: c.value.aspectRatio,
-            child: VideoPlayer(c),
-          ),
-        ),
-      ],
-    ),
-  );
-
   @override
   Widget build(BuildContext context) {
+    final c = _controller;
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
         title: const Text('Vidéo GPU — deux faces'),
       ),
-      body: !_ready
-          ? const Center(child: CircularProgressIndicator())
-          : Padding(
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  _tile('Arrière (recto)', _back),
-                  const SizedBox(width: 8),
-                  _tile('Avant (verso)', _front),
-                ],
-              ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: true, label: Text('Arrière (recto)')),
+                ButtonSegment(value: false, label: Text('Avant (verso)')),
+              ],
+              selected: {_showBack},
+              onSelectionChanged: (s) => _select(s.first),
             ),
+          ),
+          Expanded(
+            child: Center(
+              child: (!_ready || c == null)
+                  ? const CircularProgressIndicator()
+                  : AspectRatio(
+                      aspectRatio: c.value.aspectRatio,
+                      child: GestureDetector(
+                        onTap: () => c.value.isPlaying ? c.pause() : c.play(),
+                        child: VideoPlayer(c),
+                      ),
+                    ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

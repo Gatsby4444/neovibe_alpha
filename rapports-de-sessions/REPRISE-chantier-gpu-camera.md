@@ -198,11 +198,16 @@ d'un `MediaCodec` H264) + un muxer `MediaMuxer` par caméra → deux .mp4
 Puis Étape 5 : brancher dans le vrai Oneshot (remplacer `Camera2Dual`) + repli
 séquentiel universel + supprimer le code mort (Camera2Dual logiciel, sonde).
 
-**v0.9.12 → Étape 4 (vidéo double GPU) codée**, en attente du test de Jay. Si
-validée → Étape 4 (suite) audio, puis Étape 5 (brancher dans le vrai Oneshot +
-repli universel).
+**v0.9.12 → Étape 4 (vidéo double GPU) codée.** Test Jay : capture OK (2 fichiers
+~37 Mo animés, deux encodeurs à 30 i/s) mais LECTURE défaillante (arrière figée +
+écrasée en largeur). Cause : deux `VideoPlayer` simultanés (un gèle) + deux
+portraits côte à côte. **L'encodeur est bon** (37 Mo = vidéo animée réelle).
 
-Dernière release : **v0.9.12** (versionCode 102) — vidéo double GPU (sans audio).
+**v0.9.13 → correctif lecture** : `_DualVideoPlayback` = un seul lecteur à la
+fois, plein écran, bascule Arrière/Avant. Encodeur natif inchangé. En attente du
+re-test de Jay : les DEUX vidéos sont-elles animées, droites, bonnes couleurs ?
+
+Dernière release : **v0.9.13** (versionCode 103) — correctif lecture vidéo double.
 
 ## Rappel build + release (toolchain hors PATH)
 
