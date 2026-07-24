@@ -91,14 +91,26 @@ exactement comme l'aperçu CameraX simple qui n'est pas distordu. `previewInfo`
 renvoie désormais `(1280, 720, sensorOrientation)` ; l'écran de test passe
 `mirror: !back`.
 
-Prochain pas : Jay teste v0.9.6 (« Aperçu GPU (étape 1) »). Si orientation/miroir
-OK et fluide → **Étape 2** (double aperçu GPU : deux instances de la logique
-`Camera2Gl`, ouverture arrière puis avant comme `Camera2Dual`, deux textures
-Flutter, rendues sur le même thread GL ou un par caméra). Si un quart de tour
-manque → ajuster la valeur passée à `previewInfoSink` (rotation) dans
-`Camera2Gl.open()`.
+**v0.9.6 → paysage (rotation Dart non appliquée).** La délégation de la rotation
+au Dart (previewInfo rotation=sensorOrientation + RotatedBox) N'A PAS marché sur
+ce chemin — cause exacte non élucidée (le même widget tourne pourtant l'aperçu
+CameraX). Abandonné.
 
-Dernière release : **v0.9.6** (versionCode 96).
+**v0.9.7 → rotation FAITE DANS LE GPU, sur les coordonnées de texture.** Sortie
+portrait 720×1280 ; positions plein écran ; on tourne l'échantillonnage
+(`uTexRot` = rotation autour de 0.5,0.5 de `-sensorOrientation`, + miroir front).
+Une rotation 90° des texcoords aligne 1280↔1280 et 720↔720 → **aucune
+distorsion** (déterministe, contrairement à la rotation de géométrie de v0.9.5).
+Côté Dart : rotation 0, `mirror: false`.
+
+Prochain pas : Jay teste v0.9.7. Attendu : **image droite + non distordue**.
+- Si tête en bas / miroir inversé → **une valeur** : le SIGNE de l'angle
+  (`-sensorOrientation` → `+sensorOrientation`) et/ou le `Matrix.scaleM` miroir,
+  dans `Camera2Gl.open()`. C'est le seul degré de liberté restant.
+- Si droite → **Étape 2** (double aperçu GPU : deux instances de la logique
+  `Camera2Gl`, ouverture arrière puis avant comme `Camera2Dual`, deux textures).
+
+Dernière release : **v0.9.7** (versionCode 97).
 
 ## Rappel build + release (toolchain hors PATH)
 

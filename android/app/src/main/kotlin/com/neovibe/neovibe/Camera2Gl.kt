@@ -39,16 +39,22 @@ import java.nio.FloatBuffer
  *   caméra → `SurfaceTexture` (texture externe OES, sortie MATÉRIELLE) → shader
  *   GPU → `EGLWindowSurface` adossée à une texture Flutter (`SurfaceProducer`).
  *
- * C'est le chemin de GoNext (rendu GPU, ~45 i/s constant), par opposition au
- * rendu logiciel de [Camera2Dual] (`lockCanvas`, ~20-27 i/s + freezes).
+ * C'est le chemin de GoNext (rendu GPU, ~45 i/s), par opposition au rendu
+ * logiciel de [Camera2Dual] (`lockCanvas`, ~20-27 i/s + freezes). **Validé sur
+ * le Redmi de Jay : ~30 i/s CONSTANT, zéro freeze.**
  *
- * Ici on ne fait QUE l'aperçu d'UNE caméra. Le double flux (étape 2), la photo
- * (étape 3) et la vidéo (étape 4) viennent après, une fois cette base validée
- * sur l'appareil de Jay. Ce qu'il faut vérifier au test : **fluidité** et
- * **orientation** (pas pivoté ni en miroir).
+ * ## Orientation (v0.9.7)
  *
- * Thread : tout le GL vit sur un thread dédié ([glHandler]) avec son contexte
- * EGL. Les API Flutter (création de la texture) restent sur le thread principal.
+ * La rotation portrait est faite **dans le GPU, sur les COORDONNÉES DE TEXTURE**
+ * (pas sur la géométrie — tourner la géométrie dans un cadre non carré
+ * distordait, v0.9.5 ; déléguer au Dart ne s'appliquait pas, v0.9.6). Les
+ * positions remplissent tout le cadre PORTRAIT (720×1280) et on tourne
+ * seulement l'échantillonnage : une rotation de 90° aligne alors 1280 texels
+ * sur 1280 px et 720 sur 720 → **aucune distorsion**, image droite. Le miroir
+ * de la frontale est aussi fait ici. Côté Dart : rotation 0, `mirror: false`.
+ *
+ * Thread : tout le GL vit sur [glHandler] avec son contexte EGL. Les API Flutter
+ * (création de la texture) restent sur le thread principal.
  */
 @SuppressLint("MissingPermission") // permission caméra déjà accordée
 class Camera2Gl(
@@ -87,22 +93,30 @@ class Camera2Gl(
     private var mirror = false
     private var fpsRange: Range<Int>? = null
 
+    /** Dimensions de la sortie affichée (PORTRAIT). */
+    private var outW = 720
+    private var outH = 1280
+
     // GL program
     private var program = 0
     private var aPositionLoc = 0
     private var aTexCoordLoc = 0
     private var uMvpLoc = 0
     private var uStMatrixLoc = 0
+    private var uTexRotLoc = 0
 
     private val stMatrix = FloatArray(16)
     private val mvpMatrix = FloatArray(16)
+
+    /** Rotation portrait + miroir, appliquée aux COORDONNÉES DE TEXTURE. */
+    private val texRotMatrix = FloatArray(16)
 
     /** La seule configuration tolérée par ce matériel (mesurée). */
     private val camSize = Size(1280, 720)
 
     private var active = false
 
-    /** Quad plein écran (triangle strip) + coords de texture. */
+    /** Quad plein écran (triangle strip) + coords de texture de base. */
     private val quadVertices: FloatBuffer = floatBuffer(
         floatArrayOf(
             -1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f,
@@ -121,7 +135,10 @@ class Camera2Gl(
     // ------------------------------------------------------------------
 
     fun open(back: Boolean, result: MethodChannel.Result) {
-        CamLog.i("gl", "=== ÉTAPE 1 : OUVERTURE APERÇU GPU (une caméra, ${if (back) "arrière" else "avant"}) ===")
+        CamLog.i(
+            "gl",
+            "=== ÉTAPE 1 : OUVERTURE APERÇU GPU (une caméra, ${if (back) "arrière" else "avant"}) ===",
+        )
         try {
             val id = firstCamera(
                 if (back) CameraCharacteristics.LENS_FACING_BACK
@@ -136,21 +153,34 @@ class Camera2Gl(
             mirror = !back
             fpsRange = pickFpsRange(chars)
 
-            // On rend l'image caméra BRUTE (paysage, sans rotation ni miroir
-            // côté GPU). La rotation et le miroir sont faits côté Dart par
-            // NativeCameraPreview (RotatedBox + cover) — exactement comme
-            // l'aperçu CameraX simple, qui n'est PAS distordu. Tourner la
-            // géométrie dans un viewport non carré distordait l'image (retour
-            // Jay, étape 1 : « orientation fausse et image distordue »).
+            // Sortie PORTRAIT (le capteur est paysage → on tourne l'échantillon-
+            // nage dans le shader). 1280×720 tourné = 720×1280 = 9:16 exact.
+            val turned = sensorOrientation % 180 != 0
+            outW = if (turned) camSize.height else camSize.width
+            outH = if (turned) camSize.width else camSize.height
+
+            // Matrice de rotation des coordonnées de texture (autour du centre
+            // 0.5,0.5). On tourne l'ÉCHANTILLONNAGE de -sensorOrientation pour
+            // faire tourner l'IMAGE de +sensorOrientation (droite). Miroir de la
+            // frontale inclus. Si l'image sort tête en bas / inversée au test :
+            // c'est le SIGNE de l'angle (ou le miroir) à ajuster — une valeur.
+            Matrix.setIdentityM(texRotMatrix, 0)
+            Matrix.translateM(texRotMatrix, 0, 0.5f, 0.5f, 0f)
+            Matrix.rotateM(texRotMatrix, 0, -sensorOrientation.toFloat(), 0f, 0f, 1f)
+            if (mirror) Matrix.scaleM(texRotMatrix, 0, -1f, 1f, 1f)
+            Matrix.translateM(texRotMatrix, 0, -0.5f, -0.5f, 0f)
+
+            // Texture Flutter — thread principal obligatoire. Rotation déjà faite
+            // dans le GPU → on annonce rotation 0 au Dart.
             val p = textureRegistry.createSurfaceProducer()
-            p.setSize(camSize.width, camSize.height)
+            p.setSize(outW, outH)
             producer = p
             textureId = p.id()
-            previewInfoSink("gl", camSize.width, camSize.height, sensorOrientation)
+            previewInfoSink("gl", outW, outH, 0)
             CamLog.i(
                 "gl",
-                "texture Flutter ${p.id()} (${camSize.width}×${camSize.height} brut), " +
-                    "capteur $sensorOrientation° (rotation déléguée au Dart), miroir=$mirror",
+                "texture Flutter ${p.id()} (sortie ${outW}×$outH portrait), " +
+                    "capteur $sensorOrientation°, miroir=$mirror",
             )
 
             glThread = HandlerThread("nv-gl").also { it.start() }
@@ -162,8 +192,6 @@ class Camera2Gl(
                 try {
                     initEgl(p.surface)
                     initGl()
-                    // SurfaceTexture créée sur le thread GL (le texture OES doit
-                    // exister dans CE contexte).
                     val st = SurfaceTexture(oesTexId)
                     st.setDefaultBufferSize(camSize.width, camSize.height)
                     st.setOnFrameAvailableListener({ onFrame() }, glHandler)
@@ -264,18 +292,17 @@ class Camera2Gl(
             st.getTransformMatrix(stMatrix)
 
             EGL14.eglMakeCurrent(eglDisplay, eglSurface, eglSurface, eglContext)
-            GLES20.glViewport(0, 0, camSize.width, camSize.height)
+            GLES20.glViewport(0, 0, outW, outH)
             GLES20.glClearColor(0f, 0f, 0f, 1f)
             GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
 
             GLES20.glUseProgram(program)
 
-            // Rendu BRUT : aucune rotation ni miroir ici (délégués au Dart, qui
-            // les fait sans distorsion via RotatedBox + cover).
+            // Positions : quad plein écran, pas de transformation.
             Matrix.setIdentityM(mvpMatrix, 0)
-
             GLES20.glUniformMatrix4fv(uMvpLoc, 1, false, mvpMatrix, 0)
             GLES20.glUniformMatrix4fv(uStMatrixLoc, 1, false, stMatrix, 0)
+            GLES20.glUniformMatrix4fv(uTexRotLoc, 1, false, texRotMatrix, 0)
 
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexId)
@@ -349,6 +376,7 @@ class Camera2Gl(
         aTexCoordLoc = GLES20.glGetAttribLocation(program, "aTexCoord")
         uMvpLoc = GLES20.glGetUniformLocation(program, "uMvp")
         uStMatrixLoc = GLES20.glGetUniformLocation(program, "uStMatrix")
+        uTexRotLoc = GLES20.glGetUniformLocation(program, "uTexRot")
 
         val tex = IntArray(1)
         GLES20.glGenTextures(1, tex, 0)
@@ -433,6 +461,7 @@ class Camera2Gl(
             camThread = null
             glHandler = null
             camHandler = null
+            frames = 0
             activity.runOnUiThread {
                 runCatching { producer?.release() }
                 producer = null
@@ -469,15 +498,19 @@ class Camera2Gl(
             }
 
     companion object {
+        // aTexCoord (0..1) est d'abord tourné/mis en miroir (uTexRot, autour du
+        // centre), puis transformé par la matrice de la SurfaceTexture (uStMatrix,
+        // recadrage/flip de la texture externe).
         private const val VERTEX_SHADER = """
             attribute vec4 aPosition;
             attribute vec4 aTexCoord;
             uniform mat4 uMvp;
             uniform mat4 uStMatrix;
+            uniform mat4 uTexRot;
             varying vec2 vTex;
             void main() {
                 gl_Position = uMvp * aPosition;
-                vTex = (uStMatrix * aTexCoord).xy;
+                vTex = (uStMatrix * uTexRot * aTexCoord).xy;
             }
         """
 
