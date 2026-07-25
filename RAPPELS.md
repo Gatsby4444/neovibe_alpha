@@ -35,6 +35,12 @@ Ne rien y supprimer sans validation explicite de Jay.
 | 5 | **`contentType` d'upload** | Les fichiers sont des PNG mais uploadés en `image/jpeg`. Sans effet visible, à nettoyer. | 2026-07-12 |
 | 7 | **FPS double live — levier n°2 (rendu)** | Le levier n°1 (forçage de la plage capteur `CONTROL_AE_TARGET_FPS_RANGE`) est fait en v0.9.x. **Si insuffisant après mesure de Jay** : alléger le rendu logiciel — n'afficher qu'UNE face (saut du dessin de la face cachée côté natif, `renderEnabled` par caméra), la face cachée restant vivante pour la capture simultanée ; éventuellement supprimer l'aller-retour JPEG du pipeline de dessin. Ne pas égaler le natif (rendu GPU inaccessible en flux unique) est assumé. | 2026-07-24 |
 
+## Décisions en attente
+
+| # | Sujet | Détail | Depuis |
+|---|-------|--------|--------|
+| 1 | **Reprise caméra après éviction par le système** | Vu dans le journal du 2026-07-25 (`erreur caméra 3` = `ERROR_CAMERA_DISABLED`, les deux caméras d'un coup, après ~60 s de double flux) : Android retire la caméra à l'app (veille, arrière-plan, autre app). Jay pense être passé sur autre chose entre-temps. L'app s'en remet, mais **le comportement au retour au premier plan n'est pas décidé** : rouvrir le double flux automatiquement, ou revenir au flux simple et laisser relancer ? À trancher avec Jay avant la prod — et à traiter prudemment (une reprise caméra mal faite casse le service caméra d'Android). | 2026-07-25 |
+
 ## Bugs connus, à corriger
 
 | # | Sujet | Détail | Depuis |
