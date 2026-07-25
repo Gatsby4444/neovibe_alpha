@@ -837,7 +837,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     Widget main = Stack(
       fit: StackFit.expand,
       children: [
-        _nativePreview('main', _camera.textureId, mirror: !_camera.lensBack),
+        // Pas de miroir non plus sur le flux simple (consigne Jay, v0.9.16 :
+        // « on fait l'inverse de Snapchat »). Ça corrige au passage une
+        // incohérence ancienne des autres modes : l'aperçu frontal était
+        // mirroré alors que la photo enregistrée, elle, ne l'était pas —
+        // on ne voyait donc pas la face qu'on allait obtenir.
+        _nativePreview('main', _camera.textureId, mirror: false),
         AnimatedOpacity(
           opacity: _switching ? 1 : 0,
           duration: const Duration(milliseconds: 140),
@@ -903,15 +908,21 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// quel que soit l'agencement.
   Widget _dualPreviewFrame() {
     final mainIsBack = !_pipSwapped;
+    // AUCUN miroir côté Dart sur le moteur GPU (v0.9.16) : la matrice de la
+    // SurfaceTexture donne déjà le bon sens pour les deux caméras — c'est la
+    // combinaison validée au test « Aperçu GPU » (rotation 0, miroir off). Le
+    // `mirror: !back` hérité du moteur logiciel retournait la frontale une fois
+    // de trop, et l'aperçu ne correspondait alors plus à la photo capturée
+    // (`capturePhoto` passe par le même shader, sans miroir).
     final mainView = _nativePreview(
       mainIsBack ? 'glBack' : 'glFront',
       mainIsBack ? _camera.glBackTextureId : _camera.glFrontTextureId,
-      mirror: !mainIsBack,
+      mirror: false,
     );
     final pipView = _nativePreview(
       mainIsBack ? 'glFront' : 'glBack',
       mainIsBack ? _camera.glFrontTextureId : _camera.glBackTextureId,
-      mirror: mainIsBack,
+      mirror: false,
     );
 
     return Center(
