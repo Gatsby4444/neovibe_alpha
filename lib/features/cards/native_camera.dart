@@ -138,6 +138,7 @@ class NativeCameraController extends ChangeNotifier {
         .timeout(const Duration(seconds: 10));
     lensBack = back;
     dualActive = false;
+    glDualActive = false;
     textureId = res?['textureId'] as int?;
     notifyListeners();
   }
@@ -278,13 +279,38 @@ class NativeCameraController extends ChangeNotifier {
   int? glBackTextureId;
   int? glFrontTextureId;
 
+  /// Double flux GPU ouvert (aperçu + photo). Pendant du software [dualActive],
+  /// mais pour le moteur OpenGL : c'est ce que le vrai Oneshot utilise depuis
+  /// l'étape 5a. Les deux ne sont jamais actifs en même temps.
+  var glDualActive = false;
+
+  /// Ouvre le double flux GPU. Même contrat que [openDual] : lève
+  /// [DualUnsupportedException] si l'appareil refuse, et marque
+  /// [dualFailedThisSession] — on ne re-sonde JAMAIS le matériel après un
+  /// échec (un essai raté peut laisser le service caméra d'Android hors
+  /// service jusqu'au redémarrage de l'app).
   Future<void> openGlDual() async {
-    final res = await _channel
-        .invokeMapMethod<String, dynamic>('openGlDual')
-        .timeout(const Duration(seconds: 12));
-    glBackTextureId = res?['backTextureId'] as int?;
-    glFrontTextureId = res?['frontTextureId'] as int?;
-    notifyListeners();
+    try {
+      final res = await _channel
+          .invokeMapMethod<String, dynamic>('openGlDual')
+          .timeout(const Duration(seconds: 12));
+      glBackTextureId = res?['backTextureId'] as int?;
+      glFrontTextureId = res?['frontTextureId'] as int?;
+      glDualActive = true;
+      // Le natif a libéré CameraX avant d'ouvrir le GPU : le flux simple
+      // n'existe plus.
+      textureId = null;
+      notifyListeners();
+    } on TimeoutException {
+      dualFailedThisSession = true;
+      throw const DualUnsupportedException('La caméra ne répond pas (12 s)');
+    } on PlatformException catch (e) {
+      dualFailedThisSession = true;
+      if (e.code == 'GL_UNSUPPORTED' || e.code == 'DUAL_UNSUPPORTED') {
+        throw DualUnsupportedException(e.message);
+      }
+      rethrow;
+    }
   }
 
   Future<void> closeGlDual() async {
@@ -293,6 +319,7 @@ class NativeCameraController extends ChangeNotifier {
     } catch (_) {}
     glBackTextureId = null;
     glFrontTextureId = null;
+    glDualActive = false;
     notifyListeners();
   }
 
@@ -340,6 +367,11 @@ class NativeCameraController extends ChangeNotifier {
     dualBackTextureId = null;
     dualFrontTextureId = null;
     dualActive = false;
+    // Le natif ferme aussi le double flux GPU dans « close » (release
+    // universel) : on reflète cet état côté Dart.
+    glBackTextureId = null;
+    glFrontTextureId = null;
+    glDualActive = false;
   }
 
   @override

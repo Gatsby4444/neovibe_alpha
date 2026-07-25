@@ -199,7 +199,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   }
 
   bool get _previewReady =>
-      (_camera.dualActive && _camera.previews.containsKey('dualBack')) ||
+      (_camera.glDualActive && _camera.previews.containsKey('glBack')) ||
       (_camera.textureId != null && _camera.previews.containsKey('main'));
 
   /// Passe (ou reste) sur la caméra [back]. La couche native rebinde le
@@ -257,8 +257,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       } else {
         _showOneshotFallbackNotice();
       }
-    } else if (previous == CardType.oneshot && _camera.dualActive) {
-      // Sortie du Oneshot : retour au flux simple, caméra arrière.
+    } else if (previous == CardType.oneshot && _camera.glDualActive) {
+      // Sortie du Oneshot : on ferme d'abord le double flux GPU (sinon glBack/
+      // glFront gardent les caméras et le flux simple ne peut pas s'ouvrir),
+      // puis retour au flux simple caméra arrière.
+      await _camera.closeGlDual();
       await _openWithRetry();
     } else if (type != CardType.mono &&
         (previous == CardType.mono || previous == CardType.oneshot) &&
@@ -277,7 +280,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   bool get _canOfferDual =>
       _type == CardType.oneshot &&
       _step == 0 &&
-      !_camera.dualActive &&
+      !_camera.glDualActive &&
       !_dualOpening &&
       !NativeCameraController.dualFailedThisSession &&
       ref.read(devDualOneshotProvider);
@@ -286,20 +289,23 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// d'échec : retour à la vue simple, message clair, et on ne le repropose
   /// plus de la session.
   Future<void> _tryOpenDual() async {
-    await NativeCameraController.log('Oneshot : double live demandé');
+    await NativeCameraController.log('Oneshot : double live GPU demandé');
     if (mounted) setState(() => _dualOpening = true);
     try {
-      await _camera.openDual();
+      // Moteur GPU (OpenGL) depuis l'étape 5a : double aperçu fluide (2×30 i/s)
+      // + photo double instantanée, là où le moteur logiciel plafonnait à
+      // ~20-27 i/s avec freezes.
+      await _camera.openGlDual();
       _dualError = null;
       _pipSwapped = false;
       await NativeCameraController.log(
-        'Oneshot : double live actif — textures '
-        'back=${_camera.dualBackTextureId} front=${_camera.dualFrontTextureId}',
+        'Oneshot : double live GPU actif — textures '
+        'back=${_camera.glBackTextureId} front=${_camera.glFrontTextureId}',
       );
       if (mounted) setState(() {});
     } catch (e) {
       _dualError = e is DualUnsupportedException ? e.reason : e.toString();
-      await NativeCameraController.log('Oneshot : double live refusé — $e');
+      await NativeCameraController.log('Oneshot : double live GPU refusé — $e');
       await _camera.close();
       await _openWithRetry();
       if (mounted) {
@@ -318,7 +324,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       // on réaligne la caméra sur le type réellement affiché.
       if (_type != CardType.oneshot) {
         _cameraType = _type;
-        if (_camera.dualActive) await _openWithRetry();
+        if (_camera.glDualActive) {
+          await _camera.closeGlDual();
+          await _openWithRetry();
+        }
       }
     }
   }
@@ -342,7 +351,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   Future<void> _toggleLens() async {
     // Pendant l'ouverture du double live, CameraX est libéré : une bascule
     // taperait dans le vide (NullPointerException natif, journal v0.9.1).
-    if (_busy || _switching || _camera.dualActive || _dualOpening) return;
+    if (_busy || _switching || _camera.glDualActive || _dualOpening) return;
     // Pendant une vidéo : bascule autorisée UNIQUEMENT en Mono (consigne).
     if (_recording && _type != CardType.mono) return;
     if (_recording && !_videoStarted) return; // démarrage caméra en cours
@@ -426,13 +435,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   Future<void> _startVideo() async {
     if (!_previewReady || _busy || _switching || _recording) return;
     _lockType(); // le type est figé dès le début de l'enregistrement
+    // Vidéo double dans le vrai Oneshot = étape 5b (à venir). Pour l'instant le
+    // Oneshot capture les deux faces en PHOTO (un simple tap sur le déclencheur).
     final dualVideo = _cardType == CardType.oneshot && _camera.dualActive;
     if (_cardType == CardType.oneshot && !dualVideo) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Oneshot : photo uniquement sur cet appareil (pas de double '
-            'flux vidéo).',
+            'Oneshot : photo pour l\'instant (tape pour capturer les deux '
+            'faces). La vidéo double arrive bientôt.',
           ),
         ),
       );
@@ -625,23 +636,23 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       }
       if (_cardType == CardType.oneshot && _step == 0) {
         var shot = false;
-        if (_camera.dualActive) {
+        if (_camera.glDualActive) {
           try {
-            // Double flux natif : les deux faces d'un coup.
-            final shots = await _camera.takeDualPictures();
+            // Double flux GPU : les deux faces d'un coup (dernière image rendue
+            // de chaque caméra → instantané, vraiment simultané). Arrière =
+            // recto, avant = verso. Recadrage 9:16 / format card comme d'hab.
+            final shots = await _camera.captureGlDual();
             _front = await _cropTo916(shots.back);
             _back = await _cropTo916(shots.front);
             shot = true;
           } catch (e) {
-            // La capture en double flux peut échouer (le matériel refuse de
-            // reconfigurer une caméra pendant que l'autre tourne — crash
-            // v0.8.4). Le moteur natif a tout refermé : on reprend en vue
-            // simple, qui, elle, marche toujours. La card est capturée quand
-            // même : Jay ne perd pas sa prise.
+            // Échec de la capture GPU : on ferme le double flux GPU et on
+            // reprend en vue simple séquentielle, qui marche toujours. La card
+            // est capturée quand même : Jay ne perd pas sa prise.
             await NativeCameraController.log(
-              'Oneshot : capture en double flux échouée ($e) → repli séquentiel',
+              'Oneshot : capture GPU échouée ($e) → repli séquentiel',
             );
-            await _camera.close();
+            await _camera.closeGlDual();
             await _openWithRetry();
           }
         }
@@ -815,7 +826,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// frontale par défaut, tap sur la vignette = échange des vues).
   Widget _previewFrame() {
     if (_dualOpening) return _dualSearchFrame();
-    if (_camera.dualActive && _type == CardType.oneshot) {
+    if (_camera.glDualActive && _type == CardType.oneshot) {
       return _dualPreviewFrame();
     }
 
@@ -893,13 +904,13 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   Widget _dualPreviewFrame() {
     final mainIsBack = !_pipSwapped;
     final mainView = _nativePreview(
-      mainIsBack ? 'dualBack' : 'dualFront',
-      mainIsBack ? _camera.dualBackTextureId : _camera.dualFrontTextureId,
+      mainIsBack ? 'glBack' : 'glFront',
+      mainIsBack ? _camera.glBackTextureId : _camera.glFrontTextureId,
       mirror: !mainIsBack,
     );
     final pipView = _nativePreview(
-      mainIsBack ? 'dualFront' : 'dualBack',
-      mainIsBack ? _camera.dualFrontTextureId : _camera.dualBackTextureId,
+      mainIsBack ? 'glFront' : 'glBack',
+      mainIsBack ? _camera.glFrontTextureId : _camera.glBackTextureId,
       mirror: mainIsBack,
     );
 
@@ -1002,7 +1013,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         _type == CardType.mono ||
         (_type == CardType.oneshot &&
             _step == 0 &&
-            !_camera.dualActive &&
+            !_camera.glDualActive &&
             !_recording);
 
     return Scaffold(
@@ -1433,8 +1444,10 @@ class _CameraHud extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            camera.dualActive
-                ? 'DOUBLE FLUX ACTIF'
+            camera.glDualActive
+                ? 'DOUBLE FLUX GPU ACTIF'
+                : camera.dualActive
+                ? 'DOUBLE FLUX (soft) ACTIF'
                 : 'flux simple · ${camera.lensBack ? "arrière" : "avant"}',
             style: const TextStyle(
               color: Colors.amberAccent,
@@ -1450,7 +1463,7 @@ class _CameraHud extends StatelessWidget {
               style: style,
             ),
           ],
-          for (final key in ['main', 'dualBack', 'dualFront'])
+          for (final key in ['main', 'glBack', 'glFront'])
             Text(line(key), style: style),
           if (dualError != null)
             Text(

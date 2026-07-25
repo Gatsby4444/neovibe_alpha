@@ -433,6 +433,13 @@ class NativeCamera(
                 "close" -> {
                     provider?.unbindAll()
                     releaseSingle()
+                    // Release UNIVERSEL : on ferme aussi le moteur GPU (aperçu +
+                    // double flux). Sans ça, quitter l'écran Oneshot avec le double
+                    // flux GPU actif laissait glBack/glFront tenir les caméras →
+                    // la prochaine ouverture échouait (étape 5a).
+                    camera2Gl.close()
+                    glFront.close()
+                    glBack.close()
                     // La réponse n'arrive qu'une fois le matériel RENDU : le Dart
                     // peut alors rouvrir sans risque.
                     camera2Dual.close { result.success(null) }

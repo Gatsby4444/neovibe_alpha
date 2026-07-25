@@ -129,9 +129,23 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   `stopGlDualVideo` arrête l'audio EN PREMIER (flush) avant la vidéo. Repli vidéo
   muette si l'audio échoue. **Journal : « capture partagée démarrée », deux .mp4
   cohérents (9061/8995 Ko), 30 i/s tenus.** → **ÉTAPE 4 COMPLÈTE.**
-- [ ] **Étape 5 — Repli & universalité.** Séquentiel propre + instantané
-  (« dernière image ») sur appareils incapables. + brancher le moteur GPU dans
-  le VRAI Oneshot (remplacer `Camera2Dual` logiciel) + supprimer le code mort.
+- [x] **Étape 5a — Moteur GPU dans le VRAI Oneshot. CODÉE (v0.9.15), EN ATTENTE
+  DE TEST.** `card_capture_screen.dart` passe de `dualActive`/`openDual`/
+  `takeDualPictures` (moteur logiciel) à `glDualActive`/`openGlDual`/
+  `captureGlDual` (moteur GPU) ; clés d'aperçu `glBack`/`glFront`. **Release
+  universel** dans `NativeCamera.close` (ferme aussi `camera2Gl`/`glBack`/
+  `glFront`) — sans ça, quitter l'écran laissait les caméras tenues. Échec de
+  `openGlDual` traité comme `openDual` (`DualUnsupportedException` +
+  `dualFailedThisSession`, pas de re-sondage). Comportement identique à avant :
+  photo double instantanée ; l'appui long en Oneshot dit « photo pour l'instant ».
+  *À VÉRIFIER par Jay : voir la liste du rapport 2026-07-25_12-23.*
+- [ ] **Étape 5b — Vidéo double dans le vrai Oneshot.** Chantier DÉDIÉ, décidé
+  par Jay comme séparé de 5a : implique 2 vidéos par card (stockage, upload sous
+  la limite Supabase 50 Mo/fichier — RAPPELS #7) et un lecteur double dans le
+  viewer.
+- [ ] **Étape 5c — Repli & universalité.** Séquentiel propre + instantané
+  (« dernière image ») sur appareils incapables + suppression du code mort
+  (`Camera2Dual` logiciel, sonde) une fois le GPU validé partout.
 
 ## État courant
 
@@ -218,7 +232,12 @@ fois, plein écran, bascule Arrière/Avant. **Validé par Jay : étape 4 vidéo 
 piste audio identique muxée dans les deux .mp4. En attente du test de Jay (son
 présent dans les deux vidéos ? synchro ? pas de régression vidéo ?).
 
-Dernière release : **v0.9.14** (versionCode 104) — audio partagé (vidéo double).
+**v0.9.15 → Étape 5a** : le moteur GPU remplace le moteur logiciel dans le VRAI
+Oneshot (aperçu double + photo double). En attente du test de Jay. Le moteur
+logiciel `Camera2Dual` reste en place comme filet (non utilisé par le Oneshot),
+il ne sera supprimé qu'en 5c.
+
+Dernière release : **v0.9.15** (versionCode 105) — moteur GPU dans le Oneshot.
 
 ## Rappel build + release (toolchain hors PATH)
 
