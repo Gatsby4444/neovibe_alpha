@@ -916,7 +916,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // Miroir de la frontale : réglage utilisateur, ON par défaut (v0.9.17).
     // L'arrière n'est JAMAIS mirrorée. Le réglage ne touche que l'aperçu — la
     // photo capturée n'est pas mirrorée (voir _selfieMirror).
-    final mirrorFront = _selfieMirror;
+    //
+    // INVERSION VOULUE sur le moteur GPU (constatée au test, v0.9.18) : le flux
+    // GL de la frontale arrive DÉJÀ mirroré (la matrice de la SurfaceTexture
+    // contient le retournement), là où le flux CameraX du mode simple arrive
+    // brut. Un retournement Dart y produit donc l'effet CONTRAIRE : pour un
+    // miroir ON à l'écran, il ne faut PAS retourner. D'où le `!`.
+    // Ce sens dépend du matériel — à revérifier sur d'autres appareils
+    // (RAPPELS « fiabilité dual-cam : test multi-appareils »).
+    final mirrorFront = !_selfieMirror;
     final mainView = _nativePreview(
       mainIsBack ? 'glBack' : 'glFront',
       mainIsBack ? _camera.glBackTextureId : _camera.glFrontTextureId,
