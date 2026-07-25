@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
+import '../../core/widgets/gradient.dart';
 import '../cards/cards_repository.dart';
 
 /// En-tête de profil (consigne Jay 2026-07-13) : PP à gauche avec les stats
@@ -27,17 +28,21 @@ class ProfileHeader extends ConsumerWidget {
         children: [
           Row(
             children: [
-              CircleAvatar(
-                radius: 44,
-                backgroundImage: profile.avatarUrl == null
-                    ? null
-                    : NetworkImage(profile.avatarUrl!),
-                child: profile.avatarUrl == null
-                    ? Text(
-                        profile.displayName.characters.first.toUpperCase(),
-                        style: const TextStyle(fontSize: 30),
-                      )
-                    : null,
+              // Anneau en dégradé de marque autour de la photo de profil
+              GradientRing(
+                size: 100,
+                child: CircleAvatar(
+                  radius: 44,
+                  backgroundImage: profile.avatarUrl == null
+                      ? null
+                      : NetworkImage(profile.avatarUrl!),
+                  child: profile.avatarUrl == null
+                      ? Text(
+                          profile.displayName.characters.first.toUpperCase(),
+                          style: const TextStyle(fontSize: 30),
+                        )
+                      : null,
+                ),
               ),
               if (stats != null)
                 Expanded(

@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/supabase_providers.dart';
+import '../../core/theme.dart';
+import '../../core/widgets/gradient.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -70,9 +72,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
+                // Nom de l'app en dégradé de marque
+                GradientText(
                   'NeoVibe',
                   textAlign: TextAlign.center,
+                  gradient: NeoGradients.brand,
                   style: Theme.of(context).textTheme.displaySmall?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),

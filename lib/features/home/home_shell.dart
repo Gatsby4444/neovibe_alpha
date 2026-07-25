@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/widgets/gradient.dart';
 import '../cards/card_capture_screen.dart';
 import '../circle/circle_screen.dart';
 import '../connections/request_popup.dart';
@@ -47,13 +48,23 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.workspaces_outline),
-            selectedIcon: Icon(Icons.workspaces),
+            // Onglet actif : icône en dégradé de marque (l'indicateur de
+            // Material ne sait pas porter un dégradé).
+            selectedIcon: GradientIcon(Icons.workspaces),
             label: 'Cercle',
           ),
-          NavigationDestination(icon: Icon(Icons.photo_camera), label: 'Card'),
+          // Geste signature : le bouton de capture est une pastille pleine en
+          // dégradé, visible en permanence quel que soit l'onglet actif.
+          NavigationDestination(
+            icon: GradientDot(
+              size: 38,
+              child: Icon(Icons.photo_camera, color: Colors.white, size: 20),
+            ),
+            label: 'Card',
+          ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
+            selectedIcon: GradientIcon(Icons.person),
             label: 'Profil',
           ),
         ],

@@ -6,6 +6,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/widgets/gradient.dart';
 import '../cards/card_viewer_screen.dart';
 import '../cards/face_thumb.dart';
 import '../connections/friends_list_screen.dart';
@@ -63,8 +64,9 @@ class ProfileScreen extends ConsumerWidget {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: GradientFab(
         tooltip: 'Ajouter à ma bibliothèque',
+        icon: Icons.add_photo_alternate,
         onPressed: () async {
           final picked = await ImagePicker().pickImage(
             source: ImageSource.gallery,
@@ -95,7 +97,6 @@ class ProfileScreen extends ConsumerWidget {
               .addMedia(File(picked.path), 'photo', isPublic: isPublic);
           ref.invalidate(libraryItemsProvider(me));
         },
-        child: const Icon(Icons.add_photo_alternate),
       ),
       body: RefreshIndicator(
         onRefresh: () async {

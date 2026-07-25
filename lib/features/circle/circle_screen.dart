@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/message.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/formats.dart';
+import '../../core/widgets/gradient.dart';
 import '../cards/cards_repository.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
@@ -57,9 +58,9 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
       ),
       // Le geste signature du module de proximité : bouton ping en bas à
       // droite (consigne Jay), ouverture plein écran.
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: GradientFab(
         tooltip: 'Ping — autour de toi',
-        child: const Icon(Icons.radar),
+        icon: Icons.radar,
         onPressed: () => Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const PingScreen())),
