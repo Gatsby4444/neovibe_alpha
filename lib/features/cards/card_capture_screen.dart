@@ -211,7 +211,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// Passe (ou reste) sur la caméra [back]. La couche native rebinde le
   /// même flux : pas de destruction/re-création de contrôleur.
   Future<void> _ensureLens({required bool back}) async {
-    if (_camera.dualActive || _camera.lensBack == back) return;
+    // En double flux (logiciel OU GPU), CameraX n'est pas bindé : une bascule
+    // taperait dans le vide.
+    if (_camera.dualActive || _camera.glDualActive) return;
+    if (_camera.lensBack == back) return;
     setState(() => _switching = true);
     try {
       await _camera.switchLens();
@@ -598,12 +601,23 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// Oneshot en vue simple : les deux faces l'une après l'autre (arrière puis
   /// avant). C'est le mode fiable, et celui de BeReal.
   Future<void> _captureBothSequentially() async {
+    // Repli du Oneshot sur un appareil incapable du double flux : les deux
+    // faces l'une après l'autre. L'écart entre les deux clichés est LE défaut
+    // de ce mode (c'est la fenêtre où l'on peut changer de tête), donc plus
+    // aucun délai en dur ici : `switchLens` ne répond que lorsque la caméra
+    // est réellement ouverte (`CameraState`), et `takePicture` fait sa propre
+    // convergence d'exposition. On mesure l'écart pour pouvoir en juger.
+    final started = DateTime.now();
     await _ensureLens(back: true);
-    await Future<void>.delayed(const Duration(milliseconds: 250));
     final backShot = await _camera.takePicture();
+    final betweenStart = DateTime.now();
     await _ensureLens(back: false);
-    await Future<void>.delayed(const Duration(milliseconds: 250));
     final frontShot = await _camera.takePicture();
+    final gap = DateTime.now().difference(betweenStart).inMilliseconds;
+    await NativeCameraController.log(
+      'Oneshot séquentiel : écart entre les deux faces $gap ms '
+      '(total ${DateTime.now().difference(started).inMilliseconds} ms)',
+    );
     _front = await _cropTo916(backShot);
     _back = await _cropTo916(frontShot);
   }

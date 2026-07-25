@@ -8,9 +8,13 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
 import android.view.Surface
 import android.view.WindowManager
+import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.CameraState
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
@@ -86,6 +90,12 @@ class NativeCamera(
     private var stopResult: MethodChannel.Result? = null
     private var videoPath: String? = null
     private var lensBack = true
+
+    /** Caméra renvoyée par le dernier `bindToLifecycle` : donne accès à
+     * `CameraState`, seul signal fiable de « le matériel est ouvert ». */
+    private var boundCamera: Camera? = null
+
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     // --- Mode double (Oneshot) -------------------------------------------
     // Piloté en Camera2 BRUT (pas CameraX) : le matériel accepte deux flux
@@ -221,9 +231,20 @@ class NativeCamera(
                         result.error("NOT_OPEN", "Caméra non ouverte", null)
                     } else {
                         lensBack = !lensBack
+                        val started = System.currentTimeMillis()
                         CamLog.i("simple", "bascule caméra → arrière=$lensBack")
                         rebindSingle(p)
-                        result.success(mapOf("back" to lensBack))
+                        // La réponse n'arrive qu'une fois la caméra RÉELLEMENT
+                        // ouverte : le Dart enchaîne alors sans délai en dur
+                        // (repli séquentiel du Oneshot, étape 5c).
+                        awaitCameraOpen {
+                            CamLog.i(
+                                "simple",
+                                "caméra ouverte après bascule en " +
+                                    "${System.currentTimeMillis() - started} ms",
+                            )
+                            result.success(mapOf("back" to lensBack))
+                        }
                     }
                 }
                 "takePicture" -> takePicture(result)
@@ -554,13 +575,50 @@ class NativeCamera(
 
     private fun bindSingle(p: ProcessCameraProvider) {
         p.unbindAll()
-        p.bindToLifecycle(
+        boundCamera = p.bindToLifecycle(
             activity as LifecycleOwner,
             selector(lensBack),
             preview!!,
             imageCapture!!,
             videoCapture!!,
         )
+    }
+
+    /**
+     * Attend que la caméra soit RÉELLEMENT ouverte après un bind, puis appelle
+     * [onOpen] (thread principal).
+     *
+     * Règle du chantier caméra : attendre le FAIT, jamais un délai en dur. Le
+     * retour de `bindToLifecycle` ne prouve rien — il dit que la configuration
+     * est demandée, pas que le matériel a suivi. `CameraState` le dit. Un
+     * garde-fou de [timeoutMs] évite de rester bloqué si l'état n'arrive
+     * jamais : on continue quand même, `takePicture` fera sa propre convergence.
+     */
+    private fun awaitCameraOpen(timeoutMs: Long = 1200, onOpen: () -> Unit) {
+        val info = boundCamera?.cameraInfo ?: return onOpen()
+        val state = info.cameraState
+        var done = false
+        val fire = {
+            if (!done) {
+                done = true
+                onOpen()
+            }
+        }
+        lateinit var observer: androidx.lifecycle.Observer<CameraState>
+        observer = androidx.lifecycle.Observer { s ->
+            if (s.type == CameraState.Type.OPEN) {
+                state.removeObserver(observer)
+                fire()
+            }
+        }
+        state.observe(activity as LifecycleOwner, observer)
+        mainHandler.postDelayed({
+            if (!done) {
+                CamLog.i("simple", "caméra pas encore OUVERTE après $timeoutMs ms — on continue")
+                state.removeObserver(observer)
+                fire()
+            }
+        }, timeoutMs)
     }
 
     /**

@@ -165,9 +165,20 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
      retire que leur surface EGL, les caméras continuent de rendre l'aperçu
      (le moteur logiciel, lui, débranchait les `ImageCapture`).
   *À VÉRIFIER par Jay : voir la liste du rapport 2026-07-25_12-23.*
-- [ ] **Étape 5c — Repli & universalité.** Séquentiel propre + instantané
-  (« dernière image ») sur appareils incapables + suppression du code mort
-  (`Camera2Dual` logiciel, sonde) une fois le GPU validé partout.
+- [x] **Étape 5c — Repli séquentiel. CODÉE (v0.9.22), EN ATTENTE DE TEST.**
+  Le repli existait déjà ; ce qui manquait, c'était sa qualité. Les deux délais
+  en dur de 250 ms sont remplacés par l'attente du FAIT : `switchLens` ne répond
+  que lorsque `CameraState` dit la caméra OUVERTE (`awaitCameraOpen`, garde-fou
+  1200 ms). L'écart réel entre les deux faces est mesuré et journalisé.
+  La « technique de la dernière image » était déjà en place (texture conservée
+  à travers la bascule + voile flouté, pas de trou noir).
+  **Testable sur le Redmi** via Réglages → Développeur → « Forcer la vue simple
+  Oneshot » (c'est cet interrupteur, activé chez Jay, qui donnait l'illusion
+  d'un repli matériel).
+- [ ] **Étape 5d — Nettoyage du code mort.** Supprimer `Camera2Dual` (moteur
+  logiciel, plus appelé depuis 5a) et `DualCameraProbe`. **À FAIRE APRÈS le test
+  multi-appareils** (RAPPELS #8) : tant que le GPU n'a tourné que sur le Redmi,
+  le moteur logiciel reste un filet.
 
 ## État courant
 
