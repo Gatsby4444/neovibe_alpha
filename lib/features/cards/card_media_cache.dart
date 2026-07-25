@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/models/card.dart';
+import 'native_media.dart';
 
 /// Politique de rétention d'une face mise en cache (contenu des AUTRES).
 enum CardCachePolicy {
@@ -198,6 +199,41 @@ class CardMediaCache {
         total -= size;
       } catch (_) {}
     }
+  }
+
+  // ---------------------------------------------------------------------
+  // Vignettes des faces vidéo
+  // ---------------------------------------------------------------------
+
+  /// Extractions en cours, par fichier vidéo : une grille peut demander la même
+  /// vignette plusieurs fois (reconstruction, deck + grille) — on décode une
+  /// seule fois et tout le monde attend le même résultat.
+  final _thumbJobs = <String, Future<File?>>{};
+
+  /// Image de couverture d'une vidéo LOCALE, extraite au premier affichage puis
+  /// gardée à côté du fichier (`<vidéo>.thumb.jpg`).
+  ///
+  /// À la demande, et non à la capture : ça couvre aussi les vidéos **déjà**
+  /// en bibliothèque, et ça n'ajoute rien au chemin critique de la prise.
+  Future<File?> videoThumb(File video) {
+    return _thumbJobs.putIfAbsent(video.path, () async {
+      try {
+        final thumb = File('${video.path}.thumb.jpg');
+        if (await thumb.exists()) return thumb;
+        if (!await video.exists()) return null;
+        final ok = await NativeMedia.videoThumbnail(
+          source: video.path,
+          dest: thumb.path,
+        );
+        return ok && await thumb.exists() ? thumb : null;
+      } catch (_) {
+        return null; // confort : jamais bloquant
+      } finally {
+        // Libéré dans tous les cas : un échec ponctuel (fichier en cours
+        // d'écriture) doit pouvoir être retenté au prochain affichage.
+        _thumbJobs.remove(video.path);
+      }
+    });
   }
 
   // ---------------------------------------------------------------------

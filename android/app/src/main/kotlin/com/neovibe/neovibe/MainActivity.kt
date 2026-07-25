@@ -8,6 +8,7 @@ import io.flutter.embedding.engine.FlutterEngine
 class MainActivity : FlutterFragmentActivity() {
     private var nativeCamera: NativeCamera? = null
     private var nativeBle: NativeBle? = null
+    private var nativeMedia: NativeMedia? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -20,5 +21,6 @@ class MainActivity : FlutterFragmentActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
         )
         nativeBle = NativeBle(this, flutterEngine.dartExecutor.binaryMessenger)
+        nativeMedia = NativeMedia(flutterEngine.dartExecutor.binaryMessenger)
     }
 }

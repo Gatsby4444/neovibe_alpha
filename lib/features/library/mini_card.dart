@@ -43,8 +43,8 @@ final thumbSourceProvider = FutureProvider.family<ThumbSource, ThumbSpec>((
   ref,
   spec,
 ) async {
+  final cache = ref.read(cardMediaCacheProvider);
   if (spec.mine) {
-    final cache = ref.read(cardMediaCacheProvider);
     final local = spec.cardId != null
         ? await cache.tryOwnFace(
             spec.cardId!,
@@ -52,8 +52,17 @@ final thumbSourceProvider = FutureProvider.family<ThumbSource, ThumbSpec>((
             isVideo: spec.isVideo,
           )
         : await cache.tryOwnMedia(spec.path);
-    if (local != null) return (file: local, url: null);
+    if (local != null) {
+      // Une vidéo ne se décode pas comme une image : on affiche son image de
+      // couverture, extraite en natif au premier affichage puis gardée.
+      final shown = spec.isVideo ? await cache.videoThumb(local) : local;
+      if (shown != null) return (file: shown, url: null);
+    }
   }
+  // Vidéo distante : pas de vignette (il faudrait télécharger la vidéo entière
+  // pour en extraire une image — hors de question depuis une grille).
+  if (spec.isVideo) return (file: null, url: null);
+
   final url = await ref
       .read(supabaseProvider)
       .storage
@@ -75,33 +84,62 @@ class Thumb extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Une face vidéo ne se décode pas comme une image (« Invalid image data »,
-    // journal du 2026-07-14) : pas de vignette tant qu'on ne produit pas une
-    // image de couverture à la capture.
-    if (spec.isVideo) return const _ThumbPlaceholder(icon: Icons.videocam);
-
     final source = ref.watch(thumbSourceProvider(spec));
     return source.when(
       loading: () => const ColoredBox(color: NeoTheme.surface2),
       error: (_, _) => const _ThumbPlaceholder(icon: Icons.broken_image),
       data: (s) {
-        if (s.file != null) {
-          return Image.file(
-            s.file!,
-            fit: BoxFit.cover,
-            cacheWidth: decodeWidth,
-            errorBuilder: (_, _, _) =>
-                const _ThumbPlaceholder(icon: Icons.broken_image),
-          );
+        // Vidéo sans image de couverture disponible (fichier distant, ou
+        // extraction impossible) : on garde le repli d'avant.
+        if (s.file == null && s.url == null) {
+          return const _ThumbPlaceholder(icon: Icons.videocam);
         }
-        return Image.network(
-          s.url!,
-          fit: BoxFit.cover,
-          cacheWidth: decodeWidth,
-          errorBuilder: (_, _, _) =>
-              const _ThumbPlaceholder(icon: Icons.broken_image),
+        final image = s.file != null
+            ? Image.file(
+                s.file!,
+                fit: BoxFit.cover,
+                cacheWidth: decodeWidth,
+                errorBuilder: (_, _, _) =>
+                    const _ThumbPlaceholder(icon: Icons.broken_image),
+              )
+            : Image.network(
+                s.url!,
+                fit: BoxFit.cover,
+                cacheWidth: decodeWidth,
+                errorBuilder: (_, _, _) =>
+                    const _ThumbPlaceholder(icon: Icons.broken_image),
+              );
+        if (!spec.isVideo) return image;
+        // Une image de couverture ressemble à une photo : le pictogramme dit
+        // que la face est filmée.
+        return Stack(
+          fit: StackFit.expand,
+          children: [image, const _PlayBadge()],
         );
       },
+    );
+  }
+}
+
+/// Pastille « c'est une vidéo », posée sur l'image de couverture.
+class _PlayBadge extends StatelessWidget {
+  const _PlayBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.black.withValues(alpha: .45),
+        ),
+        child: const Icon(
+          Icons.play_arrow_rounded,
+          color: Colors.white,
+          size: 22,
+        ),
+      ),
     );
   }
 }

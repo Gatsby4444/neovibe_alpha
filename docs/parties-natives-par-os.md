@@ -29,6 +29,7 @@
 |---|---|---|---|
 | Caméra | `neovibe/camera` | CameraX + Camera2 + OpenGL ES | AVFoundation + Metal/CoreImage + AVAssetWriter |
 | Anti-capture | (dans `neovibe/camera` : `setSecure`) | `WindowManager.FLAG_SECURE` | Pas d'équivalent strict → détection + occultation |
+| Média (hors caméra) | `neovibe/media` | `MediaMetadataRetriever` (image de couverture d'une vidéo) | `AVAssetImageGenerator` |
 | Proximité BLE | `neovibe/ble` | BLE natif (advertise/scan + GATT) | CoreBluetooth |
 | Transfert média proximité | *(à venir)* | Wi-Fi Direct (Wi-Fi P2P) | MultipeerConnectivity |
 | Hôte / cycle de vie | — | `MainActivity : FlutterFragmentActivity` | `AppDelegate` / `FlutterViewController` |
@@ -163,11 +164,45 @@ combiner Wi-Fi + Bluetooth automatiquement). Interface de pont à concevoir
 
 ---
 
+## 4 bis. Média hors caméra — image de couverture d'une vidéo
+
+**Rôle** : produire une **image de couverture** (JPEG) à partir d'un fichier
+vidéo **local**, pour les vignettes des grilles. Une vidéo ne se décode pas
+comme une image côté Dart (« Invalid image data ») : seul le natif sait lire une
+frame. Ajouté le 2026-07-25 (consigne Jay : plus d'icône grise à la place des
+faces filmées).
+
+**Canal** : `neovibe/media`. Méthode unique :
+`videoThumbnail(source, dest, width) -> String (chemin écrit)`.
+Erreurs : `BAD_ARGS`, `THUMB_FAILED` (l'appelant retombe sur le repli visuel,
+jamais bloquant).
+
+**Android (fait)** : `NativeMedia.kt` — `MediaMetadataRetriever.getFrameAtTime(
+0, OPTION_CLOSEST_SYNC)` sur un exécuteur dédié (jamais le thread principal),
+mise à l'échelle, JPEG qualité 85, écriture `.part` puis renommage.
+
+**iOS (à faire)** : `AVAssetImageGenerator` sur un `AVURLAsset`
+(`appliesPreferredTrackTransform = true` pour respecter la rotation, comme le
+fait `MediaMetadataRetriever` sur Android), `copyCGImage(at: .zero)`, puis
+`UIImage.jpegData(compressionQuality: 0.85)`. Même contrat de canal.
+
+> **Point à vérifier au portage** : Android renvoie la frame **déjà orientée**
+> selon la rotation déclarée dans le fichier. Sur iOS ce n'est vrai que si
+> `appliesPreferredTrackTransform` est activé — sinon les vignettes des vidéos
+> portrait sortiront couchées.
+
+**Appel Dart** : `lib/features/cards/native_media.dart` ; le cache et la
+politique (« extraire au premier affichage, garder à côté du fichier ») vivent
+dans `CardMediaCache.videoThumb`.
+
+---
+
 ## 5. Hôte / cycle de vie
 
 **Android (fait)** : `MainActivity.kt` = **`FlutterFragmentActivity`** (et NON
 `FlutterActivity`) — CameraX exige un `LifecycleOwner`, que seule la variante
-Fragment fournit. Enregistre les canaux caméra + BLE, initialise `CamLog`.
+Fragment fournit. Enregistre les canaux caméra + BLE + média, initialise
+`CamLog`.
 
 **iOS (à faire)** : `AppDelegate` + `FlutterViewController` ; enregistrement des
 `FlutterMethodChannel` côté Swift ; gestion du cycle de vie (permissions caméra/
