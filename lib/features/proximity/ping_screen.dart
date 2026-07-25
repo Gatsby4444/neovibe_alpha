@@ -44,9 +44,14 @@ class _PingScreenState extends ConsumerState<PingScreen> {
   }
 
   Future<void> _reload() async {
-    final store = ref.read(pingStoreProvider);
-    final convs = await store.conversations();
-    final encounters = await store.encounters();
+    // `_store` capturé, JAMAIS `ref.read` ici : `_reload` est appelé par un
+    // écouteur du store (mise à jour BLE), qui peut tomber pendant que l'écran
+    // est en train d'être démonté → Riverpod lève « Using "ref" when a widget
+    // is about to or has been unmounted » (4 occurrences dans le journal de Jay
+    // du 2026-07-25). Le champ `_store` avait été introduit pour ça, mais cette
+    // ligne était restée en arrière.
+    final convs = await _store.conversations();
+    final encounters = await _store.encounters();
     if (!mounted) return;
     setState(() {
       _conversations = convs;
