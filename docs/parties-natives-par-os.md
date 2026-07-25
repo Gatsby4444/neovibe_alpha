@@ -70,6 +70,18 @@ caméras en même temps).
 (`AudioRecord` + AAC) et muxe la même piste dans les deux `.mp4`. iOS : un seul
 `AVCaptureAudioDataOutput` / entrée micro, écrit dans les deux `AVAssetWriter`.
 
+> **Synchronisation A/V — piège à ne pas refaire sur iOS.** La capture audio
+> démarre ~450 ms APRÈS les encodeurs vidéo. Normaliser chaque piste à zéro de
+> son côté supprime ce décalage réel et met le son en AVANCE (bug v0.9.20,
+> entendu par Jay). Les deux pistes doivent partager UNE origine : `Camera2Gl`
+> note l'instant de sa 1re image encodée sur `System.nanoTime`
+> (`videoFirstWallNs`) — la même horloge que l'audio — et `AudioSink
+> .onAudioSample(buffer, info, sampleWallNs)` reçoit l'instant réel de chaque
+> échantillon pour recaler son PTS. Ne PAS tenter de corréler l'horloge du
+> capteur (elle est MONOTONIC ou BOOTTIME selon l'appareil). Sur iOS, même
+> principe : `CMSampleBuffer` porte déjà un `presentationTimeStamp` sur une
+> horloge commune — le conserver tel quel plutôt que de le remettre à zéro.
+
 **iOS (à faire)** :
 - **AVFoundation** : `AVCaptureSession` (une caméra) ; **`AVCaptureMultiCamSession`**
   pour le double flux (dispo iPhone XS+ ; `isMultiCamSupported` déclare la

@@ -139,8 +139,15 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   `dualFailedThisSession`, pas de re-sondage). Comportement identique à avant :
   photo double instantanée ; l'appui long en Oneshot dit « photo pour l'instant ».
   *À VÉRIFIER par Jay : voir la liste du rapport 2026-07-25_12-23.*
-- [x] **Étape 5b — Vidéo double dans le vrai Oneshot. CODÉE (v0.9.20), EN
-  ATTENTE DE TEST.** L'appui long en Oneshot filme les DEUX caméras (moteur GPU,
+- [x] **Étape 5b — Vidéo double dans le vrai Oneshot. VALIDÉE (v0.9.21).**
+  Jay : « c'est beaucoup mieux, c'est correct ». Journal propre : deux fichiers
+  de 8070 Ko, 30 i/s tenus par les deux encodeurs, plus aucune erreur Riverpod.
+  Deux correctifs après le 1er test (v0.9.21) : **synchro audio** (les deux
+  pistes partagent désormais une origine commune — l'audio démarre ~450 ms après
+  la vidéo, le remettre à zéro le mettait en avance) et **lecture continue au
+  retournement** (les deux lecteurs tournent en parallèle, seul celui de la face
+  regardée a le son : les deux faces sont le même instant vu de deux côtés).
+- [x] **Étape 5b (détail) — CODÉE (v0.9.20).** L'appui long en Oneshot filme les DEUX caméras (moteur GPU,
   audio partagé) → recto = arrière, verso = avant, deux `.mp4` dans une seule
   card. **Bonne surprise** : le modèle de card gérait déjà une vidéo PAR FACE
   (`front_is_video`/`back_is_video`), et l'upload comme le cache local sont
@@ -252,7 +259,18 @@ Oneshot (aperçu double + photo double). En attente du test de Jay. Le moteur
 logiciel `Camera2Dual` reste en place comme filet (non utilisé par le Oneshot),
 il ne sera supprimé qu'en 5c.
 
-Dernière release : **v0.9.15** (versionCode 105) — moteur GPU dans le Oneshot.
+**v0.9.16 → v0.9.19** : miroir de la frontale (réglage utilisateur ON par défaut,
+Réglages → Caméra ; le flux GL frontal arrive DÉJÀ mirroré, d'où une inversion
+explicite sur ce chemin — RAPPELS #9), et correctifs `ref` Riverpod.
+
+**v0.9.20 → v0.9.21 : ÉTAPE 5b VALIDÉE.** Le Oneshot filme les deux caméras
+(deux `.mp4` dans une card), audio synchronisé, lecture continue au retournement.
+
+**Prochain pas : Étape 5c** — repli séquentiel universel (appareils incapables du
+double flux) + suppression du code mort (`Camera2Dual` logiciel, `DualCameraProbe`)
+une fois le GPU validé sur plusieurs appareils (RAPPELS #8).
+
+Dernière release : **v0.9.21** (versionCode 111) — Oneshot filmé complet.
 
 ## Rappel build + release (toolchain hors PATH)
 
