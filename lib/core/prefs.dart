@@ -29,6 +29,36 @@ class FlipDirectionInverted extends Notifier<bool> {
 final flipDirectionInvertedProvider =
     NotifierProvider<FlipDirectionInverted, bool>(FlipDirectionInverted.new);
 
+/// Miroir de la caméra frontale dans l'APERÇU (consigne Jay 2026-07-25).
+/// `true` = on se voit comme dans un miroir, comme la plupart des apps —
+/// c'est le défaut. `false` = on se voit comme les autres nous voient
+/// (lettres lisibles). Ne concerne QUE l'aperçu : la photo enregistrée n'est
+/// jamais mirrorée, quel que soit ce réglage.
+class SelfieMirror extends Notifier<bool> {
+  static const _key = 'selfie_mirror';
+
+  @override
+  bool build() {
+    _load();
+    return true;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_key) ?? true;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_key, value);
+  }
+}
+
+final selfieMirrorProvider = NotifierProvider<SelfieMirror, bool>(
+  SelfieMirror.new,
+);
+
 /// Nombre de vues appliqué par défaut aux nouvelles Cards (1-5, consigne : 2).
 class DefaultMaxViews extends Notifier<int> {
   static const _key = 'default_max_views';

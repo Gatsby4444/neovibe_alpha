@@ -198,6 +198,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
   }
 
+  /// Miroir de la caméra frontale dans l'aperçu — réglage utilisateur, ON par
+  /// défaut (Réglages → Caméra). Ne concerne QUE l'aperçu : la photo
+  /// enregistrée n'est jamais mirrorée, comme sur la plupart des appareils
+  /// photo — sinon un texte capturé sortirait illisible sur la card.
+  bool get _selfieMirror => ref.watch(selfieMirrorProvider);
+
   bool get _previewReady =>
       (_camera.glDualActive && _camera.previews.containsKey('glBack')) ||
       (_camera.textureId != null && _camera.previews.containsKey('main'));
@@ -837,12 +843,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     Widget main = Stack(
       fit: StackFit.expand,
       children: [
-        // Pas de miroir non plus sur le flux simple (consigne Jay, v0.9.16 :
-        // « on fait l'inverse de Snapchat »). Ça corrige au passage une
-        // incohérence ancienne des autres modes : l'aperçu frontal était
-        // mirroré alors que la photo enregistrée, elle, ne l'était pas —
-        // on ne voyait donc pas la face qu'on allait obtenir.
-        _nativePreview('main', _camera.textureId, mirror: false),
+        _nativePreview(
+          'main',
+          _camera.textureId,
+          mirror: !_camera.lensBack && _selfieMirror,
+        ),
         AnimatedOpacity(
           opacity: _switching ? 1 : 0,
           duration: const Duration(milliseconds: 140),
@@ -908,21 +913,19 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// quel que soit l'agencement.
   Widget _dualPreviewFrame() {
     final mainIsBack = !_pipSwapped;
-    // AUCUN miroir côté Dart sur le moteur GPU (v0.9.16) : la matrice de la
-    // SurfaceTexture donne déjà le bon sens pour les deux caméras — c'est la
-    // combinaison validée au test « Aperçu GPU » (rotation 0, miroir off). Le
-    // `mirror: !back` hérité du moteur logiciel retournait la frontale une fois
-    // de trop, et l'aperçu ne correspondait alors plus à la photo capturée
-    // (`capturePhoto` passe par le même shader, sans miroir).
+    // Miroir de la frontale : réglage utilisateur, ON par défaut (v0.9.17).
+    // L'arrière n'est JAMAIS mirrorée. Le réglage ne touche que l'aperçu — la
+    // photo capturée n'est pas mirrorée (voir _selfieMirror).
+    final mirrorFront = _selfieMirror;
     final mainView = _nativePreview(
       mainIsBack ? 'glBack' : 'glFront',
       mainIsBack ? _camera.glBackTextureId : _camera.glFrontTextureId,
-      mirror: false,
+      mirror: !mainIsBack && mirrorFront,
     );
     final pipView = _nativePreview(
       mainIsBack ? 'glFront' : 'glBack',
       mainIsBack ? _camera.glFrontTextureId : _camera.glBackTextureId,
-      mirror: false,
+      mirror: mainIsBack && mirrorFront,
     );
 
     return Center(

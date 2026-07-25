@@ -50,6 +50,18 @@ class SettingsScreen extends ConsumerWidget {
             ),
           ),
           const Divider(),
+          const _Header('Caméra'),
+          SwitchListTile(
+            title: const Text('Miroir de la caméra frontale'),
+            subtitle: const Text(
+              'Activé : tu te vois comme dans un miroir. Désactivé : comme les '
+              'autres te voient (les lettres sont lisibles). Ne change que '
+              'l\'aperçu, jamais la photo enregistrée.',
+            ),
+            value: ref.watch(selfieMirrorProvider),
+            onChanged: (v) => ref.read(selfieMirrorProvider.notifier).set(v),
+          ),
+          const Divider(),
           const _Header('Cards'),
           SwitchListTile(
             title: const Text('Inverser le sens de retournement'),
