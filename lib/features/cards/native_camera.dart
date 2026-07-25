@@ -341,9 +341,18 @@ class NativeCameraController extends ChangeNotifier {
   /// audio identique). Lève une [PlatformException] `GL_VIDEO_FAILED` si le
   /// matériel refuse deux encodeurs.
   Future<void> startGlDualVideo({required bool audio}) async {
-    await _channel
-        .invokeMethod('startGlDualVideo', {'audio': audio})
-        .timeout(const Duration(seconds: 6));
+    try {
+      await _channel
+          .invokeMethod('startGlDualVideo', {'audio': audio})
+          .timeout(const Duration(seconds: 6));
+    } on PlatformException catch (e) {
+      // Matériel incapable de faire tourner DEUX encodeurs : l'appelant
+      // retombe en photo double (l'aperçu GPU, lui, reste vivant).
+      if (e.code == 'GL_VIDEO_FAILED') {
+        throw DualUnsupportedException(e.message);
+      }
+      rethrow;
+    }
   }
 
   Future<({File back, File front})> stopGlDualVideo() async {

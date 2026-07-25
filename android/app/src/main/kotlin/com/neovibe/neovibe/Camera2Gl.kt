@@ -913,7 +913,14 @@ class Camera2Gl(
          * Oneshot (étape 5), réconcilier avec le plafond Supabase (RAPPELS #7 :
          * 3,5 Mb/s pour tenir 61 s sous 50 Mo) — ici pas d'upload, fichier local.
          */
-        private const val VIDEO_BITRATE = 6_000_000
+        /**
+         * 3,5 Mb/s — MÊME plafond que le chemin CameraX (`NativeCamera`), et
+         * pour la même raison : Supabase refuse les fichiers de plus de 50 Mo
+         * (StorageException 413, RAPPELS #7). Le Oneshot double produit DEUX
+         * vidéos de 61 s max → ~28 Mo chacune à ce débit, contre ~46 Mo aux
+         * 6 Mb/s de l'étape 4 (marge trop mince, et deux fichiers à envoyer).
+         */
+        private const val VIDEO_BITRATE = 3_500_000
 
         // aTexCoord (0..1) est d'abord tourné/mis en miroir (uTexRot, autour du
         // centre), puis transformé par la matrice de la SurfaceTexture (uStMatrix,

@@ -441,15 +441,17 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   Future<void> _startVideo() async {
     if (!_previewReady || _busy || _switching || _recording) return;
     _lockType(); // le type est figé dès le début de l'enregistrement
-    // Vidéo double dans le vrai Oneshot = étape 5b (à venir). Pour l'instant le
-    // Oneshot capture les deux faces en PHOTO (un simple tap sur le déclencheur).
-    final dualVideo = _cardType == CardType.oneshot && _camera.dualActive;
+    // Oneshot : les DEUX caméras filment en même temps (moteur GPU, étape 5b).
+    // Sans double flux (repli séquentiel), le Oneshot reste photo : filmer une
+    // face puis l'autre laisserait un écart où l'on peut tricher — ce ne serait
+    // plus un Oneshot.
+    final dualVideo = _cardType == CardType.oneshot && _camera.glDualActive;
     if (_cardType == CardType.oneshot && !dualVideo) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Oneshot : photo pour l\'instant (tape pour capturer les deux '
-            'faces). La vidéo double arrive bientôt.',
+            'Oneshot : photo uniquement sur cet appareil (pas de double '
+            'flux vidéo).',
           ),
         ),
       );
@@ -466,13 +468,19 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     });
     try {
       if (dualVideo) {
-        await _camera.startDualVideo(audio: _micGranted);
+        await _camera.startGlDualVideo(audio: _micGranted);
       } else {
         await _camera.startVideo(audio: _micGranted);
       }
     } on DualUnsupportedException catch (e) {
-      // Le matériel accepte deux préviews mais pas deux vidéos : photo seule.
+      // Le matériel accepte deux aperçus mais pas deux encodeurs : photo seule.
+      // Rien à rouvrir — un échec d'encodeur ne touche pas l'aperçu GPU, qui
+      // continue de tourner (contrairement au moteur logiciel, qui débranchait
+      // les ImageCapture et imposait une réouverture).
       _dualError = e.reason;
+      await NativeCameraController.log(
+        'Oneshot : double vidéo GPU refusée — ${e.reason}',
+      );
       if (mounted) {
         setState(() => _recording = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -481,7 +489,6 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
           ),
         );
       }
-      await _tryOpenDual();
       return;
     } catch (e) {
       if (mounted) {
@@ -510,7 +517,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // Tant que la caméra n'enregistre pas réellement, on ne peut pas
     // l'arrêter — le relâchement précoce est géré en fin de _startVideo.
     if (!_recording || !_videoStarted) return;
-    final dualVideo = _cardType == CardType.oneshot && _camera.dualActive;
+    final dualVideo = _cardType == CardType.oneshot && _camera.glDualActive;
     _recordTimer?.cancel();
     HapticFeedback.selectionClick();
     setState(() {
@@ -522,7 +529,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     try {
       if (dualVideo) {
         // Arrière = recto, avant = verso (ordre inchangé, consigne Jay).
-        final shots = await _camera.stopDualVideo();
+        final shots = await _camera.stopGlDualVideo();
         _front = shots.back;
         _frontIsVideo = true;
         _frontImported = false;
@@ -530,9 +537,13 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         _backIsVideo = true;
         _backImported = false;
         _berealTimer?.cancel();
-        // Le double flux vidéo a débranché les ImageCapture : on remet le
-        // double flux photo pour un éventuel retour à la prise.
-        await _tryOpenDual();
+        await NativeCameraController.log(
+          'Oneshot : double vidéo GPU écrite — '
+          'recto ${await shots.back.length() ~/ 1024} Ko, '
+          'verso ${await shots.front.length() ~/ 1024} Ko',
+        );
+        // Rien à rouvrir : arrêter les encodeurs ne fait que retirer leur
+        // surface EGL, les deux caméras continuent de rendre l'aperçu.
         if (mounted) setState(() => _step = 2);
       } else {
         final shot = await _camera.stopVideo();
@@ -1623,6 +1634,11 @@ class _RecapStepState extends State<_RecapStep> {
                     edited: back != _originalBack,
                     imported: widget.backImported,
                     isVideo: widget.backIsVideo,
+                    // Oneshot filmé : les deux vignettes sont des vidéos. On
+                    // n'en laisse jouer qu'UNE (le recto) — deux lectures
+                    // simultanées en gèlent une sur ce matériel (v0.9.12).
+                    // Le verso reste sur sa première image.
+                    autoPlayVideo: !widget.frontIsVideo,
                     onEdit: () => _editFace(false),
                     onRestore: () => _restoreFace(false),
                   ),
@@ -1670,10 +1686,16 @@ class _Shot extends StatelessWidget {
     required this.isVideo,
     required this.onEdit,
     required this.onRestore,
+    this.autoPlayVideo = true,
   });
   final String label;
   final File file;
   final bool edited;
+
+  /// Vignette vidéo qui joue en boucle. Mise à `false` quand une AUTRE
+  /// vignette vidéo joue déjà (Oneshot filmé) : cette face reste alors sur sa
+  /// première image, un seul lecteur vivant à la fois.
+  final bool autoPlayVideo;
 
   /// Image issue de la galerie : pas d'outils dessin/texte (consigne Jay).
   final bool imported;
@@ -1693,7 +1715,7 @@ class _Shot extends StatelessWidget {
           child: AspectRatio(
             aspectRatio: 9 / 16,
             child: isVideo
-                ? _VideoThumb(file: file)
+                ? _VideoThumb(file: file, autoPlay: autoPlayVideo)
                 : Image.file(file, fit: BoxFit.cover),
           ),
         ),
@@ -1737,8 +1759,12 @@ class _Shot extends StatelessWidget {
 
 /// Aperçu vidéo du récap : lecture en boucle, muette, recadrée cover.
 class _VideoThumb extends StatefulWidget {
-  const _VideoThumb({required this.file});
+  const _VideoThumb({required this.file, this.autoPlay = true});
   final File file;
+
+  /// `false` : la vignette s'arrête sur sa première image (un autre lecteur
+  /// vidéo joue déjà à l'écran — voir `_Shot.autoPlayVideo`).
+  final bool autoPlay;
 
   @override
   State<_VideoThumb> createState() => _VideoThumbState();
@@ -1756,8 +1782,8 @@ class _VideoThumbState extends State<_VideoThumb> {
       if (!mounted) return;
       _controller
         ..setLooping(true)
-        ..setVolume(0)
-        ..play();
+        ..setVolume(0);
+      if (widget.autoPlay) _controller.play();
       setState(() {});
     });
   }

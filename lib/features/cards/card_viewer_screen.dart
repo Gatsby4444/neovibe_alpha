@@ -80,6 +80,11 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   bool _faceIsVideo(bool front) =>
       front ? widget.card.frontIsVideo : widget.card.backIsVideo;
 
+  /// Card dont les deux faces sont filmées (Oneshot vidéo) : un seul lecteur
+  /// vivant à la fois (voir `_buildFace`).
+  bool get _bothFacesVideo =>
+      widget.card.frontIsVideo && widget.card.backIsVideo;
+
   bool _faceDone(bool front) => front ? _frontDone : _backDone;
 
   /// Dépendances capturées à l'initialisation : `dispose()` en a besoin, et
@@ -327,6 +332,15 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     }
     final file = front ? _frontFile! : _backFile!;
     if (_faceIsVideo(front)) {
+      // Oneshot filmé : les DEUX faces sont des vidéos. On ne monte QU'UN
+      // lecteur à la fois — deux `VideoPlayer` vivants en même temps en gèlent
+      // un sur ce matériel (constaté à l'étape 4, v0.9.12 : les décodeurs
+      // H264 sont une ressource limitée). La face cachée attend son tour ;
+      // elle se monte au passage du retournement (`_showFront`), avant même
+      // d'être posée, donc la vidéo est prête quand la face arrive à plat.
+      if (_bothFacesVideo && _showFront != front) {
+        return _SleepingVideoFace(type: type);
+      }
       return _VideoFace(
         file: file,
         type: type,
@@ -658,6 +672,31 @@ class _FaceFrame extends StatelessWidget {
 
 /// Face photo : image servie depuis le cache local (préchargée à
 /// l'ouverture — plus de réseau ici).
+/// Face vidéo en attente : l'autre face est en train d'être lue, et deux
+/// lecteurs vivants en même temps en gèlent un (v0.9.12). Visible seulement
+/// pendant le retournement, le temps que le lecteur de la face d'arrivée se
+/// mette en place.
+class _SleepingVideoFace extends StatelessWidget {
+  const _SleepingVideoFace({required this.type});
+  final CardType type;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FaceFrame(
+      type: type,
+      child: const AspectRatio(
+        aspectRatio: 9 / 16,
+        child: ColoredBox(
+          color: Colors.black,
+          child: Center(
+            child: Icon(Icons.videocam, color: Colors.white24, size: 40),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _CardFace extends StatelessWidget {
   const _CardFace({required this.file, required this.type});
   final File file;

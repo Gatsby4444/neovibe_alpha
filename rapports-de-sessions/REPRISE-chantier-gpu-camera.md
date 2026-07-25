@@ -139,10 +139,25 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   `dualFailedThisSession`, pas de re-sondage). Comportement identique à avant :
   photo double instantanée ; l'appui long en Oneshot dit « photo pour l'instant ».
   *À VÉRIFIER par Jay : voir la liste du rapport 2026-07-25_12-23.*
-- [ ] **Étape 5b — Vidéo double dans le vrai Oneshot.** Chantier DÉDIÉ, décidé
-  par Jay comme séparé de 5a : implique 2 vidéos par card (stockage, upload sous
-  la limite Supabase 50 Mo/fichier — RAPPELS #7) et un lecteur double dans le
-  viewer.
+- [x] **Étape 5b — Vidéo double dans le vrai Oneshot. CODÉE (v0.9.20), EN
+  ATTENTE DE TEST.** L'appui long en Oneshot filme les DEUX caméras (moteur GPU,
+  audio partagé) → recto = arrière, verso = avant, deux `.mp4` dans une seule
+  card. **Bonne surprise** : le modèle de card gérait déjà une vidéo PAR FACE
+  (`front_is_video`/`back_is_video`), et l'upload comme le cache local sont
+  génériques — rien à changer côté données. Le travail réel était ailleurs :
+  1. **Débit ramené de 6 à 3,5 Mb/s** dans `Camera2Gl` (même plafond que
+     CameraX) : 2 fichiers × 61 s tenaient sinon ~46 Mo chacun, trop près de la
+     limite Supabase de 50 Mo (RAPPELS #7).
+  2. **Un seul lecteur vidéo vivant à la fois**, partout où DEUX faces vidéo
+     coexistent — le viewer construit ses deux faces simultanément et le récap
+     affiche deux vignettes : c'est exactement la configuration qui gelait un
+     lecteur en v0.9.12. Viewer : la face cachée devient `_SleepingVideoFace`
+     (montée au passage du retournement, pas à la pose). Récap : seule la
+     vignette recto joue, le verso reste sur sa première image.
+  3. Plus de réouverture du double flux après l'arrêt : couper les encodeurs ne
+     retire que leur surface EGL, les caméras continuent de rendre l'aperçu
+     (le moteur logiciel, lui, débranchait les `ImageCapture`).
+  *À VÉRIFIER par Jay : voir la liste du rapport 2026-07-25_12-23.*
 - [ ] **Étape 5c — Repli & universalité.** Séquentiel propre + instantané
   (« dernière image ») sur appareils incapables + suppression du code mort
   (`Camera2Dual` logiciel, sonde) une fois le GPU validé partout.
