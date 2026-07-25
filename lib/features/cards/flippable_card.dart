@@ -151,6 +151,9 @@ class _FlippableCardState extends State<FlippableCard>
   double _startTilt = 0;
   bool _lastReportedFront = true;
 
+  /// Angle au début du geste courant — sert à borner le geste à un demi-tour.
+  double _gestureStartAngle = 0;
+
   @override
   void initState() {
     super.initState();
@@ -183,22 +186,39 @@ class _FlippableCardState extends State<FlippableCard>
 
   void _onPanStart(DragStartDetails details) {
     _controller.stop();
+    _gestureStartAngle = _angle;
   }
 
   double get _dragSign => widget.invertDrag ? -1.0 : 1.0;
 
   bool get _vertical => widget.dragAxis == Axis.vertical;
 
+  /// Distance (px) d'un demi-tour sur un axe contraint.
+  ///
+  /// Sur un axe libre on rapporte le geste à la taille de la carte ; sur une
+  /// **mini-card** ça donnait un geste beaucoup trop nerveux (retour de Jay
+  /// 2026-07-26 : « un swipe fait tourner la carte trois fois ») — une vignette
+  /// de 120 px de large voyait un demi-tour tous les 120 px, et la vélocité
+  /// d'un flick projetait plusieurs tours. On passe donc par une distance
+  /// FIXE, indépendante de la taille affichée : le geste a le même poids sur
+  /// une vignette de grille et sur une card de deck.
+  static const _flipDistance = 260.0;
+
+  double _reference(Size size) {
+    if (widget.dragAxis == null) return _vertical ? size.height : size.width;
+    return _flipDistance;
+  }
+
   void _onPanUpdate(DragUpdateDetails details) {
     final size = context.size ?? const Size(300, 400);
+    final reference = _reference(size);
     setState(() {
       if (_vertical) {
-        // Un glissement sur toute la hauteur ≈ un demi-tour (doigt vers le
-        // haut = le haut de la carte part vers l'arrière).
-        _angle += _dragSign * -details.delta.dy / size.height * math.pi;
+        // Doigt vers le haut = le haut de la carte part vers l'arrière.
+        _angle += _dragSign * -details.delta.dy / reference * math.pi;
       } else {
-        // Un glissement sur toute la largeur ≈ un demi-tour
-        _angle += _dragSign * details.delta.dx / size.width * math.pi;
+        // Un glissement d'une largeur de référence ≈ un demi-tour
+        _angle += _dragSign * details.delta.dx / reference * math.pi;
         // Inclinaison légère qui suit le doigt, bornée pour rester subtile
         // (uniquement en geste libre : sur un axe contraint il n'y a pas de
         // seconde composante à suivre).
@@ -209,26 +229,36 @@ class _FlippableCardState extends State<FlippableCard>
           );
         }
       }
+      // Un geste ne peut pas faire plus d'un demi-tour : au-delà, la carte
+      // « tourne sur elle-même » et on ne sait plus quelle face on manipule.
+      _angle = _angle.clamp(
+        _gestureStartAngle - math.pi,
+        _gestureStartAngle + math.pi,
+      );
     });
     _reportSideIfChanged();
   }
 
   void _onPanEnd(DragEndDetails details) {
     final size = context.size ?? const Size(300, 400);
+    final reference = _reference(size);
     // Le swipe pousse la carte dans son sens : on projette l'angle un court
     // instant dans le futur avec la vélocité du geste, puis on retombe sur la
     // face (multiple de π) la plus proche de cette projection.
-    final angularVelocity = _vertical
-        ? _dragSign *
-              -details.velocity.pixelsPerSecond.dy /
-              size.height *
-              math.pi
-        : _dragSign *
-              details.velocity.pixelsPerSecond.dx /
-              size.width *
-              math.pi;
-    final projected = _angle + angularVelocity * 0.12;
-    _settleTo((projected / math.pi).round() * math.pi);
+    final velocity = _vertical
+        ? -details.velocity.pixelsPerSecond.dy
+        : details.velocity.pixelsPerSecond.dx;
+    final projected =
+        _angle + _dragSign * velocity / reference * math.pi * 0.12;
+    // La vélocité ne sert qu'à décider SI la carte bascule, pas de combien :
+    // un flick rapide projetait plusieurs tours (retour de Jay). On se pose
+    // donc au plus à un demi-tour de la face la plus proche.
+    final nearest = (_angle / math.pi).round() * math.pi;
+    final target = ((projected / math.pi).round() * math.pi).clamp(
+      nearest - math.pi,
+      nearest + math.pi,
+    );
+    _settleTo(target);
   }
 
   /// Tap : retournement animé complet vers la face opposée.

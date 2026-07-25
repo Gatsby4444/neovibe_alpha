@@ -97,6 +97,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   var _frontIsVideo = false; // face vidéo (mode vidéo, consigne Jay)
   var _backIsVideo = false;
   var _step = 0; // 0 = recto, 1 = verso, 2 = récap
+
+  /// Reprise d'UNE face depuis le récap : la prise qui suit remplace cette
+  /// face et revient au récap, au lieu d'enchaîner sur la face suivante.
+  var _retakeOnly = false;
   var _error = '';
   var _busy = false; // capture ou bascule caméra en cours
   var _switching = false;
@@ -720,6 +724,14 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       final cropped = await _cropTo916(shot);
       if (_step == 0) {
         _front = cropped;
+        // Reprise d'une seule face depuis le récap : l'autre face existe déjà,
+        // on ne relance pas le flux — on retourne au récap.
+        if (_retakeOnly) {
+          _retakeOnly = false;
+          if (!_facesMatchType()) return;
+          setState(() => _step = 2);
+          return;
+        }
         setState(() => _step = 1);
         await _ensureLens(back: false);
       } else {
@@ -765,9 +777,60 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       _front = file;
       _frontImported = imported;
       _frontIsVideo = isVideo;
+      if (_retakeOnly) {
+        _retakeOnly = false;
+        setState(() => _step = 2);
+        return;
+      }
       setState(() => _step = 1);
       await _ensureLens(back: false);
     }
+  }
+
+  /// Reprendre la face précédente **sans tout annuler** (consigne Jay
+  /// 2026-07-26) : pendant la prise du verso, revenir au recto.
+  Future<void> _retakePreviousFace() async {
+    if (_busy || _recording || _step != 1) return;
+    setState(() {
+      _front = null;
+      _frontImported = false;
+      _frontIsVideo = false;
+      _step = 0;
+    });
+    await _ensureLens(back: true);
+  }
+
+  /// Refaire UNE face depuis le récap, en gardant l'autre.
+  ///
+  /// Le Oneshot est à part, comme toujours : ses deux faces sont capturées au
+  /// même instant, on ne peut pas en refaire une seule — on relance la prise.
+  Future<void> _retakeFromRecap(bool isFront) async {
+    if (_busy) return;
+    if (_cardType == CardType.oneshot) {
+      setState(() {
+        _front = null;
+        _back = null;
+        _frontIsVideo = false;
+        _backIsVideo = false;
+        _step = 0;
+      });
+      return;
+    }
+    _retakeOnly = _back != null; // Mono : une seule face, flux normal
+    setState(() {
+      if (isFront) {
+        _front = null;
+        _frontImported = false;
+        _frontIsVideo = false;
+        _step = 0;
+      } else {
+        _back = null;
+        _backImported = false;
+        _backIsVideo = false;
+        _step = 1;
+      }
+    });
+    await _ensureLens(back: isFront);
   }
 
   /// « Face tableau » : saute la photo de la face courante et pose un fond
@@ -1070,22 +1133,28 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         backImported: _backImported,
         frontIsVideo: _frontIsVideo,
         backIsVideo: _backIsVideo,
+        onRetake: _retakeFromRecap,
       );
     }
 
     final shutterColor = _type == CardType.standard
         ? Colors.white
         : _type.color;
-    // Bouton de bascule caméra : Mono (en plus du double-tap, y compris
-    // PENDANT une vidéo — la couche native maintient l'enregistrement à
-    // travers la bascule, comme Snapchat) et Oneshot en vue simple de
-    // secours (bascule de l'aperçu, jamais pendant un enregistrement).
-    final showLensToggle =
-        _type == CardType.mono ||
-        (_type == CardType.oneshot &&
-            _step == 0 &&
-            !_camera.glDualActive &&
-            !_recording);
+    // Bouton de bascule caméra — disponible sur TOUS les types et sur LES DEUX
+    // FACES (consigne Jay 2026-07-26 : « il faut laisser un peu de liberté à la
+    // création »). Le défaut reste arrière puis frontale, l'utilisateur décide
+    // ensuite. Deux exceptions, comme toujours :
+    // - Oneshot : les deux caméras filment ensemble, il n'y a rien à basculer
+    //   (sauf en vue simple de secours, avant la prise) ;
+    // - BeReal : la contrainte du format est justement de ne pas choisir.
+    // Mono garde en plus le double-tap et la bascule PENDANT la vidéo (la
+    // couche native maintient l'enregistrement à travers, comme Snapchat).
+    final showLensToggle = switch (_type) {
+      CardType.bereal => false,
+      CardType.oneshot => _step == 0 && !_camera.glDualActive && !_recording,
+      CardType.mono => true,
+      _ => !_recording,
+    };
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -1139,6 +1208,18 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 onPressed: () => Navigator.of(context).pop(),
               ),
             ),
+            // Reprendre la face précédente sans tout annuler (consigne Jay)
+            if (_step == 1 && !_recording)
+              Positioned(
+                key: const ValueKey('retake'),
+                top: 12,
+                left: 60,
+                child: IconButton(
+                  tooltip: 'Reprendre le recto',
+                  icon: const Icon(Icons.undo, color: Colors.white),
+                  onPressed: _busy || _switching ? null : _retakePreviousFace,
+                ),
+              ),
             Positioned(
               key: const ValueKey('header'),
               top: 16,
@@ -1557,9 +1638,13 @@ class _RecapStep extends StatefulWidget {
     this.backImported = false,
     this.frontIsVideo = false,
     this.backIsVideo = false,
+    required this.onRetake,
   });
   final File front;
   final File? back; // null = Mono (face unique)
+
+  /// Refaire une face (true = recto) sans perdre l'autre.
+  final void Function(bool isFront) onRetake;
   final CardType type;
   final bool frontImported;
   final bool backImported;
@@ -1643,6 +1728,7 @@ class _RecapStepState extends State<_RecapStep> {
                     isVideo: widget.frontIsVideo,
                     onEdit: () => _editFace(true),
                     onRestore: () => _restoreFace(true),
+                    onRetake: () => widget.onRetake(true),
                   ),
                 ),
                 const Spacer(),
@@ -1660,6 +1746,7 @@ class _RecapStepState extends State<_RecapStep> {
                     isVideo: widget.frontIsVideo,
                     onEdit: () => _editFace(true),
                     onRestore: () => _restoreFace(true),
+                    onRetake: () => widget.onRetake(true),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -1672,6 +1759,7 @@ class _RecapStepState extends State<_RecapStep> {
                     isVideo: widget.backIsVideo,
                     onEdit: () => _editFace(false),
                     onRestore: () => _restoreFace(false),
+                    onRetake: () => widget.onRetake(false),
                   ),
                 ),
               ],
@@ -1717,6 +1805,7 @@ class _Shot extends StatelessWidget {
     required this.isVideo,
     required this.onEdit,
     required this.onRestore,
+    required this.onRetake,
   });
   final String label;
   final File file;
@@ -1730,6 +1819,9 @@ class _Shot extends StatelessWidget {
   final bool isVideo;
   final VoidCallback onEdit;
   final VoidCallback onRestore;
+
+  /// Reprendre la prise de cette face, en gardant l'autre.
+  final VoidCallback onRetake;
 
   @override
   Widget build(BuildContext context) {
@@ -1775,6 +1867,12 @@ class _Shot extends StatelessWidget {
                 tooltip: 'Revenir à l\'image initiale',
                 onPressed: onRestore,
               ),
+            // Refaire CETTE face en gardant l'autre (consigne Jay 2026-07-26)
+            IconButton(
+              icon: const Icon(Icons.replay, size: 20),
+              tooltip: 'Refaire cette face',
+              onPressed: onRetake,
+            ),
           ],
         ),
       ],

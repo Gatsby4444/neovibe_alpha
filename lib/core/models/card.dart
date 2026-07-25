@@ -98,11 +98,13 @@ enum CardType {
 
   /// Les types que l'utilisateur peut choisir à la création
   /// (BeReal est déclenchée par notification, pas par le menu).
+  /// Ordre du sélecteur de l'écran de capture. Le Oneshot est placé APRÈS le
+  /// One of One (consigne Jay 2026-07-26).
   static List<CardType> get selectable => [
     CardType.standard,
     CardType.mono,
-    CardType.oneshot,
     CardType.oneOfOne,
+    CardType.oneshot,
     CardType.hot,
   ];
 
