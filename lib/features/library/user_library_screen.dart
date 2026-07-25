@@ -9,9 +9,10 @@ import '../conversations/conversations_repository.dart';
 import '../proximity/ping_chat_screen.dart';
 import '../proximity/ping_store.dart';
 import '../proximity/proximity_service.dart';
+import 'library_deck_screen.dart';
 import 'library_repository.dart';
+import 'mini_card.dart';
 import 'profile_header.dart';
-import 'profile_screen.dart';
 
 /// Profil d'un autre utilisateur — connexion OU personne croisée en ping.
 /// En-tête commun (PP, username, stats, bio) + bibliothèque : la RLS ne
@@ -117,11 +118,33 @@ class UserLibraryScreen extends ConsumerWidget {
               ],
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 20, 16, 8),
-            child: Text(
-              'Bibliothèque',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 8, 8),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Bibliothèque',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.view_carousel_outlined),
+                  tooltip: 'Parcourir en deck',
+                  onPressed: () {
+                    final list = items.value;
+                    if (list == null || list.isEmpty) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => LibraryDeckScreen(
+                          items: list,
+                          title: profile.displayName,
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
           items.when(
@@ -145,16 +168,17 @@ class UserLibraryScreen extends ConsumerWidget {
                 : GridView.builder(
                     shrinkWrap: true,
                     physics: const NeverScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(8),
+                    padding: const EdgeInsets.all(10),
                     gridDelegate:
                         const SliverGridDelegateWithFixedCrossAxisCount(
                           crossAxisCount: 3,
-                          mainAxisSpacing: 6,
-                          crossAxisSpacing: 6,
+                          mainAxisSpacing: 10,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: kMiniCardRatio,
                         ),
                     itemCount: list.length,
                     itemBuilder: (context, index) =>
-                        LibraryTile(item: list[index]),
+                        MiniCard(item: list[index]),
                   ),
           ),
           const SizedBox(height: 24),

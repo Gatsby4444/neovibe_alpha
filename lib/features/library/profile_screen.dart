@@ -4,17 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/widgets/gradient.dart';
-import '../cards/card_viewer_screen.dart';
-import '../cards/face_thumb.dart';
 import '../connections/friends_list_screen.dart';
 import '../connections/heart_screen.dart';
-import '../conversations/video_player_screen.dart';
 import '../settings/settings_screen.dart';
+import 'library_deck_screen.dart';
 import 'library_repository.dart';
-import 'photo_viewer_screen.dart';
+import 'mini_card.dart';
 import 'profile_edit_screen.dart';
 import 'profile_header.dart';
 
@@ -53,7 +50,7 @@ class ProfileScreen extends ConsumerWidget {
               context,
             ).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
           ),
-          // Cœur à droite des paramètres (consigne Jay) : demandes de
+          // C�"ur à droite des paramètres (consigne Jay) : demandes de
           // connexion, recommandations et Waves.
           IconButton(
             icon: const Icon(Icons.favorite_border),
@@ -74,7 +71,7 @@ class ProfileScreen extends ConsumerWidget {
             maxWidth: 1600,
           );
           if (picked == null || !context.mounted) return;
-          // L'option publique se règle À la publication (consigne Jay)
+          // L'option publique se règle �? la publication (consigne Jay)
           final isPublic = await showDialog<bool>(
             context: context,
             builder: (context) => AlertDialog(
@@ -113,11 +110,34 @@ class ProfileScreen extends ConsumerWidget {
                   MaterialPageRoute(builder: (_) => const FriendsListScreen()),
                 ),
               ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 20, 16, 8),
-              child: Text(
-                'Bibliothèque',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 8, 8),
+              child: Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Bibliothèque',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  // Bascule grille �?" deck (consigne Jay : on essaie les deux)
+                  IconButton(
+                    icon: const Icon(Icons.view_carousel_outlined),
+                    tooltip: 'Parcourir en deck',
+                    onPressed: () {
+                      final list = items.value;
+                      if (list == null || list.isEmpty) return;
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => LibraryDeckScreen(items: list),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
             ),
             items.when(
@@ -141,15 +161,18 @@ class ProfileScreen extends ConsumerWidget {
                   : GridView.builder(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(8, 0, 8, 80),
+                      padding: const EdgeInsets.fromLTRB(10, 0, 10, 80),
+                      // 3 colonnes (consigne Jay), mais au FORMAT CARD
+                      // (portrait) au lieu des carrés d'avant.
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: 3,
-                            mainAxisSpacing: 6,
-                            crossAxisSpacing: 6,
+                            mainAxisSpacing: 10,
+                            crossAxisSpacing: 10,
+                            childAspectRatio: kMiniCardRatio,
                           ),
                       itemCount: list.length,
-                      itemBuilder: (context, index) => LibraryTile(
+                      itemBuilder: (context, index) => MiniCard(
                         item: list[index],
                         onLongPress: () async {
                           final delete = await showDialog<bool>(
@@ -185,176 +208,3 @@ class ProfileScreen extends ConsumerWidget {
     );
   }
 }
-
-/// Vignette de bibliothèque : photo/vidéo (plein écran au tap) ou Card
-/// (viewer, lecture illimitée en bibliothèque).
-class LibraryTile extends ConsumerWidget {
-  const LibraryTile({super.key, required this.item, this.onLongPress});
-  final LibraryItem item;
-  final VoidCallback? onLongPress;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    // Tag « Public » indiqué côté créateur uniquement (consigne Jay)
-    final me = ref.watch(currentUserIdProvider);
-    final showPublicTag = item.isPublic && item.ownerId == me;
-
-    Widget tagged(Widget child) => showPublicTag
-        ? Stack(
-            fit: StackFit.expand,
-            children: [
-              child,
-              const Positioned(top: 4, right: 4, child: _PublicBadge()),
-            ],
-          )
-        : child;
-
-    if (item.kind == 'card' && item.card != null) {
-      final card = item.card!;
-      return GestureDetector(
-        onLongPress: onLongPress,
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => CardViewerScreen(card: card, fromLibrary: true),
-          ),
-        ),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: card.type.color, width: 2),
-            borderRadius: BorderRadius.circular(10),
-          ),
-          child: tagged(
-            _CardThumb(
-              path: card.frontPath,
-              tag: card.type.tag,
-              color: card.type.color,
-            ),
-          ),
-        ),
-      );
-    }
-    // Photo/vidéo simple : plein écran au tap (correctif consigne Jay)
-    return GestureDetector(
-      onLongPress: onLongPress,
-      onTap: () async {
-        final path = item.mediaPath;
-        if (path == null) return;
-        final url = await ref.read(libraryRepositoryProvider).mediaUrl(path);
-        if (!context.mounted) return;
-        if (item.kind == 'video') {
-          Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => VideoPlayerScreen(url: url)),
-          );
-        } else {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) =>
-                  PhotoViewerScreen(url: url, caption: item.caption),
-            ),
-          );
-        }
-      },
-      child: tagged(_MediaThumb(path: item.mediaPath!)),
-    );
-  }
-}
-
-/// Badge « Public » affiché sur les publications publiques, uniquement
-/// dans la bibliothèque de leur créateur.
-class _PublicBadge extends StatelessWidget {
-  const _PublicBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-      decoration: BoxDecoration(
-        color: Colors.black87,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: Colors.white38),
-      ),
-      child: const Text(
-        'Public',
-        style: TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-        ),
-      ),
-    );
-  }
-}
-
-class _CardThumb extends ConsumerWidget {
-  const _CardThumb({
-    required this.path,
-    required this.tag,
-    required this.color,
-  });
-  final String path;
-  final String tag;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final url = ref.watch(_cardUrlProvider(path));
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: FaceThumb(path: path, url: url.value),
-        ),
-        Positioned(
-          bottom: 4,
-          left: 4,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-            decoration: BoxDecoration(
-              color: Colors.black87,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Text(
-              tag,
-              style: TextStyle(
-                color: color,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _MediaThumb extends ConsumerWidget {
-  const _MediaThumb({required this.path});
-  final String path;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final url = ref.watch(_libraryUrlProvider(path));
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: FaceThumb(path: path, url: url.value),
-    );
-  }
-}
-
-final _cardUrlProvider = FutureProvider.family<String, String>(
-  (ref, path) => ref
-      .watch(supabaseProvider)
-      .storage
-      .from('cards')
-      .createSignedUrl(path, 3600),
-);
-
-final _libraryUrlProvider = FutureProvider.family<String, String>(
-  (ref, path) => ref
-      .watch(supabaseProvider)
-      .storage
-      .from('library')
-      .createSignedUrl(path, 3600),
-);

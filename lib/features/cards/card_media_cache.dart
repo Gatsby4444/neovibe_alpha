@@ -133,6 +133,45 @@ class CardMediaCache {
     return file;
   }
 
+  // ---------------------------------------------------------------------
+  // Médias simples de MA bibliothèque (photos/vidéos importées)
+  // ---------------------------------------------------------------------
+  //
+  // Ils vivent dans le même dossier `own/` que mes faces de cards — donc sous
+  // le même quota — mais sont nommés d'après leur chemin dans le bucket, la
+  // seule clé stable dont dispose la grille.
+
+  File _mediaFile(Directory dir, String storagePath) {
+    final safe = storagePath.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    return File('${dir.path}${Platform.pathSeparator}media_$safe');
+  }
+
+  /// Copie locale d'un média de MA bibliothèque, posée à l'upload — la grille
+  /// n'a alors plus rien à demander au serveur pour l'afficher.
+  Future<void> storeOwnMedia(
+    String storagePath,
+    File source, {
+    required int quotaMb,
+  }) async {
+    try {
+      final dir = await _dir('own');
+      await source.copy(_mediaFile(dir, storagePath).path);
+      await _enforceOwnQuota(quotaMb);
+    } catch (_) {
+      // Confort : un échec de cache ne doit jamais bloquer la publication.
+    }
+  }
+
+  /// Média local de MA bibliothèque si présent, sinon null (repli réseau).
+  Future<File?> tryOwnMedia(String storagePath) async {
+    final file = _mediaFile(await _dir('own'), storagePath);
+    if (!await file.exists()) return null;
+    try {
+      await file.setLastModified(DateTime.now()); // usage LRU
+    } catch (_) {}
+    return file;
+  }
+
   /// Si l'espace alloué est dépassé, les cards les moins récemment ouvertes
   /// repassent en cloud (leurs fichiers locaux sont supprimés).
   Future<void> _enforceOwnQuota(int quotaMb) async {

@@ -100,10 +100,25 @@ class FlippableCard extends StatefulWidget {
     this.onSideChanged,
     this.onSideSettled,
     this.invertDrag = false,
+    this.dragAxis,
+    this.onTap,
   });
 
   final Widget front;
   final Widget back;
+
+  /// Axe du geste de retournement.
+  /// - `null` (défaut) : geste libre (pan), comportement du viewer plein écran.
+  /// - `Axis.horizontal` / `Axis.vertical` : le geste est contraint à cet axe,
+  ///   et la carte tourne autour de l'axe correspondant. Indispensable dans une
+  ///   liste défilante : un `pan` capterait le défilement (mini-cards de la
+  ///   bibliothèque, consigne Jay 2026-07-25).
+  final Axis? dragAxis;
+
+  /// Si fourni, le tap déclenche CECI au lieu de retourner la carte — le
+  /// retournement ne se fait plus qu'au swipe (mini-cards : « le geste qui
+  /// swipe c'est le swipe, le geste qui ouvre c'est le clic »).
+  final VoidCallback? onTap;
 
   /// Appelé quand la face visible change (true = recto) — y compris pendant
   /// le geste (peut osciller si le doigt fait des allers-retours).
@@ -172,13 +187,28 @@ class _FlippableCardState extends State<FlippableCard>
 
   double get _dragSign => widget.invertDrag ? -1.0 : 1.0;
 
+  bool get _vertical => widget.dragAxis == Axis.vertical;
+
   void _onPanUpdate(DragUpdateDetails details) {
     final size = context.size ?? const Size(300, 400);
     setState(() {
-      // Un glissement sur toute la largeur ≈ un demi-tour
-      _angle += _dragSign * details.delta.dx / size.width * math.pi;
-      // Inclinaison légère qui suit le doigt, bornée pour rester subtile
-      _tilt = (_tilt - details.delta.dy / size.height * 0.6).clamp(-0.22, 0.22);
+      if (_vertical) {
+        // Un glissement sur toute la hauteur ≈ un demi-tour (doigt vers le
+        // haut = le haut de la carte part vers l'arrière).
+        _angle += _dragSign * -details.delta.dy / size.height * math.pi;
+      } else {
+        // Un glissement sur toute la largeur ≈ un demi-tour
+        _angle += _dragSign * details.delta.dx / size.width * math.pi;
+        // Inclinaison légère qui suit le doigt, bornée pour rester subtile
+        // (uniquement en geste libre : sur un axe contraint il n'y a pas de
+        // seconde composante à suivre).
+        if (widget.dragAxis == null) {
+          _tilt = (_tilt - details.delta.dy / size.height * 0.6).clamp(
+            -0.22,
+            0.22,
+          );
+        }
+      }
     });
     _reportSideIfChanged();
   }
@@ -188,8 +218,15 @@ class _FlippableCardState extends State<FlippableCard>
     // Le swipe pousse la carte dans son sens : on projette l'angle un court
     // instant dans le futur avec la vélocité du geste, puis on retombe sur la
     // face (multiple de π) la plus proche de cette projection.
-    final angularVelocity =
-        _dragSign * details.velocity.pixelsPerSecond.dx / size.width * math.pi;
+    final angularVelocity = _vertical
+        ? _dragSign *
+              -details.velocity.pixelsPerSecond.dy /
+              size.height *
+              math.pi
+        : _dragSign *
+              details.velocity.pixelsPerSecond.dx /
+              size.width *
+              math.pi;
     final projected = _angle + angularVelocity * 0.12;
     _settleTo((projected / math.pi).round() * math.pi);
   }
@@ -220,27 +257,55 @@ class _FlippableCardState extends State<FlippableCard>
   @override
   Widget build(BuildContext context) {
     final matrix = Matrix4.identity()
-      ..setEntry(3, 2, 0.0012) // perspective : le mix 2D/3D
-      ..rotateX(_tilt)
-      ..rotateY(_angle);
+      ..setEntry(3, 2, 0.0012); // perspective : le mix 2D/3D
+    if (_vertical) {
+      matrix.rotateX(_angle);
+    } else {
+      matrix
+        ..rotateX(_tilt)
+        ..rotateY(_angle);
+    }
 
-    return GestureDetector(
-      onTap: _flip,
-      onPanStart: _onPanStart,
-      onPanUpdate: _onPanUpdate,
-      onPanEnd: _onPanEnd,
-      child: Transform(
-        alignment: Alignment.center,
-        transform: matrix,
-        child: _showFront
-            ? widget.front
-            // Le verso est pré-retourné pour ne pas apparaître en miroir
-            : Transform(
-                alignment: Alignment.center,
-                transform: Matrix4.identity()..rotateY(math.pi),
-                child: widget.back,
-              ),
-      ),
+    final card = Transform(
+      alignment: Alignment.center,
+      transform: matrix,
+      child: _showFront
+          ? widget.front
+          // Le verso est pré-retourné pour ne pas apparaître en miroir, sur
+          // le même axe que le retournement.
+          : Transform(
+              alignment: Alignment.center,
+              transform: _vertical
+                  ? (Matrix4.identity()..rotateX(math.pi))
+                  : (Matrix4.identity()..rotateY(math.pi)),
+              child: widget.back,
+            ),
     );
+
+    // Sur un axe contraint, on utilise les reconnaisseurs d'axe : le geste
+    // perpendiculaire reste disponible pour le défilement de la liste.
+    return switch (widget.dragAxis) {
+      Axis.horizontal => GestureDetector(
+        onTap: widget.onTap ?? _flip,
+        onHorizontalDragStart: _onPanStart,
+        onHorizontalDragUpdate: _onPanUpdate,
+        onHorizontalDragEnd: _onPanEnd,
+        child: card,
+      ),
+      Axis.vertical => GestureDetector(
+        onTap: widget.onTap ?? _flip,
+        onVerticalDragStart: _onPanStart,
+        onVerticalDragUpdate: _onPanUpdate,
+        onVerticalDragEnd: _onPanEnd,
+        child: card,
+      ),
+      null => GestureDetector(
+        onTap: widget.onTap ?? _flip,
+        onPanStart: _onPanStart,
+        onPanUpdate: _onPanUpdate,
+        onPanEnd: _onPanEnd,
+        child: card,
+      ),
+    };
   }
 }

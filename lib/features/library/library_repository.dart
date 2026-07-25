@@ -5,7 +5,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/models/library_item.dart';
 import '../../core/models/profile.dart';
+import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
+import '../cards/card_media_cache.dart';
 
 /// Bibliothèque d'un utilisateur (la RLS applique les droits d'accès :
 /// on reçoit une liste vide si l'accès est refusé).
@@ -62,6 +64,11 @@ class LibraryRepository {
       'is_public': isPublic,
       if (caption != null && caption.isNotEmpty) 'caption': caption,
     });
+    // Copie locale immédiate : mes publications s'affichent depuis l'appareil,
+    // pas depuis le réseau (les faces de cards le font déjà à la création).
+    await ref
+        .read(cardMediaCacheProvider)
+        .storeOwnMedia(path, file, quotaMb: ref.read(ownCardsQuotaMbProvider));
   }
 
   Future<void> removeItem(String itemId) =>
