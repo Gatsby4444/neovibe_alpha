@@ -210,7 +210,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
 
   /// Passe (ou reste) sur la caméra [back]. La couche native rebinde le
   /// même flux : pas de destruction/re-création de contrôleur.
-  Future<void> _ensureLens({required bool back}) async {
+  /// [settle] : laisser le voile un instant de plus après la bascule, le temps
+  /// que les premières images de la nouvelle caméra soient à l'écran. Mis à
+  /// `false` pendant la capture séquentielle du Oneshot — là, chaque
+  /// milliseconde élargit la fenêtre où l'on peut changer de tête, et l'écran
+  /// enchaîne aussitôt sur le récap.
+  Future<void> _ensureLens({required bool back, bool settle = true}) async {
     // En double flux GPU, CameraX n'est pas bindé : une bascule taperait dans
     // le vide.
     if (_camera.glDualActive || _camera.lensBack == back) return;
@@ -218,8 +223,24 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     try {
       await _camera.switchLens();
     } finally {
-      if (mounted) setState(() => _switching = false);
+      await _settleAfterSwitch(settle: settle);
     }
+  }
+
+  /// Retire le voile de bascule, après une courte pause de confort.
+  ///
+  /// `switchLens` rend la main dès que la caméra est ouverte ET que son info
+  /// d'affichage est arrivée — mais rien ne dit encore que ses PREMIÈRES
+  /// IMAGES sont à l'écran (CameraX n'expose pas ce signal, contrairement au
+  /// moteur GPU qui trace « PREMIÈRE image rendue »). Cette pause couvre ce
+  /// dernier trou. C'est un délai de CONFORT VISUEL assumé — pas une attente
+  /// de matériel déguisée : la disponibilité, elle, est bien attendue par le
+  /// FAIT (`CameraState`) côté natif.
+  Future<void> _settleAfterSwitch({bool settle = true}) async {
+    if (settle) {
+      await Future<void>.delayed(const Duration(milliseconds: 160));
+    }
+    if (mounted) setState(() => _switching = false);
   }
 
   /// Changement de type dans le sélecteur.
@@ -377,7 +398,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         ).showSnackBar(SnackBar(content: Text('Bascule impossible : $e')));
       }
     } finally {
-      if (mounted) setState(() => _switching = false);
+      await _settleAfterSwitch();
     }
   }
 
@@ -607,10 +628,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // est réellement ouverte (`CameraState`), et `takePicture` fait sa propre
     // convergence d'exposition. On mesure l'écart pour pouvoir en juger.
     final started = DateTime.now();
-    await _ensureLens(back: true);
+    await _ensureLens(back: true, settle: false);
     final backShot = await _camera.takePicture();
     final betweenStart = DateTime.now();
-    await _ensureLens(back: false);
+    await _ensureLens(back: false, settle: false);
     final frontShot = await _camera.takePicture();
     final gap = DateTime.now().difference(betweenStart).inMilliseconds;
     await NativeCameraController.log(
@@ -872,15 +893,19 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
           _camera.textureId,
           mirror: !_camera.lensBack && _selfieMirror,
         ),
-        AnimatedOpacity(
-          opacity: _switching ? 1 : 0,
-          duration: const Duration(milliseconds: 140),
-          curve: Curves.easeOut,
-          child: IgnorePointer(
-            child: BackdropFilter(
-              filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-              child: const ColoredBox(color: Color(0x33000000)),
-            ),
+        // Voile de bascule : OPAQUE et INSTANTANÉ à l'apparition, fondu doux
+        // au retrait. Il était translucide (20 % de noir) et mettait 140 ms à
+        // apparaître — soit exactement la fenêtre où l'aperçu montrait l'image
+        // renversée (bug signalé par Jay, non résolu par la v0.9.24). Tant
+        // qu'on n'a pas de signal « première image de la nouvelle caméra »
+        // côté CameraX, la seule garantie est de ne RIEN laisser voir de la
+        // transition, quelle qu'en soit la cause exacte.
+        IgnorePointer(
+          child: AnimatedOpacity(
+            opacity: _switching ? 1 : 0,
+            duration: Duration(milliseconds: _switching ? 0 : 200),
+            curve: Curves.easeOut,
+            child: const ColoredBox(color: Color(0xFF0E0E12)),
           ),
         ),
       ],
