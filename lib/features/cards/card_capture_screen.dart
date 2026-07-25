@@ -211,10 +211,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// Passe (ou reste) sur la caméra [back]. La couche native rebinde le
   /// même flux : pas de destruction/re-création de contrôleur.
   Future<void> _ensureLens({required bool back}) async {
-    // En double flux (logiciel OU GPU), CameraX n'est pas bindé : une bascule
-    // taperait dans le vide.
-    if (_camera.dualActive || _camera.glDualActive) return;
-    if (_camera.lensBack == back) return;
+    // En double flux GPU, CameraX n'est pas bindé : une bascule taperait dans
+    // le vide.
+    if (_camera.glDualActive || _camera.lensBack == back) return;
     setState(() => _switching = true);
     try {
       await _camera.switchLens();
@@ -1493,8 +1492,6 @@ class _CameraHud extends StatelessWidget {
           Text(
             camera.glDualActive
                 ? 'DOUBLE FLUX GPU ACTIF'
-                : camera.dualActive
-                ? 'DOUBLE FLUX (soft) ACTIF'
                 : 'flux simple · ${camera.lensBack ? "arrière" : "avant"}',
             style: const TextStyle(
               color: Colors.amberAccent,

@@ -18,15 +18,10 @@ class NativeCameraController extends ChangeNotifier {
   /// Texture principale (mode simple).
   int? textureId;
 
-  /// Textures du double flux Oneshot.
-  int? dualBackTextureId;
-  int? dualFrontTextureId;
-
   /// Infos d'affichage par flux (résolution capteur + rotation à appliquer).
   final Map<String, NativePreviewInfo> previews = {};
 
   var lensBack = true;
-  var dualActive = false;
   var _disposed = false;
 
   Future<dynamic> _onPlatformCall(MethodCall call) async {
@@ -68,15 +63,6 @@ class NativeCameraController extends ChangeNotifier {
         lastDualError: e.toString(),
       );
     }
-  }
-
-  /// Sonde double flux en Camera2 BRUT : ouvre les deux caméras de force,
-  /// sans passer par la déclaration `getConcurrentCameraIds()` d'Android
-  /// (que CameraX respecte, et qui est un faux négatif fréquent). Dit si le
-  /// matériel accepte RÉELLEMENT deux flux simultanés.
-  static Future<Map<String, dynamic>> probeDual() async {
-    final res = await _channel.invokeMapMethod<String, dynamic>('probeDual');
-    return res ?? const {};
   }
 
   /// Image quelconque → **face de card prête** (rotation EXIF appliquée,
@@ -137,7 +123,6 @@ class NativeCameraController extends ChangeNotifier {
         })
         .timeout(const Duration(seconds: 10));
     lensBack = back;
-    dualActive = false;
     glDualActive = false;
     textureId = res?['textureId'] as int?;
     notifyListeners();
@@ -182,70 +167,6 @@ class NativeCameraController extends ChangeNotifier {
     }
   }
 
-  /// Ouvre le double flux (Oneshot). Lève [DualUnsupportedException] si
-  /// l'appareil refuse — l'appelant repasse en vue simple.
-  ///
-  /// Toujours borné dans le temps : une caméra qui ne répond pas ne doit
-  /// JAMAIS laisser l'écran en chargement infini (retour Jay, v0.8.5).
-  Future<void> openDual() async {
-    try {
-      final res = await _channel
-          .invokeMapMethod<String, dynamic>('openDual')
-          .timeout(const Duration(seconds: 10));
-      dualBackTextureId = res?['backTextureId'] as int?;
-      dualFrontTextureId = res?['frontTextureId'] as int?;
-      dualActive = true;
-      textureId = null;
-      notifyListeners();
-    } on TimeoutException {
-      dualFailedThisSession = true;
-      throw const DualUnsupportedException('La caméra ne répond pas (10 s)');
-    } on PlatformException catch (e) {
-      dualFailedThisSession = true;
-      if (e.code == 'DUAL_UNSUPPORTED') {
-        throw DualUnsupportedException(e.message);
-      }
-      rethrow;
-    }
-  }
-
-  /// Les deux photos d'un coup : arrière = recto, avant = verso. En double
-  /// flux, ce sont les DERNIÈRES IMAGES REÇUES des deux capteurs — donc
-  /// instantané, et vraiment simultané.
-  Future<({File back, File front})> takeDualPictures() async {
-    final res = await _channel
-        .invokeMapMethod<String, dynamic>('takeDualPictures')
-        .timeout(const Duration(seconds: 8));
-    return (
-      back: File(res!['back'] as String),
-      front: File(res['front'] as String),
-    );
-  }
-
-  /// Vidéo double simultanée (Oneshot vidéo). Lève
-  /// [DualUnsupportedException] si le matériel refuse le double
-  /// enregistrement — l'appelant retombe en photo seule.
-  Future<void> startDualVideo({required bool audio}) async {
-    try {
-      await _channel.invokeMethod('startDualVideo', {'audio': audio});
-    } on PlatformException catch (e) {
-      if (e.code == 'DUAL_VIDEO_UNSUPPORTED') {
-        throw DualUnsupportedException(e.message);
-      }
-      rethrow;
-    }
-  }
-
-  Future<({File back, File front})> stopDualVideo() async {
-    final res = await _channel.invokeMapMethod<String, dynamic>(
-      'stopDualVideo',
-    );
-    return (
-      back: File(res!['back'] as String),
-      front: File(res['front'] as String),
-    );
-  }
-
   /// ÉTAPE 1 du rendu GPU — aperçu OpenGL d'UNE caméra (écran de test dev,
   /// isolé du flux de capture réel). Rotation + miroir sont faits dans le
   /// shader → côté Dart, `mirror: false` et rotation 0. Voir Camera2Gl.kt.
@@ -275,17 +196,16 @@ class NativeCameraController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// ÉTAPE 2 du rendu GPU — les DEUX caméras en OpenGL, chacune sur sa texture.
+  /// Double flux GPU — les DEUX caméras en OpenGL, chacune sur sa texture.
   int? glBackTextureId;
   int? glFrontTextureId;
 
-  /// Double flux GPU ouvert (aperçu + photo). Pendant du software [dualActive],
-  /// mais pour le moteur OpenGL : c'est ce que le vrai Oneshot utilise depuis
-  /// l'étape 5a. Les deux ne sont jamais actifs en même temps.
+  /// Double flux GPU ouvert (aperçu, photo et vidéo) : c'est le moteur du vrai
+  /// Oneshot depuis l'étape 5a.
   var glDualActive = false;
 
-  /// Ouvre le double flux GPU. Même contrat que [openDual] : lève
-  /// [DualUnsupportedException] si l'appareil refuse, et marque
+  /// Ouvre le double flux GPU. Lève [DualUnsupportedException] si l'appareil
+  /// refuse — l'appelant repasse en capture séquentielle — et marque
   /// [dualFailedThisSession] — on ne re-sonde JAMAIS le matériel après un
   /// échec (un essai raté peut laisser le service caméra d'Android hors
   /// service jusqu'au redémarrage de l'app).
@@ -373,9 +293,6 @@ class NativeCameraController extends ChangeNotifier {
       await _channel.invokeMethod('close').timeout(const Duration(seconds: 6));
     } catch (_) {}
     textureId = null;
-    dualBackTextureId = null;
-    dualFrontTextureId = null;
-    dualActive = false;
     // Le natif ferme aussi le double flux GPU dans « close » (release
     // universel) : on reflète cet état côté Dart.
     glBackTextureId = null;

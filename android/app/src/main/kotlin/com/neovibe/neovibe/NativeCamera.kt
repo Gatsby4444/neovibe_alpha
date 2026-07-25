@@ -97,15 +97,6 @@ class NativeCamera(
 
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    // --- Mode double (Oneshot) -------------------------------------------
-    // Piloté en Camera2 BRUT (pas CameraX) : le matériel accepte deux flux
-    // que la déclaration concurrente d'Android nie (prouvé par la sonde).
-    private val camera2Dual = Camera2Dual(activity, textureRegistry) { key, w, h, rot ->
-        channel.invokeMethod(
-            "previewInfo",
-            mapOf("key" to key, "width" to w, "height" to h, "rotation" to rot),
-        )
-    }
 
     // --- Rendu GPU (chantier : aperçu OpenGL) -----------------------------
     // Isolé du flux de capture réel (écran de test développeur). Voir
@@ -200,7 +191,7 @@ class NativeCamera(
                             "camera2Combos" to camera2Ids,
                             "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
                             "sdk" to android.os.Build.VERSION.SDK_INT,
-                            "lastDualError" to (camera2Dual.lastReport ?: lastDualError),
+                            "lastDualError" to lastDualError,
                         ),
                     )
                 }
@@ -210,7 +201,7 @@ class NativeCamera(
                     // On ATTEND que le double flux ait rendu le matériel : rouvrir
                     // CameraX trop tôt laissait le service caméra en vrac
                     // (« Available cameras: 0 », puis « unknown device »).
-                    camera2Dual.close {
+                    releaseDualEngines {
                         CamLog.i("simple", "ouverture flux simple (arrière=$lensBack)")
                         try {
                             openSingle(p, audio)
@@ -250,16 +241,7 @@ class NativeCamera(
                 "takePicture" -> takePicture(result)
                 "startVideo" -> startVideo(call, result)
                 "stopVideo" -> stopVideo(result)
-                "openDual" -> withProvider(result) { p ->
-                    // On libère CameraX (une seule pile caméra à la fois) puis
-                    // on ouvre le duo en Camera2 brut.
-                    CamLog.i("dual", "libération de CameraX avant le double flux")
-                    p.unbindAll()
-                    releaseSingle()
-                    camera2Dual.open(result)
-                }
-                "takeDualPictures" -> camera2Dual.capture(result)
-                // --- Étape 1 du rendu GPU (écran de test dev, isolé) --------
+                // --- Rendu GPU : aperçu d'UNE caméra (écran de test dev) ----
                 "openGlPreview" -> withProvider(result) { p ->
                     val back = call.argument<Boolean>("back") ?: true
                     val rotation = call.argument<Int>("rotation") ?: 90
@@ -267,9 +249,9 @@ class NativeCamera(
                     CamLog.i("gl", "libération de CameraX avant l'aperçu GPU")
                     p.unbindAll()
                     releaseSingle()
-                    // Une seule pile caméra à la fois : on ferme aussi le double
-                    // flux logiciel s'il traînait, puis on ouvre le moteur GPU.
-                    camera2Dual.close { camera2Gl.open(back, rotation, mirror, result) }
+                    // Une seule pile caméra à la fois : on ferme les moteurs GPU
+                    // qui traîneraient, puis on ouvre celui de l'aperçu.
+                    releaseDualEngines { camera2Gl.open(back, rotation, mirror, result) }
                 }
                 "closeGlPreview" -> camera2Gl.close { result.success(null) }
                 // --- Étape 2 du rendu GPU : les DEUX caméras en OpenGL --------
@@ -277,7 +259,7 @@ class NativeCamera(
                     CamLog.i("gl", "libération de CameraX avant le double flux GPU")
                     p.unbindAll()
                     releaseSingle()
-                    camera2Dual.close {
+                    releaseDualEngines {
                         // Orientation trouvée au test : rotation 0, miroir off
                         // (la matrice de la SurfaceTexture gère déjà le sens).
                         // Ouverture séquentielle : arrière (attend sa 1re image
@@ -397,13 +379,6 @@ class NativeCamera(
                         }
                     }
                 }
-                "startDualVideo" ->
-                    // Vidéo double simultanée : non couverte par le moteur
-                    // Camera2 dual (deux encodeurs + limite de flux). Le Dart
-                    // retombe en photo seule pour le Oneshot.
-                    result.error("DUAL_VIDEO_UNSUPPORTED", "Vidéo double non gérée", null)
-                "stopDualVideo" ->
-                    result.error("NOT_RECORDING", "Aucun enregistrement double", null)
                 "normalize" -> {
                     // Recadrage 9:16 + mise au format des cards, EN NATIF.
                     // Le faisait en Dart : décodage + PictureRecorder + encodage
@@ -445,25 +420,16 @@ class NativeCamera(
                     }
                     result.success(alive)
                 }
-                "probeDual" -> closeAll {
-                    // Sonde Camera2 brute : ouvre les DEUX caméras de force,
-                    // sans passer par la déclaration d'Android (demande de
-                    // Jay : « existe-t-il un moyen de contourner l'API ? »).
-                    DualCameraProbe(activity).run { report -> result.success(report) }
-                }
                 "close" -> {
                     provider?.unbindAll()
                     releaseSingle()
-                    // Release UNIVERSEL : on ferme aussi le moteur GPU (aperçu +
+                    // Release UNIVERSEL : on ferme aussi les moteurs GPU (aperçu +
                     // double flux). Sans ça, quitter l'écran Oneshot avec le double
                     // flux GPU actif laissait glBack/glFront tenir les caméras →
-                    // la prochaine ouverture échouait (étape 5a).
-                    camera2Gl.close()
-                    glFront.close()
-                    glBack.close()
-                    // La réponse n'arrive qu'une fois le matériel RENDU : le Dart
-                    // peut alors rouvrir sans risque.
-                    camera2Dual.close { result.success(null) }
+                    // la prochaine ouverture échouait (étape 5a). La réponse
+                    // n'arrive qu'une fois le matériel RENDU : le Dart peut alors
+                    // rouvrir sans risque.
+                    releaseDualEngines { result.success(null) }
                 }
                 "setSecure" -> {
                     val on = call.argument<Boolean>("on") ?: true
@@ -558,7 +524,7 @@ class NativeCamera(
     // Mode simple (tous les modes sauf Oneshot double)
     // ------------------------------------------------------------------
 
-    /** Appelé UNIQUEMENT après `camera2Dual.close { … }` (matériel rendu). */
+    /** Appelé UNIQUEMENT après `releaseDualEngines { … }` (matériel rendu). */
     private fun openSingle(p: ProcessCameraProvider, audio: Boolean) {
         entry = entry ?: textureRegistry.createSurfaceProducer()
         preview = Preview.Builder().build().also {
@@ -705,10 +671,28 @@ class NativeCamera(
         videoCapture = null
     }
 
+    /**
+     * Ferme TOUS les moteurs double flux et n'appelle [onDone] qu'une fois le
+     * matériel réellement rendu (chaque `close` attend ses callbacks).
+     *
+     * C'est la barrière qui permet de rouvrir CameraX sans casser le service
+     * caméra d'Android (« Available cameras: 0 » puis « unknown device »).
+     * Elle portait sur l'ancien moteur logiciel jusqu'à sa suppression
+     * (étape 5d) ; ce sont désormais les moteurs GPU qu'il faut attendre —
+     * ce sont eux qui tiennent les caméras.
+     */
+    private fun releaseDualEngines(onDone: (() -> Unit)? = null) {
+        camera2Gl.close {
+            glFront.close {
+                glBack.close { onDone?.invoke() }
+            }
+        }
+    }
+
     private fun closeAll(onDone: (() -> Unit)? = null) {
         provider?.unbindAll()
         releaseSingle()
-        camera2Dual.close(onDone)
+        releaseDualEngines(onDone)
     }
 
     /**

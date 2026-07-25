@@ -175,10 +175,22 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   **Testable sur le Redmi** via Réglages → Développeur → « Forcer la vue simple
   Oneshot » (c'est cet interrupteur, activé chez Jay, qui donnait l'illusion
   d'un repli matériel).
-- [ ] **Étape 5d — Nettoyage du code mort.** Supprimer `Camera2Dual` (moteur
-  logiciel, plus appelé depuis 5a) et `DualCameraProbe`. **À FAIRE APRÈS le test
-  multi-appareils** (RAPPELS #8) : tant que le GPU n'a tourné que sur le Redmi,
-  le moteur logiciel reste un filet.
+- [x] **Étape 5d — Nettoyage du code mort. CODÉE (v0.9.23), EN ATTENTE DE TEST.**
+  Décision de Jay, contre ma réserve : « je préfère ne pas avoir de backup plutôt
+  qu'une backup médiocre au niveau UX » — le moteur logiciel plafonnait à
+  20-27 i/s avec freezes, il n'aurait pas fait un repli acceptable.
+  Supprimés : `Camera2Dual.kt`, `DualCameraProbe.kt`, les méthodes de canal
+  `openDual` / `takeDualPictures` / `startDualVideo` / `stopDualVideo` /
+  `probeDual`, leurs équivalents Dart, la tuile « Tester le double flux » des
+  Réglages dev et la branche HUD « (soft) ».
+  **Effet de bord CORRIGÉ au passage** : la barrière « attendre que le matériel
+  soit rendu » avant de rouvrir CameraX portait sur `camera2Dual.close` — donc
+  sur un moteur qui ne tenait plus rien depuis 5a. Elle porte désormais sur les
+  moteurs GPU (`releaseDualEngines`, qui chaîne les trois fermetures et n'appelle
+  la suite qu'une fois la dernière terminée). La réponse de `close` attend
+  vraiment le matériel, ce qui n'était plus le cas.
+  **Le repli séquentiel du Oneshot, lui, RESTE** : c'est CameraX, pas le moteur
+  logiciel supprimé.
 
 ## État courant
 

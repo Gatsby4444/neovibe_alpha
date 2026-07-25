@@ -43,12 +43,17 @@ caméras en même temps).
 
 **Canal** : `neovibe/camera`. Méthodes actuelles (contrat partagé) :
 `open`, `close`, `switchLens`, `takePicture`, `startVideo`, `stopVideo`,
-`openDual`, `takeDualPictures`, `startDualVideo`, `stopDualVideo`, `normalize`,
-`capabilities`, `probeDual`, `isCameraServiceAlive`, `setSecure`, `log`,
+`normalize`, `capabilities`, `isCameraServiceAlive`, `setSecure`, `log`,
 `readLog`, `clearLog`, `openGlPreview`, `closeGlPreview`, `openGlDual`,
 `closeGlDual`, `captureGlDual`, `startGlDualVideo`, `stopGlDualVideo`.
 Événement natif→Dart : `previewInfo`.
-*(Vérifié conforme au code le 2026-07-25.)*
+*(Vérifié conforme au code le 2026-07-25, après l'étape 5d.)*
+
+> **Retiré à l'étape 5d (2026-07-25)** : `openDual`, `takeDualPictures`,
+> `startDualVideo`, `stopDualVideo` (ancien moteur double **logiciel**) et
+> `probeDual` (sonde). Le double flux passe exclusivement par le moteur GPU.
+> `switchLens` ne répond plus au retour du bind mais quand `CameraState` dit la
+> caméra réellement ouverte — à reproduire sur iOS plutôt qu'un délai fixe.
 
 **Android (fait)** :
 - `NativeCamera.kt` — orchestration + **CameraX** pour tous les modes à une
@@ -61,9 +66,9 @@ caméras en même temps).
 - `DualAudioEncoder.kt` — **capture audio PARTAGÉE** (`AudioRecord` micro →
   encodeur AAC) pour la vidéo double : un seul flux audio muxé dans les DEUX
   vidéos (deux `AudioRecord` sur le même micro se battraient). Thread `nv-audio`.
-- `Camera2Dual.kt` — ancien double flux **logiciel** (`lockCanvas`). **À
-  SUPPRIMER** une fois le GPU complet (étape 5). Ne pas porter sur iOS.
-- `DualCameraProbe.kt` — sonde de capacité (dev). À retirer avec la section dev.
+- *(`Camera2Dual.kt` — ancien double flux logiciel — et `DualCameraProbe.kt` —
+  sonde de capacité — ont été **SUPPRIMÉS** à l'étape 5d, le 2026-07-25. Rien à
+  porter sur iOS : le double flux passe entièrement par le moteur GPU.)*
 - `CamLog.kt` — journal (voir bloc 6).
 
 **Audio (double vidéo)** : côté Android, `DualAudioEncoder` capture UNE fois
