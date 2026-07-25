@@ -30,8 +30,21 @@ class DualAudioEncoder(private val sinks: List<AudioSink>) {
         /** Format AAC connu → ajouter une piste audio au muxer. */
         fun onAudioFormat(format: MediaFormat)
 
-        /** Un paquet AAC encodé à écrire dans la piste audio. */
-        fun onAudioSample(buffer: ByteBuffer, info: MediaCodec.BufferInfo)
+        /**
+         * Un paquet AAC encodé à écrire dans la piste audio.
+         *
+         * [sampleWallNs] = instant RÉEL de l'échantillon (`System.nanoTime`).
+         * Indispensable : la capture audio démarre quelques centaines de ms
+         * APRÈS les encodeurs vidéo (~450 ms mesurées dans le journal de Jay,
+         * v0.9.20). Chaque piste remise à zéro de son côté, l'audio se
+         * retrouvait en AVANCE d'autant. Le sink recale donc l'horodatage sur
+         * SA propre origine vidéo, à partir de cet instant réel.
+         */
+        fun onAudioSample(
+            buffer: ByteBuffer,
+            info: MediaCodec.BufferInfo,
+            sampleWallNs: Long,
+        )
     }
 
     private var record: AudioRecord? = null
@@ -135,12 +148,17 @@ class DualAudioEncoder(private val sinks: List<AudioSink>) {
                     // échantillon.
                     if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) info.size = 0
                     if (info.size > 0) {
+                        // Instant réel de l'échantillon : les PTS sortis du
+                        // codec sont comptés depuis `firstNs`, on remonte donc
+                        // à l'horloge absolue pour que chaque sink puisse se
+                        // recaler sur SA piste vidéo.
+                        val sampleWallNs = firstNs + info.presentationTimeUs * 1_000
                         sinks.forEach { sink ->
                             // Repositionner AVANT chaque écriture (le muxer
                             // consomme position→limit).
                             buf.position(info.offset)
                             buf.limit(info.offset + info.size)
-                            sink.onAudioSample(buf, info)
+                            sink.onAudioSample(buf, info, sampleWallNs)
                         }
                     }
                 }

@@ -68,10 +68,13 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   int _elapsedMs = 0;
   var _hotFinished = false;
 
-  bool get _isRecipient {
-    final me = ref.read(currentUserIdProvider);
-    return me != null && me != widget.card.ownerId;
-  }
+  /// Capturé à l'initialisation : `_isRecipient` est lu depuis `dispose()`
+  /// (via `_limitsApply`, pour la purge des cards Hot), et `ref` y est
+  /// interdit — c'était la source des « Using "ref" when a widget is about to
+  /// or has been unmounted » du journal, à chaque fermeture de card.
+  late final String? _me = ref.read(currentUserIdProvider);
+
+  bool get _isRecipient => _me != null && _me != widget.card.ownerId;
 
   /// Les limites (vues, budgets par face) ne s'appliquent qu'au destinataire
   /// en chat.
@@ -80,10 +83,15 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   bool _faceIsVideo(bool front) =>
       front ? widget.card.frontIsVideo : widget.card.backIsVideo;
 
-  /// Card dont les deux faces sont filmées (Oneshot vidéo) : un seul lecteur
-  /// vivant à la fois (voir `_buildFace`).
+  /// Card dont les deux faces sont filmées (Oneshot vidéo) : les deux lecteurs
+  /// tournent en parallèle, seul celui de la face regardée a le son.
   bool get _bothFacesVideo =>
       widget.card.frontIsVideo && widget.card.backIsVideo;
+
+  /// Dernière position de lecture de la face regardée. Champ simple, JAMAIS
+  /// dans un `setState` : il est mis à jour à chaque image et ne sert qu'au
+  /// moment du retournement (rattrapage de dérive entre les deux lecteurs).
+  Duration _videoPosition = Duration.zero;
 
   bool _faceDone(bool front) => front ? _frontDone : _backDone;
 
@@ -91,6 +99,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   /// `ref` n'y est plus utilisable (le widget est démonté).
   late final _cards = ref.read(cardsRepositoryProvider);
   late final _cache = ref.read(cardMediaCacheProvider);
+  late final _quotaMb = ref.read(ownCardsQuotaMbProvider);
 
   @override
   void initState() {
@@ -102,8 +111,8 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   /// (zéro requête si déjà locales), celles des autres depuis `others/`
   /// avec leur politique de rétention. Téléchargements en parallèle.
   Future<void> _fetchFaces() async {
-    final repo = ref.read(cardsRepositoryProvider);
-    final cache = ref.read(cardMediaCacheProvider);
+    final repo = _cards;
+    final cache = _cache;
     final card = widget.card;
     final isOwner = !_isRecipient;
     Future<File> face(bool front) {
@@ -113,7 +122,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
           card,
           front: front,
           signedUrl: () => repo.imageUrl(path),
-          quotaMb: ref.read(ownCardsQuotaMbProvider),
+          quotaMb: _quotaMb,
         );
       }
       return cache.othersFace(
@@ -137,7 +146,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
       _phase = _Phase.loading;
       _error = '';
     });
-    final repo = ref.read(cardsRepositoryProvider);
+    final repo = _cards;
     try {
       if (!_limitsApply) {
         await _fetchFaces();
@@ -158,14 +167,14 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
         return;
       }
       if (_delivery!.destroyedAt != null) {
-        await ref.read(cardMediaCacheProvider).purgeCard(widget.card.id);
+        await _cache.purgeCard(widget.card.id);
         if (!mounted) return;
         setState(() => _phase = _Phase.destroyed);
         return;
       }
       final remaining = _delivery!.remainingViews(widget.card);
       if (remaining != null && remaining <= 0) {
-        await ref.read(cardMediaCacheProvider).purgeCard(widget.card.id);
+        await _cache.purgeCard(widget.card.id);
         if (!mounted) return;
         setState(() => _phase = _Phase.exhausted);
         return;
@@ -262,7 +271,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     final remaining = _delivery?.remainingViews(widget.card);
     if (remaining != null && remaining <= 0) {
       // Plus aucune vue : rien ne doit rester sur l'appareil.
-      await ref.read(cardMediaCacheProvider).purgeCard(widget.card.id);
+      await _cache.purgeCard(widget.card.id);
       if (!mounted) return;
       setState(() => _phase = _Phase.exhausted);
     } else {
@@ -274,17 +283,17 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     if (_hotFinished || _delivery == null) return;
     _hotFinished = true;
     try {
-      await ref.read(cardsRepositoryProvider).finishHotView(_delivery!.id);
+      await _cards.finishHotView(_delivery!.id);
     } catch (_) {}
     // Hot : purge immédiate du cache à la fermeture (consigne Jay —
     // empêcher la récupération après coup).
-    await ref.read(cardMediaCacheProvider).purgeCard(widget.card.id);
+    await _cache.purgeCard(widget.card.id);
     if (mounted) setState(() => _phase = _Phase.destroyed);
   }
 
   Future<void> _requestReplay() async {
     try {
-      await ref.read(cardsRepositoryProvider).requestReplay(_delivery!.id);
+      await _cards.requestReplay(_delivery!.id);
       _delivery = await ref
           .read(cardsRepositoryProvider)
           .myDelivery(widget.card.id);
@@ -332,20 +341,18 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     }
     final file = front ? _frontFile! : _backFile!;
     if (_faceIsVideo(front)) {
-      // Oneshot filmé : les DEUX faces sont des vidéos. On ne monte QU'UN
-      // lecteur à la fois — deux `VideoPlayer` vivants en même temps en gèlent
-      // un sur ce matériel (constaté à l'étape 4, v0.9.12 : les décodeurs
-      // H264 sont une ressource limitée). La face cachée attend son tour ;
-      // elle se monte au passage du retournement (`_showFront`), avant même
-      // d'être posée, donc la vidéo est prête quand la face arrive à plat.
-      if (_bothFacesVideo && _showFront != front) {
-        return _SleepingVideoFace(type: type);
-      }
       return _VideoFace(
         file: file,
         type: type,
         // La vidéo ne joue que lorsque sa face est posée à l'écran
         active: _phase == _Phase.viewing && _settledFront == front,
+        // Oneshot filmé : les deux faces sont le même instant vu de deux
+        // côtés. Elles tournent donc ENSEMBLE (la cachée en silence) et le
+        // retournement ne fait que déplacer le son — sinon la face d'arrivée
+        // repartait de zéro (retour de Jay, v0.9.20).
+        playsWhenHidden: _bothFacesVideo && _phase == _Phase.viewing,
+        syncTo: _bothFacesVideo ? _videoPosition : null,
+        onPosition: _bothFacesVideo ? (p) => _videoPosition = p : null,
         // Barre intouchable pour le destinataire sauf accord du créateur ;
         // toujours libre pour l'émetteur et en bibliothèque.
         allowScrub: !_limitsApply || widget.card.scrubbable,
@@ -393,7 +400,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
                   ? 'Retirer de mes Enregistrements'
                   : 'Enregistrer pour moi',
               onPressed: () async {
-                final repo = ref.read(cardsRepositoryProvider);
+                final repo = _cards;
                 try {
                   if (isSaved == true) {
                     await repo.unsaveCard(widget.card.id);
@@ -672,31 +679,6 @@ class _FaceFrame extends StatelessWidget {
 
 /// Face photo : image servie depuis le cache local (préchargée à
 /// l'ouverture — plus de réseau ici).
-/// Face vidéo en attente : l'autre face est en train d'être lue, et deux
-/// lecteurs vivants en même temps en gèlent un (v0.9.12). Visible seulement
-/// pendant le retournement, le temps que le lecteur de la face d'arrivée se
-/// mette en place.
-class _SleepingVideoFace extends StatelessWidget {
-  const _SleepingVideoFace({required this.type});
-  final CardType type;
-
-  @override
-  Widget build(BuildContext context) {
-    return _FaceFrame(
-      type: type,
-      child: const AspectRatio(
-        aspectRatio: 9 / 16,
-        child: ColoredBox(
-          color: Colors.black,
-          child: Center(
-            child: Icon(Icons.videocam, color: Colors.white24, size: 40),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _CardFace extends StatelessWidget {
   const _CardFace({required this.file, required this.type});
   final File file;
@@ -740,9 +722,23 @@ class _VideoFace extends StatefulWidget {
     required this.allowScrub,
     required this.loop,
     this.onCompleted,
+    this.playsWhenHidden = false,
+    this.syncTo,
+    this.onPosition,
   });
   final File file;
   final CardType type;
+
+  /// Oneshot filmé : la face cachée continue de tourner (en silence) pour que
+  /// le retournement tombe sur la suite de l'action et non sur un redémarrage.
+  final bool playsWhenHidden;
+
+  /// Position que l'autre face vient de quitter : sert à rattraper une dérive
+  /// au retournement.
+  final Duration? syncTo;
+
+  /// Remontée de la position de lecture pendant que cette face est regardée.
+  final ValueChanged<Duration>? onPosition;
 
   /// La face est posée à l'écran : la vidéo joue ; sinon elle est en pause.
   final bool active;
@@ -767,7 +763,11 @@ class _VideoFaceState extends State<_VideoFace> {
     _controller.initialize().then((_) {
       if (!mounted) return;
       _controller.setLooping(widget.loop);
-      if (widget.active) _controller.play();
+      // Face cachée d'un Oneshot filmé : elle joue quand même, en silence. Les
+      // deux faces sont le MÊME instant vu de deux côtés — le retournement doit
+      // donc tomber sur la suite, pas sur un redémarrage (consigne Jay).
+      _controller.setVolume(widget.active ? 1 : 0);
+      if (widget.active || widget.playsWhenHidden) _controller.play();
       setState(() {});
     });
   }
@@ -775,7 +775,10 @@ class _VideoFaceState extends State<_VideoFace> {
   void _onTick() {
     if (!mounted) return;
     final value = _controller.value;
-    if (!widget.loop &&
+    // Seule la face REGARDÉE consomme son budget de vue : la face cachée avance
+    // en silence et ne doit pas se déclarer terminée toute seule.
+    if (widget.active &&
+        !widget.loop &&
         !_completedFired &&
         value.isInitialized &&
         value.duration > Duration.zero &&
@@ -783,15 +786,34 @@ class _VideoFaceState extends State<_VideoFace> {
       _completedFired = true;
       widget.onCompleted?.call();
     }
+    if (widget.active) widget.onPosition?.call(value.position);
     setState(() {}); // rafraîchit la barre de progression
   }
 
   @override
   void didUpdateWidget(covariant _VideoFace oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.active != oldWidget.active && _controller.value.isInitialized) {
-      widget.active ? _controller.play() : _controller.pause();
+    if (widget.active == oldWidget.active || !_controller.value.isInitialized) {
+      return;
     }
+    if (!widget.playsWhenHidden) {
+      widget.active ? _controller.play() : _controller.pause();
+      return;
+    }
+    // Les deux faces tournent en parallèle : on ne fait que déplacer le son.
+    _controller.setVolume(widget.active ? 1 : 0);
+    if (!widget.active) return;
+    // Cette face vient d'arriver à l'écran. Les deux lecteurs ont démarré à
+    // quelques dizaines de ms d'écart et peuvent avoir dérivé : on se recale
+    // sur la position que l'autre face vient de quitter, mais seulement si
+    // l'écart s'entend (un seek systématique ferait un à-coup à chaque
+    // retournement).
+    final target = widget.syncTo;
+    if (target != null) {
+      final drift = (_controller.value.position - target).inMilliseconds.abs();
+      if (drift > 150) _controller.seekTo(target);
+    }
+    if (!_controller.value.isPlaying) _controller.play();
   }
 
   @override

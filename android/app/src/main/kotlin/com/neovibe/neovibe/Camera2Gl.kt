@@ -102,9 +102,15 @@ class Camera2Gl(
     private var videoFile: File? = null
     private val encoderBufferInfo = MediaCodec.BufferInfo()
 
-    /** Origine des PTS vidéo (1re image encodée) → piste vidéo démarre à ~0,
-     * pour rester synchro avec la piste audio (elle aussi normalisée à ~0). */
+    /** Origine des PTS vidéo (1re image encodée, horloge du capteur) → la piste
+     * vidéo démarre à ~0. */
     private var videoFirstTimestampNs = 0L
+
+    /** LE MÊME instant, sur l'horloge `System.nanoTime` (celle de la capture
+     * audio) : origine commune aux deux pistes. L'audio ne démarre pas en même
+     * temps que la vidéo (~450 ms plus tard) ; c'est ce décalage réel qu'il
+     * faut conserver, et non remettre chaque piste à zéro de son côté. */
+    private var videoFirstWallNs = 0L
 
     // Le muxer est touché par DEUX threads : le thread GL (piste vidéo) et le
     // thread audio (piste audio). MediaMuxer n'est PAS thread-safe → tout accès
@@ -570,6 +576,7 @@ class Camera2Gl(
         muxerStarted = false
         videoFile = file
         videoFirstTimestampNs = 0L
+        videoFirstWallNs = 0L
         hasAudio = withAudio
         recording = true
         CamLog.i(
@@ -606,13 +613,29 @@ class Camera2Gl(
         }
     }
 
-    override fun onAudioSample(buffer: ByteBuffer, info: MediaCodec.BufferInfo) =
-        synchronized(muxerLock) {
-            val mux = muxer ?: return
-            if (muxerStarted && audioTrackIndex >= 0) {
-                mux.writeSampleData(audioTrackIndex, buffer, info)
-            }
+    override fun onAudioSample(
+        buffer: ByteBuffer,
+        info: MediaCodec.BufferInfo,
+        sampleWallNs: Long,
+    ) = synchronized(muxerLock) {
+        val mux = muxer ?: return
+        // Tant qu'aucune image vidéo n'est encodée, il n'y a pas d'origine sur
+        // laquelle recaler l'audio : on laisse tomber l'échantillon (le muxer
+        // n'a de toute façon pas encore démarré).
+        if (!muxerStarted || audioTrackIndex < 0 || videoFirstWallNs == 0L) return
+        // Recalage sur l'origine de MA piste vidéo. Sans ça, les deux pistes
+        // partaient chacune de zéro alors que l'audio commence ~450 ms plus
+        // tard → son en avance sur l'image (retour de Jay, v0.9.20).
+        val alignedInfo = MediaCodec.BufferInfo().apply {
+            set(
+                info.offset,
+                info.size,
+                ((sampleWallNs - videoFirstWallNs) / 1_000).coerceAtLeast(0),
+                info.flags,
+            )
         }
+        mux.writeSampleData(audioTrackIndex, buffer, alignedInfo)
+    }
 
     /** Dessine l'image courante dans la surface d'entrée du codec + draine. */
     private fun encodeCurrentFrame(timestampNs: Long) {
@@ -620,7 +643,13 @@ class Camera2Gl(
         if (encSurf == EGL14.EGL_NO_SURFACE) return
         // Normalise le PTS vidéo sur la 1re image → la piste démarre à ~0, comme
         // la piste audio, pour qu'elles soient alignées dans le fichier.
-        if (videoFirstTimestampNs == 0L) videoFirstTimestampNs = timestampNs
+        if (videoFirstTimestampNs == 0L) {
+            videoFirstTimestampNs = timestampNs
+            // Même instant, mais sur l'horloge `System.nanoTime` — c'est celle
+            // de la capture audio. Sert d'origine COMMUNE aux deux pistes
+            // (voir onAudioSample) sans avoir à corréler l'horloge du capteur.
+            videoFirstWallNs = System.nanoTime()
+        }
         val ptsNs = (timestampNs - videoFirstTimestampNs).coerceAtLeast(0)
         EGL14.eglMakeCurrent(eglDisplay, encSurf, encSurf, eglContext)
         drawCurrentFrame()

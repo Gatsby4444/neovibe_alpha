@@ -1634,11 +1634,6 @@ class _RecapStepState extends State<_RecapStep> {
                     edited: back != _originalBack,
                     imported: widget.backImported,
                     isVideo: widget.backIsVideo,
-                    // Oneshot filmé : les deux vignettes sont des vidéos. On
-                    // n'en laisse jouer qu'UNE (le recto) — deux lectures
-                    // simultanées en gèlent une sur ce matériel (v0.9.12).
-                    // Le verso reste sur sa première image.
-                    autoPlayVideo: !widget.frontIsVideo,
                     onEdit: () => _editFace(false),
                     onRestore: () => _restoreFace(false),
                   ),
@@ -1686,16 +1681,10 @@ class _Shot extends StatelessWidget {
     required this.isVideo,
     required this.onEdit,
     required this.onRestore,
-    this.autoPlayVideo = true,
   });
   final String label;
   final File file;
   final bool edited;
-
-  /// Vignette vidéo qui joue en boucle. Mise à `false` quand une AUTRE
-  /// vignette vidéo joue déjà (Oneshot filmé) : cette face reste alors sur sa
-  /// première image, un seul lecteur vivant à la fois.
-  final bool autoPlayVideo;
 
   /// Image issue de la galerie : pas d'outils dessin/texte (consigne Jay).
   final bool imported;
@@ -1715,7 +1704,7 @@ class _Shot extends StatelessWidget {
           child: AspectRatio(
             aspectRatio: 9 / 16,
             child: isVideo
-                ? _VideoThumb(file: file, autoPlay: autoPlayVideo)
+                ? _VideoThumb(file: file)
                 : Image.file(file, fit: BoxFit.cover),
           ),
         ),
@@ -1759,12 +1748,8 @@ class _Shot extends StatelessWidget {
 
 /// Aperçu vidéo du récap : lecture en boucle, muette, recadrée cover.
 class _VideoThumb extends StatefulWidget {
-  const _VideoThumb({required this.file, this.autoPlay = true});
+  const _VideoThumb({required this.file});
   final File file;
-
-  /// `false` : la vignette s'arrête sur sa première image (un autre lecteur
-  /// vidéo joue déjà à l'écran — voir `_Shot.autoPlayVideo`).
-  final bool autoPlay;
 
   @override
   State<_VideoThumb> createState() => _VideoThumbState();
@@ -1782,8 +1767,8 @@ class _VideoThumbState extends State<_VideoThumb> {
       if (!mounted) return;
       _controller
         ..setLooping(true)
-        ..setVolume(0);
-      if (widget.autoPlay) _controller.play();
+        ..setVolume(0)
+        ..play();
       setState(() {});
     });
   }
