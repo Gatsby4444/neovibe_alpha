@@ -24,14 +24,25 @@ class NativeCameraController extends ChangeNotifier {
   var lensBack = true;
   var _disposed = false;
 
+  /// Attente de l'info d'affichage du flux simple après une bascule de caméra.
+  /// Voir [switchLens] : c'est ce qui évite l'aperçu à l'envers pendant un
+  /// instant.
+  Completer<void>? _mainInfoWaiter;
+
   Future<dynamic> _onPlatformCall(MethodCall call) async {
     if (call.method == 'previewInfo' && !_disposed) {
       final args = (call.arguments as Map).cast<String, dynamic>();
-      previews[args['key'] as String] = NativePreviewInfo(
+      final key = args['key'] as String;
+      previews[key] = NativePreviewInfo(
         width: args['width'] as int,
         height: args['height'] as int,
         rotationDegrees: args['rotation'] as int,
       );
+      if (key == 'main') {
+        final waiter = _mainInfoWaiter;
+        _mainInfoWaiter = null;
+        if (waiter != null && !waiter.isCompleted) waiter.complete();
+      }
       notifyListeners();
     }
     return null;
@@ -116,6 +127,7 @@ class NativeCameraController extends ChangeNotifier {
   Future<void> open({required bool back, required bool audio}) async {
     // Borné : l'ouverture attend la fermeture réelle d'un éventuel double flux
     // (côté natif), mais elle ne doit jamais bloquer l'écran indéfiniment.
+    final waiter = _mainInfoWaiter = Completer<void>();
     final res = await _channel
         .invokeMapMethod<String, dynamic>('open', {
           'back': back,
@@ -125,14 +137,34 @@ class NativeCameraController extends ChangeNotifier {
     lensBack = back;
     glDualActive = false;
     textureId = res?['textureId'] as int?;
+    // Même raison que dans [switchLens] : l'info d'affichage de la caméra qui
+    // s'ouvre doit précéder ses premières images, sinon l'aperçu leur applique
+    // la rotation de la caméra précédente.
+    await waiter.future.timeout(
+      const Duration(milliseconds: 700),
+      onTimeout: () {},
+    );
     notifyListeners();
   }
 
   /// Bascule avant/arrière. Pendant une vidéo (enregistrement persistant
   /// natif), l'enregistrement CONTINUE à travers la bascule.
+  ///
+  /// Ne rend la main qu'une fois l'info d'affichage de la NOUVELLE caméra
+  /// reçue. Sans ça, la texture montrait déjà les images de la caméra
+  /// d'arrivée alors que l'aperçu appliquait encore la rotation de la
+  /// précédente : entre l'arrière (capteur 90°) et l'avant (capteur 270°) il y
+  /// a 180° d'écart, d'où l'image à l'envers pendant un instant, puis le
+  /// sursaut de correction (bug signalé par Jay, présent depuis le début).
+  /// Borné : si l'info n'arrive pas, on dévoile quand même.
   Future<void> switchLens() async {
+    final waiter = _mainInfoWaiter = Completer<void>();
     final res = await _channel.invokeMapMethod<String, dynamic>('switchLens');
     lensBack = res?['back'] as bool? ?? !lensBack;
+    await waiter.future.timeout(
+      const Duration(milliseconds: 700),
+      onTimeout: () {},
+    );
     notifyListeners();
   }
 
