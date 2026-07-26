@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../../core/prefs.dart';
@@ -18,13 +20,22 @@ import '../../core/theme.dart';
 // Flash frontal : lueur d'écran
 // ---------------------------------------------------------------------------
 
-/// Lueur blanche à beige affichée **sur le contour de l'écran**, comme la
+/// Lueur blanche à beige occupant **toute la surface de l'écran**, comme la
 /// lampe annulaire d'un créateur de contenu : elle éclaire le visage en
 /// frontale, faute de LED en façade sur la plupart des appareils.
 ///
 /// Elle est allumée **en permanence tant que le flash frontal est actif**
 /// (arbitrage Jay 2026-07-26), et non au seul moment du déclenchement : c'est
 /// ce qui permet de la régler en la voyant, et de filmer avec.
+///
+/// **Principe de rendu (corrigé après le test de Jay, 2026-07-26)** :
+/// les pixels du bandeau sont à **luminosité MAXIMALE d'emblée** — le curseur
+/// d'intensité ne change pas leur éclat, il règle **jusqu'où le bandeau se
+/// propage vers l'intérieur** de l'écran. Le fondu vers le centre est
+/// purement stylistique, pour adoucir le bord intérieur, et ses **coins sont
+/// arrondis**. C'est le fonctionnement de Snapchat, et la première version s'en
+/// écartait : elle baissait la luminosité à faible intensité, ce qui donnait
+/// une lueur terne au lieu d'un bandeau fin mais franc.
 ///
 /// Les pixels sont dessinés PAR-DESSUS l'aperçu : la photo, elle, ne les
 /// contient pas — c'est le visage éclairé que la caméra capture.
@@ -36,9 +47,13 @@ class ScreenFlashOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IgnorePointer(
-      child: CustomPaint(
-        size: Size.infinite,
-        painter: _ScreenFlashPainter(settings),
+      // Isolée du reste : l'aperçu caméra repeint 30 fois par seconde, la
+      // lueur ne bouge que quand on touche un curseur.
+      child: RepaintBoundary(
+        child: CustomPaint(
+          size: Size.infinite,
+          painter: _ScreenFlashPainter(settings),
+        ),
       ),
     );
   }
@@ -53,61 +68,66 @@ class _ScreenFlashPainter extends CustomPainter {
   static const _cold = Color(0xFFFFFFFF);
   static const _warm = Color(0xFFFFD6A0);
 
+  /// Nombre de passes d'évidement du fondu intérieur.
+  static const _steps = 26;
+
+  /// Fraction retirée à chaque passe, telle qu'après [_steps] passes il ne
+  /// reste que 2 % — le centre est donc bien transparent.
+  static final double _bite = 1 - math.pow(0.02, 1 / _steps).toDouble();
+
   @override
   void paint(Canvas canvas, Size size) {
     final color = Color.lerp(_cold, _warm, settings.warmth)!;
-    final intensity = settings.intensity;
+    final bounds = Offset.zero & size;
+    final short = size.shortestSide;
 
-    // Largeur des bandes : de 4 % à 55 % du petit côté. Au maximum, les bandes
-    // opposées se recouvrent — TOUT l'écran est illuminé, ce qui est bien ce
-    // que Jay demande (« plus le curseur est poussé, plus la surface de l'écran
-    // est illuminée »).
-    final band = size.shortestSide * (0.04 + 0.51 * intensity);
-    // Une lampe qu'on pousse n'est pas seulement plus large : elle est aussi
-    // plus forte.
-    final alpha = 0.5 + 0.5 * intensity;
-    // Part de la bande qui reste PLEINE avant le dégradé de fondu. À faible
-    // intensité, tout est fondu (halo doux) ; à forte intensité, l'essentiel
-    // est plein et seul le bord intérieur s'adoucit.
-    final solid = 0.65 * intensity;
+    // **Profondeur de propagation** du bandeau vers l'intérieur : c'est le seul
+    // rôle du curseur d'intensité.
+    //
+    // Le maximum (1,15 × le petit côté) est calibré pour qu'à FOND DE CURSEUR
+    // le trou central ait entièrement disparu — tout l'écran est alors blanc à
+    // 100 %, comme sur Snapchat. Le trou se referme quand `reach - fade`
+    // dépasse la moitié du petit côté, soit `reach > short / (2 × 0,45)`
+    // = 1,11 × short ; la marge évite qu'une dernière passe d'effacement
+    // grise l'écran entier.
+    //
+    // Profil obtenu, vérifié hors Flutter sur un écran 393 × 852 : 34 % de la
+    // largeur éclairée au quart du curseur, 65 % à mi-course, 95 % aux trois
+    // quarts, 100 % à fond.
+    final reach = short * (0.05 + 1.10 * settings.intensity);
+    // Le fondu occupe la moitié intérieure du bandeau : franc côté bord,
+    // adouci côté centre.
+    final fade = reach * 0.55;
+    // Coins intérieurs arrondis (demande de Jay) : le rayon suit la propagation
+    // pour rester proportionné, mais il est **borné au tiers du petit côté de
+    // l'ouverture** — sans cette borne, le trou vire à l'ovale dès que le
+    // bandeau se referme, alors qu'on veut un rectangle aux coins adoucis.
+    double radiusFor(Rect hole) =>
+        math.min(reach * 0.8 + short * 0.04, hole.shortestSide * 0.33);
 
-    void edge(Rect rect, Alignment begin, Alignment end) {
-      canvas.drawRect(
-        rect,
-        Paint()
-          ..shader = LinearGradient(
-            begin: begin,
-            end: end,
-            colors: [
-              color.withValues(alpha: alpha),
-              color.withValues(alpha: alpha),
-              color.withValues(alpha: 0),
-            ],
-            stops: [0, solid, 1],
-          ).createShader(rect),
+    canvas.saveLayer(bounds, Paint());
+    // 1. Tout l'écran, à pleine luminosité.
+    canvas.drawRect(bounds, Paint()..color = color);
+
+    // 2. On évide le centre par rectangles arrondis concentriques, du plus
+    //    large (près du bord) au plus étroit : chaque passe retire une fraction
+    //    constante de ce qui reste, ce qui produit un fondu doux SANS
+    //    `MaskFilter.blur` — un flou plein écran serait recalculé à chaque
+    //    image de l'aperçu.
+    final erase = Paint()
+      ..blendMode = BlendMode.dstOut
+      ..color = Colors.black.withValues(alpha: _bite);
+    for (var i = 0; i < _steps; i++) {
+      final inset = reach - fade * (1 - i / (_steps - 1));
+      final hole = bounds.deflate(inset);
+      // Le bandeau s'est refermé sur lui-même : plus rien à évider.
+      if (hole.isEmpty) break;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(hole, Radius.circular(radiusFor(hole))),
+        erase,
       );
     }
-
-    edge(
-      Rect.fromLTWH(0, 0, size.width, band),
-      Alignment.topCenter,
-      Alignment.bottomCenter,
-    );
-    edge(
-      Rect.fromLTWH(0, size.height - band, size.width, band),
-      Alignment.bottomCenter,
-      Alignment.topCenter,
-    );
-    edge(
-      Rect.fromLTWH(0, 0, band, size.height),
-      Alignment.centerLeft,
-      Alignment.centerRight,
-    );
-    edge(
-      Rect.fromLTWH(size.width - band, 0, band, size.height),
-      Alignment.centerRight,
-      Alignment.centerLeft,
-    );
+    canvas.restore();
   }
 
   @override

@@ -183,6 +183,18 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   @override
   void initState() {
     super.initState();
+    // **Bord à bord** : l'app dessine DERRIÈRE la barre d'état et la barre de
+    // navigation. Indispensable au flash frontal — Jay (2026-07-26, seconde
+    // passe) : « toute la surface de l'écran, pas seulement la surface de
+    // l'app ». Restauré à la fermeture de l'écran.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
+      ),
+    );
     _camera.addListener(_onCameraChanged);
     _init();
     if (widget.bereal) {
@@ -1016,6 +1028,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
 
   @override
   void dispose() {
+    // Le reste de l'app n'est pas écrit pour le bord à bord : on rend la main
+    // aux barres système en quittant la capture.
+    SystemChrome.setEnabledSystemUIMode(
+      SystemUiMode.manual,
+      overlays: SystemUiOverlay.values,
+    );
     _berealTimer?.cancel();
     _recordTimer?.cancel();
     _countdownTimer?.cancel();
@@ -1278,6 +1296,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // façade. Le réglage survit à un aller-retour vers l'arrière.
     final screenFlashLit =
         _screenFlash && !_camera.lensBack && _type != CardType.oneshot;
+    // Retraits appliqués par le SafeArea : la lueur les annule pour reprendre
+    // l'écran entier.
+    final safePadding = MediaQuery.paddingOf(context);
 
     return Scaffold(
       backgroundColor: Colors.black,
@@ -1288,7 +1309,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         // déclencheur — son LongPressGestureRecognizer était détruit en
         // plein geste et onLongPressEnd n'arrivait jamais (relâcher ne
         // stoppait plus la vidéo).
+        //
+        // `Clip.none` : la lueur du flash frontal DÉBORDE volontairement de la
+        // zone sûre pour couvrir l'écran entier (voir sa clé plus bas).
         child: Stack(
+          clipBehavior: Clip.none,
           children: [
             Positioned.fill(
               key: const ValueKey('preview'),
@@ -1306,12 +1331,20 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                   ),
                 ),
               ),
-            // Flash frontal : la lueur couvre TOUT l'écran, pas seulement le
-            // cadre — c'est la surface éclairante (consigne Jay : « des pixels
-            // blancs en contour de l'écran »).
+            // Flash frontal : la lueur doit couvrir **TOUT L'ÉCRAN** — pas le
+            // cadre d'aperçu, ni même la zone de l'app (consigne Jay,
+            // 2026-07-26 seconde passe). Ce `Positioned` aux marges NÉGATIVES
+            // annule exactement le retrait du `SafeArea` parent : le calque
+            // repart des quatre bords physiques, barre d'état et barre de
+            // navigation comprises (d'où le mode bord à bord posé en initState
+            // et le `Clip.none` du Stack).
             if (screenFlashLit)
-              Positioned.fill(
+              Positioned(
                 key: const ValueKey('screen-flash'),
+                top: -safePadding.top,
+                bottom: -safePadding.bottom,
+                left: -safePadding.left,
+                right: -safePadding.right,
                 child: ScreenFlashOverlay(settings: screenFlashSettings),
               ),
             if (_countdown != null)
