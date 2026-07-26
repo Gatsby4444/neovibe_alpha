@@ -12,7 +12,9 @@ import 'package:video_player/video_player.dart';
 
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
+import '../../core/theme.dart';
 import 'card_send_screen.dart';
+import 'face_background.dart';
 import 'face_editor_screen.dart';
 import 'gallery_import_screen.dart';
 import 'native_camera.dart';
@@ -101,6 +103,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// Reprise d'UNE face depuis le récap : la prise qui suit remplace cette
   /// face et revient au récap, au lieu d'enchaîner sur la face suivante.
   var _retakeOnly = false;
+
+  /// Fond courant du bouton couleur : face entièrement colorée à l'appui
+  /// court, et fond derrière une photo importée qui ne remplit pas le cadre.
+  var _background = FaceBackground.black;
   var _error = '';
   var _busy = false; // capture ou bascule caméra en cours
   var _switching = false;
@@ -833,38 +839,41 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     await _ensureLens(back: isFront);
   }
 
-  /// « Face tableau » : saute la photo de la face courante et pose un fond
-  /// noir, à dessiner/annoter au récap (consigne Jay, avec confirmation).
-  Future<void> _useBlackboard() async {
+  /// Face entièrement colorée : saute la photo et pose un fond de la couleur
+  /// (ou du dégradé) courant, à dessiner/annoter à l'étape suivante.
+  ///
+  /// Plus de dialogue de confirmation depuis que le bouton porte la couleur
+  /// choisie : le geste est explicite, la demander à chaque fois serait une
+  /// friction inutile (l'ancien bouton « tableau » était ambigu, pas celui-ci).
+  Future<void> _useColorFace() async {
     if (_busy) return;
-    final label = _type == CardType.mono || _step == 0 ? 'recto' : 'verso';
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Face tableau'),
-        content: Text(
-          'Le $label ne sera pas une photo : tu auras un tableau noir à '
-          'dessiner et annoter à l\'étape suivante. Continuer ?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Oui, tableau'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
     setState(() => _busy = true);
     try {
-      final file = await _generateBlackboard();
+      final file = await _background.render();
       await _applyFace(file, imported: false);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Appui long sur le bouton couleur : palette (unis + dégradés).
+  Future<void> _openPalette() async {
+    final chosen = await showFaceBackgroundPalette(
+      context,
+      current: _background,
+    );
+    if (chosen != null && mounted) setState(() => _background = chosen);
+  }
+
+  Future<void> _setFlash(FlashMode mode) async {
+    try {
+      await _camera.setFlash(mode);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Flash indisponible : $e')));
+      }
     }
   }
 
@@ -880,32 +889,16 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     if (picked == null || !mounted) return;
     final adjusted = await Navigator.of(context).push<File>(
       MaterialPageRoute(
-        builder: (_) => GalleryImportScreen(source: File(picked.path)),
+        builder: (_) => GalleryImportScreen(
+          source: File(picked.path),
+          // Le fond du bouton couleur sert aussi ici : c'est ce qu'on voit
+          // derrière une photo qui ne remplit pas le 9:16 (consigne Jay).
+          background: _background,
+        ),
       ),
     );
     if (adjusted == null || !mounted) return;
     await _applyFace(adjusted, imported: true);
-  }
-
-  static Future<File> _generateBlackboard() async {
-    // Format unifié des cards : 9:16 vertical
-    const width = 900.0, height = 1600.0;
-    final recorder = ui.PictureRecorder();
-    final canvas = ui.Canvas(recorder);
-    canvas.drawRect(
-      const ui.Rect.fromLTWH(0, 0, width, height),
-      ui.Paint()..color = const ui.Color(0xFF000000),
-    );
-    final image = await recorder.endRecording().toImage(
-      width.toInt(),
-      height.toInt(),
-    );
-    final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-    final file = File(
-      '${Directory.systemTemp.path}/board_${DateTime.now().millisecondsSinceEpoch}.png',
-    );
-    await file.writeAsBytes(bytes!.buffer.asUint8List());
-    return file;
   }
 
   @override
@@ -1385,27 +1378,41 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                   onPressed: _busy ? null : _importFromGallery,
                 ),
               ),
-            // Face tableau : fond noir au lieu d'une photo
+            // Colonne d'outils à droite (consigne Jay 2026-07-26), de haut en
+            // bas : flash (menu qui s'ouvre vers la gauche), couleur de fond,
+            // bascule caméra.
             if (!_recording)
               Positioned(
-                key: const ValueKey('blackboard'),
+                key: const ValueKey('tools'),
+                right: 20,
                 bottom: 42,
-                right: 28,
-                child: IconButton.filledTonal(
-                  tooltip: 'Face tableau (fond noir à dessiner)',
-                  icon: const Icon(Icons.gesture),
-                  onPressed: _busy ? null : _useBlackboard,
-                ),
-              ),
-            if (showLensToggle)
-              Positioned(
-                key: const ValueKey('lens-toggle'),
-                bottom: 108,
-                right: 28,
-                child: IconButton.filledTonal(
-                  tooltip: 'Changer de caméra',
-                  icon: const Icon(Icons.cameraswitch),
-                  onPressed: _busy || _switching ? null : _toggleLens,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    _FlashControl(
+                      mode: _camera.flashMode,
+                      available: _camera.hasFlash,
+                      onChanged: _busy ? null : _setFlash,
+                    ),
+                    const SizedBox(height: 12),
+                    if (showLensToggle) ...[
+                      IconButton.filledTonal(
+                        tooltip: 'Changer de caméra',
+                        icon: const Icon(Icons.cameraswitch),
+                        onPressed: _busy || _switching ? null : _toggleLens,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    // Bouton COULEUR (ex-bouton dessin) : appui court = face
+                    // entièrement remplie de cette couleur, appui long =
+                    // palette.
+                    _ColorButton(
+                      background: _background,
+                      onTap: _busy ? null : _useColorFace,
+                      onLongPress: _busy ? null : _openPalette,
+                    ),
+                  ],
                 ),
               ),
             // Indicateur d'enregistrement : durée + consigne de verrouillage
@@ -1791,6 +1798,130 @@ class _RecapStepState extends State<_RecapStep> {
             child: const Text('Continuer'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Bouton flash + menu dépliant (consigne Jay 2026-07-26) : quatre modes en
+/// **pictogrammes seuls**, le menu s'ouvre **vers la gauche**.
+///
+/// Grisé quand la caméra active n'a pas de LED — c'est le cas de la frontale
+/// sur la plupart des appareils : mieux vaut un bouton inerte qu'un bouton qui
+/// ment.
+class _FlashControl extends StatefulWidget {
+  const _FlashControl({
+    required this.mode,
+    required this.available,
+    required this.onChanged,
+  });
+
+  final FlashMode mode;
+  final bool available;
+  final ValueChanged<FlashMode>? onChanged;
+
+  @override
+  State<_FlashControl> createState() => _FlashControlState();
+}
+
+class _FlashControlState extends State<_FlashControl> {
+  var _open = false;
+
+  static IconData _icon(FlashMode mode) => switch (mode) {
+    FlashMode.off => Icons.flash_off,
+    FlashMode.auto => Icons.flash_auto,
+    FlashMode.on => Icons.flash_on,
+    FlashMode.torch => Icons.wb_sunny,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onChanged != null && widget.available;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // Le menu occupe la place à GAUCHE du bouton ; sa largeur s'anime.
+        ClipRect(
+          child: AnimatedAlign(
+            alignment: Alignment.centerRight,
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOut,
+            widthFactor: _open ? 1 : 0,
+            child: AnimatedOpacity(
+              opacity: _open ? 1 : 0,
+              duration: const Duration(milliseconds: 140),
+              child: Container(
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black54,
+                  borderRadius: BorderRadius.circular(24),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final mode in FlashMode.values)
+                      IconButton(
+                        iconSize: 20,
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(
+                          _icon(mode),
+                          color: mode == widget.mode
+                              ? NeoTheme.accentPink
+                              : Colors.white,
+                        ),
+                        onPressed: () {
+                          setState(() => _open = false);
+                          widget.onChanged?.call(mode);
+                        },
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        IconButton.filledTonal(
+          tooltip: widget.available ? 'Flash' : 'Pas de flash sur cette caméra',
+          icon: Icon(
+            _icon(widget.mode),
+            color: widget.mode == FlashMode.off ? null : NeoTheme.accentPink,
+          ),
+          onPressed: enabled ? () => setState(() => _open = !_open) : null,
+        ),
+      ],
+    );
+  }
+}
+
+/// Bouton couleur : une pastille de la couleur (ou du dégradé) choisie.
+/// Appui court = face entièrement colorée ; appui long = palette.
+class _ColorButton extends StatelessWidget {
+  const _ColorButton({
+    required this.background,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final FaceBackground background;
+  final VoidCallback? onTap;
+  final VoidCallback? onLongPress;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: 'Face colorée — appui long pour la palette',
+      child: GestureDetector(
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Container(
+          width: 44,
+          height: 44,
+          decoration: background.decoration.copyWith(
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white70, width: 2),
+          ),
+        ),
       ),
     );
   }

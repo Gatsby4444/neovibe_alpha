@@ -4,6 +4,22 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+/// Modes de flash (consigne Jay 2026-07-26) — les noms sont le contrat du
+/// canal, ne pas les renommer sans toucher `NativeCamera.kt`.
+enum FlashMode {
+  /// Éteint — le défaut.
+  off,
+
+  /// Décidé par la caméra selon la lumière.
+  auto,
+
+  /// Se déclenche au moment de la photo.
+  on,
+
+  /// LED allumée en continu (et seul éclairage possible en vidéo).
+  torch,
+}
+
 /// Pilote Dart de la couche caméra native NeoVibe (voir NativeCamera.kt).
 /// Remplace le plugin `camera` (décision Jay 2026-07-13) et débloque le
 /// double flux Oneshot, la bascule caméra EN COURS de vidéo (Mono) et
@@ -144,6 +160,7 @@ class NativeCameraController extends ChangeNotifier {
       const Duration(milliseconds: 700),
       onTimeout: () {},
     );
+    await refreshFlashAvailability(notify: false);
     notifyListeners();
   }
 
@@ -165,7 +182,41 @@ class NativeCameraController extends ChangeNotifier {
       const Duration(milliseconds: 700),
       onTimeout: () {},
     );
+    // La frontale n'a en général pas de LED : le bouton flash doit le refléter.
+    await refreshFlashAvailability(notify: false);
     notifyListeners();
+  }
+
+  /// Mode de flash courant, retenu côté natif et ré-appliqué à chaque bind.
+  /// `off` (défaut) | `auto` | `on` (à la prise) | `torch` (permanent).
+  var flashMode = FlashMode.off;
+
+  /// La caméra active a-t-elle une LED ? Faux sur la frontale de la plupart
+  /// des appareils — le bouton est alors grisé plutôt que menteur.
+  var hasFlash = false;
+
+  Future<void> setFlash(FlashMode mode) async {
+    final res = await _channel.invokeMapMethod<String, dynamic>('setFlash', {
+      'mode': mode.name,
+    });
+    flashMode = mode;
+    hasFlash = res?['hasFlash'] as bool? ?? false;
+    notifyListeners();
+  }
+
+  /// Rafraîchit [hasFlash] — appelé après chaque ouverture ou bascule, la
+  /// frontale n'ayant en général pas de LED.
+  Future<void> refreshFlashAvailability({bool notify = true}) async {
+    try {
+      final res = await _channel.invokeMapMethod<String, dynamic>('hasFlash');
+      final value = res?['hasFlash'] as bool? ?? false;
+      if (value != hasFlash) {
+        hasFlash = value;
+        if (notify) notifyListeners();
+      }
+    } catch (_) {
+      // Diagnostic pur : un échec ne doit rien casser.
+    }
   }
 
   Future<File> takePicture() async {

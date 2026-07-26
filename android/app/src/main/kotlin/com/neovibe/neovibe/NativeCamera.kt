@@ -241,6 +241,15 @@ class NativeCamera(
                 "takePicture" -> takePicture(result)
                 "startVideo" -> startVideo(call, result)
                 "stopVideo" -> stopVideo(result)
+                // Flash : le mode est RETENU côté natif et ré-appliqué à chaque
+                // bind (une bascule de caméra crée une nouvelle instance).
+                "setFlash" -> {
+                    flashMode = call.argument<String>("mode") ?: "off"
+                    applyFlash()
+                    CamLog.i("simple", "flash → $flashMode (unité=${hasFlashUnit()})")
+                    result.success(mapOf("hasFlash" to hasFlashUnit()))
+                }
+                "hasFlash" -> result.success(mapOf("hasFlash" to hasFlashUnit()))
                 // --- Rendu GPU : aperçu d'UNE caméra (écran de test dev) ----
                 "openGlPreview" -> withProvider(result) { p ->
                     val back = call.argument<Boolean>("back") ?: true
@@ -548,7 +557,43 @@ class NativeCamera(
             imageCapture!!,
             videoCapture!!,
         )
+        // Le bind crée une nouvelle instance de caméra : le mode flash et la
+        // torche ne survivent pas à une bascule, il faut les reposer.
+        applyFlash()
     }
+
+    // ------------------------------------------------------------------
+    // Flash (consigne Jay 2026-07-26 : éteint / auto / à la prise / permanent)
+    // ------------------------------------------------------------------
+
+    /** "off" | "auto" | "on" (à la prise) | "torch" (permanent). */
+    private var flashMode = "off"
+
+    /**
+     * Applique le mode courant à la caméra bindée.
+     *
+     * Deux mécanismes distincts : `ImageCapture.flashMode` (le flash se
+     * déclenche AU MOMENT de la photo) et `CameraControl.enableTorch` (la LED
+     * reste allumée — c'est aussi le SEUL éclairage possible en vidéo, où le
+     * flash à la prise n'a pas de sens).
+     *
+     * Sans unité de flash (frontale de la plupart des appareils), on ne fait
+     * rien : le Dart grise le bouton à partir de `hasFlash`.
+     */
+    private fun applyFlash() {
+        val camera = boundCamera ?: return
+        if (!camera.cameraInfo.hasFlashUnit()) return
+        imageCapture?.flashMode = when (flashMode) {
+            "auto" -> ImageCapture.FLASH_MODE_AUTO
+            "on" -> ImageCapture.FLASH_MODE_ON
+            else -> ImageCapture.FLASH_MODE_OFF // "off" et "torch"
+        }
+        camera.cameraControl.enableTorch(flashMode == "torch")
+    }
+
+    /** La caméra actuellement bindée a-t-elle une LED ? */
+    private fun hasFlashUnit(): Boolean =
+        boundCamera?.cameraInfo?.hasFlashUnit() ?: false
 
     /**
      * Attend que la caméra soit RÉELLEMENT ouverte après un bind, puis appelle
@@ -669,6 +714,9 @@ class NativeCamera(
         preview = null
         imageCapture = null
         videoCapture = null
+        // Sans ça, `applyFlash` parlerait à une caméra qui ne tient plus rien
+        // (typiquement pendant le double flux GPU, où CameraX n'est pas bindé).
+        boundCamera = null
     }
 
     /**

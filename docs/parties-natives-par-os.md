@@ -45,10 +45,21 @@ caméras en même temps).
 **Canal** : `neovibe/camera`. Méthodes actuelles (contrat partagé) :
 `open`, `close`, `switchLens`, `takePicture`, `startVideo`, `stopVideo`,
 `normalize`, `capabilities`, `isCameraServiceAlive`, `setSecure`, `log`,
-`readLog`, `clearLog`, `openGlPreview`, `closeGlPreview`, `openGlDual`,
-`closeGlDual`, `captureGlDual`, `startGlDualVideo`, `stopGlDualVideo`.
+`readLog`, `clearLog`, `setFlash`, `hasFlash`, `openGlPreview`,
+`closeGlPreview`, `openGlDual`, `closeGlDual`, `captureGlDual`,
+`startGlDualVideo`, `stopGlDualVideo`.
 Événement natif→Dart : `previewInfo`.
-*(Vérifié conforme au code le 2026-07-25, après l'étape 5d.)*
+*(Vérifié conforme au code le 2026-07-26.)*
+
+> **Flash (ajouté le 2026-07-26)** — `setFlash(mode)` avec
+> `off` | `auto` | `on` | `torch`, et `hasFlash` pour savoir si la caméra
+> active a une LED. Deux mécanismes distincts côté Android :
+> `ImageCapture.flashMode` (déclenchement à la photo) et
+> `CameraControl.enableTorch` (LED continue — le seul éclairage possible en
+> vidéo). **Le mode est retenu côté natif et ré-appliqué à chaque bind** : une
+> bascule de caméra crée une nouvelle instance et perdrait le réglage.
+> iOS : `AVCaptureDevice.torchMode` / `flashMode`, même contrat, même piège
+> (réappliquer après un changement d'entrée).
 
 > **Retiré à l'étape 5d (2026-07-25)** : `openDual`, `takeDualPictures`,
 > `startDualVideo`, `stopDualVideo` (ancien moteur double **logiciel**) et

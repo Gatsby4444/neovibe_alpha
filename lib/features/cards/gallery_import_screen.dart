@@ -5,6 +5,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
+import 'face_background.dart';
+
 /// Ajustement d'une image importée de la galerie avant de la poser sur une
 /// card (consigne Jay 2026-07-12) : recadrage par zoom/déplacement/rotation
 /// avec prévisualisation dans le cadre 9:16, deux bases « Remplir » (cover)
@@ -12,9 +14,18 @@ import 'package:flutter/rendering.dart';
 /// + bouton 90°. Pas d'outils dessin/texte sur une image importée.
 /// Rend un fichier PNG 900×1600 : exactement ce que montre l'aperçu.
 class GalleryImportScreen extends StatefulWidget {
-  const GalleryImportScreen({super.key, required this.source});
+  const GalleryImportScreen({
+    super.key,
+    required this.source,
+    this.background = FaceBackground.black,
+  });
 
   final File source;
+
+  /// Fond visible en mode « Adapter », quand l'image ne couvre pas le 9:16.
+  /// Noir historiquement ; désormais la couleur choisie sur l'écran de capture
+  /// (consigne Jay 2026-07-26).
+  final FaceBackground background;
 
   @override
   State<GalleryImportScreen> createState() => _GalleryImportScreenState();
@@ -132,8 +143,8 @@ class _GalleryImportScreenState extends State<GalleryImportScreen> {
                       child: RepaintBoundary(
                         key: _boundaryKey,
                         child: ClipRect(
-                          child: ColoredBox(
-                            color: Colors.black,
+                          child: DecoratedBox(
+                            decoration: widget.background.decoration,
                             child: Transform(
                               alignment: Alignment.center,
                               transform: Matrix4.identity()
