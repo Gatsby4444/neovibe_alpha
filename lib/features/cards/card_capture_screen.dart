@@ -1143,8 +1143,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // Mono garde en plus le double-tap et la bascule PENDANT la vidéo (la
     // couche native maintient l'enregistrement à travers, comme Snapchat).
     final showLensToggle = switch (_type) {
-      CardType.bereal => false,
-      CardType.oneshot => _step == 0 && !_camera.glDualActive && !_recording,
+      // BeReal : la contrainte du format est de ne pas choisir.
+      // Oneshot : les deux caméras prennent en même temps, il n'y a pas de sens
+      // à choisir (consigne Jay 2026-07-26 — y compris en vue simple de
+      // secours, où la bascule existait encore).
+      CardType.bereal || CardType.oneshot => false,
       CardType.mono => true,
       _ => !_recording,
     };
@@ -1379,9 +1382,14 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 ),
               ),
             // Colonne d'outils à droite (consigne Jay 2026-07-26), de haut en
-            // bas : flash (menu qui s'ouvre vers la gauche), couleur de fond,
-            // bascule caméra.
-            if (!_recording)
+            // bas : flash (menu qui s'ouvre vers la gauche), bascule caméra,
+            // couleur de fond.
+            //
+            // **Rien de tout ça en Oneshot** (consigne Jay 2026-07-26) : le
+            // Oneshot, c'est la caméra pure. Jamais de face tableau, pas de
+            // bascule de sens (les deux caméras prennent en même temps), et un
+            // flash qui n'aura pas les mêmes règles — Jay détaillera.
+            if (!_recording && _type != CardType.oneshot)
               Positioned(
                 key: const ValueKey('tools'),
                 right: 20,
@@ -1395,12 +1403,16 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      _FlashControl(
-                        mode: _camera.flashMode,
-                        available: _camera.hasFlash,
-                        onChanged: _busy ? null : _setFlash,
-                      ),
-                      const SizedBox(height: 12),
+                      // Flash affiché SEULEMENT si la caméra active a une LED
+                      // — donc pas sur la frontale (consigne Jay : pas
+                      // d'option flash en frontale, il détaillera plus tard).
+                      if (_camera.hasFlash) ...[
+                        _FlashControl(
+                          mode: _camera.flashMode,
+                          onChanged: _busy ? null : _setFlash,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
                       if (showLensToggle) ...[
                         IconButton.filledTonal(
                           tooltip: 'Changer de caméra',
@@ -1812,18 +1824,12 @@ class _RecapStepState extends State<_RecapStep> {
 /// Bouton flash + menu dépliant (consigne Jay 2026-07-26) : quatre modes en
 /// **pictogrammes seuls**, le menu s'ouvre **vers la gauche**.
 ///
-/// Grisé quand la caméra active n'a pas de LED — c'est le cas de la frontale
-/// sur la plupart des appareils : mieux vaut un bouton inerte qu'un bouton qui
-/// ment.
+/// N'est monté que si la caméra active a une LED : pas de bouton du tout en
+/// frontale (consigne Jay — un bouton grisé restait du bruit).
 class _FlashControl extends StatefulWidget {
-  const _FlashControl({
-    required this.mode,
-    required this.available,
-    required this.onChanged,
-  });
+  const _FlashControl({required this.mode, required this.onChanged});
 
   final FlashMode mode;
-  final bool available;
   final ValueChanged<FlashMode>? onChanged;
 
   @override
@@ -1842,7 +1848,7 @@ class _FlashControlState extends State<_FlashControl> {
 
   @override
   Widget build(BuildContext context) {
-    final enabled = widget.onChanged != null && widget.available;
+    final enabled = widget.onChanged != null;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -1888,7 +1894,7 @@ class _FlashControlState extends State<_FlashControl> {
           ),
         ),
         IconButton.filledTonal(
-          tooltip: widget.available ? 'Flash' : 'Pas de flash sur cette caméra',
+          tooltip: 'Flash',
           icon: Icon(
             _icon(widget.mode),
             color: widget.mode == FlashMode.off ? null : NeoTheme.accentPink,

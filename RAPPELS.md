@@ -39,6 +39,8 @@ Ne rien y supprimer sans validation explicite de Jay.
 
 | # | Sujet | Détail | Depuis |
 |---|-------|--------|--------|
+| 2 | **Flash en Oneshot et en frontale** | Le Oneshot n'a **aucun** outil (consigne Jay 2026-07-26 : « la caméra pure ») — le flash y aura ses propres règles, **Jay détaillera**. Le flash est aussi **retiré de la caméra frontale** (pas de LED en façade sur le Redmi) : à trancher plus tard, éventuellement un « flash écran ». | 2026-07-26 |
+| 3 | **Bouton couleur en BeReal** | Le bouton couleur (face entièrement colorée) est aujourd'hui **disponible en BeReal**. À trancher : une face colorée est une forme de post-production, ce que le format BeReal exclut par principe. Pas signalé par Jay, question ouverte de ma part. | 2026-07-26 |
 | 1 | **Reprise caméra après éviction par le système** | Vu dans le journal du 2026-07-25 (`erreur caméra 3` = `ERROR_CAMERA_DISABLED`, les deux caméras d'un coup, après ~60 s de double flux) : Android retire la caméra à l'app (veille, arrière-plan, autre app). Jay pense être passé sur autre chose entre-temps. L'app s'en remet, mais **le comportement au retour au premier plan n'est pas décidé** : rouvrir le double flux automatiquement, ou revenir au flux simple et laisser relancer ? À trancher avec Jay avant la prod — et à traiter prudemment (une reprise caméra mal faite casse le service caméra d'Android). | 2026-07-25 |
 
 ## Bugs connus, à corriger
