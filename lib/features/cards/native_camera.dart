@@ -98,9 +98,17 @@ class NativeCameraController extends ChangeNotifier {
   /// Le même travail en Dart (décodage + `PictureRecorder` + encodage **PNG**)
   /// prenait plusieurs secondes pour un Oneshot — assez pour que l'utilisateur
   /// ait le temps de changer de mode pendant le traitement (bug du 2026-07-14).
-  static Future<File> normalize(File source) async {
+  ///
+  /// [hd] : bouton HD de l'écran de capture — format 1440×2560 au lieu de
+  /// 900×1600 (consigne Jay 2026-07-26). Le cliché source est déjà en pleine
+  /// résolution ; c'est bien la normalisation qui décidait de la finesse
+  /// conservée.
+  static Future<File> normalize(File source, {bool hd = false}) async {
     final res = await _channel
-        .invokeMapMethod<String, dynamic>('normalize', {'path': source.path})
+        .invokeMapMethod<String, dynamic>('normalize', {
+          'path': source.path,
+          'hd': hd,
+        })
         .timeout(const Duration(seconds: 10));
     return File(res!['path'] as String);
   }

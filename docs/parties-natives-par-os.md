@@ -60,6 +60,17 @@ caméras en même temps).
 > bascule de caméra crée une nouvelle instance et perdrait le réglage.
 > iOS : `AVCaptureDevice.torchMode` / `flashMode`, même contrat, même piège
 > (réappliquer après un changement d'entrée).
+>
+> **Flash FRONTAL : rien à écrire en natif.** La lueur d'écran (consigne Jay
+> 2026-07-26) est **entièrement en Dart** (`capture_tools.dart`) : des pixels
+> blancs à beige peints sur le contour de l'écran, faute de LED en façade. Elle
+> ne coûte donc aucun portage iOS.
+
+> **`normalize` prend un argument `hd` (2026-07-26)** — `true` : la face est
+> mise au format **1440×2560** au lieu de 900×1600 (bouton HD de l'écran de
+> capture). Aucun changement de configuration de la caméra : le cliché sortant
+> d'`ImageCapture` est déjà en pleine résolution, c'est la normalisation qui
+> décidait de la finesse conservée. Côté iOS, même signature attendue.
 
 > **Retiré à l'étape 5d (2026-07-25)** : `openDual`, `takeDualPictures`,
 > `startDualVideo`, `stopDualVideo` (ancien moteur double **logiciel**) et

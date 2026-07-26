@@ -65,6 +65,18 @@ class NativeCamera(
         /** Format unifié d'une face de card (9:16). */
         const val CARD_WIDTH = 900
         const val CARD_HEIGHT = 1600
+
+        /**
+         * Format d'une face prise en **HD** (bouton HD, consigne Jay
+         * 2026-07-26) : même 9:16, 2,5× plus de pixels. Le cliché sortant de
+         * `ImageCapture` est déjà en pleine résolution — c'est la
+         * normalisation qui décidait jusqu'ici de la finesse conservée.
+         *
+         * Photos uniquement : la VIDÉO reste plafonnée par la limite d'upload
+         * Supabase (50 Mo/fichier), arbitrage Jay du 2026-07-26.
+         */
+        const val HD_WIDTH = 1440
+        const val HD_HEIGHT = 2560
     }
 
     private val channel = MethodChannel(messenger, "neovibe/camera")
@@ -396,13 +408,15 @@ class NativeCamera(
                     // un encodage JPEG, sur un thread de fond.
                     val src = call.argument<String>("path")
                         ?: return result.error("BAD_ARGS", "chemin manquant", null)
+                    val hd = call.argument<Boolean>("hd") ?: false
                     ioExecutor.execute {
                         val started = System.currentTimeMillis()
                         try {
-                            val out = normalize916(src)
+                            val out = normalize916(src, hd)
                             CamLog.i(
                                 "image",
-                                "normalisation en ${System.currentTimeMillis() - started} ms " +
+                                "normalisation${if (hd) " HD" else ""} en " +
+                                    "${System.currentTimeMillis() - started} ms " +
                                     "(${out.length() / 1024} Ko)",
                             )
                             mainExecutor.execute {
@@ -753,7 +767,11 @@ class NativeCamera(
      * faisait durer une capture Oneshot plusieurs secondes — assez longtemps
      * pour que Jay change de mode pendant le traitement.
      */
-    private fun normalize916(sourcePath: String): File {
+    private fun normalize916(sourcePath: String, hd: Boolean = false): File {
+        // Bouton HD : même cadre 9:16, 2,5× plus de pixels (consigne Jay).
+        val targetWidth = if (hd) HD_WIDTH else CARD_WIDTH
+        val targetHeight = if (hd) HD_HEIGHT else CARD_HEIGHT
+
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(sourcePath, bounds)
 
@@ -761,8 +779,8 @@ class NativeCamera(
         // l'image reste plus grande que la cible.
         var sample = 1
         while (
-            bounds.outWidth / (sample * 2) >= CARD_WIDTH &&
-            bounds.outHeight / (sample * 2) >= CARD_HEIGHT
+            bounds.outWidth / (sample * 2) >= targetWidth &&
+            bounds.outHeight / (sample * 2) >= targetHeight
         ) {
             sample *= 2
         }
@@ -793,7 +811,7 @@ class NativeCamera(
         }
 
         // Recadrage centré au ratio de la card, puis mise à l'échelle.
-        val ratio = CARD_WIDTH.toFloat() / CARD_HEIGHT
+        val ratio = targetWidth.toFloat() / targetHeight
         var cropW = bitmap.width.toFloat()
         var cropH = bitmap.height.toFloat()
         if (cropW / cropH > ratio) cropW = cropH * ratio else cropH = cropW / ratio
@@ -804,11 +822,11 @@ class NativeCamera(
             ((bitmap.height + cropH) / 2).toInt(),
         )
 
-        val card = Bitmap.createBitmap(CARD_WIDTH, CARD_HEIGHT, Bitmap.Config.ARGB_8888)
+        val card = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
         Canvas(card).drawBitmap(
             bitmap,
             src,
-            Rect(0, 0, CARD_WIDTH, CARD_HEIGHT),
+            Rect(0, 0, targetWidth, targetHeight),
             Paint(Paint.FILTER_BITMAP_FLAG),
         )
         bitmap.recycle()

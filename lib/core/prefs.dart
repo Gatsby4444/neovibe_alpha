@@ -59,6 +59,89 @@ final selfieMirrorProvider = NotifierProvider<SelfieMirror, bool>(
   SelfieMirror.new,
 );
 
+/// Grille de cadrage de l'écran de capture (consigne Jay 2026-07-26).
+/// « L'état de la grille est conservé tout le temps jusqu'à son changement » :
+/// c'est donc une préférence, pas un état d'écran — elle survit à la fermeture
+/// de la capture et au redémarrage de l'app.
+class CaptureGrid extends Notifier<bool> {
+  static const _key = 'capture_grid';
+
+  @override
+  bool build() {
+    _load();
+    return false;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_key) ?? false;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_key, value);
+  }
+}
+
+final captureGridProvider = NotifierProvider<CaptureGrid, bool>(
+  CaptureGrid.new,
+);
+
+/// Calibrage du FLASH FRONTAL (lueur d'écran, consigne Jay 2026-07-26) :
+/// chaleur de la lumière et intensité, réglées aux deux curseurs.
+///
+/// Seul le CALIBRAGE est mémorisé, pas l'allumage : on ne règle sa lampe
+/// qu'une fois, mais un flash s'allume à la demande — comme le flash arrière,
+/// qui repart éteint à chaque ouverture de la capture.
+class ScreenFlashSettings {
+  const ScreenFlashSettings({required this.warmth, required this.intensity});
+
+  /// 0 = blanc pur, 1 = beige chaud (lampe de créateur de contenu).
+  final double warmth;
+
+  /// 0 = fin liseré sur le contour, 1 = écran entièrement illuminé.
+  final double intensity;
+
+  ScreenFlashSettings copyWith({double? warmth, double? intensity}) =>
+      ScreenFlashSettings(
+        warmth: warmth ?? this.warmth,
+        intensity: intensity ?? this.intensity,
+      );
+}
+
+class ScreenFlash extends Notifier<ScreenFlashSettings> {
+  static const _warmthKey = 'screen_flash_warmth';
+  static const _intensityKey = 'screen_flash_intensity';
+
+  @override
+  ScreenFlashSettings build() {
+    _load();
+    // Défaut : blanc franc, intensité moyenne — un éclairage utile dès le
+    // premier allumage, sans avoir à toucher les curseurs.
+    return const ScreenFlashSettings(warmth: 0, intensity: 0.5);
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = ScreenFlashSettings(
+      warmth: prefs.getDouble(_warmthKey) ?? 0,
+      intensity: prefs.getDouble(_intensityKey) ?? 0.5,
+    );
+  }
+
+  Future<void> set(ScreenFlashSettings value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_warmthKey, value.warmth);
+    await prefs.setDouble(_intensityKey, value.intensity);
+  }
+}
+
+final screenFlashProvider = NotifierProvider<ScreenFlash, ScreenFlashSettings>(
+  ScreenFlash.new,
+);
+
 /// Nombre de vues appliqué par défaut aux nouvelles Cards (1-5, consigne : 2).
 class DefaultMaxViews extends Notifier<int> {
   static const _key = 'default_max_views';

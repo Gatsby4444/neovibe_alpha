@@ -13,6 +13,7 @@ import 'package:video_player/video_player.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
+import 'capture_tools.dart';
 import 'card_send_screen.dart';
 import 'face_background.dart';
 import 'face_editor_screen.dart';
@@ -107,6 +108,36 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// Fond courant du bouton couleur : face entièrement colorée à l'appui
   /// court, et fond derrière une photo importée qui ne remplit pas le cadre.
   var _background = FaceBackground.black;
+
+  /// **Flash frontal allumé** (lueur d'écran, consigne Jay 2026-07-26).
+  /// Le CALIBRAGE (chaleur, intensité) est mémorisé en préférences ;
+  /// l'allumage, lui, repart éteint à chaque ouverture de la capture, comme le
+  /// flash arrière. La lueur n'est affichée qu'en caméra frontale : c'est un
+  /// flash de façade, il n'a aucun sens sur l'arrière.
+  var _screenFlash = false;
+
+  /// **Retardateur armé**, en secondes (0 = aucun).
+  ///
+  /// Il est désarmé dès qu'une face est prise, et [_timerRestore] garde la
+  /// dernière valeur choisie pour la rétablir si l'utilisateur REPREND la face
+  /// (consigne Jay : « désactivé après la prise, mais rétabli si l'utilisateur
+  /// souhaite reprendre la photo ou la vidéo »).
+  var _timerSeconds = 0;
+  var _timerRestore = 0;
+
+  /// Décompte en cours (null = aucun) et ce qu'il déclenchera à zéro.
+  int? _countdown;
+  Timer? _countdownTimer;
+  VoidCallback? _countdownAction;
+
+  /// **Photo HD** : la face est normalisée en 1440×2560 au lieu de 900×1600.
+  /// L'état vaut pour toute la card (l'écran vit le temps de la prise, il
+  /// disparaît à l'annulation comme à la finalisation) mais reste réglable
+  /// face par face — consigne Jay.
+  ///
+  /// Sans effet sur la vidéo, dont le débit est plafonné par la limite d'upload
+  /// Supabase (arbitrage Jay 2026-07-26, voir `RAPPELS.md`).
+  var _hd = false;
   var _error = '';
   var _busy = false; // capture ou bascule caméra en cours
   var _switching = false;
@@ -232,6 +263,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     setState(() => _switching = true);
     try {
       await _camera.switchLens();
+      await _dropTorchOnFront();
     } finally {
       await _settleAfterSwitch(settle: settle);
     }
@@ -401,6 +433,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     setState(() => _switching = true);
     try {
       await _camera.switchLens();
+      await _dropTorchOnFront();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -418,23 +451,27 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   ///
   /// Fait **en natif** (rapide : un décodage sous-échantillonné + un encodage
   /// JPEG). Le chemin Dart ci-dessous n'est plus qu'un secours : il encode du
-  /// PNG en 900×1600, ce qui coûtait des secondes par face.
-  static Future<File> _cropTo916(File source) async {
+  /// PNG, ce qui coûtait des secondes par face.
+  ///
+  /// [hd] : bouton HD armé → format 1440×2560 au lieu de 900×1600.
+  static Future<File> _cropTo916(File source, {bool hd = false}) async {
     try {
-      return await NativeCameraController.normalize(source);
+      return await NativeCameraController.normalize(source, hd: hd);
     } catch (e) {
       await NativeCameraController.log(
         'normalisation native indisponible ($e) → repli Dart',
       );
-      return _cropTo916Dart(source);
+      return _cropTo916Dart(source, hd: hd);
     }
   }
 
-  static Future<File> _cropTo916Dart(File source) async {
+  static Future<File> _cropTo916Dart(File source, {bool hd = false}) async {
     final bytes = await source.readAsBytes();
     final codec = await ui.instantiateImageCodec(bytes);
     final frame = await codec.getNextFrame();
     final image = frame.image;
+    final targetW = hd ? 1440 : 900;
+    final targetH = hd ? 2560 : 1600;
     const targetRatio = 9 / 16;
     final w = image.width.toDouble(), h = image.height.toDouble();
     var cropW = w, cropH = h;
@@ -454,11 +491,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     canvas.drawImageRect(
       image,
       src,
-      const ui.Rect.fromLTWH(0, 0, 900, 1600),
+      ui.Rect.fromLTWH(0, 0, targetW.toDouble(), targetH.toDouble()),
       ui.Paint()..filterQuality = ui.FilterQuality.high,
     );
     image.dispose();
-    final out = await recorder.endRecording().toImage(900, 1600);
+    final out = await recorder.endRecording().toImage(targetW, targetH);
     final data = await out.toByteData(format: ui.ImageByteFormat.png);
     final file = File(
       '${Directory.systemTemp.path}/card_${DateTime.now().millisecondsSinceEpoch}.png',
@@ -471,7 +508,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   /// Oneshot en double flux : les DEUX caméras filment en même temps
   /// (chantier caméra native — priorité 1 de Jay) ; en vue simple de
   /// secours, le Oneshot reste photo uniquement.
-  Future<void> _startVideo() async {
+  /// [locked] : démarrer DÉJÀ verrouillé (doigt libre, un tap pour arrêter).
+  /// C'est le cas du retardateur — voir [_onShutterLongPressStart].
+  Future<void> _startVideo({bool locked = false}) async {
     if (!_previewReady || _busy || _switching || _recording) return;
     _lockType(); // le type est figé dès le début de l'enregistrement
     // Oneshot : les DEUX caméras filment en même temps (moteur GPU, étape 5b).
@@ -496,7 +535,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     setState(() {
       _recording = true;
       _videoStarted = false;
-      _recordLocked = false;
+      _recordLocked = locked;
       _recordSeconds = 0;
     });
     try {
@@ -602,12 +641,69 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       if (_recordLocked || !_pressHeld) _stopVideo();
       return;
     }
+    // Décompte en cours : le déclencheur l'annule. Un retardateur qu'on ne peut
+    // plus arrêter serait un piège.
+    if (_countdown != null) {
+      _cancelCountdown();
+      return;
+    }
+    if (_timerSeconds > 0) {
+      _startCountdown(_capture);
+      return;
+    }
     _capture();
   }
 
   void _onShutterLongPressStart(LongPressStartDetails details) {
     _pressHeld = true;
+    if (_countdown != null) return;
+    if (_timerSeconds > 0) {
+      // **Retardateur + vidéo : l'enregistrement démarre VERROUILLÉ.** Le
+      // principe du retardateur est de pouvoir lâcher le téléphone ; exiger de
+      // garder le doigt posé pendant le décompte PUIS toute la vidéo le viderait
+      // de son sens. Un tap arrête, exactement comme après un verrouillage
+      // manuel (glisser hors du cercle).
+      _startCountdown(() => _startVideo(locked: true));
+      return;
+    }
     _startVideo();
+  }
+
+  /// Lance le décompte du retardateur, puis exécute [action].
+  ///
+  /// Le retardateur ne vaut que pour LA FACE en cours (consigne Jay) : il se
+  /// désarme au déclenchement, mais sa valeur est gardée dans [_timerRestore]
+  /// pour être rétablie si l'utilisateur reprend la face.
+  void _startCountdown(VoidCallback action) {
+    _countdownTimer?.cancel();
+    _countdownAction = action;
+    HapticFeedback.selectionClick();
+    setState(() => _countdown = _timerSeconds);
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return timer.cancel();
+      final remaining = (_countdown ?? 0) - 1;
+      if (remaining > 0) {
+        HapticFeedback.selectionClick();
+        setState(() => _countdown = remaining);
+        return;
+      }
+      timer.cancel();
+      HapticFeedback.mediumImpact();
+      setState(() {
+        _countdown = null;
+        _timerRestore = _timerSeconds;
+        _timerSeconds = 0;
+      });
+      final action = _countdownAction;
+      _countdownAction = null;
+      action?.call();
+    });
+  }
+
+  void _cancelCountdown() {
+    _countdownTimer?.cancel();
+    _countdownAction = null;
+    setState(() => _countdown = null);
   }
 
   /// Glisser hors du cercle de commande pendant l'appui = verrouillage de
@@ -648,8 +744,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       'Oneshot séquentiel : écart entre les deux faces $gap ms '
       '(total ${DateTime.now().difference(started).inMilliseconds} ms)',
     );
-    _front = await _cropTo916(backShot);
-    _back = await _cropTo916(frontShot);
+    _front = await _cropTo916(backShot, hd: _hd);
+    _back = await _cropTo916(frontShot, hd: _hd);
   }
 
   /// Dernier rempart avant le récap : **le contenu doit correspondre au type**.
@@ -689,7 +785,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       if (_cardType == CardType.mono) {
         // Mono : une seule face, celle de la caméra active — comme un snap.
         final shot = await _camera.takePicture();
-        _front = await _cropTo916(shot);
+        _front = await _cropTo916(shot, hd: _hd);
         _back = null;
         if (!_facesMatchType()) return;
         setState(() => _step = 2);
@@ -703,8 +799,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
             // de chaque caméra → instantané, vraiment simultané). Arrière =
             // recto, avant = verso. Recadrage 9:16 / format card comme d'hab.
             final shots = await _camera.captureGlDual();
-            _front = await _cropTo916(shots.back);
-            _back = await _cropTo916(shots.front);
+            _front = await _cropTo916(shots.back, hd: _hd);
+            _back = await _cropTo916(shots.front, hd: _hd);
             shot = true;
           } catch (e) {
             // Échec de la capture GPU : on ferme le double flux GPU et on
@@ -727,7 +823,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
         return;
       }
       final shot = await _camera.takePicture();
-      final cropped = await _cropTo916(shot);
+      final cropped = await _cropTo916(shot, hd: _hd);
       if (_step == 0) {
         _front = cropped;
         // Reprise d'une seule face depuis le récap : l'autre face existe déjà,
@@ -801,6 +897,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       _front = null;
       _frontImported = false;
       _frontIsVideo = false;
+      _timerSeconds = _timerRestore; // retardateur rétabli (consigne Jay)
       _step = 0;
     });
     await _ensureLens(back: true);
@@ -824,6 +921,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     }
     _retakeOnly = _back != null; // Mono : une seule face, flux normal
     setState(() {
+      // Reprise d'une face : le retardateur choisi pour la prise précédente est
+      // rétabli (consigne Jay).
+      _timerSeconds = _timerRestore;
       if (isFront) {
         _front = null;
         _frontImported = false;
@@ -863,6 +963,19 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       current: _background,
     );
     if (chosen != null && mounted) setState(() => _background = chosen);
+  }
+
+  /// Passage sur la caméra FRONTALE alors que le flash permanent (torche) est
+  /// actif : la torche est coupée **et le flash arrière repasse en automatique**
+  /// (consigne Jay 2026-07-26).
+  ///
+  /// Le rebind sur la frontale éteint déjà physiquement la LED, mais le MODE
+  /// resterait « permanent » côté natif : revenir à l'arrière rallumerait la
+  /// torche sans que l'utilisateur l'ait demandé. C'est ce retour surprise que
+  /// cette règle supprime.
+  Future<void> _dropTorchOnFront() async {
+    if (_camera.lensBack || _camera.flashMode != FlashMode.torch) return;
+    await _setFlash(FlashMode.auto);
   }
 
   Future<void> _setFlash(FlashMode mode) async {
@@ -905,6 +1018,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   void dispose() {
     _berealTimer?.cancel();
     _recordTimer?.cancel();
+    _countdownTimer?.cancel();
     _typeSettle?.cancel();
     _typeController.dispose();
     _camera.removeListener(_onCameraChanged);
@@ -1152,6 +1266,19 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
       _ => !_recording,
     };
 
+    // Outils de PRISE ajoutés le 2026-07-26 : retardateur, grille, HD.
+    // - **Oneshot** : exclu d'office, il n'hérite de rien (règle Jay) ;
+    // - **BeReal** : exclu aussi, Jay a « d'autres projets pour le BeReal » et
+    //   ne sait pas encore si ces outils y seront compatibles. Il détaillera.
+    final showCaptureTools =
+        _type != CardType.oneshot && _type != CardType.bereal;
+    final gridOn = ref.watch(captureGridProvider);
+    final screenFlashSettings = ref.watch(screenFlashProvider);
+    // La lueur du flash frontal ne s'affiche QU'EN frontale : c'est un flash de
+    // façade. Le réglage survit à un aller-retour vers l'arrière.
+    final screenFlashLit =
+        _screenFlash && !_camera.lensBack && _type != CardType.oneshot;
+
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -1167,6 +1294,31 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
               key: const ValueKey('preview'),
               child: _previewFrame(),
             ),
+            // Grille de cadrage : dessinée dans le cadre 9:16, donc sur
+            // exactement ce qui sera capturé — pas sur tout l'écran.
+            if (gridOn && showCaptureTools)
+              const Positioned.fill(
+                key: ValueKey('grid'),
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: 9 / 16,
+                    child: CaptureGridOverlay(),
+                  ),
+                ),
+              ),
+            // Flash frontal : la lueur couvre TOUT l'écran, pas seulement le
+            // cadre — c'est la surface éclairante (consigne Jay : « des pixels
+            // blancs en contour de l'écran »).
+            if (screenFlashLit)
+              Positioned.fill(
+                key: const ValueKey('screen-flash'),
+                child: ScreenFlashOverlay(settings: screenFlashSettings),
+              ),
+            if (_countdown != null)
+              Positioned.fill(
+                key: const ValueKey('countdown'),
+                child: CountdownOverlay(seconds: _countdown!),
+              ),
             if (_busy && _type == CardType.oneshot)
               const Positioned.fill(
                 key: ValueKey('oneshot-busy'),
@@ -1382,8 +1534,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                 ),
               ),
             // Colonne d'outils à droite (consigne Jay 2026-07-26), de haut en
-            // bas : flash (menu qui s'ouvre vers la gauche), bascule caméra,
-            // couleur de fond.
+            // bas : flash (LED à l'arrière / lueur d'écran en frontale),
+            // retardateur, grille, HD, bascule caméra, couleur de fond. Les
+            // menus s'ouvrent vers la gauche.
             //
             // **Rien de tout ça en Oneshot** (consigne Jay 2026-07-26) : le
             // Oneshot, c'est la caméra pure. Jamais de face tableau, pas de
@@ -1403,13 +1556,51 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      // Flash affiché SEULEMENT si la caméra active a une LED
-                      // — donc pas sur la frontale (consigne Jay : pas
-                      // d'option flash en frontale, il détaillera plus tard).
-                      if (_camera.hasFlash) ...[
-                        _FlashControl(
-                          mode: _camera.flashMode,
-                          onChanged: _busy ? null : _setFlash,
+                      // FLASH — deux boutons qui ne coexistent JAMAIS
+                      // (consigne Jay 2026-07-26) : la LED en caméra arrière,
+                      // la lueur d'écran en frontale, au même emplacement.
+                      if (_camera.lensBack) ...[
+                        // Pas de LED sur cette caméra : pas de bouton du tout
+                        // plutôt qu'un bouton menteur.
+                        if (_camera.hasFlash) ...[
+                          _FlashControl(
+                            mode: _camera.flashMode,
+                            onChanged: _busy ? null : _setFlash,
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+                      ] else ...[
+                        ScreenFlashControl(
+                          on: _screenFlash,
+                          settings: screenFlashSettings,
+                          onToggle: (on) => setState(() => _screenFlash = on),
+                          onChanged: (s) =>
+                              ref.read(screenFlashProvider.notifier).set(s),
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      if (showCaptureTools) ...[
+                        CaptureTimerControl(
+                          seconds: _timerSeconds,
+                          onChanged: _busy
+                              ? null
+                              : (value) => setState(() {
+                                  _timerSeconds = value;
+                                  if (value > 0) _timerRestore = value;
+                                }),
+                        ),
+                        const SizedBox(height: 12),
+                        GridButton(
+                          active: gridOn,
+                          onChanged: (value) =>
+                              ref.read(captureGridProvider.notifier).set(value),
+                        ),
+                        const SizedBox(height: 12),
+                        HdButton(
+                          active: _hd,
+                          onChanged: _busy
+                              ? null
+                              : (value) => setState(() => _hd = value),
                         ),
                         const SizedBox(height: 12),
                       ],
