@@ -2,9 +2,15 @@
 
 ## Positionnement
 
-NeoVibe est un réseau social dont la thèse centrale est : **la présence physique est la monnaie primaire**, pas l'attention passive. L'app récompense les rencontres réelles plutôt que la consommation de contenu à distance. Concurrent direct de référence : **Snapchat** (caméra-first, éphémère, cercles restreints) — pas Meta.
+NeoVibe est un réseau social qui cherche à **retrouver de l'authenticité et du réel dans les échanges en ligne**, contre le contenu vide et les échanges sans valeur parce que trop faciles (le snap envoyé à tout le monde). L'app mise sur **l'exclusivité et la valeur des relations, pas sur leur quantité** : c'est l'app sur laquelle on discute avec ses amis proches ou ses camarades de classe, ceux qu'on voit tous les jours. Positionnement visé : le juste milieu entre **fun et pratique**, avec un maximum d'authenticité. Concurrent direct de référence : **Snapchat** (caméra-first, éphémère, cercles restreints) — pas Meta.
 
-Chaque décision produit ou technique doit être évaluée à l'aune de cette question : **est-ce que ça renforce ou est-ce que ça dilue la thèse de la présence physique ?** En cas de doute, trancher en faveur de la présence physique, même si c'est moins pratique à développer.
+**La présence physique est le mécanisme d'entrée** dans le réseau : on ajoute quelqu'un en ami par proximité BLE, ou par recommandation d'un ami commun quand la rencontre physique est impossible. C'est la barrière fondatrice.
+
+**Corollaire à ne jamais perdre de vue** : une barrière sans contrepartie ne retient personne. Si l'accès au chat est plus difficile ici qu'ailleurs, les utilisateurs vont ailleurs. **Il faut donc donner une légitimité aux barrières sociales** en rendant l'app utile, fun et vivante — c'est la moitié du produit qui reste à construire (voir `docs/vision-produit.md`).
+
+Grille de décision, à appliquer à toute fonctionnalité : **soit elle passe par la présence physique, soit elle augmente la valeur d'une relation existante.** Si elle ne fait ni l'un ni l'autre, c'est du remplissage — exactement le mal qu'on combat. En cas de doute, trancher en faveur de l'authenticité de la relation, même si c'est moins pratique à développer.
+
+La vision complète (mécaniques fondatrices, ce qui reste à construire, points de vigilance) est dans **`docs/vision-produit.md`** — à relire en début de session avec `RAPPELS.md` et les derniers rapports.
 
 ---
 
@@ -76,7 +82,7 @@ natif, pour ne rien découvrir au dernier moment lors du portage iOS.
 
 ## Explicitement hors scope MVP — ne pas implémenter sans demande explicite
 
-- Feed style TikTok (contredit la thèse du produit)
+- **Feed algorithmique global type TikTok** (contredit la thèse du produit). ⚠️ **À ne pas confondre avec le feed LOCAL, lui décidé par Jay le 2026-07-26** : contenu publié par les gens de ta ville / région / pays, plus comptes créateurs à visibilité internationale. Périmètre et points de vigilance dans `docs/vision-produit.md`.
 - Détection d'événements publics à grande échelle par clustering géographique (reporté — nécessite d'abord l'infrastructure de confiance)
 - Modération IA complexe, systèmes lourds en général : privilégier des heuristiques simples validables tôt
 
