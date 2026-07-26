@@ -242,26 +242,37 @@ class MiniCard extends ConsumerWidget {
             ),
     );
 
-    // Verso : la deuxième face pour une card à deux faces ; sinon une fiche
-    // sobre (légende + date), pour que le geste ait toujours une réponse.
-    final Widget back;
-    if (isCard && card.backPath != null) {
-      back = face(
-        Thumb(
-          spec: (
-            bucket: 'cards',
-            path: card.backPath!,
-            cardId: card.id,
-            front: false,
-            isVideo: card.backIsVideo,
-            mine: mine,
-          ),
-          decodeWidth: decodeWidth,
+    // **Une mini-card ne se retourne que si elle a VRAIMENT une deuxième
+    // face** (correction Jay 2026-07-26 : le retournement avait été mis aussi
+    // sur les Mono, « ce qui est incohérent »). Une Mono est une face unique
+    // par définition du format — comme dans le viewer plein écran, où elle
+    // n'est pas retournable non plus. Même règle pour une photo ou une vidéo
+    // simple : rien derrière, donc pas de geste.
+    final hasBackFace = isCard && card.backPath != null;
+    if (!hasBackFace) {
+      return AspectRatio(
+        aspectRatio: kMiniCardRatio,
+        child: GestureDetector(
+          onLongPress: onLongPress,
+          onTap: () => _open(context, ref),
+          child: front,
         ),
       );
-    } else {
-      back = face(_MiniBack(item: item, accent: borderColor));
     }
+
+    final back = face(
+      Thumb(
+        spec: (
+          bucket: 'cards',
+          path: card.backPath!,
+          cardId: card.id,
+          front: false,
+          isVideo: card.backIsVideo,
+          mine: mine,
+        ),
+        decodeWidth: decodeWidth,
+      ),
+    );
 
     return AspectRatio(
       aspectRatio: kMiniCardRatio,
@@ -375,49 +386,6 @@ class _Chip extends StatelessWidget {
           fontSize: 9,
           fontWeight: FontWeight.bold,
         ),
-      ),
-    );
-  }
-}
-
-/// Verso d'une publication sans deuxième face : légende et date.
-class _MiniBack extends StatelessWidget {
-  const _MiniBack({required this.item, required this.accent});
-  final LibraryItem item;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    final d = item.createdAt.toLocal();
-    final date =
-        '${d.day.toString().padLeft(2, '0')}/'
-        '${d.month.toString().padLeft(2, '0')}/${d.year}';
-    return Container(
-      color: NeoTheme.surface1,
-      padding: const EdgeInsets.all(10),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            item.kind == 'video' ? Icons.videocam : Icons.photo,
-            color: accent,
-            size: 20,
-          ),
-          const SizedBox(height: 8),
-          if (item.caption != null && item.caption!.isNotEmpty)
-            Text(
-              item.caption!,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: Colors.white70),
-            ),
-          const Spacer(),
-          Text(
-            date,
-            style: const TextStyle(fontSize: 10, color: Colors.white38),
-          ),
-        ],
       ),
     );
   }

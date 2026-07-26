@@ -1385,34 +1385,40 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
               Positioned(
                 key: const ValueKey('tools'),
                 right: 20,
-                bottom: 42,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    _FlashControl(
-                      mode: _camera.flashMode,
-                      available: _camera.hasFlash,
-                      onChanged: _busy ? null : _setFlash,
-                    ),
-                    const SizedBox(height: 12),
-                    if (showLensToggle) ...[
-                      IconButton.filledTonal(
-                        tooltip: 'Changer de caméra',
-                        icon: const Icon(Icons.cameraswitch),
-                        onPressed: _busy || _switching ? null : _toggleLens,
+                // Centrée verticalement (consigne Jay 2026-07-26) : `top` et
+                // `bottom` à 0 donnent toute la hauteur, `Center` place la
+                // colonne au milieu.
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _FlashControl(
+                        mode: _camera.flashMode,
+                        available: _camera.hasFlash,
+                        onChanged: _busy ? null : _setFlash,
                       ),
                       const SizedBox(height: 12),
+                      if (showLensToggle) ...[
+                        IconButton.filledTonal(
+                          tooltip: 'Changer de caméra',
+                          icon: const Icon(Icons.cameraswitch),
+                          onPressed: _busy || _switching ? null : _toggleLens,
+                        ),
+                        const SizedBox(height: 12),
+                      ],
+                      // Bouton COULEUR (ex-bouton dessin) : appui court = face
+                      // entièrement remplie de cette couleur, appui long =
+                      // palette.
+                      _ColorButton(
+                        background: _background,
+                        onTap: _busy ? null : _useColorFace,
+                        onLongPress: _busy ? null : _openPalette,
+                      ),
                     ],
-                    // Bouton COULEUR (ex-bouton dessin) : appui court = face
-                    // entièrement remplie de cette couleur, appui long =
-                    // palette.
-                    _ColorButton(
-                      background: _background,
-                      onTap: _busy ? null : _useColorFace,
-                      onLongPress: _busy ? null : _openPalette,
-                    ),
-                  ],
+                  ),
                 ),
               ),
             // Indicateur d'enregistrement : durée + consigne de verrouillage

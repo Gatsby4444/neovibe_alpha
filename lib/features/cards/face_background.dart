@@ -152,8 +152,9 @@ Future<FaceBackground?> showFaceBackgroundPalette(
         opacity: animation,
         child: ScaleTransition(
           scale: curved,
-          // Le panneau grandit depuis le bouton, en bas à droite.
-          alignment: Alignment.bottomRight,
+          // Le panneau grandit depuis le bouton — au milieu du bord droit,
+          // depuis que la colonne d'outils y est centrée (consigne Jay).
+          alignment: Alignment.centerRight,
           child: child,
         ),
       );
@@ -171,9 +172,9 @@ class _PalettePanel extends StatelessWidget {
   Widget build(BuildContext context) {
     const items = FaceBackground.palette;
     return Align(
-      alignment: Alignment.bottomRight,
+      alignment: Alignment.centerRight,
       child: Padding(
-        padding: const EdgeInsets.only(right: 16, bottom: 120, left: 24),
+        padding: const EdgeInsets.only(right: 76, left: 24),
         child: Material(
           color: const Color(0xFF15131C),
           borderRadius: BorderRadius.circular(20),
