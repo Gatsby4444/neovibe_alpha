@@ -45,11 +45,38 @@ caméras en même temps).
 **Canal** : `neovibe/camera`. Méthodes actuelles (contrat partagé) :
 `open`, `close`, `switchLens`, `takePicture`, `startVideo`, `stopVideo`,
 `normalize`, `capabilities`, `isCameraServiceAlive`, `setSecure`, `log`,
-`readLog`, `clearLog`, `setFlash`, `hasFlash`, `openGlPreview`,
-`closeGlPreview`, `openGlDual`, `closeGlDual`, `captureGlDual`,
-`startGlDualVideo`, `stopGlDualVideo`.
-Événement natif→Dart : `previewInfo`.
-*(Vérifié conforme au code le 2026-07-26.)*
+`readLog`, `clearLog`, `setFlash`, `hasFlash`, `setScreenFlash`,
+`openGlPreview`, `closeGlPreview`, `openGlDual`, `closeGlDual`,
+`captureGlDual`, `startGlDualVideo`, `stopGlDualVideo`.
+Événements natif→Dart : `previewInfo`, `previewReady`.
+*(Vérifié conforme au code le 2026-07-31.)*
+
+> **`previewReady` — signal de PREMIÈRE IMAGE (ajouté le 2026-07-31)**.
+> Émis une fois que la session caméra a réellement livré ses premières images
+> après un bind (`open` ou `switchLens`). C'est ce qui corrige l'aperçu
+> renversé pendant la bascule : CameraX annonce la nouvelle rotation
+> d'affichage à la CONFIGURATION de session, donc avant les images — le Dart
+> l'appliquait alors aux dernières images de la caméra précédente, encore dans
+> la texture (180° d'écart entre l'arrière à 90° et l'avant à 270°).
+> **Android** : `Camera2Interop.Extender(previewBuilder).setSessionCaptureCallback(…)`,
+> puis comptage de 3 `onCaptureCompleted` avant d'émettre.
+> **iOS** : l'équivalent est le premier `captureOutput(_:didOutput:from:)` de la
+> nouvelle session — même contrat, même règle (n'annoncer l'aperçu vivant que
+> sur une IMAGE, jamais sur une configuration).
+> À noter : le moteur GPU (`Camera2Gl.kt`) n'a pas besoin de ce signal — il
+> tourne l'image dans le shader et annonce `rotation = 0`. La sortie définitive
+> du problème est donc le chantier de rendu GPU.
+
+> **`setScreenFlash(on)` — assistance du FLASH FRONTAL (ajouté le 2026-07-31)**.
+> La lueur d'écran elle-même est du **dessin Dart** (zéro natif, voir plus
+> bas), mais deux choses n'existent qu'au niveau système :
+> 1. **rétroéclairage à fond** — `window.attributes.screenBrightness = 1f`,
+>    rendu au système (`BRIGHTNESS_OVERRIDE_NONE`) à l'extinction ET à la
+>    fermeture de la caméra (sinon la batterie brûle dans le reste de l'app) ;
+> 2. **correction d'exposition** — `CameraControl.setExposureCompensationIndex`
+>    à la moitié du maximum annoncé par l'appareil, réappliquée à chaque bind.
+> **iOS** : `UIScreen.main.brightness = 1.0` (restaurer la valeur d'origine) et
+> `AVCaptureDevice.setExposureTargetBias(_:)`.
 
 > **Flash (ajouté le 2026-07-26)** — `setFlash(mode)` avec
 > `off` | `auto` | `on` | `torch`, et `hasFlash` pour savoir si la caméra
@@ -61,10 +88,13 @@ caméras en même temps).
 > iOS : `AVCaptureDevice.torchMode` / `flashMode`, même contrat, même piège
 > (réappliquer après un changement d'entrée).
 >
-> **Flash FRONTAL : rien à écrire en natif.** La lueur d'écran (consigne Jay
-> 2026-07-26) est **entièrement en Dart** (`capture_tools.dart`) : des pixels
-> blancs à beige peints sur le contour de l'écran, faute de LED en façade. Elle
-> ne coûte donc aucun portage iOS.
+> **Flash FRONTAL : la LUEUR est en Dart, son ASSISTANCE est native.**
+> Le dessin (pixels blancs à beige peints sur le contour de l'écran, faute de
+> LED en façade) reste **entièrement en Dart** (`capture_tools.dart`) et ne
+> coûte aucun portage. **Corrigé le 2026-07-31** : la mention « rien à écrire en
+> natif » était fausse une fois le résultat comparé à Snapchat — le
+> rétroéclairage et l'exposition du capteur ne sont accessibles que côté
+> système. Voir `setScreenFlash` plus haut.
 
 > **`normalize` prend un argument `hd` (2026-07-26)** — `true` : la face est
 > mise au format **1440×2560** au lieu de 900×1600 (bouton HD de l'écran de

@@ -40,13 +40,14 @@ class NativeCameraController extends ChangeNotifier {
   var lensBack = true;
   var _disposed = false;
 
-  /// Attente de l'info d'affichage du flux simple après une bascule de caméra.
-  /// Voir [switchLens] : c'est ce qui évite l'aperçu à l'envers pendant un
-  /// instant.
-  Completer<void>? _mainInfoWaiter;
+  /// Attente de la PREMIÈRE IMAGE réelle du flux simple après une ouverture ou
+  /// une bascule de caméra. Voir [switchLens] : c'est ce qui règle l'aperçu à
+  /// l'envers pendant un instant.
+  Completer<void>? _mainFrameWaiter;
 
   Future<dynamic> _onPlatformCall(MethodCall call) async {
-    if (call.method == 'previewInfo' && !_disposed) {
+    if (_disposed) return null;
+    if (call.method == 'previewInfo') {
       final args = (call.arguments as Map).cast<String, dynamic>();
       final key = args['key'] as String;
       previews[key] = NativePreviewInfo(
@@ -54,15 +55,30 @@ class NativeCameraController extends ChangeNotifier {
         height: args['height'] as int,
         rotationDegrees: args['rotation'] as int,
       );
-      if (key == 'main') {
-        final waiter = _mainInfoWaiter;
-        _mainInfoWaiter = null;
+      notifyListeners();
+    } else if (call.method == 'previewReady') {
+      // Le natif a compté les premières images de la NOUVELLE session : la
+      // texture montre bien la caméra qui vient d'être bindée, et non les
+      // dernières images de la précédente.
+      final args = (call.arguments as Map).cast<String, dynamic>();
+      if (args['key'] == 'main') {
+        final waiter = _mainFrameWaiter;
+        _mainFrameWaiter = null;
         if (waiter != null && !waiter.isCompleted) waiter.complete();
       }
-      notifyListeners();
     }
     return null;
   }
+
+  /// Attend le signal natif de première image, borné.
+  ///
+  /// Le garde-fou est **large** : il ne sert qu'aux appareils où le
+  /// `CaptureCallback` ne remonterait pas. Le raccourcir ferait réapparaître
+  /// exactement le défaut qu'on corrige (dévoiler avant les vraies images) —
+  /// et pendant l'attente, l'écran de capture affiche son voile de bascule,
+  /// donc rien de laid n'est visible.
+  Future<void> _awaitFirstFrame(Completer<void> waiter) => waiter.future
+      .timeout(const Duration(milliseconds: 1600), onTimeout: () {});
 
   /// Ce que l'appareil déclare RÉELLEMENT sur le double flux : ce que CameraX
   /// annonce, ce que le pilote Camera2 annonce (source de vérité matérielle),
@@ -151,7 +167,7 @@ class NativeCameraController extends ChangeNotifier {
   Future<void> open({required bool back, required bool audio}) async {
     // Borné : l'ouverture attend la fermeture réelle d'un éventuel double flux
     // (côté natif), mais elle ne doit jamais bloquer l'écran indéfiniment.
-    final waiter = _mainInfoWaiter = Completer<void>();
+    final waiter = _mainFrameWaiter = Completer<void>();
     final res = await _channel
         .invokeMapMethod<String, dynamic>('open', {
           'back': back,
@@ -161,13 +177,9 @@ class NativeCameraController extends ChangeNotifier {
     lensBack = back;
     glDualActive = false;
     textureId = res?['textureId'] as int?;
-    // Même raison que dans [switchLens] : l'info d'affichage de la caméra qui
-    // s'ouvre doit précéder ses premières images, sinon l'aperçu leur applique
-    // la rotation de la caméra précédente.
-    await waiter.future.timeout(
-      const Duration(milliseconds: 700),
-      onTimeout: () {},
-    );
+    // Même raison que dans [switchLens] : on ne rend la main qu'une fois la
+    // caméra en train de PRODUIRE des images.
+    await _awaitFirstFrame(waiter);
     await refreshFlashAvailability(notify: false);
     notifyListeners();
   }
@@ -175,24 +187,40 @@ class NativeCameraController extends ChangeNotifier {
   /// Bascule avant/arrière. Pendant une vidéo (enregistrement persistant
   /// natif), l'enregistrement CONTINUE à travers la bascule.
   ///
-  /// Ne rend la main qu'une fois l'info d'affichage de la NOUVELLE caméra
-  /// reçue. Sans ça, la texture montrait déjà les images de la caméra
-  /// d'arrivée alors que l'aperçu appliquait encore la rotation de la
-  /// précédente : entre l'arrière (capteur 90°) et l'avant (capteur 270°) il y
-  /// a 180° d'écart, d'où l'image à l'envers pendant un instant, puis le
-  /// sursaut de correction (bug signalé par Jay, présent depuis le début).
-  /// Borné : si l'info n'arrive pas, on dévoile quand même.
+  /// Ne rend la main qu'une fois la NOUVELLE caméra en train de PRODUIRE des
+  /// images (événement natif `previewReady`).
+  ///
+  /// **Pourquoi ce n'est pas l'info d'affichage qu'on attend** — c'était la
+  /// tentative de la v0.9.24, et elle n'avait pas suffi : CameraX annonce la
+  /// rotation à la CONFIGURATION de session, donc AVANT les premières images.
+  /// Le Dart appliquait alors la rotation de la caméra qui ARRIVE aux dernières
+  /// images de celle qui PART, encore dans la texture — et il y a 180° d'écart
+  /// entre l'arrière (capteur 90°) et l'avant (270°), d'où l'aperçu renversé un
+  /// bref instant, puis le sursaut de correction. Attendre les IMAGES, et non
+  /// la configuration, ferme ce trou.
+  ///
+  /// Borné : si le signal n'arrive pas, on dévoile quand même.
   Future<void> switchLens() async {
-    final waiter = _mainInfoWaiter = Completer<void>();
+    final waiter = _mainFrameWaiter = Completer<void>();
     final res = await _channel.invokeMapMethod<String, dynamic>('switchLens');
     lensBack = res?['back'] as bool? ?? !lensBack;
-    await waiter.future.timeout(
-      const Duration(milliseconds: 700),
-      onTimeout: () {},
-    );
+    await _awaitFirstFrame(waiter);
     // La frontale n'a en général pas de LED : le bouton flash doit le refléter.
     await refreshFlashAvailability(notify: false);
     notifyListeners();
+  }
+
+  /// FLASH FRONTAL — la part que le Dart ne peut PAS faire (retour Jay
+  /// 2026-07-31) : rétroéclairage poussé au maximum tant que la lueur est
+  /// allumée, et correction d'exposition du capteur pour que le visage éclairé
+  /// ne ressorte pas terne. La lueur elle-même reste du dessin Dart.
+  ///
+  /// Silencieux en cas d'échec : un flash frontal sans assistance reste un
+  /// flash frontal, ce n'est pas une raison de casser l'écran de capture.
+  Future<void> setScreenFlash(bool on) async {
+    try {
+      await _channel.invokeMethod('setScreenFlash', {'on': on});
+    } catch (_) {}
   }
 
   /// Mode de flash courant, retenu côté natif et ré-appliqué à chaque bind.

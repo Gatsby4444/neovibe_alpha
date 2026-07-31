@@ -37,6 +37,13 @@ import '../../core/theme.dart';
 /// écartait : elle baissait la luminosité à faible intensité, ce qui donnait
 /// une lueur terne au lieu d'un bandeau fin mais franc.
 ///
+/// **Bandeau du BAS plus épais (retour Jay, 2026-07-31)** : sur Snapchat le
+/// bandeau n'a pas la même épaisseur sur les quatre bords — en bas il part
+/// **déjà épais (~1/8 de la hauteur d'écran), constant**, et c'est seulement
+/// à partir de là que le curseur le fait grossir. C'est l'éclairage par le bas
+/// qui déblesse le visage (la lumière du menton), d'où le plancher. Les trois
+/// autres bords partent fins, comme avant.
+///
 /// Les pixels sont dessinés PAR-DESSUS l'aperçu : la photo, elle, ne les
 /// contient pas — c'est le visage éclairé que la caméra capture.
 class ScreenFlashOverlay extends StatelessWidget {
@@ -75,6 +82,20 @@ class _ScreenFlashPainter extends CustomPainter {
   /// reste que 2 % — le centre est donc bien transparent.
   static final double _bite = 1 - math.pow(0.02, 1 / _steps).toDouble();
 
+  /// Part du bandeau occupée par le FONDU vers l'intérieur : franc côté bord,
+  /// adouci côté centre.
+  static const _fadeShare = 0.55;
+
+  /// Plancher du bandeau du BAS — part de la hauteur d'écran **réellement
+  /// éclairée** (retour Jay 2026-07-31 : « en bas il commence épais sur environ
+  /// 1/8 de l'écran, constant, et l'épaississement commence à partir de là »).
+  ///
+  /// C'est bien la part VISIBLE, pas la profondeur brute : la moitié intérieure
+  /// du bandeau étant un fondu, la profondeur à demander est plus grande (voir
+  /// [paint]). Mesuré : sans cette conversion, le bandeau ne faisait que 6,8 %
+  /// de la hauteur au lieu des 12,5 % demandés.
+  static const _bottomLit = 1 / 8;
+
   @override
   void paint(Canvas canvas, Size size) {
     final color = Color.lerp(_cold, _warm, settings.warmth)!;
@@ -95,9 +116,17 @@ class _ScreenFlashPainter extends CustomPainter {
     // largeur éclairée au quart du curseur, 65 % à mi-course, 95 % aux trois
     // quarts, 100 % à fond.
     final reach = short * (0.05 + 1.10 * settings.intensity);
-    // Le fondu occupe la moitié intérieure du bandeau : franc côté bord,
-    // adouci côté centre.
-    final fade = reach * 0.55;
+    // Bandeau du BAS : même propagation, mais **jamais moins d'un huitième de
+    // l'écran éclairé**. Le curseur ne le fait donc grossir qu'une fois ce
+    // plancher dépassé — le comportement décrit par Jay sur Snapchat.
+    // Division par [_fadeShare] : le fondu mange la moitié intérieure du
+    // bandeau, il faut donc demander plus de profondeur que de lumière visible.
+    final bottomReach = math.max(reach, size.height * _bottomLit / _fadeShare);
+    // Chaque bord fond sur SA propre profondeur, sans quoi le bas garderait le
+    // fondu d'un bandeau fin sur une bande large (frontière nette au lieu d'un
+    // dégradé).
+    final fade = reach * _fadeShare;
+    final bottomFade = bottomReach * _fadeShare;
     // Coins intérieurs arrondis (demande de Jay) : le rayon suit la propagation
     // pour rester proportionné, mais il est **borné au tiers du petit côté de
     // l'ouverture** — sans cette borne, le trou vire à l'ovale dès que le
@@ -118,8 +147,17 @@ class _ScreenFlashPainter extends CustomPainter {
       ..blendMode = BlendMode.dstOut
       ..color = Colors.black.withValues(alpha: _bite);
     for (var i = 0; i < _steps; i++) {
-      final inset = reach - fade * (1 - i / (_steps - 1));
-      final hole = bounds.deflate(inset);
+      final k = 1 - i / (_steps - 1);
+      final inset = reach - fade * k;
+      final bottomInset = bottomReach - bottomFade * k;
+      // Bords indépendants : le trou n'est plus centré, il est remonté par le
+      // bandeau du bas.
+      final hole = Rect.fromLTRB(
+        inset,
+        inset,
+        size.width - inset,
+        size.height - bottomInset,
+      );
       // Le bandeau s'est refermé sur lui-même : plus rien à évider.
       if (hole.isEmpty) break;
       canvas.drawRRect(
@@ -271,6 +309,68 @@ class _ScreenFlashControlState extends State<ScreenFlashControl> {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bascule de caméra au double-tap
+// ---------------------------------------------------------------------------
+
+/// Petite animation jouée au **double-tap de bascule caméra** (demande de Jay
+/// 2026-07-31), en plus du retour haptique : un pictogramme de bascule qui
+/// grossit, pivote d'un demi-tour et s'efface.
+///
+/// Elle se superpose au voile de bascule (le fond sombre qui masque la
+/// transition) : c'est justement pendant ce temps mort qu'il faut montrer que
+/// le geste a été pris en compte — sans elle, un double-tap se lit comme un
+/// gel de l'aperçu.
+class LensSwitchBurst extends StatelessWidget {
+  const LensSwitchBurst({super.key, required this.animation});
+
+  /// Progression 0 → 1 ; à 0, rien n'est dessiné.
+  final Animation<double> animation;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: AnimatedBuilder(
+        animation: animation,
+        builder: (context, child) {
+          final t = animation.value;
+          if (t == 0) return const SizedBox.shrink();
+          // Apparition franche (premier quart) puis effacement progressif.
+          final opacity = (t < 0.25 ? t / 0.25 : 1 - (t - 0.25) / 0.75).clamp(
+            0.0,
+            1.0,
+          );
+          final eased = Curves.easeOutCubic.transform(t);
+          return Center(
+            child: Opacity(
+              opacity: opacity,
+              child: Transform.scale(
+                scale: 0.7 + 0.5 * eased,
+                child: Transform.rotate(angle: math.pi * eased, child: child),
+              ),
+            ),
+          );
+        },
+        // Construit UNE fois : seules l'échelle, la rotation et l'opacité
+        // changent d'une image à l'autre.
+        child: Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.black.withValues(alpha: 0.38),
+            border: Border.all(color: Colors.white24, width: 1.5),
+          ),
+          child: const Icon(
+            Icons.cameraswitch_rounded,
+            size: 34,
+            color: Colors.white,
+          ),
+        ),
+      ),
     );
   }
 }

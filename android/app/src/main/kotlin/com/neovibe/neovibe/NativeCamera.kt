@@ -8,10 +8,15 @@ import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Rect
+import android.hardware.camera2.CameraCaptureSession
+import android.hardware.camera2.CaptureRequest
+import android.hardware.camera2.TotalCaptureResult
 import android.os.Handler
 import android.os.Looper
 import android.view.Surface
 import android.view.WindowManager
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.CameraState
@@ -77,6 +82,26 @@ class NativeCamera(
          */
         const val HD_WIDTH = 1440
         const val HD_HEIGHT = 2560
+
+        /**
+         * Images à laisser passer après un bind avant de déclarer l'aperçu
+         * « vivant » (voir [previewFrameCallback]). Une seule suffirait en
+         * théorie ; trois donnent la marge du délai de composition de Flutter
+         * (~100 ms à 30 i/s) sans se voir à l'usage.
+         */
+        const val FRAMES_BEFORE_READY = 3
+
+        /**
+         * Correction d'exposition appliquée pendant le FLASH FRONTAL, en
+         * fraction du maximum annoncé par l'appareil (retour Jay 2026-07-31 :
+         * « Snap semble ajuster le capteur de sorte à améliorer la prise de
+         * luminosité, ce que NeoVibe ne fait pas »).
+         *
+         * La moitié du maximum, et non le maximum : la lueur d'écran éclaire
+         * déjà le visage, pousser à fond le brûlerait. Sur un appareil dont la
+         * plage va jusqu'à +12 (pas de 1/6 EV), cela vaut environ +1 EV.
+         */
+        const val SCREEN_FLASH_EV_SHARE = 0.5
     }
 
     private val channel = MethodChannel(messenger, "neovibe/camera")
@@ -108,6 +133,54 @@ class NativeCamera(
     private var boundCamera: Camera? = null
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    // --- Première image réelle après un bind ------------------------------
+    // Le bug de « l'aperçu à l'envers pendant la bascule » (RAPPELS, connu
+    // depuis le début) vient d'un décalage : CameraX annonce la nouvelle
+    // rotation d'affichage À LA CONFIGURATION DE SESSION, donc AVANT les
+    // premières images de la nouvelle caméra. Le Dart applique alors la
+    // rotation de la caméra qui ARRIVE aux dernières images de celle qui PART,
+    // encore dans la texture — et comme il y a 180° d'écart entre l'arrière
+    // (capteur 90°) et l'avant (270°), l'image apparaît renversée.
+    //
+    // La seule réponse solide est un vrai signal « la nouvelle caméra a produit
+    // des images ». CameraX ne l'expose pas, mais Camera2Interop permet de
+    // greffer un CaptureCallback sur la session de l'aperçu : chaque
+    // `onCaptureCompleted` est une image livrée aux surfaces, texture comprise.
+    // On compte quelques images avant de prévenir le Dart, qui ne lève son
+    // voile de bascule qu'à ce moment-là.
+    //
+    // Rappel : ce n'est un contournement que tant que le mode simple passe par
+    // CameraX. Le moteur GPU (Camera2Gl) tourne l'image DANS le shader et
+    // annonce `rotation = 0` au Dart — chez lui le problème ne peut pas
+    // exister, puisqu'il n'y a plus de rotation à appliquer après coup. C'est
+    // la vraie sortie, prévue par le chantier de rendu GPU.
+    /** Images comptées depuis le dernier bind du flux simple. */
+    private var framesSinceBind = 0
+
+    /** Le Dart attend-il encore le signal de première image ? */
+    private var awaitingFirstFrame = false
+
+    /**
+     * CaptureCallback greffé sur la session de l'aperçu (Camera2Interop) :
+     * appelé sur un thread caméra, il ne fait que compter et poster.
+     */
+    private val previewFrameCallback = object : CameraCaptureSession.CaptureCallback() {
+        override fun onCaptureCompleted(
+            session: CameraCaptureSession,
+            request: CaptureRequest,
+            result: TotalCaptureResult,
+        ) {
+            if (!awaitingFirstFrame) return
+            framesSinceBind++
+            if (framesSinceBind < FRAMES_BEFORE_READY) return
+            awaitingFirstFrame = false
+            mainHandler.post {
+                CamLog.i("simple", "première image de l'aperçu (bind terminé)")
+                channel.invokeMethod("previewReady", mapOf("key" to "main"))
+            }
+        }
+    }
 
 
     // --- Rendu GPU (chantier : aperçu OpenGL) -----------------------------
@@ -262,6 +335,16 @@ class NativeCamera(
                     result.success(mapOf("hasFlash" to hasFlashUnit()))
                 }
                 "hasFlash" -> result.success(mapOf("hasFlash" to hasFlashUnit()))
+                // Flash FRONTAL : la lueur est dessinée en Dart, mais le
+                // rétroéclairage et la correction d'exposition ne peuvent se
+                // faire qu'ici (retour Jay 2026-07-31).
+                "setScreenFlash" -> {
+                    screenFlashOn = call.argument<Boolean>("on") ?: false
+                    applyScreenBrightness()
+                    applyExposureBoost()
+                    CamLog.i("simple", "flash frontal → $screenFlashOn")
+                    result.success(null)
+                }
                 // --- Rendu GPU : aperçu d'UNE caméra (écran de test dev) ----
                 "openGlPreview" -> withProvider(result) { p ->
                     val back = call.argument<Boolean>("back") ?: true
@@ -445,6 +528,11 @@ class NativeCamera(
                 }
                 "close" -> {
                     provider?.unbindAll()
+                    // Le rétroéclairage forcé par le flash frontal est RENDU au
+                    // système en quittant la caméra : le laisser à fond
+                    // brûlerait la batterie dans le reste de l'app.
+                    screenFlashOn = false
+                    applyScreenBrightness()
                     releaseSingle()
                     // Release UNIVERSEL : on ferme aussi les moteurs GPU (aperçu +
                     // double flux). Sans ça, quitter l'écran Oneshot avec le double
@@ -548,11 +636,17 @@ class NativeCamera(
     // ------------------------------------------------------------------
 
     /** Appelé UNIQUEMENT après `releaseDualEngines { … }` (matériel rendu). */
+    @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
     private fun openSingle(p: ProcessCameraProvider, audio: Boolean) {
         entry = entry ?: textureRegistry.createSurfaceProducer()
-        preview = Preview.Builder().build().also {
-            it.setSurfaceProvider(surfaceProvider(entry!!, "main"))
-        }
+        preview = Preview.Builder()
+            // Greffe le CaptureCallback qui donne le signal de PREMIÈRE IMAGE
+            // (voir previewFrameCallback) : la configuration est posée une fois
+            // pour toutes, elle est réappliquée à chaque nouvelle session — donc
+            // à chaque bascule de caméra.
+            .also { Camera2Interop.Extender(it).setSessionCaptureCallback(previewFrameCallback) }
+            .build()
+            .also { it.setSurfaceProvider(surfaceProvider(entry!!, "main")) }
         imageCapture = ImageCapture.Builder()
             .setTargetRotation(Surface.ROTATION_0)
             .build()
@@ -564,6 +658,10 @@ class NativeCamera(
 
     private fun bindSingle(p: ProcessCameraProvider) {
         p.unbindAll()
+        // Réarmé AVANT le bind : la nouvelle session peut livrer sa première
+        // image très vite, le compteur doit déjà l'attendre.
+        framesSinceBind = 0
+        awaitingFirstFrame = true
         boundCamera = p.bindToLifecycle(
             activity as LifecycleOwner,
             selector(lensBack),
@@ -571,9 +669,11 @@ class NativeCamera(
             imageCapture!!,
             videoCapture!!,
         )
-        // Le bind crée une nouvelle instance de caméra : le mode flash et la
-        // torche ne survivent pas à une bascule, il faut les reposer.
+        // Le bind crée une nouvelle instance de caméra : le mode flash, la
+        // torche et la correction d'exposition ne survivent pas à une bascule,
+        // il faut les reposer.
         applyFlash()
+        applyExposureBoost()
     }
 
     // ------------------------------------------------------------------
@@ -608,6 +708,56 @@ class NativeCamera(
     /** La caméra actuellement bindée a-t-elle une LED ? */
     private fun hasFlashUnit(): Boolean =
         boundCamera?.cameraInfo?.hasFlashUnit() ?: false
+
+    // ------------------------------------------------------------------
+    // Assistance du FLASH FRONTAL (retour Jay 2026-07-31)
+    // ------------------------------------------------------------------
+    // La lueur elle-même est dessinée en Dart (aucun natif). Mais deux choses
+    // ne peuvent PAS se faire en Dart, et ce sont elles qui manquaient pour que
+    // le résultat soit comparable à Snapchat :
+    //  1. **le rétroéclairage** : peindre du blanc ne sert à rien si la dalle
+    //     est à 30 % — c'est la luminosité SYSTÈME qui décide de la lumière
+    //     réellement émise ;
+    //  2. **le capteur** : sans correction, l'auto-exposition mesure une scène
+    //     sombre et le visage éclairé ressort terne.
+
+    /** Le flash frontal est-il allumé ? (état retenu, réappliqué à chaque bind) */
+    private var screenFlashOn = false
+
+    /**
+     * Correction d'exposition pendant le flash frontal. Sans support matériel
+     * (plage vide), on ne fait rien — silencieusement.
+     */
+    private fun applyExposureBoost() {
+        val camera = boundCamera ?: return
+        val state = camera.cameraInfo.exposureState
+        if (!state.isExposureCompensationSupported) return
+        val range = state.exposureCompensationRange
+        val index = if (screenFlashOn) {
+            Math.round(range.upper * SCREEN_FLASH_EV_SHARE).toInt()
+                .coerceIn(range.lower, range.upper)
+        } else {
+            0
+        }
+        camera.cameraControl.setExposureCompensationIndex(index)
+    }
+
+    /**
+     * Rétroéclairage poussé au maximum tant que le flash frontal est allumé,
+     * puis RENDU au système (`BRIGHTNESS_OVERRIDE_NONE`) — surtout pas laissé
+     * à fond en quittant l'écran, ce serait de la batterie brûlée.
+     */
+    private fun applyScreenBrightness() {
+        activity.runOnUiThread {
+            activity.window.attributes = activity.window.attributes.apply {
+                screenBrightness = if (screenFlashOn) {
+                    1f
+                } else {
+                    WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                }
+            }
+        }
+    }
 
     /**
      * Attend que la caméra soit RÉELLEMENT ouverte après un bind, puis appelle

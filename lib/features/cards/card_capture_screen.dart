@@ -40,7 +40,8 @@ class CardCaptureScreen extends ConsumerStatefulWidget {
   ConsumerState<CardCaptureScreen> createState() => _CardCaptureScreenState();
 }
 
-class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
+class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
+    with TickerProviderStateMixin {
   /// Couche caméra NATIVE (CameraX) — remplace le plugin `camera`
   /// (chantier validé par Jay 2026-07-13).
   final _camera = NativeCameraController();
@@ -180,6 +181,32 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
   Timer? _berealTimer;
   int _berealRemaining = _berealWindow.inSeconds;
 
+  /// Animation du double-tap de bascule caméra (demande de Jay 2026-07-31) :
+  /// jouée EN PLUS du retour haptique, elle occupe le temps mort de réouverture
+  /// de la caméra. Voir [LensSwitchBurst].
+  late final AnimationController _lensBurst = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 520),
+  );
+
+  /// La bascule avant/arrière est-elle autorisée dans l'état courant ?
+  ///
+  /// Sert au bouton ET au double-tap sur l'aperçu (demande de Jay 2026-07-31 :
+  /// le double-tap ne valait que pour Mono, il vaut désormais pour Card,
+  /// One of One et Hot).
+  ///
+  /// - **BeReal** : la contrainte du format est de ne pas choisir.
+  /// - **Oneshot** : les deux caméras prennent en même temps, il n'y a pas de
+  ///   sens à choisir (consigne Jay 2026-07-26 — y compris en vue simple de
+  ///   secours).
+  /// - **Mono** garde en plus la bascule PENDANT la vidéo : la couche native
+  ///   maintient l'enregistrement à travers, comme Snapchat.
+  bool get _lensToggleAllowed => switch (_type) {
+    CardType.bereal || CardType.oneshot => false,
+    CardType.mono => true,
+    _ => !_recording,
+  };
+
   @override
   void initState() {
     super.initState();
@@ -263,11 +290,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
 
   /// Passe (ou reste) sur la caméra [back]. La couche native rebinde le
   /// même flux : pas de destruction/re-création de contrôleur.
-  /// [settle] : laisser le voile un instant de plus après la bascule, le temps
-  /// que les premières images de la nouvelle caméra soient à l'écran. Mis à
-  /// `false` pendant la capture séquentielle du Oneshot — là, chaque
-  /// milliseconde élargit la fenêtre où l'on peut changer de tête, et l'écran
-  /// enchaîne aussitôt sur le récap.
+  /// [settle] : garde-fou visuel après la bascule. Mis à `false` pendant la
+  /// capture séquentielle du Oneshot — là, chaque milliseconde élargit la
+  /// fenêtre où l'on peut changer de tête, et l'écran enchaîne aussitôt sur le
+  /// récap.
   Future<void> _ensureLens({required bool back, bool settle = true}) async {
     // En double flux GPU, CameraX n'est pas bindé : une bascule taperait dans
     // le vide.
@@ -276,23 +302,26 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     try {
       await _camera.switchLens();
       await _dropTorchOnFront();
+      await _applyScreenFlashAssist();
     } finally {
       await _settleAfterSwitch(settle: settle);
     }
   }
 
-  /// Retire le voile de bascule, après une courte pause de confort.
+  /// Retire le voile de bascule.
   ///
-  /// `switchLens` rend la main dès que la caméra est ouverte ET que son info
-  /// d'affichage est arrivée — mais rien ne dit encore que ses PREMIÈRES
-  /// IMAGES sont à l'écran (CameraX n'expose pas ce signal, contrairement au
-  /// moteur GPU qui trace « PREMIÈRE image rendue »). Cette pause couvre ce
-  /// dernier trou. C'est un délai de CONFORT VISUEL assumé — pas une attente
-  /// de matériel déguisée : la disponibilité, elle, est bien attendue par le
-  /// FAIT (`CameraState`) côté natif.
+  /// **Plus de pause en dur depuis le 2026-07-31.** `switchLens` ne rend
+  /// désormais la main qu'une fois la NOUVELLE caméra en train de produire des
+  /// images (événement natif `previewReady`, compté sur la session Camera2) :
+  /// le trou que couvrait le délai de 160 ms n'existe plus, et c'est lui qui
+  /// laissait entrevoir l'aperçu renversé quand il était trop court.
+  ///
+  /// [settle] ne garde qu'un rôle de garde-fou : sur un appareil où le signal
+  /// d'image n'arriverait pas, `switchLens` sort sur son délai maximum et cette
+  /// courte pause évite de dévoiler dans la foulée immédiate.
   Future<void> _settleAfterSwitch({bool settle = true}) async {
     if (settle) {
-      await Future<void>.delayed(const Duration(milliseconds: 160));
+      await Future<void>.delayed(const Duration(milliseconds: 40));
     }
     if (mounted) setState(() => _switching = false);
   }
@@ -428,6 +457,20 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     );
   }
 
+  /// Double-tap sur l'aperçu : la bascule, **plus** l'animation demandée par
+  /// Jay (2026-07-31). Elle n'est jouée QUE sur le geste : au bouton, l'appui
+  /// se voit déjà.
+  void _toggleLensFromTap() {
+    if (_busy || _switching || _camera.glDualActive || _dualOpening) return;
+    // Remis à zéro en fin de course : à 1 le pictogramme est transparent mais
+    // toujours dans l'arbre, et son `Opacity` coûterait une couche à chaque
+    // repeint de l'aperçu (30 fois par seconde).
+    _lensBurst.forward(from: 0).whenComplete(() {
+      if (mounted) _lensBurst.value = 0;
+    });
+    _toggleLens();
+  }
+
   /// Bascule avant/arrière : Mono (double-tap OU bouton, y compris PENDANT
   /// une vidéo — l'enregistrement persistant natif survit à la bascule,
   /// comme Snapchat) et Oneshot en vue simple de secours.
@@ -446,6 +489,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     try {
       await _camera.switchLens();
       await _dropTorchOnFront();
+      await _applyScreenFlashAssist();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -990,6 +1034,21 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     await _setFlash(FlashMode.auto);
   }
 
+  /// La lueur du flash frontal est dessinée en Dart, mais deux choses ne
+  /// peuvent se faire que côté natif (retour Jay 2026-07-31 : « Snap semble
+  /// ajuster le capteur, ce que NeoVibe ne fait pas ») — le rétroéclairage à
+  /// fond, et la correction d'exposition du capteur.
+  ///
+  /// Appelée exactement là où la lueur peut changer d'état : au bouton, et à
+  /// chaque bascule de caméra (elle ne vaut qu'en frontale, comme la lueur).
+  Future<void> _applyScreenFlashAssist() =>
+      _camera.setScreenFlash(_screenFlashLit);
+
+  /// La lueur est-elle réellement à l'écran ? (Le réglage survit à un
+  /// aller-retour vers l'arrière, mais un flash de façade n'y a aucun sens.)
+  bool get _screenFlashLit =>
+      _screenFlash && !_camera.lensBack && _type != CardType.oneshot;
+
   Future<void> _setFlash(FlashMode mode) async {
     try {
       await _camera.setFlash(mode);
@@ -1039,6 +1098,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     _countdownTimer?.cancel();
     _typeSettle?.cancel();
     _typeController.dispose();
+    _lensBurst.dispose();
     _camera.removeListener(_onCameraChanged);
     _camera.dispose();
     super.dispose();
@@ -1096,13 +1156,18 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
             child: const ColoredBox(color: Color(0xFF0E0E12)),
           ),
         ),
+        // Au-DESSUS du voile : c'est pendant la transition qu'il faut montrer
+        // que le double-tap a été pris en compte.
+        LensSwitchBurst(animation: _lensBurst),
       ],
     );
 
-    if (_type == CardType.mono) {
-      // Mono : double-tap = bascule caméra (comme Snapchat, consigne Jay) —
-      // y compris pendant une vidéo (enregistrement persistant natif).
-      main = GestureDetector(onDoubleTap: _toggleLens, child: main);
+    if (_lensToggleAllowed) {
+      // Double-tap = bascule caméra (comme Snapchat, consigne Jay). Étendu le
+      // 2026-07-31 de Mono seul à **Card, One of One et Hot** — même règle que
+      // le bouton, donc jamais en BeReal ni en Oneshot. En Mono, il vaut aussi
+      // pendant une vidéo (enregistrement persistant natif).
+      main = GestureDetector(onDoubleTap: _toggleLensFromTap, child: main);
     }
 
     return Center(
@@ -1272,17 +1337,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     // - Oneshot : les deux caméras filment ensemble, il n'y a rien à basculer
     //   (sauf en vue simple de secours, avant la prise) ;
     // - BeReal : la contrainte du format est justement de ne pas choisir.
-    // Mono garde en plus le double-tap et la bascule PENDANT la vidéo (la
-    // couche native maintient l'enregistrement à travers, comme Snapchat).
-    final showLensToggle = switch (_type) {
-      // BeReal : la contrainte du format est de ne pas choisir.
-      // Oneshot : les deux caméras prennent en même temps, il n'y a pas de sens
-      // à choisir (consigne Jay 2026-07-26 — y compris en vue simple de
-      // secours, où la bascule existait encore).
-      CardType.bereal || CardType.oneshot => false,
-      CardType.mono => true,
-      _ => !_recording,
-    };
+    // Mono garde en plus la bascule PENDANT la vidéo (la couche native
+    // maintient l'enregistrement à travers, comme Snapchat).
+    // Le détail vit dans [_lensToggleAllowed] — le double-tap sur l'aperçu
+    // suit exactement la même règle.
+    final showLensToggle = _lensToggleAllowed;
 
     // Outils de PRISE ajoutés le 2026-07-26 : retardateur, grille, HD.
     // - **Oneshot** : exclu d'office, il n'hérite de rien (règle Jay) ;
@@ -1294,8 +1353,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
     final screenFlashSettings = ref.watch(screenFlashProvider);
     // La lueur du flash frontal ne s'affiche QU'EN frontale : c'est un flash de
     // façade. Le réglage survit à un aller-retour vers l'arrière.
-    final screenFlashLit =
-        _screenFlash && !_camera.lensBack && _type != CardType.oneshot;
+    final screenFlashLit = _screenFlashLit;
     // Retraits appliqués par le SafeArea : la lueur les annule pour reprendre
     // l'écran entier.
     final safePadding = MediaQuery.paddingOf(context);
@@ -1606,7 +1664,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                         ScreenFlashControl(
                           on: _screenFlash,
                           settings: screenFlashSettings,
-                          onToggle: (on) => setState(() => _screenFlash = on),
+                          onToggle: (on) {
+                            setState(() => _screenFlash = on);
+                            _applyScreenFlashAssist();
+                          },
                           onChanged: (s) =>
                               ref.read(screenFlashProvider.notifier).set(s),
                         ),
@@ -1648,11 +1709,18 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen> {
                       // Bouton COULEUR (ex-bouton dessin) : appui court = face
                       // entièrement remplie de cette couleur, appui long =
                       // palette.
-                      _ColorButton(
-                        background: _background,
-                        onTap: _busy ? null : _useColorFace,
-                        onLongPress: _busy ? null : _openPalette,
-                      ),
+                      //
+                      // **Jamais en BeReal** (consigne Jay 2026-07-31, « cela
+                      // va de soi ») : le BeReal est obligatoirement une PHOTO
+                      // PRISE AVEC LES CAMÉRAS du téléphone. Une face de
+                      // couleur unie n'est pas une prise de vue — elle viderait
+                      // le format de sa contrainte.
+                      if (_type != CardType.bereal)
+                        _ColorButton(
+                          background: _background,
+                          onTap: _busy ? null : _useColorFace,
+                          onLongPress: _busy ? null : _openPalette,
+                        ),
                     ],
                   ),
                 ),
