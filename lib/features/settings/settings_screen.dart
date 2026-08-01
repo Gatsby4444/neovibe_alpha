@@ -26,6 +26,9 @@ class SettingsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Réglages')),
       body: ListView(
         children: [
+          const _Header('Démarrage'),
+          const _StartupTabSection(),
+          const Divider(),
           const _Header('Waves — "le presque"'),
           SwitchListTile(
             title: const Text('Notifications en temps réel'),
@@ -194,6 +197,53 @@ class SettingsScreen extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Onglet sur lequel l'app s'ouvre (consigne Jay 2026-08-01). L'onglet Card
+/// n'est pas proposé : c'est un bouton de capture, pas une destination.
+/// Le changement ne prend effet qu'au lancement suivant — l'app ne saute pas
+/// d'onglet pendant qu'on règle.
+class _StartupTabSection extends ConsumerWidget {
+  const _StartupTabSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(startupTabProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+          child: Text(
+            'L\'onglet ouvert au lancement de NeoVibe. Prend effet au prochain '
+            'démarrage.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.white54),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+          child: Wrap(
+            spacing: 8,
+            children: [
+              for (final tab in StartupTab.values)
+                ChoiceChip(
+                  label: Text(tab.label),
+                  selected: tab == current,
+                  showCheckmark: false,
+                  selectedColor: Theme.of(
+                    context,
+                  ).colorScheme.primary.withValues(alpha: 0.25),
+                  onSelected: (_) =>
+                      ref.read(startupTabProvider.notifier).set(tab),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

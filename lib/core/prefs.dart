@@ -142,6 +142,61 @@ final screenFlashProvider = NotifierProvider<ScreenFlash, ScreenFlashSettings>(
   ScreenFlash.new,
 );
 
+/// Onglet ouvert au lancement de l'app (consigne Jay 2026-08-01 : l'utilisateur
+/// choisit son écran de démarrage). L'onglet Card en est absent : c'est un
+/// bouton de capture, pas une destination où l'app peut se poser.
+///
+/// Stocké par NOM et jamais par index : la barre de navigation va encore bouger
+/// pendant la réorganisation, un index mémorisé désignerait ensuite le mauvais
+/// onglet sur les appareils déjà installés.
+enum StartupTab {
+  ping,
+  circle,
+  play,
+  profile;
+
+  static StartupTab fromKey(String? value) => switch (value) {
+    'ping' => StartupTab.ping,
+    'play' => StartupTab.play,
+    'profile' => StartupTab.profile,
+    _ => StartupTab.circle,
+  };
+
+  String get label => switch (this) {
+    StartupTab.ping => 'Ping',
+    StartupTab.circle => 'Cercle',
+    StartupTab.play => 'Jeux',
+    StartupTab.profile => 'Profil',
+  };
+}
+
+class StartupTabPref extends Notifier<StartupTab> {
+  static const prefsKey = 'startup_tab';
+
+  @override
+  StartupTab build() {
+    _load();
+    // Défaut : le Cercle — l'écran où l'on revient (consigne Jay 2026-07-26,
+    // maintenue le 2026-08-01 au passage à cinq onglets).
+    return StartupTab.circle;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = StartupTab.fromKey(prefs.getString(prefsKey));
+  }
+
+  Future<void> set(StartupTab value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(prefsKey, value.name);
+  }
+}
+
+final startupTabProvider = NotifierProvider<StartupTabPref, StartupTab>(
+  StartupTabPref.new,
+);
+
 /// Nombre de vues appliqué par défaut aux nouvelles Cards (1-5, consigne : 2).
 class DefaultMaxViews extends Notifier<int> {
   static const _key = 'default_max_views';

@@ -4,22 +4,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/message.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/formats.dart';
-import '../../core/widgets/gradient.dart';
 import '../cards/cards_repository.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
 import '../conversations/create_group_screen.dart';
-import '../proximity/ping_screen.dart';
 import 'categories_repository.dart';
 
 /// Filtres prédéfinis du hub (consigne Jay : Tout / Amis / Groupes, plus les
 /// catégories personnalisées de l'utilisateur).
 enum _BuiltinFilter { all, friends, groups }
 
-/// Cercle — le hub social : conversations des connexions (1-à-1 + groupes),
-/// catégories, et l'accès au module de proximité Ping (bouton en bas à
-/// droite). Les stories viendront s'afficher en haut (reporté — consigne Jay
-/// du 2026-07-12). Les conversations ping vivent dans le module Ping.
+/// Cercle — le hub social : conversations des connexions (1-à-1 + groupes) et
+/// catégories. Les stories viendront s'afficher en haut (reporté — consigne
+/// Jay du 2026-07-12). Les conversations ping vivent dans le module Ping, qui
+/// a son propre onglet depuis le 2026-08-01.
 class CircleScreen extends ConsumerStatefulWidget {
   const CircleScreen({super.key});
 
@@ -56,15 +54,10 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
           ),
         ],
       ),
-      // Le geste signature du module de proximité : bouton ping en bas à
-      // droite (consigne Jay), ouverture plein écran.
-      floatingActionButton: GradientFab(
-        tooltip: 'Ping — autour de toi',
-        icon: Icons.radar,
-        onPressed: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => const PingScreen())),
-      ),
+      // Le FAB Ping a été RETIRÉ le 2026-08-01 : le module de proximité a
+      // désormais son propre onglet dans la barre du bas. Le garder ici en
+      // ferait un doublon, et la mécanique fondatrice du produit n'a pas à
+      // vivre dans un bouton flottant secondaire.
       body: Column(
         children: [
           SizedBox(
