@@ -40,9 +40,11 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   static const _play = 3;
   static const _profile = 4;
 
+  /// `StartupTab.card` n'a pas d'onglet où se poser : l'app démarre sur le
+  /// Cercle et la capture s'ouvre par-dessus (voir `initState`).
   static int _indexOf(StartupTab tab) => switch (tab) {
     StartupTab.ping => _ping,
-    StartupTab.circle => _circle,
+    StartupTab.circle || StartupTab.card => _circle,
     StartupTab.play => _play,
     StartupTab.profile => _profile,
   };
@@ -71,14 +73,18 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     // réglage. Ici on ne veut la valeur qu'UNE fois, au lancement.
     SharedPreferences.getInstance().then((prefs) {
       if (!mounted || _userMoved) return;
-      final index = _indexOf(
-        StartupTab.fromKey(prefs.getString(StartupTabPref.prefsKey)),
-      );
-      if (index == _index) return;
-      setState(() {
-        _index = index;
-        _visited.add(index);
-      });
+      final tab = StartupTab.fromKey(prefs.getString(StartupTabPref.prefsKey));
+      final index = _indexOf(tab);
+      if (index != _index) {
+        setState(() {
+          _index = index;
+          _visited.add(index);
+        });
+      }
+      // Démarrage sur la Card : l'app se pose sur le Cercle et ouvre la
+      // capture par-dessus. Fermer la capture laisse donc sur le Cercle,
+      // au lieu de sortir de l'app sur un écran vide.
+      if (tab == StartupTab.card) _openCapture();
     });
   }
 

@@ -25,7 +25,19 @@ class CardSendScreen extends ConsumerStatefulWidget {
     this.imported = false,
     this.frontIsVideo = false,
     this.backIsVideo = false,
+    this.directRecipientIds,
+    this.directRecipientLabel,
   });
+
+  /// **Envoi direct depuis un chat** (consigne Jay 2026-08-01). Quand elle est
+  /// fournie, la destination est imposée : plus de liste de connexions, plus de
+  /// publication en bibliothèque. Ne restent que les réglages de la Card
+  /// elle-même et l'enregistrement dans MES Enregistrements.
+  ///
+  /// Liste et non identifiant unique : dans un groupe, « le destinataire du
+  /// chat » désigne tous les autres membres.
+  final List<String>? directRecipientIds;
+  final String? directRecipientLabel;
 
   final File front;
 
@@ -48,6 +60,10 @@ class CardSendScreen extends ConsumerStatefulWidget {
 class _CardSendScreenState extends ConsumerState<CardSendScreen> {
   final _selected = <String>{};
   var _publish = false;
+
+  /// Envoi direct : le destinataire vient du chat d'où la capture a été
+  /// ouverte, il n'y a rien à choisir.
+  bool get _direct => widget.directRecipientIds != null;
 
   /// Publication PUBLIQUE : un rang au-dessus de « connexions » — visible par
   /// toute personne accédant au profil par un moyen légitime (jamais Hot).
@@ -88,6 +104,10 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
   @override
   void initState() {
     super.initState();
+    // Envoi direct : les destinataires du chat sont les seuls, dès l'ouverture.
+    if (widget.directRecipientIds != null) {
+      _selected.addAll(widget.directRecipientIds!);
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShowExplainer());
   }
 
@@ -164,7 +184,17 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
         await repo.saveCard(card.id);
       }
       if (mounted) {
-        Navigator.of(context).popUntil((r) => r.isFirst);
+        if (_direct) {
+          // Retour AU CHAT d'où la capture a été ouverte : on dépile l'écran
+          // d'envoi et l'écran de capture (chat → capture → envoi). Le
+          // `popUntil(isFirst)` du parcours normal ramènerait à la racine et
+          // ferait perdre la conversation.
+          final nav = Navigator.of(context);
+          nav.pop();
+          nav.pop();
+        } else {
+          Navigator.of(context).popUntil((r) => r.isFirst);
+        }
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Card envoyée ✓')));
@@ -225,6 +255,15 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
       ),
       body: Column(
         children: [
+          if (_direct)
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.send, size: 18),
+              title: Text(
+                'Envoi direct à ${widget.directRecipientLabel ?? 'ce chat'}',
+              ),
+              subtitle: const Text('Elle partira dans cette conversation.'),
+            ),
           if (singleRecipient)
             const Padding(
               padding: EdgeInsets.all(12),
@@ -285,7 +324,10 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
               value: _scrubbable,
               onChanged: (v) => setState(() => _scrubbable = v),
             ),
-          if (_canPublish) ...[
+          // Envoi direct : la publication en bibliothèque n'a pas sa place ici
+          // (consigne Jay 2026-08-01 — « interface de sélection d'options
+          // simplifiée »). Elle reste accessible par le parcours normal.
+          if (_canPublish && !_direct) ...[
             SwitchListTile(
               title: const Text('Publier dans ma bibliothèque'),
               subtitle: const Text(
@@ -329,35 +371,39 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
               onChanged: (v) => setState(() => _saveForMe = v),
             ),
           const Divider(),
-          Expanded(
-            child: connections.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Aucune connexion à qui envoyer.',
-                      style: TextStyle(color: Colors.white54),
-                    ),
-                  )
-                : ListView(
-                    children: [
-                      for (final connection in connections)
-                        _RecipientTile(
-                          peerId: connection.peerIdFor(me),
-                          selected: _selected.contains(
-                            connection.peerIdFor(me),
+          // Envoi direct : plus de liste, le destinataire est celui du chat.
+          if (_direct)
+            const Spacer()
+          else
+            Expanded(
+              child: connections.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Aucune connexion à qui envoyer.',
+                        style: TextStyle(color: Colors.white54),
+                      ),
+                    )
+                  : ListView(
+                      children: [
+                        for (final connection in connections)
+                          _RecipientTile(
+                            peerId: connection.peerIdFor(me),
+                            selected: _selected.contains(
+                              connection.peerIdFor(me),
+                            ),
+                            onChanged: (checked) => setState(() {
+                              final id = connection.peerIdFor(me);
+                              if (checked) {
+                                if (singleRecipient) _selected.clear();
+                                _selected.add(id);
+                              } else {
+                                _selected.remove(id);
+                              }
+                            }),
                           ),
-                          onChanged: (checked) => setState(() {
-                            final id = connection.peerIdFor(me);
-                            if (checked) {
-                              if (singleRecipient) _selected.clear();
-                              _selected.add(id);
-                            } else {
-                              _selected.remove(id);
-                            }
-                          }),
-                        ),
-                    ],
-                  ),
-          ),
+                      ],
+                    ),
+            ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -369,7 +415,11 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
                         width: 22,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Envoyer'),
+                    : Text(
+                        _direct
+                            ? 'Envoyer à ${widget.directRecipientLabel ?? 'ce chat'}'
+                            : 'Envoyer',
+                      ),
               ),
             ),
           ),

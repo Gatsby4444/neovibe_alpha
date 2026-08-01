@@ -143,8 +143,12 @@ final screenFlashProvider = NotifierProvider<ScreenFlash, ScreenFlashSettings>(
 );
 
 /// Onglet ouvert au lancement de l'app (consigne Jay 2026-08-01 : l'utilisateur
-/// choisit son écran de démarrage). L'onglet Card en est absent : c'est un
-/// bouton de capture, pas une destination où l'app peut se poser.
+/// choisit son écran de démarrage).
+///
+/// `card` est un cas à part, ajouté à la demande de Jay le 2026-08-02 : ce
+/// n'est pas un onglet où l'app se pose mais un écran plein — l'app démarre
+/// alors sur le Cercle avec la capture ouverte par-dessus, comme Snapchat qui
+/// s'ouvre sur l'appareil photo. Fermer la capture laisse donc sur le Cercle.
 ///
 /// Stocké par NOM et jamais par index : la barre de navigation va encore bouger
 /// pendant la réorganisation, un index mémorisé désignerait ensuite le mauvais
@@ -152,11 +156,13 @@ final screenFlashProvider = NotifierProvider<ScreenFlash, ScreenFlashSettings>(
 enum StartupTab {
   ping,
   circle,
+  card,
   play,
   profile;
 
   static StartupTab fromKey(String? value) => switch (value) {
     'ping' => StartupTab.ping,
+    'card' => StartupTab.card,
     'play' => StartupTab.play,
     'profile' => StartupTab.profile,
     _ => StartupTab.circle,
@@ -165,6 +171,7 @@ enum StartupTab {
   String get label => switch (this) {
     StartupTab.ping => 'Ping',
     StartupTab.circle => 'Cercle',
+    StartupTab.card => 'Card',
     StartupTab.play => 'Jeux',
     StartupTab.profile => 'Profil',
   };
@@ -336,6 +343,35 @@ class DevSecureEnabled extends Notifier<bool> {
 
 final devSecureEnabledProvider = NotifierProvider<DevSecureEnabled, bool>(
   DevSecureEnabled.new,
+);
+
+/// Compte à rebours « disparaît dans … » sous chaque message (DÉVELOPPEUR).
+/// Retiré de l'affichage courant le 2026-08-01 (consigne Jay) : l'éphémère est
+/// une règle du produit, pas un chronomètre à surveiller message par message.
+/// Conservé derrière cet interrupteur pour vérifier le TTL en test.
+class DevShowExpiry extends Notifier<bool> {
+  static const prefsKey = 'dev_show_expiry';
+
+  @override
+  bool build() {
+    _load();
+    return false;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(prefsKey) ?? false;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefsKey, value);
+  }
+}
+
+final devShowExpiryProvider = NotifierProvider<DevShowExpiry, bool>(
+  DevShowExpiry.new,
 );
 
 /// Diagnostic caméra (DÉVELOPPEUR) : affiche sur l'aperçu la résolution du

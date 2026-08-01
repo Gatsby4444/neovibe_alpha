@@ -1,19 +1,20 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/models/card.dart';
 import '../../core/models/connection.dart';
 import '../../core/models/message.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/prefs.dart';
 import '../../core/utils/formats.dart';
+import '../cards/card_capture_screen.dart';
 import '../cards/card_viewer_screen.dart';
 import '../cards/cards_repository.dart';
 import '../connections/connections_repository.dart';
+import '../library/user_library_screen.dart';
 import 'video_player_screen.dart';
 import '../proximity/proximity_service.dart';
 import 'conversations_repository.dart';
@@ -112,34 +113,31 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
-  Future<void> _sendMedia(bool video) async {
-    final picker = ImagePicker();
-    final picked = video
-        ? await picker.pickVideo(
-            source: ImageSource.camera,
-            maxDuration: const Duration(seconds: 30),
-          )
-        : await picker.pickImage(
-            source: ImageSource.camera,
-            imageQuality: 85,
-            maxWidth: 1600,
-          );
-    if (picked == null) return;
-    try {
-      await ref
-          .read(conversationsRepositoryProvider)
-          .sendMedia(
-            widget.conversationId,
-            File(picked.path),
-            video ? MessageKind.video : MessageKind.image,
-          );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(_friendlyError(e))));
-      }
-    }
+  // `_sendMedia` (photo/vidéo brutes via le sélecteur système) a été SUPPRIMÉ
+  // le 2026-08-01 avec les deux boutons caméra : dans un chat, on envoie une
+  // Card, pas un média nu. Les messages image/vidéo déjà en base continuent de
+  // s'afficher (`_MediaPreview`), et le canal reste ouvert côté dépôt
+  // (`sendMedia`) — seule l'entrée depuis l'interface a disparu.
+
+  /// Bouton Card du chat (consigne Jay 2026-08-01) : ouvre la vraie interface
+  /// de capture, puis un écran d'envoi réduit — destinataires imposés (le pair
+  /// en DM, tous les autres membres en groupe), pas de choix de liste, pas de
+  /// publication en bibliothèque. Seule option en plus : garder une copie dans
+  /// ses Enregistrements.
+  void _sendCard(Conversation conversation, String me) {
+    final recipients = conversation.members
+        .where((m) => m.id != me)
+        .map((m) => m.id)
+        .toList();
+    if (recipients.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CardCaptureScreen(
+          directRecipientIds: recipients,
+          directRecipientLabel: conversation.displayName(me),
+        ),
+      ),
+    );
   }
 
   String _friendlyError(Object e) {
@@ -192,7 +190,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(conversation?.displayName(me) ?? '…'),
+        // DM : photo de profil + pseudo, l'ensemble cliquable et menant au
+        // profil du pair (consigne Jay 2026-08-01). Les groupes gardent leur
+        // titre simple — leur détail vit dans l'icône « groupe » à droite.
+        title: isGroup || peer == null
+            ? Text(conversation?.displayName(me) ?? '…')
+            : _PeerTitle(peerId: peer.id),
         actions: [
           if (isGroup)
             IconButton(
@@ -270,16 +273,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
               child: Row(
                 children: [
-                  if (!isProximity) ...[
+                  // Un seul bouton média depuis le 2026-08-01 (consigne Jay) :
+                  // les deux boutons caméra bruts (photo / vidéo via le
+                  // sélecteur système) sont remplacés par le bouton Card, qui
+                  // ouvre la vraie interface de capture et envoie directement
+                  // dans cette conversation.
+                  if (!isProximity && conversation != null)
                     IconButton(
-                      icon: const Icon(Icons.photo_camera),
-                      onPressed: () => _sendMedia(false),
+                      icon: const Icon(Icons.filter_none),
+                      tooltip: 'Envoyer une Card',
+                      onPressed: () => _sendCard(conversation, me),
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.videocam),
-                      onPressed: () => _sendMedia(true),
-                    ),
-                  ],
                   Expanded(
                     child: TextField(
                       controller: _input,
@@ -342,6 +346,48 @@ class _PartialBanner extends ConsumerWidget {
   }
 }
 
+/// Titre d'un DM : photo de profil + pseudo, l'ensemble cliquable et menant au
+/// profil du pair (consigne Jay 2026-08-01 — « on n'affiche pas uniquement le
+/// pseudo mais aussi sa photo de profil, et le tout est cliquable »).
+class _PeerTitle extends ConsumerWidget {
+  const _PeerTitle({required this.peerId});
+  final String peerId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profile = ref.watch(profileByIdProvider(peerId)).value;
+    final name = profile?.chatName ?? '…';
+    return InkWell(
+      onTap: profile == null
+          ? null
+          : () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => UserLibraryScreen(profile: profile),
+              ),
+            ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircleAvatar(
+            radius: 16,
+            backgroundImage: profile?.avatarUrl != null
+                ? NetworkImage(profile!.avatarUrl!)
+                : null,
+            child: profile?.avatarUrl == null
+                ? Text(
+                    name.characters.first.toUpperCase(),
+                    style: const TextStyle(fontSize: 13),
+                  )
+                : null,
+          ),
+          const SizedBox(width: 10),
+          Flexible(child: Text(name, overflow: TextOverflow.ellipsis)),
+        ],
+      ),
+    );
+  }
+}
+
 class _MessageBubble extends ConsumerWidget {
   const _MessageBubble({required this.message, required this.isMine});
   final Message message;
@@ -393,7 +439,14 @@ class _MessageBubble extends ConsumerWidget {
             content,
             const SizedBox(height: 2),
             Text(
-              '${shortTime(message.createdAt)} · disparaît dans ${remaining(message.expiresAt)}',
+              // « disparaît dans … » retiré de l'affichage courant le
+              // 2026-08-01 (consigne Jay) : l'éphémère est une règle du
+              // produit, pas un chronomètre à surveiller sous chaque message.
+              // Conservé derrière l'interrupteur développeur pour vérifier le
+              // TTL en test.
+              ref.watch(devShowExpiryProvider)
+                  ? '${shortTime(message.createdAt)} · disparaît dans ${remaining(message.expiresAt)}'
+                  : shortTime(message.createdAt),
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: Colors.white38,
                 fontSize: 10,

@@ -30,11 +30,23 @@ import 'native_camera.dart';
 /// même cadre : ce qu'on voit est exactement ce qui est capturé (fix de la
 /// distorsion remontée par Jay le 2026-07-12).
 class CardCaptureScreen extends ConsumerStatefulWidget {
-  const CardCaptureScreen({super.key, this.bereal = false});
+  const CardCaptureScreen({
+    super.key,
+    this.bereal = false,
+    this.directRecipientIds,
+    this.directRecipientLabel,
+  });
 
   /// Mode BeReal : fenêtre de capture contrainte de 5 minutes après la
   /// notification (le déclenchement manuel a été retiré du menu).
   final bool bereal;
+
+  /// **Envoi direct depuis un chat** (consigne Jay 2026-08-01) : la capture est
+  /// ouverte depuis une conversation, le destinataire est donc déjà connu.
+  /// L'écran d'envoi se réduit alors aux réglages de la Card elle-même — pas de
+  /// choix de destinataire, pas de publication en bibliothèque.
+  final List<String>? directRecipientIds;
+  final String? directRecipientLabel;
 
   @override
   ConsumerState<CardCaptureScreen> createState() => _CardCaptureScreenState();
@@ -1323,6 +1335,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         backImported: _backImported,
         frontIsVideo: _frontIsVideo,
         backIsVideo: _backIsVideo,
+        directRecipientIds: widget.directRecipientIds,
+        directRecipientLabel: widget.directRecipientLabel,
         onRetake: _retakeFromRecap,
       );
     }
@@ -1955,6 +1969,8 @@ class _RecapStep extends StatefulWidget {
     this.backImported = false,
     this.frontIsVideo = false,
     this.backIsVideo = false,
+    this.directRecipientIds,
+    this.directRecipientLabel,
     required this.onRetake,
   });
   final File front;
@@ -1967,6 +1983,11 @@ class _RecapStep extends StatefulWidget {
   final bool backImported;
   final bool frontIsVideo;
   final bool backIsVideo;
+
+  /// Destinataire imposé (capture ouverte depuis un chat) — simplement relayé
+  /// à l'écran d'envoi.
+  final List<String>? directRecipientIds;
+  final String? directRecipientLabel;
 
   @override
   State<_RecapStep> createState() => _RecapStepState();
@@ -2102,6 +2123,8 @@ class _RecapStepState extends State<_RecapStep> {
                   imported: widget.frontImported || widget.backImported,
                   frontIsVideo: widget.frontIsVideo,
                   backIsVideo: widget.backIsVideo,
+                  directRecipientIds: widget.directRecipientIds,
+                  directRecipientLabel: widget.directRecipientLabel,
                 ),
               ),
             ),

@@ -137,6 +137,19 @@ class SettingsScreen extends ConsumerWidget {
           ),
           SwitchListTile(
             dense: true,
+            title: const Text(
+              'Afficher « disparaît dans … » sous les messages',
+            ),
+            subtitle: const Text(
+              'Retiré de l\'affichage courant : l\'éphémère est une règle du '
+              'produit, pas un chronomètre à surveiller message par message. '
+              'Active pour vérifier le TTL en test.',
+            ),
+            value: ref.watch(devShowExpiryProvider),
+            onChanged: (v) => ref.read(devShowExpiryProvider.notifier).set(v),
+          ),
+          SwitchListTile(
+            dense: true,
             title: const Text('Diagnostic caméra sur l\'aperçu'),
             subtitle: const Text(
               'Affiche résolution, rotation et état du double flux — pour '
