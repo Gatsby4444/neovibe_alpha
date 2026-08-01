@@ -1,5 +1,14 @@
 # REPRISE — Chantier « rendu caméra GPU/OpenGL »
 
+> **⚠️ CHANTIER TERMINÉ ET VALIDÉ (v0.9.23, le 2026-07-25).** Les 5 étapes sont
+> livrées et testées par Jay sur le Redmi Note 10 Pro. Il ne reste **aucun code**
+> à écrire au titre de ce chantier — seulement le **test multi-appareils**
+> (`RAPPELS.md` avant-prod #8), qui ne dépend pas du code.
+>
+> Ce document reste la référence des **contraintes matérielles** et des **leçons**
+> du chantier : les rouvrir sans les relire ferait refaire des erreurs coûteuses.
+> État vérifié contre le code le **2026-08-01** (voir « État courant » en bas).
+
 > Document de reprise VIVANT. But : qu'une nouvelle session (ou une reprise après
 > résumé de contexte / limite de tokens) puisse continuer le chantier sans rien
 > re-déduire. **Mettre à jour à chaque étape.** À lire APRÈS `CLAUDE.md`,
@@ -165,7 +174,14 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
      retire que leur surface EGL, les caméras continuent de rendre l'aperçu
      (le moteur logiciel, lui, débranchait les `ImageCapture`).
   *À VÉRIFIER par Jay : voir la liste du rapport 2026-07-25_12-23.*
-- [x] **Étape 5c — Repli séquentiel. CODÉE (v0.9.22), EN ATTENTE DE TEST.**
+- [x] **Étape 5c — Repli séquentiel. VALIDÉE (v0.9.22).** Jay : « tout semble
+  fonctionner comme il faut ». Chiffres du journal : bascule de caméra
+  **232-391 ms** (mesurée, plus estimée), écart entre les deux faces du Oneshot
+  séquentiel **1093-1129 ms**. **Lecture de ce chiffre** : la bascule ne coûte
+  que ~390 ms, l'essentiel vient de `takePicture` (~700 ms : capture, écriture
+  JPEG, rotation EXIF). Le levier restant n'est donc PAS la bascule mais la
+  capture — à savoir si Jay veut un jour descendre sous la seconde. Le
+  séquentiel n'égalera jamais le double flux : c'est structurel.
   Le repli existait déjà ; ce qui manquait, c'était sa qualité. Les deux délais
   en dur de 250 ms sont remplacés par l'attente du FAIT : `switchLens` ne répond
   que lorsque `CameraState` dit la caméra OUVERTE (`awaitCameraOpen`, garde-fou
@@ -175,7 +191,8 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   **Testable sur le Redmi** via Réglages → Développeur → « Forcer la vue simple
   Oneshot » (c'est cet interrupteur, activé chez Jay, qui donnait l'illusion
   d'un repli matériel).
-- [x] **Étape 5d — Nettoyage du code mort. CODÉE (v0.9.23), EN ATTENTE DE TEST.**
+- [x] **Étape 5d — Nettoyage du code mort. VALIDÉE (v0.9.23)** (Jay : « fonctionne
+  globalement bien »).
   Décision de Jay, contre ma réserve : « je préfère ne pas avoir de backup plutôt
   qu'une backup médiocre au niveau UX » — le moteur logiciel plafonnait à
   20-27 i/s avec freezes, il n'aurait pas fait un repli acceptable.
@@ -192,7 +209,10 @@ GoNext rend en **GPU/OpenGL**, nous en logiciel (CPU).
   **Le repli séquentiel du Oneshot, lui, RESTE** : c'est CameraX, pas le moteur
   logiciel supprimé.
 
-## État courant
+## Historique du déroulé (conservé pour les leçons — PAS l'état courant)
+
+> ⚠️ Les « prochain pas » ci-dessous sont **périmés** : ils datent du déroulé
+> version par version. L'état réel est en bas, section **« État courant »**.
 
 **Étape 1 : la plomberie GPU MARCHE (v0.9.5) — rendu à ~30 i/s CONSTANT, zéro
 freeze** (journal de Jay : 120 images / ~4,04 s, pile le [30,30] du capteur).
@@ -293,7 +313,71 @@ explicite sur ce chemin — RAPPELS #9), et correctifs `ref` Riverpod.
 double flux) + suppression du code mort (`Camera2Dual` logiciel, `DualCameraProbe`)
 une fois le GPU validé sur plusieurs appareils (RAPPELS #8).
 
-Dernière release : **v0.9.21** (versionCode 111) — Oneshot filmé complet.
+---
+
+## État courant — vérifié contre le code le 2026-08-01
+
+**Le chantier GPU est CLOS.** Les 5 étapes sont livrées et validées par Jay sur
+le Redmi Note 10 Pro. Dernière release du projet : **v0.9.35** (versionCode 125).
+
+### Ce que fait le moteur aujourd'hui
+
+| Capacité | Où | Statut |
+|---|---|---|
+| Double aperçu, 2 caméras à **30 i/s constants** | `Camera2Gl.kt` × 2 instances | validée v0.9.9 |
+| **Photo** double instantanée (83-119 ms) | `capturePhoto` (FBO + `glReadPixels`) | validée v0.9.10 |
+| **Vidéo** double simultanée (2 × `MediaCodec` H264 + `MediaMuxer`) | 2e surface EGL sur l'input du codec | validée v0.9.13 |
+| **Audio partagé** muxé dans les DEUX `.mp4` | `DualAudioEncoder.kt` (1 micro → AAC) | validée v0.9.14 |
+| Le tout branché dans le **vrai Oneshot** (photo + vidéo) | `card_capture_screen.dart` | validée v0.9.15 / v0.9.21 |
+| **Repli séquentiel** automatique, sans délai en dur | `_captureBothSequentially` + `awaitCameraOpen` | validée v0.9.22 |
+| Moteur logiciel et sonde **supprimés** | — | validée v0.9.23 |
+
+Chemin du repli, vérifié dans le code le 2026-08-01 : `openGlDual` lève
+`DualUnsupportedException` → `NativeCameraController.dualFailedThisSession`
+passe à `true` (**on ne re-sonde jamais**, une tentative ratée peut tuer le
+service caméra) → `_captureBothSequentially()`. Testable à volonté sur un
+appareil capable via **Réglages → Développeur → « Forcer la vue simple
+Oneshot »** (`devDualOneshotProvider`, dont le sens est *activer = simple*).
+
+### Ce qui reste — et ce n'est PAS du code
+
+**Le test multi-appareils** (`RAPPELS.md` avant-prod #8). On ne valide que sur
+un seul appareil, le Redmi Note 10 Pro. Il faut d'autres téléphones ou Firebase
+Test Lab. Deux points en dépendent directement :
+
+- le **repli** n'a jamais tourné sur un appareil réellement incapable du double
+  flux (seulement simulé par l'interrupteur dev) ;
+- le **sens du miroir** de la frontale en GPU dépend du matériel
+  (`RAPPELS.md` avant-prod #9) — correctif d'une ligne s'il diffère.
+
+### Le seul levier de code encore ouvert (non demandé)
+
+L'écart entre les deux faces du **repli séquentiel** est de **1093-1129 ms**.
+La bascule de caméra n'en fait que ~390 ms : le reste est `takePicture`
+(~700 ms). Pour resserrer, il faudrait capturer depuis la **dernière image du
+flux** au lieu de `takePicture` — la technique déjà employée par le moteur GPU.
+Jamais demandé par Jay ; à ne lancer que sur sa décision. Rappel : le séquentiel
+n'égalera jamais le double flux, c'est structurel.
+
+### Travaux caméra postérieurs au chantier GPU (v0.9.24 → v0.9.35)
+
+Ils ne relèvent plus du rendu mais de l'**UX de capture**. Livrés et validés :
+
+- **v0.9.26** dégradé de marque ; **v0.9.27-28** vignettes locales des grilles,
+  y compris les faces vidéo (canal natif `neovibe/media`) ;
+- **v0.9.29-30** geste des mini-cards, flash à 4 modes, bouton couleur ;
+- **v0.9.32** le Oneshot redevient la **caméra pure** (aucun outil) ;
+- **v0.9.33-34** flash frontal en lueur d'écran, grille de cadrage, retardateur,
+  bouton HD (photo seulement — la vidéo HD attend l'hébergement, `RAPPELS.md`
+  avant-prod #10) ;
+- **v0.9.35** bouton couleur retiré du BeReal, double-tap de bascule caméra avec
+  animation, **aperçu renversé pendant la bascule corrigé** (événement natif
+  `previewReady` = signal de première image), flash frontal revu (bandeau bas
+  épais, exposition capteur, rétroéclairage forcé).
+
+Restent en attente d'une **décision de Jay**, pas de code : règles du flash en
+Oneshot, persistance de l'allumage du flash frontal, et confirmation du
+rétroéclairage forcé (ajouté sans avoir été demandé, testé, non contesté).
 
 ## Rappel build + release (toolchain hors PATH)
 

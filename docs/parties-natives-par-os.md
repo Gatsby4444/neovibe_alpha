@@ -111,7 +111,7 @@ caméras en même temps).
 **Android (fait)** :
 - `NativeCamera.kt` — orchestration + **CameraX** pour tous les modes à une
   caméra (aperçu simple, Mono, recto/verso, vidéo simple, bascule pendant vidéo).
-- `Camera2Gl.kt` — **double flux GPU** (chantier en cours) : Camera2 brut +
+- `Camera2Gl.kt` — **double flux GPU** (chantier TERMINÉ, v0.9.23) : Camera2 brut +
   OpenGL ES (texture externe OES → shader → texture Flutter), photo par
   `glReadPixels`, **vidéo par `MediaCodec` H264 + `MediaMuxer`** (2e surface EGL
   sur l'input du codec — un `.mp4` par caméra). Deux instances = les deux caméras.
