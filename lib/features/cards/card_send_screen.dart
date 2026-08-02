@@ -7,6 +7,7 @@ import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import '../connections/connections_repository.dart';
+import '../stories/stories_repository.dart';
 import 'cards_repository.dart';
 
 /// Destination et paramètres d'une Card.
@@ -76,6 +77,10 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
   /// Copie privée dans MES Enregistrements (bibliothèque privée).
   var _saveForMe = false;
 
+  /// Publication en story, 24 h (consigne Jay 2026-08-02). Indépendante de la
+  /// bibliothèque : on peut mettre en story sans publier, et l'inverse.
+  var _publishStory = false;
+
   /// Vues par card (1-5). Initialisé depuis les réglages.
   late int _maxViews = ref.read(defaultMaxViewsProvider);
 
@@ -144,8 +149,13 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
     await ref.read(cardsExplainerShownProvider.notifier).markShown();
   }
 
+  /// Une story se met en avant, elle ne se détruit pas à la vue : les types
+  /// à mécanique destructive ou exclusive en sont exclus, comme pour la
+  /// bibliothèque.
+  bool get _canStory => _canPublish;
+
   Future<void> _send() async {
-    if (_selected.isEmpty && !_publish && !_saveForMe) {
+    if (_selected.isEmpty && !_publish && !_saveForMe && !_publishStory) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -182,6 +192,9 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
       }
       if (_saveForMe) {
         await repo.saveCard(card.id);
+      }
+      if (_publishStory) {
+        await ref.read(storiesRepositoryProvider).publish(card.id);
       }
       if (mounted) {
         if (_direct) {
@@ -226,6 +239,8 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
     final connections = ref.watch(fullConnectionsProvider);
     final singleRecipient = widget.type == CardType.oneOfOne;
     final type = widget.type;
+    final storiesPublic =
+        ref.watch(myProfileProvider).value?.storiesPublic ?? false;
 
     return Scaffold(
       appBar: AppBar(
@@ -369,6 +384,20 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
               ),
               value: _saveForMe,
               onChanged: (v) => setState(() => _saveForMe = v),
+            ),
+          // La story reste proposée en envoi direct : mettre sa card en story
+          // n'a rien à voir avec le destinataire du chat.
+          if (_canStory)
+            SwitchListTile(
+              title: const Text('Mettre en story'),
+              subtitle: Text(
+                storiesPublic
+                    ? 'Visible 24 h par tes amis ET par les personnes que tu '
+                          'croises — tes stories sont publiques'
+                    : 'Visible 24 h par tes amis. Lecture illimitée.',
+              ),
+              value: _publishStory,
+              onChanged: (v) => setState(() => _publishStory = v),
             ),
           const Divider(),
           // Envoi direct : plus de liste, le destinataire est celui du chat.

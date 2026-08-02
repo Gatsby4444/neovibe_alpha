@@ -8,16 +8,18 @@ import '../cards/cards_repository.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
 import '../conversations/create_group_screen.dart';
+import '../stories/stories_bar.dart';
+import '../stories/stories_repository.dart';
 import 'categories_repository.dart';
 
 /// Filtres prédéfinis du hub (consigne Jay : Tout / Amis / Groupes, plus les
 /// catégories personnalisées de l'utilisateur).
 enum _BuiltinFilter { all, friends, groups }
 
-/// Cercle — le hub social : conversations des connexions (1-à-1 + groupes) et
-/// catégories. Les stories viendront s'afficher en haut (reporté — consigne
-/// Jay du 2026-07-12). Les conversations ping vivent dans le module Ping, qui
-/// a son propre onglet depuis le 2026-08-01.
+/// Cercle — le hub social : stories des amis en haut (2026-08-02), puis
+/// conversations des connexions (1-à-1 + groupes) et catégories. Les
+/// conversations ping vivent dans le module Ping, qui a son propre onglet
+/// depuis le 2026-08-01.
 class CircleScreen extends ConsumerStatefulWidget {
   const CircleScreen({super.key});
 
@@ -60,6 +62,14 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
       // vivre dans un bouton flottant secondaire.
       body: Column(
         children: [
+          // Emplacement réservé depuis le 2026-07-12, occupé le 2026-08-02 :
+          // les stories de mes amis, en haut du hub.
+          StoriesBar(
+            provider: friendStoriesProvider,
+            emptyHint:
+                'Pas de story pour l\'instant. Publie une Card en story '
+                'depuis l\'écran d\'envoi.',
+          ),
           SizedBox(
             height: 44,
             child: ListView(

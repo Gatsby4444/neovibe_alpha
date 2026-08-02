@@ -9,6 +9,7 @@ import '../cards/native_camera.dart';
 import '../cards/saved_items_screen.dart';
 import '../connections/connections_repository.dart';
 import '../library/library_repository.dart';
+import '../stories/stories_repository.dart';
 import 'camera_log_screen.dart';
 import 'gl_preview_test_screen.dart';
 import 'storage_screen.dart';
@@ -94,6 +95,21 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => const StorageScreen())),
+          ),
+          const Divider(),
+          const _Header('Mes stories'),
+          SwitchListTile(
+            title: const Text('Stories publiques'),
+            subtitle: const Text(
+              'Désactivé : seuls tes amis voient tes stories. Activé : les '
+              'personnes que tu as croisées physiquement dans les dernières '
+              '24 h les voient aussi. Le croisement doit être certifié — on '
+              'ne peut pas prétendre t\'avoir croisé.',
+            ),
+            value: profile?.storiesPublic ?? false,
+            onChanged: (v) async {
+              await ref.read(storiesRepositoryProvider).setStoriesPublic(v);
+            },
           ),
           const Divider(),
           const _Header('Ma bibliothèque'),

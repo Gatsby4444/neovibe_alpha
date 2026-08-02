@@ -15,6 +15,7 @@ class Profile {
     this.avatarUrl,
     this.libraryVisibility = LibraryVisibility.connections,
     this.realtimeWaves = false,
+    this.storiesPublic = false,
   });
 
   final String id;
@@ -29,6 +30,12 @@ class Profile {
   final String? avatarUrl;
   final LibraryVisibility libraryVisibility;
   final bool realtimeWaves;
+
+  /// Stories publiques (consigne Jay 2026-08-02) : quand c'est actif, les
+  /// personnes CROISÉES physiquement dans les dernières 24 h voient mes
+  /// stories, en plus de mes amis. Faux par défaut — sans ce réglage, seuls
+  /// mes amis les voient.
+  final bool storiesPublic;
 
   // NB : plus de `ble_token` — depuis le chantier BLE (2026-07-13), la
   // découverte est 100 % locale et l'identifiant diffusé change toutes les
@@ -49,5 +56,6 @@ class Profile {
       json['library_visibility'] as String? ?? 'connections',
     ),
     realtimeWaves: json['realtime_waves'] as bool? ?? false,
+    storiesPublic: json['stories_public'] as bool? ?? false,
   );
 }

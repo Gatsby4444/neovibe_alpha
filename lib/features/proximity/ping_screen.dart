@@ -5,6 +5,8 @@ import '../../core/models/nearby_user.dart';
 import '../../core/utils/formats.dart';
 import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
+import '../stories/stories_bar.dart';
+import '../stories/stories_repository.dart';
 import 'ping_chat_screen.dart';
 import 'ping_store.dart';
 import 'proximity_service.dart';
@@ -85,6 +87,15 @@ class _PingScreenState extends ConsumerState<PingScreen> {
         onRefresh: _reload,
         child: ListView(
           children: [
+            // Stories des personnes croisées (consigne Jay 2026-08-02) :
+            // uniquement celles qui ont activé « stories publiques », et
+            // uniquement si le croisement certifié date de moins de 24 h.
+            // Le tap vers le profil est COUPÉ ici : les règles de
+            // confidentialité des comptes non liés restent à trancher.
+            StoriesBar(
+              provider: crossedStoriesProvider,
+              profileTapEnabled: false,
+            ),
             SwitchListTile(
               title: const Text('Visible à proximité'),
               subtitle: Text(
