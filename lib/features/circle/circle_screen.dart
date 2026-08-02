@@ -128,6 +128,7 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
                 ref.invalidate(conversationsProvider);
                 ref.invalidate(myCategoriesProvider);
                 ref.invalidate(categoryMembersProvider);
+                ref.invalidate(friendStoriesProvider);
               },
               child: conversations.when(
                 loading: () => const Center(child: CircularProgressIndicator()),

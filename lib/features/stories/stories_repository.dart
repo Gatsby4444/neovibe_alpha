@@ -44,11 +44,17 @@ List<StoryRing> _ring(List<Story> stories) {
 final friendStoriesProvider = FutureProvider<List<StoryRing>>((ref) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final stories = await ref.watch(_visibleStoriesProvider.future);
+  // ⚠️ Les connexions se lisent AVANT le `await`. Un `ref.watch` placé après
+  // une suspension n'enregistre pas la dépendance de façon fiable : le fil ne
+  // se recalculait pas quand la liste d'amis arrivait (elle vient d'un stream,
+  // donc elle est VIDE au premier passage) — et il ne restait que mes propres
+  // stories, c'est-à-dire rien. Cause du « aucune story nulle part » du
+  // 2026-08-02.
   final friends = ref
       .watch(fullConnectionsProvider)
       .map((c) => c.peerIdFor(me))
       .toSet();
+  final stories = await ref.watch(_visibleStoriesProvider.future);
   return _ring(
     stories
         .where((s) => s.ownerId == me || friends.contains(s.ownerId))
@@ -63,11 +69,12 @@ final friendStoriesProvider = FutureProvider<List<StoryRing>>((ref) async {
 final crossedStoriesProvider = FutureProvider<List<StoryRing>>((ref) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final stories = await ref.watch(_visibleStoriesProvider.future);
+  // Même règle que ci-dessus : tout `ref.watch` avant le premier `await`.
   final friends = ref
       .watch(fullConnectionsProvider)
       .map((c) => c.peerIdFor(me))
       .toSet();
+  final stories = await ref.watch(_visibleStoriesProvider.future);
   return _ring(
     stories
         .where((s) => s.ownerId != me && !friends.contains(s.ownerId))

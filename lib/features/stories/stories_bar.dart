@@ -32,8 +32,29 @@ class StoriesBar extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final rings = ref.watch(provider);
     return rings.when(
-      loading: () => const SizedBox(height: 96),
-      error: (_, _) => const SizedBox.shrink(),
+      loading: () => const SizedBox(
+        height: 96,
+        child: Center(
+          child: SizedBox(
+            height: 18,
+            width: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      ),
+      // Une erreur ne doit PAS se traduire par un bandeau vide : c'est ce qui
+      // a rendu la panne du 2026-08-02 indiscernable d'une absence de story.
+      // Les trois états doivent se distinguer au premier coup d'œil.
+      error: (e, _) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
+        child: Text(
+          'Stories indisponibles : $e',
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.error,
+            fontSize: 12,
+          ),
+        ),
+      ),
       data: (list) {
         if (list.isEmpty) {
           if (emptyHint == null) return const SizedBox.shrink();
