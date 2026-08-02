@@ -90,11 +90,11 @@ class _PingScreenState extends ConsumerState<PingScreen> {
             // Stories des personnes croisées (consigne Jay 2026-08-02) :
             // uniquement celles qui ont activé « stories publiques », et
             // uniquement si le croisement certifié date de moins de 24 h.
-            // Le tap vers le profil est COUPÉ ici : les règles de
-            // confidentialité des comptes non liés restent à trancher.
             StoriesBar(
               provider: crossedStoriesProvider,
-              profileTapEnabled: false,
+              emptyHint:
+                  'Pas de story des gens que tu croises. Elles n\'apparaissent '
+                  'que si la personne a activé ses stories publiques.',
             ),
             SwitchListTile(
               title: const Text('Visible à proximité'),

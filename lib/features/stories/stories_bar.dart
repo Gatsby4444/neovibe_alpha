@@ -12,13 +12,14 @@ import 'story_viewer_screen.dart';
 /// dessous (registre Instagram, consigne Jay 2026-08-02). Un appui ouvre la
 /// visionneuse ; un appui **long** mène au profil de l'auteur — le tap simple
 /// est réservé à la lecture, c'est ce que le geste attend partout ailleurs.
+///
+/// L'accès au profil vaut aussi dans le Ping, y compris pour un non-ami :
+/// vérifié en base le 2026-08-02, `can_view_profile` contient une branche
+/// `encounters` depuis le 2026-07-12 — **un croisement certifié ouvre déjà
+/// l'accès au profil**, par conception. Le bandeau ne crée donc aucun accès
+/// nouveau.
 class StoriesBar extends ConsumerWidget {
-  const StoriesBar({
-    super.key,
-    required this.provider,
-    this.emptyHint,
-    this.profileTapEnabled = true,
-  });
+  const StoriesBar({super.key, required this.provider, this.emptyHint});
 
   /// `friendStoriesProvider` (Cercle) ou `crossedStoriesProvider` (Ping) :
   /// même bandeau, deux fils.
@@ -26,11 +27,6 @@ class StoriesBar extends ConsumerWidget {
 
   /// Affiché à la place du bandeau quand il n'y a rien. Null = bandeau masqué.
   final String? emptyHint;
-
-  /// Accès au profil de l'auteur depuis la pastille. Coupé dans le Ping tant
-  /// que les règles de confidentialité des comptes non liés n'ont pas été
-  /// tranchées par Jay (2026-08-02).
-  final bool profileTapEnabled;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -55,10 +51,7 @@ class StoriesBar extends ConsumerWidget {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             itemCount: list.length,
-            itemBuilder: (context, index) => _StoryDot(
-              ring: list[index],
-              profileTapEnabled: profileTapEnabled,
-            ),
+            itemBuilder: (context, index) => _StoryDot(ring: list[index]),
           ),
         );
       },
@@ -67,9 +60,8 @@ class StoriesBar extends ConsumerWidget {
 }
 
 class _StoryDot extends StatelessWidget {
-  const _StoryDot({required this.ring, required this.profileTapEnabled});
+  const _StoryDot({required this.ring});
   final StoryRing ring;
-  final bool profileTapEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -80,13 +72,11 @@ class _StoryDot extends StatelessWidget {
         onTap: () => Navigator.of(context).push(
           MaterialPageRoute(builder: (_) => StoryViewerScreen(ring: ring)),
         ),
-        onLongPress: !profileTapEnabled
-            ? null
-            : () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => UserLibraryScreen(profile: ring.owner),
-                ),
-              ),
+        onLongPress: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => UserLibraryScreen(profile: ring.owner),
+          ),
+        ),
         child: SizedBox(
           width: 64,
           child: Column(
