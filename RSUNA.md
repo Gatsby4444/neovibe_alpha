@@ -5,9 +5,9 @@ Deux parties : la **partie 1 est pour Jay** (ce qu'il fait à la main), la
 **partie 2 est pour Claude Code** (ce qu'il vérifie et reconstruit tout seul
 à la première session sur la nouvelle machine).
 
-Dernière mise à jour : **2026-07-26**, état du projet : **v0.9.34**
-(⚠️ **v0.9.31, v0.9.32, v0.9.33 et v0.9.34 sont en attente du retour de test de
-Jay** — voir §2.4).
+Dernière mise à jour : **2026-08-02**, état du projet : **v0.9.41**
+(testée et **validée** par Jay ; un chantier vient d'être ouvert et attend ses
+arbitrages — voir §2.4).
 
 ---
 
@@ -57,7 +57,7 @@ elle vit hors du dossier projet (voir §1.5).
 | Sur la clé | À remettre où, sur la nouvelle machine |
 |---|---|
 | `neovibe_alpha.zip` | Décompresser dans `C:\Charles\` → doit donner `C:\Charles\neovibe_alpha` |
-| `memory\` (15 fichiers) | `C:\Users\<TON_PROFIL>\.claude\projects\C--Charles-neovibe-alpha\memory\` |
+| `memory\` (18 fichiers au 2026-08-02) | `C:\Users\<TON_PROFIL>\.claude\projects\C--Charles-neovibe-alpha\memory\` |
 | *(optionnel)* `dev\` | `C:\Charles\dev\` — évite de retélécharger 6,4 Go de toolchain |
 
 > ⚠️ **Le chemin `C:\Charles\neovibe_alpha` n'est pas cosmétique.** Claude Code
@@ -203,8 +203,9 @@ Tu reprends un projet en cours. **Ne recommence rien, ne réorganise rien.**
 3. `RAPPELS.md` — avant-prod, chantiers promis, décisions en attente, bugs
    connus, décisions à ne pas reproposer.
 4. Les **2 ou 3 derniers rapports** de `rapports-de-sessions/` (le plus récent à
-   ce jour : `2026-07-26_16-48.md` ; celui du `2026-07-26_15-19.md` couvre toute
-   la session outils de capture v0.9.33/v0.9.34).
+   ce jour : `2026-08-02_14-36.md`, qui contient la **spécification du chantier
+   stories en deck** et les questions non tranchées ; puis `2026-08-01_19-55.md`
+   pour la nav 5 onglets, les stories et les bots de test).
 5. `git log --oneline -15` pour l'état réel du code.
 
 ### 2.2 Vérifications d'environnement (à faire, pas à supposer)
@@ -240,26 +241,41 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
   test de la base de dev n'y sera plus : le signaler à Jay plutôt que d'en créer
   un sans lui demander.
 
-### 2.3 État du projet à la bascule (2026-07-26, v0.9.34)
+### 2.3 État du projet à la bascule (2026-08-02, v0.9.41)
 
-- **`pubspec.yaml` en `0.9.34+124`**, dernière release **v0.9.34**, working tree
+- **`pubspec.yaml` en `0.9.41+131`**, dernière release **v0.9.41**, working tree
   propre, `master` aligné sur `origin/master`.
-- **Chantier en cours : l'UX caméra / cards**, que Jay veut **close avant**
-  d'ouvrir tout nouveau chantier. Les cinq outils de capture livrés en
-  v0.9.33/v0.9.34 : barre du bas réordonnée (Card | Cercle | Profil), **flash
-  frontal** (lueur d'écran, Dart pur, zéro natif), **grille** de cadrage,
-  **retardateur** 3/5/10 s, **HD** photo. Colonne d'outils, de haut en bas :
-  flash · retardateur · grille · HD · bascule caméra · couleur.
-- **Le Oneshot n'hérite de rien** (règle permanente) et **le BeReal est exclu de
-  ces outils** par arbitrage de Jay du 2026-07-26 — il a « d'autres projets »
-  pour ce format et les détaillera.
-- **Double live Oneshot** fonctionnel depuis la v0.9.2 (Camera2 brut, 1 flux par
-  caméra), toujours en **opt-in développeur** (Réglages → Développeur → « Double
-  flux Oneshot »).
-- **Deux chantiers décidés le 2026-07-26**, à ouvrir quand l'UX caméra sera
-  close : **quiz / mini-jeux entre amis** et **feed local** (ville / région /
-  pays + comptes créateurs internationaux — à ne pas confondre avec le feed
-  algorithmique global, lui hors scope). Périmètre dans `docs/vision-produit.md`.
+- **Le volet caméra est CLOS** depuis le 2026-07-25 (Jay : « c'est fonctionnel
+  et globalement propre »). **Ne pas le rouvrir de sa propre initiative.** Le
+  chantier GPU/OpenGL est terminé et validé (v0.9.23) : double aperçu 2×30 i/s,
+  photo double instantanée, vidéo double + audio partagé, repli séquentiel sur
+  appareils incapables. Bilan dans
+  `rapports-de-sessions/REPRISE-chantier-gpu-camera.md`.
+- **Navigation à 5 onglets** depuis la v0.9.36 : **Ping | Cercle | (Card) |
+  Jeux | Profil**, avec onglet de démarrage réglable. L'onglet **Jeux est un
+  placeholder** assumé (« Bientôt ici »), qui réserve la place du chantier
+  quiz/mini-jeux — **il ne peut pas partir en prod tel quel** (RAPPELS,
+  avant-prod #15).
+- **Stories livrées et validées** (v0.9.38 → v0.9.41) : une story **EST une Card
+  publiée en story**, 24 h consultable sans limite, bandeau en haut du Cercle
+  (amis) et du Ping (croisés de moins de 24 h si l'auteur a activé « stories
+  publiques »). Côté serveur : table `stories`, `private.can_view_stories`,
+  `private.is_story_card`, purge au cron, et purge 24 h de `public.encounters`.
+- ⚠️ **Chantier ouvert le 2026-08-02, en attente des arbitrages de Jay : les
+  stories en deck.** Il juge le format Card (recto/verso) inadapté aux stories
+  et veut un dérivé sans retournement, en deck/éventail. **Trois questions sans
+  réponse — ne rien coder avant** : voir §2.4 et `RAPPELS.md` (Décisions en
+  attente #6).
+- **Cinq bots de test** en base de dev (`Lea`, `Malik`, `Chloe` amis ; `Yanis`,
+  `Sofia` croisés), un par branche de la règle d'accès aux stories. Mot de passe
+  **hors dépôt**, dans la mémoire de Claude. **À supprimer avant la prod**
+  (RAPPELS, avant-prod #14).
+- **Deux chantiers produit toujours ouverts** : **quiz / mini-jeux entre amis**
+  puis **feed local** (ville / région / pays + comptes créateurs internationaux
+  — à ne pas confondre avec le feed algorithmique global, lui hors scope).
+  Périmètre dans `docs/vision-produit.md`. Conseil déjà donné et non tranché :
+  faire la **couche d'abstraction des accès aux données** avant eux (85 appels
+  Supabase directs dans 31 fichiers ; RAPPELS, avant-prod #12).
 - **À ne JAMAIS refaire** (chaque point a coûté une version — détail dans le
   rapport du 2026-07-14 pour la caméra, du 2026-07-26 pour les outils) :
   - appeler une API Flutter (TextureRegistry, MethodChannel) hors du thread
@@ -276,36 +292,87 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
   - **poser un état juste avant d'appeler une méthode qui le réinitialise** — le
     passer en argument (bug du verrou vidéo du retardateur) ;
   - **bumper la version après le build** : la poser avant, sinon l'APK est à
-    refaire.
+    refaire ;
+  - **lire une fonction SQL ou un cron dans un FICHIER de migration** et croire
+    que c'est l'état de la base : les migrations successives se redéfinissent
+    entre elles. Faute commise **deux fois** (2026-08-01 et 2026-08-02, cette
+    dernière ayant produit une affirmation fausse à Jay sur la confidentialité
+    des comptes croisés). **Relever la définition réelle** :
+    `pg_get_functiondef(...)`, `select command from cron.job`,
+    `information_schema.columns`. Et `cron.schedule` **remplace** un job de même
+    nom : tout ce qui n'est pas recopié est perdu silencieusement ;
+  - **placer un `ref.watch` après un `await`** dans un `FutureProvider` : la
+    dépendance n'est pas enregistrée de façon fiable. Avec une source dérivée
+    d'un stream (valeur vide au premier passage), le résultat est
+    **silencieusement faux** et ne se recalcule jamais. Lire toutes les
+    dépendances **avant la première suspension** (cause du « aucune story nulle
+    part », v0.9.40) ;
+  - **traduire un état d'erreur par un widget vide** (`SizedBox.shrink()`) :
+    une panne devient indiscernable d'une absence de données. Les trois états —
+    chargement, erreur, vide — doivent se distinguer à l'œil ;
+  - **poser un `Stack` en `Scaffold.body` avec un seul enfant non positionné** :
+    un `Stack` se dimensionne sur ses enfants NON positionnés et le `body` d'un
+    `Scaffold` donne des contraintes **lâches**. Les `Positioned.fill` sont
+    alors écrasés à la hauteur du petit enfant, puis rognés (`Clip.hardEdge` par
+    défaut). Soit **tous** les enfants sont `Positioned`, soit l'enfant non
+    positionné est celui qui doit imposer la taille (cause du « rien n'apparaît »
+    de la visionneuse de stories, v0.9.40) ;
+  - **insérer à la main dans `auth.users` sans forcer les colonnes texte à `''`**
+    (`confirmation_token`, `recovery_token`, `email_change`,
+    `email_change_token_new`) : GoTrue les lit en `string` et renvoie un
+    `Database error querying schema` (HTTP 500) à la connexion, sans rapport
+    apparent avec la cause.
 - **Outil de diagnostic** : Réglages → Développeur → **Journal caméra**
   (persistant, survit aux crashes, bouton Copier). S'en servir avant de deviner.
 
 ### 2.4 Ce qui attend (par priorité, à confirmer avec Jay)
 
-1. **Retours de test en attente : v0.9.31, v0.9.32, v0.9.33 et v0.9.34.** Le
-   point sensible est le **flash frontal repris en v0.9.34** (pleine luminosité,
-   écran entier, fondu à coins arrondis) — c'est sa deuxième version, la
-   première ayant été rejetée par Jay.
-2. **Retirer le bouton couleur du BeReal** — tranché par Jay le 2026-07-26
-   (« il n'y aura pas de bouton couleur, cela va de soi »), le code l'affiche
-   encore. **Première tâche de code de la reprise.**
-3. **Flash en Oneshot** — en attente des règles de Jay.
-4. **Persistance de l'allumage du flash frontal** — seul le calibrage est
-   mémorisé aujourd'hui ; à valider avec Jay.
+1. **CHANTIER EN TÊTE — les stories en deck.** Décidé par Jay le 2026-08-02 au
+   vu du test de la v0.9.41 : « le format card tel qu'il est actuellement n'est
+   pas adapté pour les stories ». Dérivé de la Card **sans recto/verso ni
+   retournement**, présenté en **deck / éventail**. Spécification complète,
+   analyse rendue et contre-propositions dans le rapport
+   `rapports-de-sessions/2026-08-02_14-36.md` ; résumé dans `RAPPELS.md`
+   (Décisions en attente #6).
+   ⚠️ **BLOQUÉ sur trois questions posées à Jay et restées sans réponse — ne pas
+   commencer à coder avant de les lui reposer** :
+   - le **verso** des Cards existantes : deux cartes dans le deck, recto seul,
+     ou choix de l'auteur ?
+   - **deck ou éventail** (pile séquentielle, ou cartes étalées où l'on pioche) ?
+     Défaut proposé : la pile avec 2-3 cartes qui dépassent.
+   - le **like** : gardé, remplacé par la réaction en DM, ou les deux ?
+   Deux réserves ont été signalées à Jay et lui appartiennent : le **like ne
+   passe pas la grille de décision de `CLAUDE.md`**, et la carte de gestes
+   proposée a un **conflit gauche/gauche** (swipe = passer vs clic = précédent).
+2. **Trois arbitrages plus anciens, toujours ouverts** : libellé du 4e onglet
+   (« Jeux » retenu seul, le feed local voudra sans doute sa place) ; les
+   curseurs visionnages/durée **conservés** dans l'envoi direct en conversation,
+   à confirmer ; faut-il que les **bots répondent** (demande un déclencheur
+   serveur — cron ou Edge Function, chantier à part) ?
+3. **Suite de la réorganisation UI**, acceptée dans le principe et non faite :
+   sortir « Enregistrements » et « Stockage des Cards » des Réglages vers le
+   Profil, puis remonter le ♥ (demandes / recos / waves) en badge sur l'onglet
+   Profil. Ce sont les deux accès les plus contre-intuitifs qui restent.
+4. **Contrôle d'accès des stories à confirmer À L'ŒIL** : *Yanis* doit
+   apparaître dans le bandeau du Ping, *Sofia* **nulle part**. Vérifié en base,
+   jamais constaté à l'écran.
 5. **Streaks de proximité** — chantier promis, Jay a insisté pour ne pas
-   l'oublier.
-6. **Quiz / mini-jeux** puis **feed local**, une fois l'UX caméra close.
+   l'oublier. ⚠️ `public.encounters` étant désormais purgé à 24 h, un streak ne
+   peut **pas** se calculer en relisant cette table : il faudra un compteur
+   persistant séparé (RAPPELS, chantiers #1).
+6. **Quiz / mini-jeux** puis **feed local**. Conseil non tranché : faire la
+   **couche d'abstraction des accès aux données** avant eux.
 7. Le reste de `RAPPELS.md` (dont : réactiver FLAG_SECURE, retirer la section
-   Développeur et le journal caméra avant la prod ; vidéo HD quand
-   l'hébergement le permettra ; vignettes des grilles à câbler sur le cache
-   local).
+   Développeur et le journal caméra, **supprimer les bots de test**, masquer ou
+   livrer l'onglet Jeux — le tout avant la prod ; vidéo HD quand l'hébergement
+   le permettra ; vignettes des « Enregistrements » à câbler sur le cache local).
 
 ### 2.5 Premier message à Jay
 
 Résumer en quelques phrases : ce qui a été vérifié, ce qui manque le cas échéant
-(`env.dart`, mémoire, MCP, tags), l'état du projet, et proposer de reprendre par
-le bouton couleur du BeReal. **Ne pas se lancer dans un chantier sans son feu
-vert.**
+(`env.dart`, mémoire, MCP, tags), l'état du projet, et **reposer les trois
+questions du chantier stories en deck** — c'est ce qui bloque la reprise. **Ne
+pas se lancer dans un chantier sans son feu vert.**
 
 ---
 
