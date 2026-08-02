@@ -1,22 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/card.dart';
 import '../../core/models/story.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/formats.dart';
 import '../../core/widgets/gradient.dart';
 import '../cards/card_viewer_screen.dart';
+import '../cards/cards_repository.dart';
 import '../library/user_library_screen.dart';
 import 'stories_repository.dart';
+
+/// Hauteur de l'en-tête sous la barre d'état : padding 8 + barres de
+/// progression 2 + espace 10 + rangée d'icônes 48 + padding 8.
+const _headerHeight = 76.0;
 
 /// Visionneuse de stories d'un auteur : on avance d'une story à l'autre en
 /// tapant à droite, on recule à gauche.
 ///
-/// La Card elle-même est rendue par `CardViewerScreen` avec `fromLibrary:
-/// true` — c'est le mode **lecture illimitée**, qui correspond à la décision
-/// de Jay du 2026-08-02 (une story se revoit autant qu'on veut pendant 24 h).
-/// Les compteurs de vues et la destruction des Cards en chat ne s'appliquent
-/// donc pas ici.
+/// La Card elle-même est rendue par `CardViewerScreen` en mode **chromeless**
+/// (`fromLibrary: true` = lecture illimitée, décision de Jay du 2026-08-02 :
+/// une story se revoit autant qu'on veut pendant 24 h). Sans `chromeless`,
+/// l'AppBar de la Card passait SOUS l'en-tête de la story et les deux
+/// s'écrasaient — défaut relevé au test de la v0.9.40.
 class StoryViewerScreen extends ConsumerStatefulWidget {
   const StoryViewerScreen({super.key, required this.ring});
   final StoryRing ring;
@@ -48,10 +54,17 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     final owner = widget.ring.owner;
     final isMine = owner.id == me;
     final card = _story.card;
+    final headerBottom = MediaQuery.paddingOf(context).top + _headerHeight;
 
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(
+        // ⚠️ TOUS les enfants sont `Positioned`. Un `Stack` se dimensionne sur
+        // ses enfants NON positionnés ; l'en-tête était le seul, et le Stack
+        // s'effondrait donc à sa hauteur (~100 px), écrasant et rognant la
+        // Card en dessous. C'était la cause du « rien n'apparaît » de la
+        // v0.9.40. Sans enfant non positionné, le Stack prend toute la place
+        // que lui laisse le Scaffold.
         children: [
           Positioned.fill(
             child: card == null
@@ -68,11 +81,15 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                     key: ValueKey(card.id),
                     card: card,
                     fromLibrary: true,
+                    chromeless: true,
                   ),
           ),
           // Zones de navigation, sous l'en-tête pour ne pas manger ses taps.
-          Positioned.fill(
-            top: 96,
+          Positioned(
+            top: headerBottom,
+            left: 0,
+            right: 0,
+            bottom: 0,
             child: Row(
               children: [
                 Expanded(
@@ -90,12 +107,18 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
               ],
             ),
           ),
-          _Header(
-            ring: widget.ring,
-            index: _index,
-            isMine: isMine,
-            onClose: () => Navigator.of(context).pop(),
-            onDelete: !isMine ? null : () => _confirmDelete(),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: _Header(
+              ring: widget.ring,
+              index: _index,
+              card: card,
+              isMine: isMine,
+              onClose: () => Navigator.of(context).pop(),
+              onDelete: !isMine ? null : () => _confirmDelete(),
+            ),
           ),
         ],
       ),
@@ -129,11 +152,17 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
 }
 
 /// En-tête façon Instagram : barres de progression, avatar + pseudo cliquables
-/// (consigne Jay 2026-08-02), horodatage, fermeture.
-class _Header extends StatelessWidget {
+/// (consigne Jay 2026-08-02), horodatage, type de la Card, enregistrement,
+/// fermeture.
+///
+/// C'est le SEUL habillage de l'écran : la `CardViewerScreen` est en mode
+/// `chromeless`, donc les actions qu'elle porte d'ordinaire dans son AppBar
+/// (enregistrer) sont reprises ici.
+class _Header extends ConsumerWidget {
   const _Header({
     required this.ring,
     required this.index,
+    required this.card,
     required this.isMine,
     required this.onClose,
     this.onDelete,
@@ -141,15 +170,30 @@ class _Header extends StatelessWidget {
 
   final StoryRing ring;
   final int index;
+  final CardModel? card;
   final bool isMine;
   final VoidCallback onClose;
   final VoidCallback? onDelete;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final owner = ring.owner;
+    final type = card?.type;
+    // Mêmes règles que dans la CardViewerScreen : ses propres cards (1/1
+    // exclue), ou une card reçue que son créateur a marquée sauvegardable.
+    final canSave =
+        card != null &&
+        (isMine
+            ? type != CardType.oneOfOne
+            : (card!.saveable && type!.canBeSaveable));
+    final isSaved = card == null
+        ? null
+        : ref.watch(isCardSavedProvider(card!.id)).value;
+
     return SafeArea(
+      bottom: false,
       child: Container(
+        height: _headerHeight,
         padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -174,60 +218,116 @@ class _Header extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                InkWell(
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => UserLibraryScreen(profile: owner),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      GradientRing(
-                        size: 32,
-                        thickness: 1.5,
-                        child: owner.avatarUrl != null
-                            ? Image.network(owner.avatarUrl!, fit: BoxFit.cover)
-                            : Container(
-                                color: const Color(0xFF2A2A36),
-                                alignment: Alignment.center,
-                                child: Text(
-                                  owner.chatName.characters.first.toUpperCase(),
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                              ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        owner.chatName,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: InkWell(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => UserLibraryScreen(profile: owner),
                         ),
                       ),
-                    ],
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          GradientRing(
+                            size: 32,
+                            thickness: 1.5,
+                            child: owner.avatarUrl != null
+                                ? Image.network(
+                                    owner.avatarUrl!,
+                                    fit: BoxFit.cover,
+                                  )
+                                : Container(
+                                    color: const Color(0xFF2A2A36),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      owner.chatName.characters.first
+                                          .toUpperCase(),
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                          ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              owner.chatName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  shortTime(ring.stories[index].createdAt),
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-                const Spacer(),
-                if (onDelete != null)
+                  const SizedBox(width: 8),
+                  Text(
+                    shortTime(ring.stories[index].createdAt),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  const Spacer(),
+                  if (type != null) ...[
+                    CardTypeBadge(type: type, fontSize: 11),
+                    const SizedBox(width: 4),
+                  ],
+                  if (canSave)
+                    IconButton(
+                      color: Colors.white,
+                      icon: Icon(
+                        isSaved == true
+                            ? Icons.bookmark
+                            : Icons.bookmark_border,
+                      ),
+                      tooltip: isSaved == true
+                          ? 'Retirer de mes Enregistrements'
+                          : 'Enregistrer pour moi',
+                      onPressed: () =>
+                          _toggleSave(context, ref, isSaved == true),
+                    ),
+                  if (onDelete != null)
+                    IconButton(
+                      color: Colors.white,
+                      icon: const Icon(Icons.delete_outline),
+                      tooltip: 'Retirer cette story',
+                      onPressed: onDelete,
+                    ),
                   IconButton(
-                    icon: const Icon(Icons.delete_outline),
-                    tooltip: 'Retirer cette story',
-                    onPressed: onDelete,
+                    color: Colors.white,
+                    icon: const Icon(Icons.close),
+                    onPressed: onClose,
                   ),
-                IconButton(icon: const Icon(Icons.close), onPressed: onClose),
-              ],
+                ],
+              ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Future<void> _toggleSave(
+    BuildContext context,
+    WidgetRef ref,
+    bool saved,
+  ) async {
+    final repo = ref.read(cardsRepositoryProvider);
+    final id = card!.id;
+    try {
+      saved ? await repo.unsaveCard(id) : await repo.saveCard(id);
+      ref.invalidate(isCardSavedProvider(id));
+      ref.invalidate(savedCardsProvider);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
+      }
+    }
   }
 }

@@ -30,12 +30,19 @@ class CardViewerScreen extends ConsumerStatefulWidget {
     super.key,
     required this.card,
     this.fromLibrary = false,
+    this.chromeless = false,
   });
 
   final CardModel card;
 
   /// Ouvert depuis une bibliothèque : visionnage illimité (consigne Jay).
   final bool fromLibrary;
+
+  /// Sans habillage : ni AppBar, ni bandeau d'aide, fond transparent. L'écran
+  /// appelant fournit sa propre surcouche — c'est le cas de la visionneuse de
+  /// stories, dont l'en-tête tombait sinon PAR-DESSUS l'AppBar de la Card
+  /// (défaut relevé au test de la v0.9.40).
+  final bool chromeless;
 
   @override
   ConsumerState<CardViewerScreen> createState() => _CardViewerScreenState();
@@ -386,53 +393,55 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
         !_faceDone(_settledFront);
 
     return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: _TypeBadge(type: type),
-        actions: [
-          if (canSave && _phase == _Phase.viewing)
-            IconButton(
-              icon: Icon(
-                isSaved == true ? Icons.bookmark : Icons.bookmark_border,
-              ),
-              tooltip: isSaved == true
-                  ? 'Retirer de mes Enregistrements'
-                  : 'Enregistrer pour moi',
-              onPressed: () async {
-                final repo = _cards;
-                try {
-                  if (isSaved == true) {
-                    await repo.unsaveCard(widget.card.id);
-                  } else {
-                    await repo.saveCard(widget.card.id);
-                  }
-                  ref.invalidate(isCardSavedProvider(widget.card.id));
-                  ref.invalidate(savedCardsProvider);
-                } catch (e) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
-                  }
-                }
-              },
-            ),
-        ],
-        bottom: showGauge
-            ? PreferredSize(
-                preferredSize: const Size.fromHeight(6),
-                // Jauge de lecture : s'écoule de gauche à droite (consigne Jay)
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: FractionallySizedBox(
-                    widthFactor: _gauge,
-                    child: Container(height: 5, color: type.color),
+      backgroundColor: widget.chromeless ? Colors.transparent : Colors.black,
+      appBar: widget.chromeless
+          ? null
+          : AppBar(
+              backgroundColor: Colors.black,
+              title: CardTypeBadge(type: type),
+              actions: [
+                if (canSave && _phase == _Phase.viewing)
+                  IconButton(
+                    icon: Icon(
+                      isSaved == true ? Icons.bookmark : Icons.bookmark_border,
+                    ),
+                    tooltip: isSaved == true
+                        ? 'Retirer de mes Enregistrements'
+                        : 'Enregistrer pour moi',
+                    onPressed: () async {
+                      final repo = _cards;
+                      try {
+                        if (isSaved == true) {
+                          await repo.unsaveCard(widget.card.id);
+                        } else {
+                          await repo.saveCard(widget.card.id);
+                        }
+                        ref.invalidate(isCardSavedProvider(widget.card.id));
+                        ref.invalidate(savedCardsProvider);
+                      } catch (e) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Erreur : $e')),
+                          );
+                        }
+                      }
+                    },
                   ),
-                ),
-              )
-            : null,
-      ),
+              ],
+              bottom: showGauge
+                  ? PreferredSize(
+                      preferredSize: const Size.fromHeight(6),
+                      // Jauge de lecture : s'écoule de gauche à droite (consigne Jay)
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: FractionallySizedBox(
+                          widthFactor: _gauge,
+                          child: Container(height: 5, color: type.color),
+                        ),
+                      ),
+                    )
+                  : null,
+            ),
       body: switch (_phase) {
         _Phase.loading => const _LoadingState(),
         _Phase.error => _ErrorState(detail: _error, onRetry: _load),
@@ -462,7 +471,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
           ),
         ),
       },
-      bottomNavigationBar: _phase == _Phase.viewing
+      bottomNavigationBar: _phase == _Phase.viewing && !widget.chromeless
           ? SafeArea(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -486,18 +495,25 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   }
 }
 
-class _TypeBadge extends StatelessWidget {
-  const _TypeBadge({required this.type});
+/// Pastille du type de Card. Publique depuis la v0.9.41 : la visionneuse de
+/// stories fournit son propre en-tête et doit pouvoir la réafficher.
+class CardTypeBadge extends StatelessWidget {
+  const CardTypeBadge({super.key, required this.type, this.fontSize = 16});
   final CardType type;
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
+    final compact = fontSize < 14;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 7 : 10,
+        vertical: compact ? 2 : 4,
+      ),
       decoration: BoxDecoration(
         gradient: type.gradient,
         border: type.gradient == null
-            ? Border.all(color: type.color, width: 2)
+            ? Border.all(color: type.color, width: compact ? 1.5 : 2)
             : null,
         borderRadius: BorderRadius.circular(10),
       ),
@@ -506,7 +522,7 @@ class _TypeBadge extends StatelessWidget {
         style: TextStyle(
           color: type.gradient == null ? type.color : Colors.white,
           fontWeight: FontWeight.bold,
-          fontSize: 16,
+          fontSize: fontSize,
         ),
       ),
     );
