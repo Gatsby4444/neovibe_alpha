@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/diagnostics/app_log_observers.dart';
 import 'core/prefs.dart';
 import 'core/supabase_providers.dart';
 import 'core/theme.dart';
@@ -24,6 +25,9 @@ class NeoVibeApp extends ConsumerWidget {
       title: 'NeoVibe',
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
+      // Trace le parcours d'écran en écran : sans lui, une erreur du journal
+      // n'a pas de contexte (on voit le symptôme, pas d'où venait l'utilisateur).
+      navigatorObservers: [AppLogNavigatorObserver()],
       theme: NeoTheme.light(),
       darkTheme: NeoTheme.dark(),
       themeMode: light ? ThemeMode.light : ThemeMode.dark,

@@ -9,6 +9,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app.dart';
 import 'core/config/env.dart';
+import 'core/diagnostics/app_log.dart';
+import 'core/diagnostics/app_log_observers.dart';
 import 'core/notifications/notification_service.dart';
 import 'core/prefs.dart';
 import 'features/cards/card_capture_screen.dart';
@@ -24,12 +26,18 @@ Future<void> main() async {
   final flutterOnError = FlutterError.onError;
   FlutterError.onError = (details) {
     NativeCameraController.log('ERREUR FLUTTER : ${details.exception}');
+    AppLog.instance.error('Erreur Flutter', '${details.exception}');
     flutterOnError?.call(details);
   };
   PlatformDispatcher.instance.onError = (error, stack) {
     NativeCameraController.log('ERREUR DART : $error');
+    AppLog.instance.error('Erreur Dart', '$error');
     return false;
   };
+
+  // Journal d'application (Réglages → Développeur → Journal de l'app). Ouvert
+  // le plus tôt possible pour que même un échec d'initialisation y figure.
+  AppLog.instance.sessionStart();
 
   // Portrait uniquement : un seul sens de prise, un seul format de card (9:16)
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
@@ -81,5 +89,12 @@ Future<void> main() async {
     );
   });
 
-  runApp(const ProviderScope(child: NeoVibeApp()));
+  runApp(
+    const ProviderScope(
+      // Capte tout échec de provider — donc l'essentiel des erreurs serveur,
+      // sans instrumenter le moindre appel.
+      observers: [AppLogProviderObserver()],
+      child: NeoVibeApp(),
+    ),
+  );
 }

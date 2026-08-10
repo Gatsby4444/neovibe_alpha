@@ -11,6 +11,7 @@ import '../cards/saved_items_screen.dart';
 import '../connections/connections_repository.dart';
 import '../library/library_repository.dart';
 import '../stories/stories_repository.dart';
+import 'app_log_screen.dart';
 import 'camera_log_screen.dart';
 import 'gl_preview_test_screen.dart';
 import 'storage_screen.dart';
@@ -228,6 +229,18 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => const CameraLogScreen())),
+          ),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.article_outlined),
+            title: const Text('Journal de l\'app'),
+            subtitle: const Text(
+              'Tout le reste : gestes, réactions de l\'app, échanges serveur '
+              'et erreurs. Filtrable, conservé après un crash.',
+            ),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const AppLogScreen())),
           ),
           const _DevBerealSection(),
           const Divider(),

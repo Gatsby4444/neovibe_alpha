@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/diagnostics/app_log.dart';
 import '../../core/models/library_vibe.dart';
 import '../../core/supabase_providers.dart';
 import '../cards/card_media_cache.dart';
@@ -20,10 +21,12 @@ import '../cards/card_media_cache.dart';
 /// Deux pièces sensibles vivent ici :
 ///
 /// 1. **Le placeholder.** L'image est réduite à [_placeholderWidth] pixels de
-///    large, puis ré-agrandie à l'affichage. On ne floute PAS : un flou
-///    gaussien est une convolution, partiellement réversible, et laisse deviner
-///    le nombre de personnes, l'intérieur ou l'extérieur, les couleurs. Une
-///    réduction extrême **détruit** l'information.
+///    large. C'est la réduction, et elle seule, qui protège : elle **détruit**
+///    l'information au lieu de la brouiller, là où un flou gaussien est une
+///    convolution partiellement réversible.
+///    Le flou visible à l'écran est un pur habillage, appliqué au rendu par
+///    `MaskedPlaceholder` — il n'a aucun rôle de sécurité, et flouter une image
+///    déjà détruite n'y réinjecte rien.
 /// 2. **Le scellé.** Le média original chiffré en AES-GCM avec une clé
 ///    aléatoire, confiée au serveur qui la retient jusqu'au reveal.
 ///
@@ -74,8 +77,20 @@ class LibraryVibesRepository {
     final placeholderPath = '$me/$id/placeholder.png';
     final sealedPath = '$me/$id/sealed.bin';
 
+    AppLog.instance.action(
+      'Ajout d\'une vibe à la bibliothèque',
+      'conversation=$conversationId · vidéo=$isVideo · '
+          'sauvegardable=$saveableByOthers · éphémère=$ephemeral',
+    );
+
+    final started = DateTime.now();
     final placeholder = await _makePlaceholder(source, isVideo: isVideo);
     final sealed = await _seal(source);
+    AppLog.instance.app(
+      'Vibe préparée',
+      'placeholder=${placeholder.length} o · scellé=${sealed.bytes.length} o · '
+          '${DateTime.now().difference(started).inMilliseconds} ms',
+    );
 
     await _client.storage
         .from(_bucket)
@@ -94,22 +109,37 @@ class LibraryVibesRepository {
           ),
         );
 
+    AppLog.instance.server('Fichiers déposés dans library_vault', 'vibe=$id');
+
     // C'est cet appel qui calcule le reveal, range la clé hors de portée et
     // poste l'annonce nommée dans le fil.
-    final row = await _client.rpc(
-      'add_vibe_to_library',
-      params: {
-        'p_id': id,
-        'p_conversation_id': conversationId,
-        'p_card_id': cardId,
-        'p_placeholder_path': placeholderPath,
-        'p_sealed_path': sealedPath,
-        'p_media_key': sealed.keyBase64,
-        'p_saveable_by_others': saveableByOthers,
-        'p_ephemeral': ephemeral,
-      },
-    );
-    return LibraryVibe.fromJson(Map<String, dynamic>.from(row as Map));
+    //
+    // ⚠️ La clé n'est JAMAIS journalisée : le journal est fait pour être
+    // copié-collé, y inscrire une clé annulerait tout le mécanisme.
+    try {
+      final row = await _client.rpc(
+        'add_vibe_to_library',
+        params: {
+          'p_id': id,
+          'p_conversation_id': conversationId,
+          'p_card_id': cardId,
+          'p_placeholder_path': placeholderPath,
+          'p_sealed_path': sealedPath,
+          'p_media_key': sealed.keyBase64,
+          'p_saveable_by_others': saveableByOthers,
+          'p_ephemeral': ephemeral,
+        },
+      );
+      final vibe = LibraryVibe.fromJson(Map<String, dynamic>.from(row as Map));
+      AppLog.instance.server(
+        'Vibe enregistrée',
+        'vibe=${vibe.id} · reveal=${vibe.revealAt.toLocal()}',
+      );
+      return vibe;
+    } catch (e) {
+      AppLog.instance.error('add_vibe_to_library a échoué', '$e');
+      rethrow;
+    }
   }
 
   // ─── Lecture ────────────────────────────────────────────────────────────
@@ -154,17 +184,39 @@ class LibraryVibesRepository {
     Uint8List? sealedBytes,
     required String extension,
   }) async {
-    final key = await _client.rpc(
-      'get_library_vibe_key',
-      params: {'p_vibe_id': vibe.id},
-    );
-    final bytes = sealedBytes ?? await prefetchSealed(vibe);
-    final clear = await _unseal(bytes, key as String);
+    AppLog.instance.action('Ouverture d\'une vibe révélée', 'vibe=${vibe.id}');
+    try {
+      final key = await _client.rpc(
+        'get_library_vibe_key',
+        params: {'p_vibe_id': vibe.id},
+      );
+      AppLog.instance.server(
+        'Clé obtenue',
+        'vibe=${vibe.id} · préchargé=${sealedBytes != null}',
+      );
 
-    final dir = await getTemporaryDirectory();
-    final file = File('${dir.path}/vibe_${vibe.id}.$extension');
-    await file.writeAsBytes(clear, flush: true);
-    return file;
+      final bytes = sealedBytes ?? await prefetchSealed(vibe);
+      final clear = await _unseal(bytes, key as String);
+
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/vibe_${vibe.id}.$extension');
+      await file.writeAsBytes(clear, flush: true);
+      AppLog.instance.app('Vibe déchiffrée', '${clear.length} o · $extension');
+      return file;
+    } catch (e) {
+      // Le refus AVANT l'heure est un fonctionnement NORMAL, pas une panne :
+      // il est journalisé comme tel pour ne pas polluer la recherche de bugs.
+      final refused = '$e'.contains('reveal');
+      if (refused) {
+        AppLog.instance.server(
+          'Clé refusée — reveal non atteint',
+          'vibe=${vibe.id}',
+        );
+      } else {
+        AppLog.instance.error('Ouverture de vibe en échec', '$e');
+      }
+      rethrow;
+    }
   }
 
   // ─── Placeholder ────────────────────────────────────────────────────────
