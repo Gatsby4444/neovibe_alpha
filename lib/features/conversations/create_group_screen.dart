@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/widgets/avatar.dart';
 import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -130,13 +131,11 @@ class _MemberTile extends ConsumerWidget {
       value: selected,
       onChanged: (v) => onChanged(v ?? false),
       title: Text(profile?.displayName ?? '…'),
-      secondary: CircleAvatar(
-        backgroundImage: profile?.avatarUrl == null
-            ? null
-            : NetworkImage(profile!.avatarUrl!),
-        child: profile?.avatarUrl == null
-            ? Text((profile?.displayName ?? '?').characters.first.toUpperCase())
-            : null,
+      secondary: Avatar(
+        stored: profile?.avatarUrl,
+        fallback: Text(
+          (profile?.displayName ?? '?').characters.first.toUpperCase(),
+        ),
       ),
     );
   }

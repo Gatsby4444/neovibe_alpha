@@ -62,7 +62,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 upsert: true,
               ),
             );
-        avatarUrl = client.storage.from('avatars').getPublicUrl(path);
+        // On enregistre le CHEMIN, pas une URL : le bucket est privé depuis le
+        // 2026-08-10, il n'existe plus d'URL publique. L'affichage demande une
+        // URL signée au moment de montrer l'image (`avatarUrlProvider`).
+        avatarUrl = path;
       }
       await client.from('profiles').insert({
         'id': userId,

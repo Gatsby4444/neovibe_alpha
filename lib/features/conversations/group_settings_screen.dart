@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/widgets/avatar.dart';
 import '../../core/supabase_providers.dart';
 import '../connections/connections_repository.dart';
 import 'chat_screen.dart';
@@ -65,13 +66,11 @@ class GroupSettingsScreen extends ConsumerWidget {
             ),
             for (final member in conv.members)
               ListTile(
-                leading: CircleAvatar(
-                  backgroundImage: member.avatarUrl == null
-                      ? null
-                      : NetworkImage(member.avatarUrl!),
-                  child: member.avatarUrl == null
-                      ? Text(member.displayName.characters.first.toUpperCase())
-                      : null,
+                leading: Avatar(
+                  stored: member.avatarUrl,
+                  fallback: Text(
+                    member.displayName.characters.first.toUpperCase(),
+                  ),
                 ),
                 title: Text(
                   member.id == me

@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/widgets/avatar.dart';
 import '../../core/models/profile.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/gradient.dart';
@@ -32,17 +33,13 @@ class ProfileHeader extends ConsumerWidget {
               // Anneau en dégradé de marque autour de la photo de profil
               GradientRing(
                 size: 100,
-                child: CircleAvatar(
+                child: Avatar(
                   radius: 44,
-                  backgroundImage: profile.avatarUrl == null
-                      ? null
-                      : NetworkImage(profile.avatarUrl!),
-                  child: profile.avatarUrl == null
-                      ? Text(
-                          profile.displayName.characters.first.toUpperCase(),
-                          style: const TextStyle(fontSize: 30),
-                        )
-                      : null,
+                  stored: profile.avatarUrl,
+                  fallback: Text(
+                    profile.displayName.characters.first.toUpperCase(),
+                    style: const TextStyle(fontSize: 30),
+                  ),
                 ),
               ),
               if (stats != null)

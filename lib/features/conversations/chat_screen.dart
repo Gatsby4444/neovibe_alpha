@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/widgets/avatar.dart';
 import '../../core/models/card.dart';
 import '../../core/models/connection.dart';
 import '../../core/models/message.dart';
@@ -613,17 +614,13 @@ class _PeerTitle extends ConsumerWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircleAvatar(
+            Avatar(
               radius: 19,
-              backgroundImage: profile?.avatarUrl != null
-                  ? NetworkImage(profile!.avatarUrl!)
-                  : null,
-              child: profile?.avatarUrl == null
-                  ? Text(
-                      name.characters.first.toUpperCase(),
-                      style: const TextStyle(fontSize: 15),
-                    )
-                  : null,
+              stored: profile?.avatarUrl,
+              fallback: Text(
+                name.characters.first.toUpperCase(),
+                style: const TextStyle(fontSize: 15),
+              ),
             ),
             const SizedBox(height: 3),
             Text(

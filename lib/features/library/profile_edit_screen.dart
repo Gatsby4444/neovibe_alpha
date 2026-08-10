@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 
+import '../../core/widgets/avatar.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
 
@@ -72,10 +73,10 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
                 upsert: true,
               ),
             );
-        // Cache-buster : le chemin est stable, l'URL doit changer
-        avatarUrl =
-            '${client.storage.from('avatars').getPublicUrl(path)}'
-            '?v=${DateTime.now().millisecondsSinceEpoch}';
+        // On enregistre le CHEMIN : le bucket est privé depuis le 2026-08-10,
+        // il n'y a plus d'URL publique à fabriquer — ni de cache-buster à
+        // ajouter, puisque l'URL signée est régénérée à chaque session.
+        avatarUrl = path;
       }
       final tagName = _tagName.text.trim();
       final bio = _bio.text.trim();
@@ -113,18 +114,17 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
           Center(
             child: GestureDetector(
               onTap: _pickAvatar,
-              child: CircleAvatar(
-                radius: 48,
-                backgroundImage: _newAvatar != null
-                    ? FileImage(_newAvatar!)
-                    : (widget.profile.avatarUrl == null
-                              ? null
-                              : NetworkImage(widget.profile.avatarUrl!))
-                          as ImageProvider?,
-                child: _newAvatar == null && widget.profile.avatarUrl == null
-                    ? const Icon(Icons.add_a_photo, size: 30)
-                    : null,
-              ),
+              // Une image tout juste choisie prime sur celle du serveur.
+              child: _newAvatar != null
+                  ? CircleAvatar(
+                      radius: 48,
+                      backgroundImage: FileImage(_newAvatar!),
+                    )
+                  : Avatar(
+                      radius: 48,
+                      stored: widget.profile.avatarUrl,
+                      fallback: const Icon(Icons.add_a_photo, size: 30),
+                    ),
             ),
           ),
           const SizedBox(height: 20),

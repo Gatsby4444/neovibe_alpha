@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/widgets/avatar.dart';
 import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -83,13 +84,9 @@ class _FriendTile extends ConsumerWidget {
       return const SizedBox.shrink();
     }
     return ListTile(
-      leading: CircleAvatar(
-        backgroundImage: peer.avatarUrl == null
-            ? null
-            : NetworkImage(peer.avatarUrl!),
-        child: peer.avatarUrl == null
-            ? Text(peer.displayName.characters.first.toUpperCase())
-            : null,
+      leading: Avatar(
+        stored: peer.avatarUrl,
+        fallback: Text(peer.displayName.characters.first.toUpperCase()),
       ),
       title: Text(peer.displayName),
       subtitle: peer.tagName == null || peer.tagName!.isEmpty

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/widgets/avatar.dart';
 import '../../core/models/card.dart';
 import '../../core/models/story.dart';
 import '../../core/supabase_providers.dart';
@@ -234,20 +235,17 @@ class _Header extends ConsumerWidget {
                           GradientRing(
                             size: 32,
                             thickness: 1.5,
-                            child: owner.avatarUrl != null
-                                ? Image.network(
-                                    owner.avatarUrl!,
-                                    fit: BoxFit.cover,
-                                  )
-                                : Container(
-                                    color: const Color(0xFF2A2A36),
-                                    alignment: Alignment.center,
-                                    child: Text(
-                                      owner.chatName.characters.first
-                                          .toUpperCase(),
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  ),
+                            child: AvatarFill(
+                              stored: owner.avatarUrl,
+                              fallback: Container(
+                                color: const Color(0xFF2A2A36),
+                                alignment: Alignment.center,
+                                child: Text(
+                                  owner.chatName.characters.first.toUpperCase(),
+                                  style: const TextStyle(fontSize: 12),
+                                ),
+                              ),
+                            ),
                           ),
                           const SizedBox(width: 8),
                           Flexible(

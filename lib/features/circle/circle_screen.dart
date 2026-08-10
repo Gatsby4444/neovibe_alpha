@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/widgets/avatar.dart';
 import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -187,24 +188,18 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
                       final conv = visible[index];
                       final last = conv.lastMessage;
                       return ListTile(
-                        leading: CircleAvatar(
-                          backgroundImage:
-                              conv.otherMember(me)?.avatarUrl != null &&
-                                  conv.type == ConversationType.direct
-                              ? NetworkImage(conv.otherMember(me)!.avatarUrl!)
-                              : null,
-                          child: conv.type == ConversationType.group
-                              ? const Icon(Icons.group)
-                              : (conv.otherMember(me)?.avatarUrl == null
-                                    ? Text(
-                                        conv
-                                            .displayName(me)
-                                            .characters
-                                            .first
-                                            .toUpperCase(),
-                                      )
-                                    : null),
-                        ),
+                        leading: conv.type == ConversationType.group
+                            ? const CircleAvatar(child: Icon(Icons.group))
+                            : Avatar(
+                                stored: conv.otherMember(me)?.avatarUrl,
+                                fallback: Text(
+                                  conv
+                                      .displayName(me)
+                                      .characters
+                                      .first
+                                      .toUpperCase(),
+                                ),
+                              ),
                         title: Text(conv.displayName(me)),
                         subtitle: Text(
                           switch (last?.kind) {

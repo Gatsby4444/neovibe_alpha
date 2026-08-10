@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/widgets/avatar.dart';
 import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -106,13 +107,14 @@ class _StoryDot extends StatelessWidget {
             children: [
               GradientRing(
                 size: 56,
-                child: ring.owner.avatarUrl != null
-                    ? Image.network(ring.owner.avatarUrl!, fit: BoxFit.cover)
-                    : Container(
-                        color: const Color(0xFF2A2A36),
-                        alignment: Alignment.center,
-                        child: Text(name.characters.first.toUpperCase()),
-                      ),
+                child: AvatarFill(
+                  stored: ring.owner.avatarUrl,
+                  fallback: Container(
+                    color: const Color(0xFF2A2A36),
+                    alignment: Alignment.center,
+                    child: Text(name.characters.first.toUpperCase()),
+                  ),
+                ),
               ),
               const SizedBox(height: 4),
               Text(

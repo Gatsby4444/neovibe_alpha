@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/widgets/avatar.dart';
 import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -143,15 +144,11 @@ class _IncomingRequestTile extends ConsumerWidget {
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
       child: ListTile(
-        leading: CircleAvatar(
-          backgroundImage: sender?.avatarUrl == null
-              ? null
-              : NetworkImage(sender!.avatarUrl!),
-          child: sender?.avatarUrl == null
-              ? Text(
-                  (sender?.displayName ?? '?').characters.first.toUpperCase(),
-                )
-              : null,
+        leading: Avatar(
+          stored: sender?.avatarUrl,
+          fallback: Text(
+            (sender?.displayName ?? '?').characters.first.toUpperCase(),
+          ),
         ),
         title: Text('${sender?.displayName ?? 'Quelqu\'un'} veut se connecter'),
         subtitle: const Text('Vous êtes à proximité en ce moment'),
@@ -413,13 +410,11 @@ class _WaveTile extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final peer = ref.watch(profileByIdProvider(wave.peerId)).value;
     return ListTile(
-      leading: CircleAvatar(
-        backgroundImage: peer?.avatarUrl == null
-            ? null
-            : NetworkImage(peer!.avatarUrl!),
-        child: peer?.avatarUrl == null
-            ? Text((peer?.displayName ?? '?').characters.first.toUpperCase())
-            : null,
+      leading: Avatar(
+        stored: peer?.avatarUrl,
+        fallback: Text(
+          (peer?.displayName ?? '?').characters.first.toUpperCase(),
+        ),
       ),
       title: Text('${peer?.displayName ?? 'Quelqu\'un'} est passé tout près'),
       subtitle: Text(vagueTimeAgo(wave.detectedAt)),

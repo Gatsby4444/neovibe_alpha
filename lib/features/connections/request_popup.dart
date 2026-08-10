@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/widgets/avatar.dart';
 import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -40,17 +41,13 @@ class _RequestDialog extends ConsumerWidget {
       content: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CircleAvatar(
+          Avatar(
             radius: 36,
-            backgroundImage: sender?.avatarUrl == null
-                ? null
-                : NetworkImage(sender!.avatarUrl!),
-            child: sender?.avatarUrl == null
-                ? Text(
-                    (sender?.displayName ?? '?').characters.first.toUpperCase(),
-                    style: const TextStyle(fontSize: 24),
-                  )
-                : null,
+            stored: sender?.avatarUrl,
+            fallback: Text(
+              (sender?.displayName ?? '?').characters.first.toUpperCase(),
+              style: const TextStyle(fontSize: 24),
+            ),
           ),
           const SizedBox(height: 12),
           Text(
