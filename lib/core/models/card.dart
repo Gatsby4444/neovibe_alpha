@@ -131,6 +131,7 @@ class CardModel {
     this.backPath,
     this.viewDurationSeconds,
     this.maxViews,
+    this.encrypted = false,
     this.saveable = false,
     this.imported = false,
     this.frontIsVideo = false,
@@ -158,6 +159,12 @@ class CardModel {
   /// Ne s'applique qu'en chat : la bibliothèque est toujours illimitée.
   final int? maxViews;
 
+  /// Les faces sont chiffrees au repos (depuis le 2026-08-10). Le clair ne
+  /// s'obtient qu'avec la cle, que le serveur ne rend qu'en decomptant une vue
+  /// (`open_card_media`). Faux pour les Vibes creees avant ce changement, qui
+  /// continuent de s'afficher directement.
+  final bool encrypted;
+
   /// Les destinataires peuvent l'enregistrer dans leurs Enregistrements.
   final bool saveable;
 
@@ -184,6 +191,7 @@ class CardModel {
     backPath: json['back_path'] as String?,
     viewDurationSeconds: json['view_duration_seconds'] as int?,
     maxViews: json['max_views'] as int?,
+    encrypted: json['encrypted'] as bool? ?? false,
     saveable: json['saveable'] as bool? ?? false,
     imported: json['imported'] as bool? ?? false,
     frontIsVideo: json['front_is_video'] as bool? ?? false,

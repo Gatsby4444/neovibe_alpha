@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:path_provider/path_provider.dart';
+
+import '../../core/crypto/media_seal.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
@@ -82,24 +85,30 @@ class CardsRepository {
     final backPath = back == null
         ? null
         : '$me/${stamp}_back.${backIsVideo ? 'mp4' : 'jpg'}';
+    // ─── Chiffrement des faces (2026-08-10) ─────────────────────────────
+    // La limite de vues est désormais une GARANTIE et non une convention : le
+    // serveur ne rend la clé qu'en décomptant (`open_card_media`). Les octets
+    // déposés ici sont donc inertes — les télécharger ne montre rien.
+    //
+    // La MÊME clé chiffre les deux faces : AES-GCM tire un nonce aléatoire à
+    // chaque appel, deux fichiers distincts restent donc sûrs.
+    final mediaKey = await MediaSeal.newKey();
+    const sealedType = FileOptions(contentType: 'application/octet-stream');
+
     await _client.storage
         .from('cards')
-        .upload(
+        .uploadBinary(
           frontPath,
-          front,
-          fileOptions: FileOptions(
-            contentType: frontIsVideo ? 'video/mp4' : 'image/jpeg',
-          ),
+          await MediaSeal.sealFile(front, mediaKey),
+          fileOptions: sealedType,
         );
     if (back != null) {
       await _client.storage
           .from('cards')
-          .upload(
+          .uploadBinary(
             backPath!,
-            back,
-            fileOptions: FileOptions(
-              contentType: backIsVideo ? 'video/mp4' : 'image/jpeg',
-            ),
+            await MediaSeal.sealFile(back, mediaKey),
+            fileOptions: sealedType,
           );
     }
 
@@ -117,32 +126,71 @@ class CardsRepository {
           'front_is_video': frontIsVideo,
           'back_is_video': backIsVideo,
           'scrubbable': scrubbable,
+          'encrypted': true,
         })
         .select()
         .single();
     final card = CardModel.fromJson(row);
 
+    // La clé part APRÈS l'insertion : elle référence la card. Si cet appel
+    // échouait, la Vibe serait indéchiffrable — d'où l'absence de `catch`,
+    // l'erreur doit remonter à l'écran d'envoi.
+    await _client.rpc(
+      'set_card_media_key',
+      params: {'p_card_id': card.id, 'p_media_key': mediaKey},
+    );
+
     // Copie locale immédiate de MES faces : plus jamais de téléchargement
     // serveur pour rouvrir mes propres cards (consigne Jay 2026-07-13).
+    //
+    // On y range le **scellé**, pas le clair. Une seule règle vaut alors
+    // partout : tout fichier en cache d'une Vibe chiffrée est chiffré, quelle
+    // que soit sa provenance. Sans cela il faudrait deviner, à l'affichage, si
+    // le fichier vient du cache local (clair) ou du serveur (scellé).
+    // Bénéfice annexe : mes propres contenus deviennent illisibles sur le
+    // disque de l'appareil.
     final cache = ref.read(cardMediaCacheProvider);
     final quota = ref.read(ownCardsQuotaMbProvider);
-    await cache.storeOwnFace(
-      card.id,
-      front,
-      front: true,
-      isVideo: frontIsVideo,
-      quotaMb: quota,
-    );
-    if (back != null) {
+    final temp = await getTemporaryDirectory();
+
+    Future<void> keepSealed(File source, {required bool isFront}) async {
+      final sealed = File(
+        '${temp.path}/seal_${card.id}_${isFront ? 'f' : 'b'}',
+      );
+      await sealed.writeAsBytes(
+        await MediaSeal.sealFile(source, mediaKey),
+        flush: true,
+      );
       await cache.storeOwnFace(
         card.id,
-        back,
-        front: false,
-        isVideo: backIsVideo,
+        sealed,
+        front: isFront,
+        isVideo: isFront ? frontIsVideo : backIsVideo,
         quotaMb: quota,
       );
+      try {
+        await sealed.delete();
+      } catch (_) {}
     }
+
+    await keepSealed(front, isFront: true);
+    if (back != null) await keepSealed(back, isFront: false);
     return card;
+  }
+
+  /// Réclame la clé de déchiffrement d'une Vibe — **et consomme une vue** si
+  /// l'appelant est un destinataire en conversation.
+  ///
+  /// Le décompte et la remise de la clé sont une seule transaction serveur
+  /// (`open_card_media`) : c'est ce qui fait de la limite de vues une garantie
+  /// et non une convention. Il n'y a plus de `markViewed` à appeler pour une
+  /// Vibe chiffrée — ce serait une seconde vue.
+  Future<String> openMedia(String cardId) async {
+    final key = await _client.rpc(
+      'open_card_media',
+      params: {'p_card_id': cardId},
+    );
+    return key as String;
   }
 
   /// Envoie une Card à des destinataires : livraison + message par conversation.

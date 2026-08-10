@@ -3,7 +3,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
+
+import '../../core/crypto/media_seal.dart';
 
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
@@ -62,6 +65,16 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   /// retournement n'attend plus jamais le réseau — consigne Jay 2026-07-13).
   File? _frontFile;
   File? _backFile;
+
+  /// Faces DÉCHIFFRÉES, dans le répertoire temporaire. Nulles pour une Vibe
+  /// d'avant le chiffrement (2026-08-10), qui s'affiche directement.
+  File? _clearFront;
+  File? _clearBack;
+
+  /// Ce que l'affichage doit lire : le clair s'il existe, sinon le fichier tel
+  /// quel (Vibes antérieures au chiffrement).
+  File? get _shownFront => _clearFront ?? _frontFile;
+  File? get _shownBack => _clearBack ?? _backFile;
   String _error = '';
   CardDelivery? _delivery;
 
@@ -147,6 +160,30 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     _backFile = faces.length > 1 ? faces[1] : null;
   }
 
+  /// Déchiffre les faces d'une Vibe scellée.
+  ///
+  /// ⚠️ **C'est cet appel qui consomme une vue**, pas un décompte séparé :
+  /// `open_card_media` vérifie, décrémente et rend la clé dans une seule
+  /// transaction serveur. Un client modifié ne peut plus sauter le décompte,
+  /// puisque c'est lui qui délivre de quoi lire (décision de Jay 2026-08-10 :
+  /// la limite de vues est une garantie, pas une convention).
+  ///
+  /// Les fichiers en cache restent chiffrés ; le clair vit dans le répertoire
+  /// temporaire et est supprimé en quittant l'écran ([dispose]).
+  Future<void> _unsealFaces() async {
+    final key = await _cards.openMedia(widget.card.id);
+    final temp = await getTemporaryDirectory();
+
+    Future<File> open(File sealed, bool front) => MediaSeal.unsealToFile(
+      sealed,
+      key,
+      File('${temp.path}/clear_${widget.card.id}_${front ? 'f' : 'b'}'),
+    );
+
+    _clearFront = await open(_frontFile!, true);
+    if (_backFile != null) _clearBack = await open(_backFile!, false);
+  }
+
   Future<void> _load() async {
     setState(() {
       _phase = _Phase.loading;
@@ -156,6 +193,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     try {
       if (!_limitsApply) {
         await _fetchFaces();
+        if (widget.card.encrypted) await _unsealFaces();
         if (!mounted) return;
         setState(() => _phase = _Phase.viewing);
         return;
@@ -168,6 +206,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
       if (_delivery == null) {
         // Pas de livraison pour moi (ne devrait pas arriver en chat)
         await _fetchFaces();
+        if (widget.card.encrypted) await _unsealFaces();
         if (!mounted) return;
         setState(() => _phase = _Phase.viewing);
         return;
@@ -189,8 +228,14 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
       await _fetchFaces();
       if (!mounted) return;
 
-      // Consomme une vue (1 vue = 1 ouverture) et démarre le budget du recto
-      await repo.markViewed(_delivery!.id);
+      // Consomme une vue (1 vue = 1 ouverture) et démarre le budget du recto.
+      // Vibe chiffrée : le décompte EST la remise de la clé, `markViewed` n'a
+      // plus lieu d'être — l'appeler consommerait deux vues.
+      if (widget.card.encrypted) {
+        await _unsealFaces();
+      } else {
+        await repo.markViewed(_delivery!.id);
+      }
       if (!mounted) return;
       setState(() => _phase = _Phase.viewing);
       _startFaceBudget(true);
@@ -299,6 +344,14 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   @override
   void dispose() {
     _gaugeTimer?.cancel();
+    // Le clair ne survit pas à l'écran : le cache garde le scellé, la copie
+    // lisible disparaît avec la visionneuse. C'est ce qui rend le décompte
+    // utile — sans cela, le fichier déchiffré resterait consultable hors
+    // contrôle du serveur.
+    for (final file in [_clearFront, _clearBack]) {
+      if (file == null) continue;
+      file.delete().catchError((_) => file);
+    }
     super.dispose();
   }
 
@@ -313,7 +366,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
             : _frontDone,
       );
     }
-    final file = front ? _frontFile! : _backFile!;
+    final file = front ? _shownFront! : _shownBack!;
     if (_faceIsVideo(front)) {
       return _VideoFace(
         file: file,
@@ -423,7 +476,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
           onReplayRequested: _requestReplay,
         ),
         // Face unique (verso passé) : non retournable, le jeu d'angle reste
-        _Phase.viewing when _backFile == null => Center(
+        _Phase.viewing when _shownBack == null => Center(
           child: TiltableCard(child: _buildFace(true)),
         ),
         _Phase.viewing => Center(
@@ -441,7 +494,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Text(
-                  _backFile == null
+                  _shownBack == null
                       ? 'Face unique — fais glisser pour incliner la carte'
                       : _limitsApply
                       ? (_showFront
