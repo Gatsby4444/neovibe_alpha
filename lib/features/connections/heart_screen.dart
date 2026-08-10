@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/connection_request.dart';
@@ -110,12 +111,12 @@ class _RequestsTab extends ConsumerWidget {
               child: Text('Erreur : $e'),
             ),
             data: (list) => list.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(24),
+                ? Padding(
+                    padding: const EdgeInsets.all(24),
                     child: Text(
                       'Aucune demande pour l\'instant.\nElles naissent dans la vraie vie, en croisant quelqu\'un.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white54),
+                      style: TextStyle(color: context.muted),
                     ),
                   )
                 : Column(
@@ -234,7 +235,7 @@ class _HistoryTile extends ConsumerWidget {
         size: 18,
         color: request.status == RequestStatus.accepted
             ? Colors.green
-            : Colors.white38,
+            : context.faint,
       ),
       title: Text(peer?.displayName ?? '…'),
       subtitle: Text('${sent ? 'Envoyée' : 'Reçue'} · $label'),
@@ -323,12 +324,12 @@ class _RecommendationsTab extends ConsumerWidget {
           ],
           const _SectionTitle('Mes demandes'),
           if (mine.isEmpty)
-            const Padding(
-              padding: EdgeInsets.all(24),
+            Padding(
+              padding: const EdgeInsets.all(24),
               child: Text(
                 'Aucune demande de mise en relation en cours.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white54),
+                style: TextStyle(color: context.muted),
               ),
             ),
           for (final reco in mine)
@@ -383,15 +384,15 @@ class _WavesTab extends ConsumerWidget {
         error: (e, _) => Center(child: Text('Erreur : $e')),
         data: (list) => list.isEmpty
             ? ListView(
-                children: const [
-                  SizedBox(height: 100),
-                  Icon(Icons.waving_hand, size: 56, color: Colors.white24),
+                children: [
+                  const SizedBox(height: 100),
+                  Icon(Icons.waving_hand, size: 56, color: context.ghost),
                   Padding(
-                    padding: EdgeInsets.all(24),
+                    padding: const EdgeInsets.all(24),
                     child: Text(
                       'Aucun croisement manqué.\nQuand une de tes connexions passera près de toi, tu le sauras… après coup.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white54),
+                      style: TextStyle(color: context.muted),
                     ),
                   ),
                 ],

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/supabase_providers.dart';
@@ -75,10 +76,10 @@ class _CreateGroupScreenState extends ConsumerState<CreateGroupScreen> {
           ),
           Expanded(
             child: connections.isEmpty
-                ? const Center(
+                ? Center(
                     child: Text(
                       'Aucune connexion pour l\'instant.',
-                      style: TextStyle(color: Colors.white54),
+                      style: TextStyle(color: context.muted),
                     ),
                   )
                 : ListView(

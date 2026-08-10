@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
@@ -40,14 +41,14 @@ class _FriendsListScreenState extends ConsumerState<FriendsListScreen> {
           ),
           Expanded(
             child: connections.isEmpty
-                ? const Center(
+                ? Center(
                     child: Padding(
-                      padding: EdgeInsets.all(24),
+                      padding: const EdgeInsets.all(24),
                       child: Text(
                         'Personne pour l\'instant. Tes connexions naissent '
                         'dans la vraie vie : active ta visibilité quand tu sors.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white54),
+                        style: TextStyle(color: context.muted),
                       ),
                     ),
                   )

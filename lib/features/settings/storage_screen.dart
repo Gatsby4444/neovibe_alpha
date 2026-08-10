@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/prefs.dart';
@@ -91,13 +92,13 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                   .set(OwnCardsQuotaMb.choices[v.round()]),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(
               'Tes cards sont gardées sur ton téléphone pour s\'ouvrir '
               'instantanément, sans réseau. Au-delà de l\'espace alloué, les '
               'plus anciennes repassent en cloud (re-téléchargées au besoin).',
-              style: TextStyle(color: Colors.white54, fontSize: 12),
+              style: TextStyle(color: context.muted, fontSize: 12),
             ),
           ),
           const Divider(),
@@ -112,8 +113,8 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
             ),
             subtitle: const Text(
               'Préchargement des faces pour un retournement fluide. Purgé '
-              'automatiquement : Hot dès fermeture, cards épuisées '
-              'immédiatement, le reste au plus tard après 24 h.',
+              'automatiquement : cards épuisées immédiatement, le reste au '
+              'plus tard après 24 h.',
               style: TextStyle(fontSize: 12),
             ),
           ),
@@ -125,7 +126,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
               subtitle: Text(
                 '${usage.path}\n(stockage privé de l\'app — illisible par '
                 'les autres applications)',
-                style: const TextStyle(color: Colors.white54, fontSize: 11),
+                style: TextStyle(color: context.muted, fontSize: 11),
               ),
             ),
           const SizedBox(height: 8),
@@ -155,12 +156,12 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
               ],
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.all(16),
+          Padding(
+            padding: const EdgeInsets.all(16),
             child: Text(
               'Vider ne supprime aucune card : tout reste disponible depuis '
               'le cloud.',
-              style: TextStyle(color: Colors.white38, fontSize: 12),
+              style: TextStyle(color: context.faint, fontSize: 12),
             ),
           ),
         ],

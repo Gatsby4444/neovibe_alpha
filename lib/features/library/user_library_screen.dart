@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
@@ -108,11 +109,11 @@ class UserLibraryScreen extends ConsumerWidget {
                     ),
                   ),
                 ] else
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Hors de portée — recroisez-vous pour échanger.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white54),
+                      style: TextStyle(color: context.muted),
                     ),
                   ),
               ],
@@ -157,12 +158,12 @@ class UserLibraryScreen extends ConsumerWidget {
               child: Text('Erreur : $e'),
             ),
             data: (list) => list.isEmpty
-                ? const Padding(
-                    padding: EdgeInsets.all(32),
+                ? Padding(
+                    padding: const EdgeInsets.all(32),
                     child: Text(
                       'Rien à voir ici — bibliothèque vide ou accès restreint.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.white54),
+                      style: TextStyle(color: context.muted),
                     ),
                   )
                 : GridView.builder(

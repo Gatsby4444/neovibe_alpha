@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
+import '../../core/theme.dart';
 import '../../core/widgets/gradient.dart';
 import '../cards/cards_repository.dart';
 
@@ -74,7 +75,7 @@ class ProfileHeader extends ConsumerWidget {
               child: Text(
                 profile.tagName!,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Colors.white60,
+                  color: context.muted,
                   fontStyle: FontStyle.italic,
                   letterSpacing: 0.6,
                 ),
@@ -118,10 +119,15 @@ class _ExpandableBioState extends State<_ExpandableBio> {
   @override
   Widget build(BuildContext context) {
     final base = Theme.of(context).textTheme.bodyMedium;
+    // « voir plus » : le halo était un blanc sur blanc en thème clair, donc
+    // invisible. Il suit désormais la couleur de texte du thème (2026-08-10).
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     final link = base?.copyWith(
-      color: Colors.white,
+      color: onSurface,
       fontWeight: FontWeight.w600,
-      shadows: const [Shadow(color: Colors.white38, blurRadius: 8)],
+      shadows: [
+        Shadow(color: onSurface.withValues(alpha: 0.38), blurRadius: 8),
+      ],
     );
     if (widget.bio.length <= _ExpandableBio.foldLength) {
       return Text(widget.bio, style: base);
@@ -174,7 +180,7 @@ class _Stat extends StatelessWidget {
               label,
               style: Theme.of(
                 context,
-              ).textTheme.bodySmall?.copyWith(color: Colors.white54),
+              ).textTheme.bodySmall?.copyWith(color: context.muted),
             ),
           ],
         ),

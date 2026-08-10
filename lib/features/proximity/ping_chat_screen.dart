@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
@@ -97,7 +98,7 @@ class _PingChatScreenState extends ConsumerState<PingChatScreen> {
               inRange ? 'À proximité' : 'Hors de portée',
               style: TextStyle(
                 fontSize: 12,
-                color: inRange ? Colors.greenAccent : Colors.white38,
+                color: inRange ? Colors.greenAccent : context.faint,
               ),
             ),
           ],
@@ -105,21 +106,21 @@ class _PingChatScreenState extends ConsumerState<PingChatScreen> {
       ),
       body: Column(
         children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
             child: Text(
               'Conversation 100 % locale, d\'appareil à appareil — rien ne '
               'passe par internet. Les messages s\'effacent après 12 h.',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white38, fontSize: 11),
+              style: TextStyle(color: context.faint, fontSize: 11),
             ),
           ),
           Expanded(
             child: messages.isEmpty
-                ? const Center(
+                ? Center(
                     child: Text(
                       'Dis bonjour — vous êtes au même endroit.',
-                      style: TextStyle(color: Colors.white54),
+                      style: TextStyle(color: context.muted),
                     ),
                   )
                 : ListView.builder(
@@ -205,10 +206,7 @@ class _Bubble extends StatelessWidget {
           children: [
             Text(message.text),
             const SizedBox(height: 2),
-            Text(
-              time,
-              style: const TextStyle(fontSize: 10, color: Colors.white38),
-            ),
+            Text(time, style: TextStyle(fontSize: 10, color: context.faint)),
           ],
         ),
       ),

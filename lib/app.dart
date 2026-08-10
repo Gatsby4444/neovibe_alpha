@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/prefs.dart';
 import 'core/supabase_providers.dart';
 import 'core/theme.dart';
 import 'features/auth/auth_screen.dart';
@@ -11,16 +12,21 @@ import 'features/home/home_shell.dart';
 /// d'ouvrir un écran hors de tout contexte de widget.
 final navigatorKey = GlobalKey<NavigatorState>();
 
-class NeoVibeApp extends StatelessWidget {
+class NeoVibeApp extends ConsumerWidget {
   const NeoVibeApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Thème piloté par le réglage de Jay (2026-08-10), pas par le système :
+    // le sombre reste le défaut et l'utilisateur choisit explicitement.
+    final light = ref.watch(lightThemeProvider);
     return MaterialApp(
       title: 'NeoVibe',
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
-      theme: NeoTheme.dark(),
+      theme: NeoTheme.light(),
+      darkTheme: NeoTheme.dark(),
+      themeMode: light ? ThemeMode.light : ThemeMode.dark,
       home: const RootGate(),
     );
   }

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/message.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/formats.dart';
-import '../cards/cards_repository.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
 import '../conversations/create_group_screen.dart';
@@ -37,12 +37,6 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
     final conversations = ref.watch(conversationsProvider);
     final categories = ref.watch(myCategoriesProvider).value ?? [];
     final memberships = ref.watch(categoryMembersProvider).value ?? {};
-    // Hot boost : les livraisons Hot ouvertes vite remontent en tête (privé)
-    final hotBoosts = (ref.watch(receivedDeliveriesProvider).value ?? [])
-        .where((d) => d.hotBoosted)
-        .map((d) => d.cardId)
-        .toSet();
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('Cercle'),
@@ -169,19 +163,19 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
                   };
                   if (visible.isEmpty) {
                     return ListView(
-                      children: const [
-                        SizedBox(height: 100),
+                      children: [
+                        const SizedBox(height: 100),
                         Icon(
                           Icons.forum_outlined,
                           size: 56,
-                          color: Colors.white24,
+                          color: context.ghost,
                         ),
                         Padding(
-                          padding: EdgeInsets.all(24),
+                          padding: const EdgeInsets.all(24),
                           child: Text(
                             'Rien ici pour l\'instant.\nTes conversations avec tes connexions vivent ici.',
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.white54),
+                            style: TextStyle(color: context.muted),
                           ),
                         ),
                       ],
@@ -192,9 +186,6 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
                     itemBuilder: (context, index) {
                       final conv = visible[index];
                       final last = conv.lastMessage;
-                      final boosted =
-                          last?.cardId != null &&
-                          hotBoosts.contains(last!.cardId);
                       return ListTile(
                         leading: CircleAvatar(
                           backgroundImage:
@@ -214,17 +205,7 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
                                       )
                                     : null),
                         ),
-                        title: Row(
-                          children: [
-                            Expanded(child: Text(conv.displayName(me))),
-                            if (boosted)
-                              const Icon(
-                                Icons.local_fire_department,
-                                color: Color(0xFFFF7A1A),
-                                size: 18,
-                              ),
-                          ],
-                        ),
+                        title: Text(conv.displayName(me)),
                         subtitle: Text(
                           switch (last?.kind) {
                             null => 'Nouvelle conversation',

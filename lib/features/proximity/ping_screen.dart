@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/nearby_user.dart';
@@ -109,13 +110,13 @@ class _PingScreenState extends ConsumerState<PingScreen> {
                   : ref.read(proximityServiceProvider.notifier).disable(),
             ),
             if (proximity.visible)
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
                   'Découverte 100 % locale : ton identifiant change toutes '
                   'les 15 minutes et ton profil ne circule que dans un canal '
                   'chiffré, d\'appareil à appareil.',
-                  style: TextStyle(color: Colors.white38, fontSize: 11),
+                  style: TextStyle(color: context.faint, fontSize: 11),
                 ),
               ),
             if (proximity.error != null)
@@ -201,9 +202,9 @@ class _FriendRequestBanner extends ConsumerWidget {
               '${request.snapshot.displayName} veut se connecter avec toi',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
-            const Text(
+            Text(
               'Vous êtes à proximité en ce moment',
-              style: TextStyle(color: Colors.white54, fontSize: 12),
+              style: TextStyle(color: context.muted, fontSize: 12),
             ),
             const SizedBox(height: 8),
             Row(
@@ -343,12 +344,12 @@ class _EmptyHint extends StatelessWidget {
       padding: const EdgeInsets.all(24),
       child: Column(
         children: [
-          Icon(icon, size: 48, color: Colors.white24),
+          Icon(icon, size: 48, color: context.ghost),
           const SizedBox(height: 12),
           Text(
             text,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white54),
+            style: TextStyle(color: context.muted),
           ),
         ],
       ),

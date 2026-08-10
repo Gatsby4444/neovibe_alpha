@@ -86,7 +86,9 @@ class Thumb extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final source = ref.watch(thumbSourceProvider(spec));
     return source.when(
-      loading: () => const ColoredBox(color: NeoTheme.surface2),
+      loading: () => ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      ),
       error: (_, _) => const _ThumbPlaceholder(icon: Icons.broken_image),
       data: (s) {
         // Vidéo sans image de couverture disponible (fichier distant, ou
@@ -151,8 +153,8 @@ class _ThumbPlaceholder extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ColoredBox(
-      color: NeoTheme.surface2,
-      child: Center(child: Icon(icon, color: Colors.white38, size: 26)),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Center(child: Icon(icon, color: context.faint, size: 26)),
     );
   }
 }
@@ -192,9 +194,11 @@ class MiniCard extends ConsumerWidget {
     final card = item.card;
     final isCard = item.kind == 'card' && card != null;
 
+    // Une photo n'a pas de couleur de type : simple liseré discret, qui doit
+    // suivre le thème (il était blanc, donc invisible en clair — 2026-08-10).
     final borderColor = isCard
         ? card.type.color
-        : Colors.white.withValues(alpha: .14);
+        : Theme.of(context).colorScheme.onSurface.withValues(alpha: .14);
 
     Widget face(Widget child) => _MiniFrame(
       borderColor: borderColor,
@@ -334,11 +338,21 @@ class _MiniFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: NeoTheme.surface2,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
         border: Border.all(color: borderColor, width: 1.6),
         borderRadius: BorderRadius.circular(12),
-        boxShadow: const [
-          BoxShadow(color: Colors.black54, blurRadius: 8, offset: Offset(0, 3)),
+        boxShadow: [
+          // L'ombre portée était un noir à 54 % : correct sur fond sombre,
+          // sale sur fond clair. Elle s'allège avec le thème (2026-08-10).
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: Theme.of(context).brightness == Brightness.dark
+                  ? 0.54
+                  : 0.16,
+            ),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
         ],
       ),
       child: ClipRRect(

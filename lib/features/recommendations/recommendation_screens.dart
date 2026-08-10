@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/recommendation.dart';
@@ -70,10 +71,10 @@ class _RequestRecommendationScreenState
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text(
+          Text(
             'Un ami commun peut te mettre en relation avec quelqu\'un de son cercle. '
             'Décris qui tu cherches : c\'est lui qui choisira de transmettre — ou pas.',
-            style: TextStyle(color: Colors.white70),
+            style: TextStyle(color: context.muted),
           ),
           const SizedBox(height: 20),
           Text(

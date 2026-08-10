@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 
 /// Onglet **Jeux** — emplacement réservé au chantier « quiz et mini-jeux entre
 /// amis » (décidé par Jay le 2026-07-26, RAPPELS.md chantier #11).
@@ -18,29 +19,29 @@ class PlayScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Jeux')),
-      body: const Center(
+      body: Center(
         child: Padding(
-          padding: EdgeInsets.symmetric(horizontal: 32),
+          padding: const EdgeInsets.symmetric(horizontal: 32),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Icon(
                 Icons.sports_esports_outlined,
                 size: 64,
-                color: Colors.white24,
+                color: context.ghost,
               ),
-              SizedBox(height: 20),
-              Text(
+              const SizedBox(height: 20),
+              const Text(
                 'Bientôt ici',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
               ),
-              SizedBox(height: 12),
+              const SizedBox(height: 12),
               Text(
                 'Quiz, mini-jeux et compatibilité — avec tes amis, et '
                 'seulement eux.\nDe quoi passer un moment ensemble, et '
                 'trouver une raison de se voir pour de vrai.',
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white54, height: 1.5),
+                style: TextStyle(color: context.muted, height: 1.5),
               ),
             ],
           ),

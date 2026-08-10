@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
@@ -27,6 +28,22 @@ class SettingsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Réglages')),
       body: ListView(
         children: [
+          const _Header('Apparence'),
+          SwitchListTile(
+            secondary: Icon(
+              ref.watch(lightThemeProvider)
+                  ? Icons.light_mode
+                  : Icons.dark_mode,
+            ),
+            title: const Text('Thème clair'),
+            subtitle: const Text(
+              'La caméra et la visionneuse de Cards restent sombres : c\'est '
+              'le contenu qui porte la lumière.',
+            ),
+            value: ref.watch(lightThemeProvider),
+            onChanged: (v) => ref.read(lightThemeProvider.notifier).set(v),
+          ),
+          const Divider(),
           const _Header('Démarrage'),
           const _StartupTabSection(),
           const Divider(),
@@ -45,12 +62,12 @@ class SettingsScreen extends ConsumerWidget {
               ref.invalidate(myProfileProvider);
             },
           ),
-          const ListTile(
+          ListTile(
             dense: true,
-            leading: Icon(Icons.waving_hand, size: 18),
+            leading: const Icon(Icons.waving_hand, size: 18),
             title: Text(
               'L\'historique des croisements manqués vit dans Profil → ♥',
-              style: TextStyle(color: Colors.white54, fontSize: 13),
+              style: TextStyle(color: context.muted, fontSize: 13),
             ),
           ),
           const Divider(),
@@ -250,7 +267,7 @@ class _StartupTabSection extends ConsumerWidget {
             'démarrage.',
             style: Theme.of(
               context,
-            ).textTheme.bodySmall?.copyWith(color: Colors.white54),
+            ).textTheme.bodySmall?.copyWith(color: context.muted),
           ),
         ),
         Padding(
@@ -341,12 +358,12 @@ class _Divulgation extends StatelessWidget {
         'Dans les chats, tes Cards apparaissent comme des containers '
         'cliquables et se voient un nombre de fois et une durée limités '
         '(que tu choisis). Le container reste 24 h et le replay ne se fait '
-        'qu\'avec ton accord. La Hot se voit une seule fois : son contenu '
-        'disparaît, son container reste bloqué. En bibliothèque, la lecture '
-        'est illimitée.',
+        'qu\'avec ton accord. Envoyée à une seule personne sans être publiée, '
+        'une Card devient une One of One : exclusive, à jamais. En '
+        'bibliothèque, la lecture est illimitée.',
         style: Theme.of(
           context,
-        ).textTheme.bodySmall?.copyWith(color: Colors.white54),
+        ).textTheme.bodySmall?.copyWith(color: context.muted),
       ),
     );
   }

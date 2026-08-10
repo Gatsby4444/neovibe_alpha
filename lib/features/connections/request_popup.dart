@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../proximity/proximity_repository.dart';
@@ -63,12 +64,12 @@ class _RequestDialog extends ConsumerWidget {
               sender.tagName!,
               style: Theme.of(
                 context,
-              ).textTheme.bodySmall?.copyWith(color: Colors.white54),
+              ).textTheme.bodySmall?.copyWith(color: context.muted),
             ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Vous êtes à proximité en ce moment',
-            style: TextStyle(color: Colors.white54, fontSize: 12),
+            style: TextStyle(color: context.muted, fontSize: 12),
           ),
         ],
       ),

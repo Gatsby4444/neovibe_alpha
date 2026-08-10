@@ -43,7 +43,34 @@ abstract final class NeoGradients {
   );
 }
 
-/// Thème NeoVibe : sombre, caméra-first, accents en dégradé de marque.
+/// Nuances de texte et d'icône secondaires, **conscientes du thème**.
+///
+/// Avant le 2026-08-10, l'app écrivait `Colors.white54` / `white38` / `white24`
+/// un peu partout : lisible sur fond noir, illisible sur fond clair. Ces trois
+/// niveaux remplacent ces constantes partout où la couleur habille l'écran
+/// (et NON là où elle se pose sur une photo ou un aperçu caméra, qui restent
+/// sombres quel que soit le thème et gardent donc leur blanc).
+extension NeoTextColors on BuildContext {
+  /// Texte secondaire courant (ancien `white70` / `white54`).
+  Color get muted =>
+      Theme.of(this).colorScheme.onSurface.withValues(alpha: 0.62);
+
+  /// Mentions discrètes, horodatages (ancien `white38`).
+  Color get faint =>
+      Theme.of(this).colorScheme.onSurface.withValues(alpha: 0.42);
+
+  /// Grandes icônes d'état vide, séparateurs (ancien `white24`).
+  Color get ghost =>
+      Theme.of(this).colorScheme.onSurface.withValues(alpha: 0.24);
+}
+
+/// Thème NeoVibe : caméra-first, accents en dégradé de marque.
+///
+/// Deux déclinaisons depuis le 2026-08-10 (demande de Jay) : [dark], le défaut
+/// historique, et [light]. Le dégradé de marque et les couleurs de types de
+/// Cards sont IDENTIQUES dans les deux — seuls les fonds et les textes
+/// changent. Les écrans caméra et la visionneuse de Cards restent noirs quel
+/// que soit le thème : c'est le contenu qui doit porter la lumière.
 abstract final class NeoTheme {
   /// Rose central du dégradé — sert de graine au schéma de couleurs.
   static const seed = Color(0xFFD62976);
@@ -54,38 +81,55 @@ abstract final class NeoTheme {
   static const accentOrange = Color(0xFFF9773C);
   static const accentViolet = Color(0xFF7B2FF7);
 
-  /// Fonds — noir légèrement violacé plutôt que gris neutre.
+  /// Fonds sombres — noir légèrement violacé plutôt que gris neutre.
   static const bg = Color(0xFF0B0A10);
   static const surface1 = Color(0xFF15131C);
   static const surface2 = Color(0xFF1E1B29);
 
+  /// Fonds clairs — blanc très légèrement violacé, pour rester dans la même
+  /// famille chromatique que le sombre au lieu d'un gris neutre étranger.
+  static const bgLight = Color(0xFFFBFAFD);
+  static const surface1Light = Color(0xFFFFFFFF);
+  static const surface2Light = Color(0xFFEFEDF4);
+
   static const _radius = 14.0;
 
-  static ThemeData dark() {
-    final base = ColorScheme.fromSeed(
-      seedColor: seed,
-      brightness: Brightness.dark,
-    );
+  static ThemeData dark() => _build(Brightness.dark);
+
+  static ThemeData light() => _build(Brightness.light);
+
+  static ThemeData _build(Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
+    final background = isDark ? bg : bgLight;
+    final container = isDark ? surface1 : surface1Light;
+    final field = isDark ? surface2 : surface2Light;
+    final onBackground = isDark ? Colors.white : const Color(0xFF14121A);
+    final muted = isDark ? Colors.white70 : const Color(0xFF5B5766);
+
+    final base = ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
     final scheme = base.copyWith(
       primary: accentPink,
       onPrimary: Colors.white,
       secondary: accentOrange,
       tertiary: accentViolet,
-      surface: bg,
-      surfaceContainerHighest: surface2,
+      surface: background,
+      onSurface: onBackground,
+      surfaceContainerHighest: field,
     );
 
     return ThemeData(
       useMaterial3: true,
+      brightness: brightness,
       colorScheme: scheme,
-      scaffoldBackgroundColor: bg,
-      appBarTheme: const AppBarTheme(
-        backgroundColor: bg,
+      scaffoldBackgroundColor: background,
+      appBarTheme: AppBarTheme(
+        backgroundColor: background,
+        foregroundColor: onBackground,
         elevation: 0,
         centerTitle: false,
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: surface1,
+        backgroundColor: container,
         // L'indicateur ne peut pas porter de dégradé : c'est l'icône
         // sélectionnée qui le fait (voir `GradientIcon` dans home_shell).
         indicatorColor: accentPink.withValues(alpha: 0.18),
@@ -95,9 +139,7 @@ abstract final class NeoTheme {
             fontWeight: states.contains(WidgetState.selected)
                 ? FontWeight.w600
                 : FontWeight.w400,
-            color: states.contains(WidgetState.selected)
-                ? accentPink
-                : Colors.white70,
+            color: states.contains(WidgetState.selected) ? accentPink : muted,
           ),
         ),
       ),
@@ -106,7 +148,7 @@ abstract final class NeoTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: surface2,
+        fillColor: field,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
           borderSide: BorderSide.none,
@@ -149,28 +191,28 @@ abstract final class NeoTheme {
       ),
       radioTheme: RadioThemeData(
         fillColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? accentPink : Colors.white54,
+          (s) => s.contains(WidgetState.selected) ? accentPink : muted,
         ),
       ),
       sliderTheme: const SliderThemeData(
         activeTrackColor: accentPink,
         thumbColor: accentPink,
       ),
-      progressIndicatorTheme: const ProgressIndicatorThemeData(
+      progressIndicatorTheme: ProgressIndicatorThemeData(
         color: accentPink,
-        linearTrackColor: surface2,
+        linearTrackColor: field,
       ),
       dividerTheme: DividerThemeData(
-        color: Colors.white.withValues(alpha: .08),
+        color: onBackground.withValues(alpha: isDark ? .08 : .12),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: surface2,
+        backgroundColor: field,
         selectedColor: accentPink.withValues(alpha: .25),
         side: BorderSide.none,
       ),
-      dialogTheme: const DialogThemeData(backgroundColor: surface1),
-      bottomSheetTheme: const BottomSheetThemeData(backgroundColor: surface1),
-      listTileTheme: const ListTileThemeData(iconColor: Colors.white70),
+      dialogTheme: DialogThemeData(backgroundColor: container),
+      bottomSheetTheme: BottomSheetThemeData(backgroundColor: container),
+      listTileTheme: ListTileThemeData(iconColor: muted),
     );
   }
 

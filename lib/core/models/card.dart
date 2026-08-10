@@ -1,32 +1,39 @@
 import 'package:flutter/material.dart';
 
 /// Types de Cards — énumération extensible (spec 4.8.1, mécaniques V2 du
-/// 2026-07-11 : vues/durée paramétrables, Hot sans trace, Oneshot = double
-/// capture simultanée).
+/// 2026-07-11 ; **refonte du 2026-08-10**).
+///
+/// Refonte demandée par Jay le 2026-08-10 :
+/// - **Mono supprimée** — une Card classique peut désormais n'avoir QU'UNE
+///   face (bouton « Passer » à la prise du verso). Le nombre de faces est une
+///   propriété de la Card, plus un type à part.
+/// - **Hot supprimée** définitivement, contenu et mécanique compris.
+/// - **One of One n'est plus un type choisi** : il s'applique AUTOMATIQUEMENT
+///   à l'envoi quand la Card part à un seul destinataire sans être publiée
+///   (voir `CardSendScreen`). Le type existe donc toujours en base et porte
+///   toujours son style or — il ne se choisit simplement plus à la capture.
 enum CardType {
   standard,
-  mono,
   oneshot,
   oneOfOne,
-  hot,
   bereal;
 
+  /// Les valeurs `mono` et `hot` restent lisibles : la base de dev a été
+  /// convertie (migration `cards_drop_mono_hot`), mais un client à jour peut
+  /// encore croiser une ligne héritée. Une mono devient une `standard` à une
+  /// face — ce que le nouveau format sait exprimer nativement.
   static CardType fromDb(String value) => switch (value) {
-    'standard' => CardType.standard,
-    'mono' => CardType.mono,
+    'standard' || 'mono' || 'hot' => CardType.standard,
     'oneshot' => CardType.oneshot,
     'one_of_one' => CardType.oneOfOne,
-    'hot' => CardType.hot,
     'bereal' => CardType.bereal,
     _ => CardType.standard,
   };
 
   String get dbValue => switch (this) {
     CardType.standard => 'standard',
-    CardType.mono => 'mono',
     CardType.oneshot => 'oneshot',
     CardType.oneOfOne => 'one_of_one',
-    CardType.hot => 'hot',
     CardType.bereal => 'bereal',
   };
 
@@ -34,36 +41,39 @@ enum CardType {
   /// consigne Jay du 2026-07-12).
   String get tag => switch (this) {
     CardType.standard => 'Card',
-    CardType.mono => 'MONO',
     CardType.oneshot => 'Oneshot',
     CardType.oneOfOne => 'One of One',
-    CardType.hot => 'Hot',
     CardType.bereal => 'BeReal',
   };
 
   /// Types pouvant être marqués « sauvegardables » par le créateur
-  /// (jamais Hot ni One of One).
-  bool get canBeSaveable => switch (this) {
-    CardType.standard ||
-    CardType.mono ||
-    CardType.oneshot ||
-    CardType.bereal => true,
-    CardType.hot || CardType.oneOfOne => false,
-  };
+  /// (jamais One of One : son exclusivité est le format lui-même).
+  bool get canBeSaveable => this != CardType.oneOfOne;
 
   /// Couleur signature du type — code couleur validé par Jay (2026-07-11) :
   /// standard blanc éclatant, Oneshot bleu/magenta électrique, 1/1 or (inchangé),
-  /// Hot rouge Torino, BeReal vert nature clair/turquoise.
+  /// BeReal vert nature clair/turquoise.
   Color get color => switch (this) {
     CardType.standard => const Color(0xFFFFFFFF), // blanc éclatant
-    CardType.mono => const Color(
-      0xFF9E9E9E,
-    ), // gris sobre (consigne Jay 2026-07-12, remplace le cyan)
     CardType.oneshot => const Color(0xFF2979FF), // bleu électrique
     CardType.oneOfOne => const Color(0xFFD4AF37), // or — ne pas changer
-    CardType.hot => const Color(0xFFC8102E), // rouge Torino
     CardType.bereal => const Color(0xFF40E0D0), // turquoise
   };
+
+  /// Couleur du type **adaptée au thème** (2026-08-10).
+  ///
+  /// Le blanc éclatant de la Card classique est sa signature sur fond sombre —
+  /// et rigoureusement invisible sur fond clair. En thème clair, et là
+  /// seulement, il devient un violet profond neutre. Les autres types ne
+  /// bougent pas : ils sont lisibles des deux côtés.
+  ///
+  /// À utiliser partout où la couleur se pose sur l'habillage de l'app. Sur
+  /// une photo ou un aperçu caméra — toujours sombres — garder [color].
+  Color displayColor(BuildContext context) =>
+      this == CardType.standard &&
+          Theme.of(context).brightness == Brightness.light
+      ? const Color(0xFF3B3748)
+      : color;
 
   /// Dégradé signature (Oneshot et BeReal) — null = couleur unie.
   Gradient? get gradient => switch (this) {
@@ -86,33 +96,27 @@ enum CardType {
   String get description => switch (this) {
     CardType.standard =>
       'Vues et durée à ta main, trace 24 h dans le chat, replay sur ton accord',
-    CardType.mono =>
-      'Une seule face, comme un snap — non retournable, sinon comme une classique',
     CardType.oneshot =>
       'Avant + arrière capturés d\'un seul déclenché, sinon comme une classique',
     CardType.oneOfOne => 'Exclusive : un seul destinataire, à jamais',
-    CardType.hot =>
-      'Une seule vue, temps limité — le contenu disparaît, le container reste',
     CardType.bereal => 'L\'instant imposé du jour, sans mise en scène',
   };
 
-  /// Les types que l'utilisateur peut choisir à la création
-  /// (BeReal est déclenchée par notification, pas par le menu).
-  /// Ordre du sélecteur de l'écran de capture. Le Oneshot est placé APRÈS le
-  /// One of One (consigne Jay 2026-07-26).
-  static List<CardType> get selectable => [
-    CardType.standard,
-    CardType.mono,
-    CardType.oneOfOne,
-    CardType.oneshot,
-    CardType.hot,
-  ];
+  /// Les types que l'utilisateur peut choisir à la création.
+  ///
+  /// Depuis la refonte du 2026-08-10, il n'en reste que **deux** : le BeReal
+  /// est déclenché par notification, et le One of One s'applique tout seul à
+  /// l'envoi (un destinataire, pas de publication).
+  static List<CardType> get selectable => [CardType.standard, CardType.oneshot];
 
-  /// Mono : une seule face, pas de retournement.
-  bool get singleFace => this == CardType.mono;
-
-  /// Vues/durée paramétrables par le créateur (Hot : figé à 1 vue courte).
-  bool get hasConfigurableViews => this != CardType.hot;
+  /// Ce type impose-t-il DEUX faces ?
+  ///
+  /// Le Oneshot capture les deux caméras d'un même déclenché et le BeReal est
+  /// un format contraint : leur verso n'est pas optionnel. Une Card classique,
+  /// elle, peut désormais s'arrêter à une face (bouton « Passer »), et une
+  /// One of One hérite du nombre de faces de la Card capturée.
+  bool get requiresTwoFaces =>
+      this == CardType.oneshot || this == CardType.bereal;
 }
 
 class CardModel {
@@ -137,8 +141,12 @@ class CardModel {
   final CardType type;
   final String frontPath;
 
-  /// Null pour une card Mono (face unique).
+  /// Null pour une Card à face unique (verso « passé » à la prise).
   final String? backPath;
+
+  /// Card à une seule face : pas de retournement, seulement le jeu d'angle.
+  /// C'est le contenu qui le dit, plus le type (refonte du 2026-08-10).
+  bool get singleFace => backPath == null;
 
   /// Durée de lecture par vue en secondes (null = illimitée). Défaut 10 s.
   final int? viewDurationSeconds;
@@ -190,7 +198,6 @@ class CardDelivery {
     required this.deliveredAt,
     this.firstViewedAt,
     this.destroyedAt,
-    this.hotBoosted = false,
     this.viewCount = 0,
     this.replayRequestedAt,
     this.replayGrantedAt,
@@ -204,9 +211,6 @@ class CardDelivery {
   final DateTime? firstViewedAt;
   final DateTime? destroyedAt;
 
-  /// Hot : mise en avant privée chez le destinataire (jamais publique).
-  final bool hotBoosted;
-
   /// Vues déjà consommées par le destinataire.
   final int viewCount;
 
@@ -217,7 +221,6 @@ class CardDelivery {
 
   /// Vues restantes pour ce destinataire (null = illimité).
   int? remainingViews(CardModel card) {
-    if (card.type == CardType.hot) return viewCount >= 1 ? 0 : 1;
     if (card.maxViews == null) return null;
     final bonus = replayGrantedAt != null ? 1 : 0;
     final remaining = card.maxViews! + bonus - viewCount;
@@ -235,7 +238,6 @@ class CardDelivery {
     destroyedAt: json['destroyed_at'] == null
         ? null
         : DateTime.parse(json['destroyed_at'] as String),
-    hotBoosted: json['hot_boosted'] as bool? ?? false,
     viewCount: json['view_count'] as int? ?? 0,
     replayRequestedAt: json['replay_requested_at'] == null
         ? null

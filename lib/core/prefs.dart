@@ -3,6 +3,35 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Préférences locales à l'appareil (UI uniquement — rien de social ici).
 
+/// Thème clair ou sombre (demande de Jay 2026-08-10).
+///
+/// Le **sombre reste le défaut** : NeoVibe est une app caméra-first, et les
+/// écrans de prise comme la visionneuse de Cards restent noirs quoi qu'il
+/// arrive — c'est le contenu qui doit porter la lumière, pas l'habillage.
+/// Le clair vaut pour tout le reste de l'app.
+class LightTheme extends Notifier<bool> {
+  static const _key = 'light_theme';
+
+  @override
+  bool build() {
+    _load();
+    return false;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_key) ?? false;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_key, value);
+  }
+}
+
+final lightThemeProvider = NotifierProvider<LightTheme, bool>(LightTheme.new);
+
 /// Sens du retournement des Cards au swipe (consigne Jay : le sens naturel
 /// varie selon les personnes, donc paramétrable). false = sens par défaut.
 class FlipDirectionInverted extends Notifier<bool> {

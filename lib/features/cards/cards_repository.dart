@@ -59,10 +59,10 @@ class CardsRepository {
   SupabaseClient get _client => ref.read(supabaseProvider);
 
   /// Crée une Card : upload recto/verso puis insertion.
-  /// [back] null = card Mono (face unique). [viewDurationSeconds] null =
-  /// lecture illimitée ; [maxViews] null = vues illimitées. Hot : toujours
-  /// 1 vue (imposé aussi côté serveur). [imported] : au moins une face vient
-  /// de la galerie. [frontIsVideo]/[backIsVideo] : faces vidéo (mp4) ;
+  /// [back] null = Card à face unique (verso passé à la prise).
+  /// [viewDurationSeconds] null = lecture illimitée ; [maxViews] null = vues
+  /// illimitées. [imported] : au moins une face vient de la galerie.
+  /// [frontIsVideo]/[backIsVideo] : faces vidéo (mp4) ;
   /// [scrubbable] : barre de lecture contrôlable par le destinataire.
   Future<CardModel> create({
     required File front,
@@ -110,10 +110,8 @@ class CardsRepository {
           'card_type': type.dbValue,
           'front_path': frontPath,
           'back_path': backPath,
-          'view_duration_seconds': type == CardType.hot
-              ? 10
-              : viewDurationSeconds,
-          'max_views': type == CardType.hot ? 1 : maxViews,
+          'view_duration_seconds': viewDurationSeconds,
+          'max_views': maxViews,
           'saveable': type.canBeSaveable && saveable,
           'imported': imported,
           'front_is_video': frontIsVideo,
@@ -206,7 +204,7 @@ class CardsRepository {
   }
 
   /// [isPublic] : visible par toute personne accédant au profil par un moyen
-  /// légitime (croisement ping, recommandation…) — jamais pour les Hot.
+  /// légitime (croisement ping, recommandation…).
   Future<void> publishToLibrary(
     CardModel card, {
     String? caption,
@@ -217,7 +215,7 @@ class CardsRepository {
       'owner_id': me,
       'kind': 'card',
       'card_id': card.id,
-      'is_public': isPublic && card.type != CardType.hot,
+      'is_public': isPublic,
       if (caption != null && caption.isNotEmpty) 'caption': caption,
     });
   }
@@ -236,10 +234,6 @@ class CardsRepository {
 
   Future<void> markViewed(String deliveryId) =>
       _client.rpc('mark_card_viewed', params: {'delivery_id': deliveryId});
-
-  /// Fin de visionnage d'une Hot : destruction + disparition du chat.
-  Future<void> finishHotView(String deliveryId) =>
-      _client.rpc('finish_hot_view', params: {'delivery_id': deliveryId});
 
   /// Replay : demandé par le destinataire, accordé par l'émetteur (+1 vue).
   Future<void> requestReplay(String deliveryId) =>

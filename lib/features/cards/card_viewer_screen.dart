@@ -23,7 +23,8 @@ enum _Phase { loading, error, viewing, exhausted, destroyed }
 ///   contrôlable seulement si le créateur l'a permis). Retourner la carte
 ///   coupe court à la face qu'on quitte ; la card se ferme quand toutes les
 ///   faces sont épuisées.
-/// - Hot : une seule vue, puis destruction — le container reste bloqué.
+/// - Card à face unique (verso passé) : pas de retournement, seulement le jeu
+///   d'angle.
 /// - En bibliothèque ou pour l'émetteur : lecture illimitée, sans budgets.
 class CardViewerScreen extends ConsumerStatefulWidget {
   const CardViewerScreen({
@@ -73,12 +74,10 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   Timer? _gaugeTimer;
   double _gauge = 1.0;
   int _elapsedMs = 0;
-  var _hotFinished = false;
 
-  /// Capturé à l'initialisation : `_isRecipient` est lu depuis `dispose()`
-  /// (via `_limitsApply`, pour la purge des cards Hot), et `ref` y est
-  /// interdit — c'était la source des « Using "ref" when a widget is about to
-  /// or has been unmounted » du journal, à chaque fermeture de card.
+  /// Capturé à l'initialisation : `ref` est interdit dans `dispose()` —
+  /// c'était la source des « Using "ref" when a widget is about to or has been
+  /// unmounted » du journal, à chaque fermeture de card.
   late final String? _me = ref.read(currentUserIdProvider);
 
   bool get _isRecipient => _me != null && _me != widget.card.ownerId;
@@ -261,16 +260,12 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     }
   }
 
-  /// Toutes les faces sont épuisées : Hot → destruction ; sinon état des
-  /// vues restantes (replay) ou fermeture.
+  /// Toutes les faces sont épuisées : état des vues restantes (replay) ou
+  /// fermeture.
   Future<void> _endSession() async {
     if (_sessionEnded) return;
     _sessionEnded = true;
     _gaugeTimer?.cancel();
-    if (widget.card.type == CardType.hot) {
-      await _finishHot();
-      return;
-    }
     _delivery = await ref
         .read(cardsRepositoryProvider)
         .myDelivery(widget.card.id);
@@ -284,18 +279,6 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     } else {
       Navigator.of(context).pop();
     }
-  }
-
-  Future<void> _finishHot() async {
-    if (_hotFinished || _delivery == null) return;
-    _hotFinished = true;
-    try {
-      await _cards.finishHotView(_delivery!.id);
-    } catch (_) {}
-    // Hot : purge immédiate du cache à la fermeture (consigne Jay —
-    // empêcher la récupération après coup).
-    await _cache.purgeCard(widget.card.id);
-    if (mounted) setState(() => _phase = _Phase.destroyed);
   }
 
   Future<void> _requestReplay() async {
@@ -316,22 +299,6 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   @override
   void dispose() {
     _gaugeTimer?.cancel();
-    // Hot : quitter l'écran, même avant la fin du temps, détruit la Card —
-    // et purge son cache local immédiatement.
-    //
-    // `ref` est INTERDIT ici (le widget est déjà démonté : Riverpod lève
-    // « Using "ref" when a widget is about to or has been unmounted » — vu
-    // dans le journal de Jay le 2026-07-14). Les dépendances nécessaires ont
-    // donc été capturées à l'initialisation.
-    if (_limitsApply &&
-        widget.card.type == CardType.hot &&
-        !_hotFinished &&
-        _delivery != null &&
-        _phase == _Phase.viewing) {
-      _hotFinished = true;
-      _cards.finishHotView(_delivery!.id);
-      _cache.purgeCard(widget.card.id);
-    }
     super.dispose();
   }
 
@@ -375,9 +342,9 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   Widget build(BuildContext context) {
     final type = widget.card.type;
     final me = ref.watch(currentUserIdProvider);
-    // Enregistrable : ses propres cards (Hot comprise, 1/1 exclue — le
-    // créateur la rouvre depuis le chat à la place), ou une card reçue
-    // marquée sauvegardable par son créateur.
+    // Enregistrable : ses propres cards (1/1 exclue — le créateur la rouvre
+    // depuis le chat à la place), ou une card reçue marquée sauvegardable par
+    // son créateur.
     final isOwner = widget.card.ownerId == me;
     final canSave = isOwner
         ? type != CardType.oneOfOne
@@ -446,18 +413,16 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
         _Phase.loading => const _LoadingState(),
         _Phase.error => _ErrorState(detail: _error, onRetry: _load),
         _Phase.destroyed => _EndState(
-          icon: Icons.local_fire_department,
+          icon: Icons.lock_outline,
           color: type.color,
-          message: type == CardType.hot
-              ? 'Cette Card Hot a été vue.\nSon contenu a disparu — le container reste bloqué.'
-              : 'Cette Card a été détruite.',
+          message: 'Cette Card a été détruite.',
         ),
         _Phase.exhausted => _ExhaustedState(
           card: widget.card,
           delivery: _delivery,
           onReplayRequested: _requestReplay,
         ),
-        // Mono : face unique non retournable, le jeu d'angle reste
+        // Face unique (verso passé) : non retournable, le jeu d'angle reste
         _Phase.viewing when _backFile == null => Center(
           child: TiltableCard(child: _buildFace(true)),
         ),

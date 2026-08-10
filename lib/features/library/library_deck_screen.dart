@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 
 import '../../core/models/library_item.dart';
 import 'mini_card.dart';
@@ -65,7 +66,7 @@ class _LibraryDeckScreenState extends State<LibraryDeckScreen> {
             child: Center(
               child: Text(
                 '${_page.round() + 1} / $count',
-                style: const TextStyle(color: Colors.white54),
+                style: TextStyle(color: context.muted),
               ),
             ),
           ),
@@ -106,12 +107,12 @@ class _LibraryDeckScreenState extends State<LibraryDeckScreen> {
               },
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.fromLTRB(24, 0, 24, 20),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
             child: Text(
               'Swipe ↕ pour retourner · clic pour ouvrir',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.white38, fontSize: 12),
+              style: TextStyle(color: context.faint, fontSize: 12),
             ),
           ),
         ],

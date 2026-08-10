@@ -9,6 +9,7 @@ import '../../core/models/connection.dart';
 import '../../core/models/message.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/prefs.dart';
+import '../../core/theme.dart';
 import '../../core/utils/formats.dart';
 import '../cards/card_capture_screen.dart';
 import '../cards/card_viewer_screen.dart';
@@ -190,20 +191,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        // DM : photo de profil + pseudo, l'ensemble cliquable et menant au
-        // profil du pair (consigne Jay 2026-08-01). Les groupes gardent leur
-        // titre simple — leur détail vit dans l'icône « groupe » à droite.
+        // En-tête façon iMessage (demande de Jay 2026-08-10) : flèche de
+        // retour à gauche, **photo de profil CENTRÉE** avec le pseudo dessous,
+        // et un bouton d'action à droite. L'ensemble du bloc central reste
+        // cliquable et mène au profil (consigne Jay 2026-08-01).
+        centerTitle: true,
+        toolbarHeight: 74,
+        titleSpacing: 0,
         title: isGroup || peer == null
-            ? Text(conversation?.displayName(me) ?? '…')
+            ? _GroupTitle(name: conversation?.displayName(me) ?? '…')
             : _PeerTitle(peerId: peer.id),
         actions: [
           if (isGroup)
             IconButton(
-              icon: const Icon(Icons.group),
+              icon: const Icon(Icons.group_outlined),
+              tooltip: 'Détail du groupe',
               onPressed: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => GroupSettingsScreen(
                     conversationId: widget.conversationId,
+                  ),
+                ),
+              ),
+            )
+          else
+            // Pendant du bouton FaceTime d'iMessage. Jay : « si tu ne sais pas
+            // quoi mettre pour un bouton, designe le bouton et plus tard on
+            // discute de l'action ». Le wave est la mécanique NeoVibe la plus
+            // proche d'un geste direct vers quelqu'un — l'action reste À
+            // DÉFINIR.
+            IconButton(
+              icon: const Icon(Icons.waving_hand_outlined),
+              tooltip: 'Action à définir',
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Bouton en place — son action reste à définir.',
                   ),
                 ),
               ),
@@ -242,13 +265,24 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               data: (list) => ListView.builder(
                 controller: _scroll,
                 reverse: true,
-                padding: const EdgeInsets.all(12),
+                padding: const EdgeInsets.fromLTRB(10, 12, 10, 8),
                 itemCount: list.length,
                 itemBuilder: (context, index) {
-                  final message = list[list.length - 1 - index];
+                  final i = list.length - 1 - index;
+                  final message = list[i];
+                  // Regroupement façon iMessage : les messages consécutifs
+                  // d'un même auteur, à moins de 5 min d'écart, forment un
+                  // bloc. Seul le DERNIER du bloc porte le coin coupé et
+                  // l'heure — c'est ce qui donne le rythme visuel d'iMessage
+                  // au lieu d'une liste de pavés identiques.
+                  final previous = i > 0 ? list[i - 1] : null;
+                  final next = i + 1 < list.length ? list[i + 1] : null;
                   return _MessageBubble(
                     message: message,
                     isMine: message.senderId == me,
+                    isFirstOfGroup: !_sameGroup(previous, message),
+                    isLastOfGroup: !_sameGroup(message, next),
+                    showSenderName: isGroup,
                   );
                 },
               ),
@@ -256,7 +290,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ),
           if (_typingName != null)
             Padding(
-              padding: const EdgeInsets.only(left: 16, bottom: 4),
+              padding: const EdgeInsets.only(left: 20, bottom: 6),
               child: Row(
                 children: [
                   Text(
@@ -268,43 +302,206 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
             ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-              child: Row(
-                children: [
-                  // Un seul bouton média depuis le 2026-08-01 (consigne Jay) :
-                  // les deux boutons caméra bruts (photo / vidéo via le
-                  // sélecteur système) sont remplacés par le bouton Card, qui
-                  // ouvre la vraie interface de capture et envoie directement
-                  // dans cette conversation.
-                  if (!isProximity && conversation != null)
-                    IconButton(
-                      icon: const Icon(Icons.filter_none),
-                      tooltip: 'Envoyer une Card',
-                      onPressed: () => _sendCard(conversation, me),
-                    ),
-                  Expanded(
-                    child: TextField(
-                      controller: _input,
-                      onChanged: (_) => _notifyTyping(),
-                      onSubmitted: (_) => _sendText(),
-                      textInputAction: TextInputAction.send,
-                      decoration: const InputDecoration(
-                        hintText: 'Message éphémère (24 h)…',
-                        isDense: true,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.send),
-                    onPressed: _sendText,
-                  ),
-                ],
-              ),
-            ),
+          _Composer(
+            controller: _input,
+            onChanged: _notifyTyping,
+            onSend: _sendText,
+            // Le canal de proximité est limité au texte : ni Card, ni pièce
+            // jointe (règle serveur, pas un choix d'écran).
+            onCard: isProximity || conversation == null
+                ? null
+                : () => _sendCard(conversation, me),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Deux messages appartiennent-ils au même bloc visuel ? Même auteur et moins
+/// de 5 minutes d'écart — la règle de regroupement d'iMessage.
+bool _sameGroup(Message? a, Message? b) {
+  if (a == null || b == null) return false;
+  if (a.senderId != b.senderId) return false;
+  return b.createdAt.difference(a.createdAt).inMinutes.abs() < 5;
+}
+
+/// Barre de saisie façon iMessage (demande de Jay 2026-08-10) : **deux boutons
+/// à gauche**, puis un champ en gélule, et le bouton d'envoi qui apparaît
+/// DANS le champ dès qu'il y a du texte.
+///
+/// La rangée d'icônes visible sous le champ sur la capture d'écran appartient
+/// au clavier iOS : elle n'est volontairement pas reproduite.
+class _Composer extends StatefulWidget {
+  const _Composer({
+    required this.controller,
+    required this.onChanged,
+    required this.onSend,
+    required this.onCard,
+  });
+
+  final TextEditingController controller;
+  final VoidCallback onChanged;
+  final VoidCallback onSend;
+
+  /// Null = canal texte seul (proximité) : le bouton Card disparaît.
+  final VoidCallback? onCard;
+
+  @override
+  State<_Composer> createState() => _ComposerState();
+}
+
+class _ComposerState extends State<_Composer> {
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_onText);
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_onText);
+    super.dispose();
+  }
+
+  /// Le bouton d'envoi n'apparaît qu'avec du texte : il faut donc se
+  /// reconstruire à la frappe, pas seulement prévenir le canal « écrit… ».
+  void _onText() => setState(() {});
+
+  void _handleChanged() {
+    widget.onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final hasText = widget.controller.text.trim().isNotEmpty;
+    final fieldColor = isDark
+        ? Colors.white.withValues(alpha: 0.06)
+        : Colors.white;
+    final borderColor = isDark
+        ? Colors.white.withValues(alpha: 0.16)
+        : const Color(0xFFD3D1DB);
+    final iconColor = isDark ? Colors.white70 : const Color(0xFF6E6A7A);
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(6, 4, 10, 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            // Bouton 1 — la Card. Depuis le 2026-08-01, c'est la SEULE entrée
+            // média du chat : on envoie une Card, pas un média nu.
+            if (widget.onCard != null)
+              IconButton(
+                icon: const Icon(Icons.photo_camera_outlined),
+                color: iconColor,
+                tooltip: 'Envoyer une Card',
+                onPressed: widget.onCard,
+              ),
+            // Bouton 2 — pendant du bouton « apps » d'iMessage. Dessiné à la
+            // demande de Jay ; **son action reste à définir**.
+            IconButton(
+              icon: const Icon(Icons.add_circle_outline),
+              color: iconColor,
+              tooltip: 'Action à définir',
+              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Bouton en place — son action reste à définir.',
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 2),
+            Expanded(
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 38),
+                decoration: BoxDecoration(
+                  color: fieldColor,
+                  border: Border.all(color: borderColor),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                padding: const EdgeInsets.only(left: 14, right: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: widget.controller,
+                        onChanged: (_) => _handleChanged(),
+                        onSubmitted: (_) => widget.onSend(),
+                        textInputAction: TextInputAction.send,
+                        minLines: 1,
+                        maxLines: 5,
+                        style: const TextStyle(fontSize: 16),
+                        decoration: InputDecoration(
+                          hintText: 'Message éphémère (24 h)…',
+                          hintStyle: TextStyle(color: iconColor, fontSize: 16),
+                          isDense: true,
+                          filled: false,
+                          border: InputBorder.none,
+                          enabledBorder: InputBorder.none,
+                          focusedBorder: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 9,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // Flèche d'envoi DANS la gélule, comme iMessage : elle
+                    // n'existe que s'il y a quelque chose à envoyer.
+                    AnimatedScale(
+                      scale: hasText ? 1 : 0,
+                      duration: const Duration(milliseconds: 160),
+                      curve: Curves.easeOutBack,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 3),
+                        child: _SendButton(onPressed: widget.onSend),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bouton d'envoi rond, au dégradé de marque — l'équivalent NeoVibe de la
+/// flèche bleue d'iMessage.
+class _SendButton extends StatelessWidget {
+  const _SendButton({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 30,
+      height: 30,
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: Ink(
+          decoration: const BoxDecoration(
+            gradient: NeoGradients.brandButton,
+            shape: BoxShape.circle,
+          ),
+          child: InkWell(
+            onTap: onPressed,
+            child: const Icon(
+              Icons.arrow_upward_rounded,
+              size: 19,
+              color: Colors.white,
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -346,9 +543,10 @@ class _PartialBanner extends ConsumerWidget {
   }
 }
 
-/// Titre d'un DM : photo de profil + pseudo, l'ensemble cliquable et menant au
-/// profil du pair (consigne Jay 2026-08-01 — « on n'affiche pas uniquement le
-/// pseudo mais aussi sa photo de profil, et le tout est cliquable »).
+/// Titre d'un DM, façon iMessage (2026-08-10) : photo de profil **au-dessus**
+/// du pseudo, le tout centré et cliquable, menant au profil du pair (consigne
+/// Jay 2026-08-01 — « on n'affiche pas uniquement le pseudo mais aussi sa
+/// photo de profil, et le tout est cliquable »).
 class _PeerTitle extends ConsumerWidget {
   const _PeerTitle({required this.peerId});
   final String peerId;
@@ -358,6 +556,7 @@ class _PeerTitle extends ConsumerWidget {
     final profile = ref.watch(profileByIdProvider(peerId)).value;
     final name = profile?.chatName ?? '…';
     return InkWell(
+      borderRadius: BorderRadius.circular(12),
       onTap: profile == null
           ? null
           : () => Navigator.of(context).push(
@@ -365,95 +564,197 @@ class _PeerTitle extends ConsumerWidget {
                 builder: (_) => UserLibraryScreen(profile: profile),
               ),
             ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          CircleAvatar(
-            radius: 16,
-            backgroundImage: profile?.avatarUrl != null
-                ? NetworkImage(profile!.avatarUrl!)
-                : null,
-            child: profile?.avatarUrl == null
-                ? Text(
-                    name.characters.first.toUpperCase(),
-                    style: const TextStyle(fontSize: 13),
-                  )
-                : null,
-          ),
-          const SizedBox(width: 10),
-          Flexible(child: Text(name, overflow: TextOverflow.ellipsis)),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 19,
+              backgroundImage: profile?.avatarUrl != null
+                  ? NetworkImage(profile!.avatarUrl!)
+                  : null,
+              child: profile?.avatarUrl == null
+                  ? Text(
+                      name.characters.first.toUpperCase(),
+                      style: const TextStyle(fontSize: 15),
+                    )
+                  : null,
+            ),
+            const SizedBox(height: 3),
+            Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+            ),
+          ],
+        ),
       ),
     );
   }
 }
 
+/// Même composition pour un groupe : pastille de groupe au-dessus du nom.
+class _GroupTitle extends StatelessWidget {
+  const _GroupTitle({required this.name});
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        CircleAvatar(
+          radius: 19,
+          backgroundColor: Theme.of(
+            context,
+          ).colorScheme.surfaceContainerHighest,
+          child: const Icon(Icons.group, size: 20),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
+        ),
+      ],
+    );
+  }
+}
+
+/// Bulle de message façon iMessage (refonte du 2026-08-10).
+///
+/// - **Mes messages** portent le dégradé de marque et vont à droite ; ceux des
+///   autres prennent un gris de surface et vont à gauche.
+/// - Le **coin bas côté auteur** n'est coupé que sur le DERNIER message d'un
+///   bloc : c'est ce détail qui fait lire une suite de messages comme une
+///   seule prise de parole.
+/// - L'**heure** ne s'affiche qu'en fin de bloc, sous la bulle et hors d'elle
+///   — pas une étiquette sous chaque message.
+/// - Une **Card ou un média** n'est jamais mis en bulle : le container de Card
+///   porte déjà sa propre couleur de type, l'empiler dans un dégradé de marque
+///   rendrait les deux illisibles.
 class _MessageBubble extends ConsumerWidget {
-  const _MessageBubble({required this.message, required this.isMine});
+  const _MessageBubble({
+    required this.message,
+    required this.isMine,
+    required this.isFirstOfGroup,
+    required this.isLastOfGroup,
+    required this.showSenderName,
+  });
+
   final Message message;
   final bool isMine;
+  final bool isFirstOfGroup;
+  final bool isLastOfGroup;
+
+  /// En groupe seulement : le pseudo de l'auteur, au-dessus de son bloc.
+  final bool showSenderName;
+
+  static const _radius = Radius.circular(19);
+  static const _tightRadius = Radius.circular(6);
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final scheme = Theme.of(context).colorScheme;
-    final senderProfile = isMine
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    final isAttachment = message.kind != MessageKind.text;
+    final senderProfile = isMine || !showSenderName
         ? null
         : ref.watch(profileByIdProvider(message.senderId)).value;
 
-    Widget content;
-    switch (message.kind) {
-      case MessageKind.text:
-        content = Text(message.body ?? '');
-      case MessageKind.image:
-      case MessageKind.video:
-        content = _MediaPreview(message: message);
-      case MessageKind.card:
-        content = _CardContainer(message: message);
-    }
+    final Widget content = switch (message.kind) {
+      MessageKind.text => Text(
+        message.body ?? '',
+        style: TextStyle(
+          fontSize: 16,
+          height: 1.28,
+          color: isMine ? Colors.white : theme.colorScheme.onSurface,
+        ),
+      ),
+      MessageKind.image || MessageKind.video => _MediaPreview(message: message),
+      MessageKind.card => _CardContainer(message: message),
+    };
 
-    return Align(
-      alignment: isMine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 3),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.75,
-        ),
-        decoration: BoxDecoration(
-          color: isMine ? scheme.primaryContainer : const Color(0xFF1E1E28),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (!isMine && senderProfile != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(
-                  senderProfile.chatName,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelSmall?.copyWith(color: scheme.primary),
+    return Padding(
+      padding: EdgeInsets.only(
+        top: isFirstOfGroup ? 8 : 2,
+        bottom: isLastOfGroup ? 2 : 0,
+      ),
+      child: Column(
+        crossAxisAlignment: isMine
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          if (senderProfile != null && isFirstOfGroup)
+            Padding(
+              padding: const EdgeInsets.only(left: 14, bottom: 3),
+              child: Text(
+                senderProfile.chatName,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.primary,
                 ),
               ),
-            content,
-            const SizedBox(height: 2),
-            Text(
-              // « disparaît dans … » retiré de l'affichage courant le
-              // 2026-08-01 (consigne Jay) : l'éphémère est une règle du
-              // produit, pas un chronomètre à surveiller sous chaque message.
-              // Conservé derrière l'interrupteur développeur pour vérifier le
-              // TTL en test.
-              ref.watch(devShowExpiryProvider)
-                  ? '${shortTime(message.createdAt)} · disparaît dans ${remaining(message.expiresAt)}'
-                  : shortTime(message.createdAt),
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: Colors.white38,
-                fontSize: 10,
+            ),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: MediaQuery.sizeOf(context).width * 0.76,
+            ),
+            child: isAttachment
+                ? content
+                : DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: isMine ? NeoGradients.brandButton : null,
+                      color: isMine
+                          ? null
+                          : (isDark
+                                ? const Color(0xFF26242F)
+                                : const Color(0xFFE9E7EF)),
+                      borderRadius: BorderRadius.only(
+                        topLeft: _radius,
+                        topRight: _radius,
+                        bottomLeft: !isMine && isLastOfGroup
+                            ? _tightRadius
+                            : _radius,
+                        bottomRight: isMine && isLastOfGroup
+                            ? _tightRadius
+                            : _radius,
+                      ),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 9,
+                      ),
+                      child: content,
+                    ),
+                  ),
+          ),
+          if (isLastOfGroup)
+            Padding(
+              padding: EdgeInsets.only(
+                top: 3,
+                left: isMine ? 0 : 12,
+                right: isMine ? 6 : 0,
+              ),
+              child: Text(
+                // « disparaît dans … » retiré de l'affichage courant le
+                // 2026-08-01 (consigne Jay) : l'éphémère est une règle du
+                // produit, pas un chronomètre à surveiller sous chaque
+                // message. Conservé derrière l'interrupteur développeur pour
+                // vérifier le TTL en test.
+                ref.watch(devShowExpiryProvider)
+                    ? '${shortTime(message.createdAt)} · disparaît dans ${remaining(message.expiresAt)}'
+                    : shortTime(message.createdAt),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontSize: 10,
+                  color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
+                ),
               ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -520,9 +821,9 @@ final _myDeliveryProvider = FutureProvider.family<CardDelivery?, String>(
 
 /// Container de Card dans le chat, façon Snapchat (consigne Jay 2026-07-12) :
 /// JAMAIS d'aperçu — un bloc cliquable à la couleur du type, avec son tag et
-/// son état (nouvelle / rouvrable / épuisée / bloquée). Le container vit 24 h
+/// son état (nouvelle / rouvrable / épuisée / détruite). Le container vit 24 h
 /// (TTL du message). Le créateur peut rouvrir sa card tant que le container
-/// existe ; la Hot vue reste un container bloqué, non renouvelable.
+/// existe.
 class _CardContainer extends ConsumerWidget {
   const _CardContainer({required this.message});
   final Message message;
@@ -535,9 +836,9 @@ class _CardContainer extends ConsumerWidget {
             ? null
             : ref.watch(_cardProvider(message.cardId!)).value);
     if (card == null) {
-      return const Text(
+      return Text(
         '[Card expirée]',
-        style: TextStyle(fontStyle: FontStyle.italic, color: Colors.white38),
+        style: TextStyle(fontStyle: FontStyle.italic, color: context.faint),
       );
     }
     final isMine = card.ownerId == ref.watch(currentUserIdProvider);
@@ -560,7 +861,7 @@ class _CardContainer extends ConsumerWidget {
       stateLabel = 'Appuie pour ouvrir';
       unopened = true;
     } else if (delivery.destroyedAt != null) {
-      stateLabel = card.type == CardType.hot ? 'Vue — bloquée' : 'Détruite';
+      stateLabel = 'Détruite';
       blocked = true;
     } else {
       final remaining = delivery.remainingViews(card);
@@ -568,8 +869,7 @@ class _CardContainer extends ConsumerWidget {
         stateLabel = 'Nouvelle — appuie pour ouvrir';
         unopened = true;
       } else if (remaining != null && remaining <= 0) {
-        stateLabel = card.type == CardType.hot ? 'Vue — bloquée' : 'Épuisée';
-        blocked = card.type == CardType.hot;
+        stateLabel = 'Épuisée';
       } else {
         stateLabel = remaining == null
             ? 'Rouvrir'
@@ -581,13 +881,29 @@ class _CardContainer extends ConsumerWidget {
     final gradient = card.type.gradient;
     final dimmed = blocked;
 
+    // Le contenu du conteneur se pose sur DEUX fonds différents (2026-08-10) :
+    // sur le remplissage plein du dégradé quand la Card n'est pas ouverte — il
+    // reste alors blanc quel que soit le thème — ou sur le fond du chat, et il
+    // doit dans ce cas suivre le thème. Avant cette distinction, ces blancs
+    // étaient invisibles en thème clair.
+    final onGradient = gradient != null && unopened;
+    final titleColor = dimmed
+        ? context.muted
+        : (onGradient ? Colors.white : baseColor);
+    final iconColor = dimmed
+        ? context.faint
+        : (onGradient ? Colors.white : baseColor);
+    final subtleColor = dimmed
+        ? context.faint
+        : (onGradient ? Colors.white70 : context.muted);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         InkWell(
           borderRadius: BorderRadius.circular(14),
-          // Une Hot bloquée ne se rouvre pas — les autres états ouvrent le
+          // Une Card détruite ne se rouvre pas — les autres états ouvrent le
           // viewer (qui gère épuisement et demande de replay).
           onTap: blocked
               ? null
@@ -613,7 +929,7 @@ class _CardContainer extends ConsumerWidget {
                     ? baseColor.withValues(alpha: 0.28)
                     : null,
                 border: Border.all(
-                  color: dimmed ? Colors.white24 : baseColor,
+                  color: dimmed ? context.ghost : baseColor,
                   width: 2,
                 ),
                 borderRadius: BorderRadius.circular(14),
@@ -626,11 +942,7 @@ class _CardContainer extends ConsumerWidget {
                         : unopened
                         ? Icons.crop_portrait
                         : Icons.crop_portrait_outlined,
-                    color: dimmed
-                        ? Colors.white38
-                        : (gradient != null && unopened
-                              ? Colors.white
-                              : baseColor),
+                    color: iconColor,
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -644,11 +956,7 @@ class _CardContainer extends ConsumerWidget {
                                 card.type.tag,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: dimmed
-                                      ? Colors.white54
-                                      : (gradient != null && unopened
-                                            ? Colors.white
-                                            : baseColor),
+                                  color: titleColor,
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -656,22 +964,19 @@ class _CardContainer extends ConsumerWidget {
                             // Image importée de la galerie : petit logo
                             // discret (consigne Jay 2026-07-12)
                             if (card.imported)
-                              const Padding(
-                                padding: EdgeInsets.only(left: 5),
+                              Padding(
+                                padding: const EdgeInsets.only(left: 5),
                                 child: Icon(
                                   Icons.photo_library_outlined,
                                   size: 13,
-                                  color: Colors.white54,
+                                  color: subtleColor,
                                 ),
                               ),
                           ],
                         ),
                         Text(
                           stateLabel,
-                          style: TextStyle(
-                            fontSize: 11,
-                            color: dimmed ? Colors.white38 : Colors.white70,
-                          ),
+                          style: TextStyle(fontSize: 11, color: subtleColor),
                         ),
                       ],
                     ),

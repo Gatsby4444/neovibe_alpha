@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -150,12 +151,12 @@ class ProfileScreen extends ConsumerWidget {
                 child: Text('Erreur : $e'),
               ),
               data: (list) => list.isEmpty
-                  ? const Padding(
-                      padding: EdgeInsets.all(32),
+                  ? Padding(
+                      padding: const EdgeInsets.all(32),
                       child: Text(
                         'Ta bibliothèque est vide.\nPublie une Card ou ajoute une photo : ici, ça reste.',
                         textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white54),
+                        style: TextStyle(color: context.muted),
                       ),
                     )
                   : GridView.builder(

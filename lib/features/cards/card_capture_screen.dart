@@ -175,7 +175,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// seul, mise en avant animée du mode sélectionné).
   late final PageController _typeController = PageController(
     viewportFraction: 0.34,
-    initialPage: CardType.selectable.indexOf(_type).clamp(0, 4),
+    initialPage: CardType.selectable
+        .indexOf(_type)
+        .clamp(0, CardType.selectable.length - 1),
   );
 
   /// Fenêtre BeReal : 30 secondes pour boucler les deux prises « pour un
@@ -183,10 +185,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   static const _berealWindow = Duration(seconds: 30);
 
   /// Durée max d'une vidéo selon le mode : 61 s en général (limite dev, à
-  /// repenser avant la prod — rappel demandé par Jay), 10 s pour Hot,
+  /// repenser avant la prod — rappel demandé par Jay),
   /// 15 s pour BeReal (2 faces dans la fenêtre de 30 s).
   int get _maxVideoSeconds => switch (_type) {
-    CardType.hot => 10,
     CardType.bereal => 15,
     _ => 61,
   };
@@ -203,19 +204,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
 
   /// La bascule avant/arrière est-elle autorisée dans l'état courant ?
   ///
-  /// Sert au bouton ET au double-tap sur l'aperçu (demande de Jay 2026-07-31 :
-  /// le double-tap ne valait que pour Mono, il vaut désormais pour Card,
-  /// One of One et Hot).
+  /// Sert au bouton ET au double-tap sur l'aperçu (demande de Jay 2026-07-31).
   ///
   /// - **BeReal** : la contrainte du format est de ne pas choisir.
   /// - **Oneshot** : les deux caméras prennent en même temps, il n'y a pas de
   ///   sens à choisir (consigne Jay 2026-07-26 — y compris en vue simple de
   ///   secours).
-  /// - **Mono** garde en plus la bascule PENDANT la vidéo : la couche native
-  ///   maintient l'enregistrement à travers, comme Snapchat.
+  /// - **Card classique** : autorisée hors enregistrement vidéo.
   bool get _lensToggleAllowed => switch (_type) {
     CardType.bereal || CardType.oneshot => false,
-    CardType.mono => true,
     _ => !_recording,
   };
 
@@ -387,10 +384,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       // puis retour au flux simple caméra arrière.
       await _camera.closeGlDual();
       await _openWithRetry();
-    } else if (type != CardType.mono &&
-        (previous == CardType.mono || previous == CardType.oneshot) &&
-        !_camera.lensBack) {
-      // En quittant Mono ou Oneshot, le recto redevient caméra arrière.
+    } else if (previous == CardType.oneshot && !_camera.lensBack) {
+      // En quittant le Oneshot, le recto redevient caméra arrière.
       await _ensureLens(back: true);
     }
   }
@@ -483,16 +478,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     _toggleLens();
   }
 
-  /// Bascule avant/arrière : Mono (double-tap OU bouton, y compris PENDANT
-  /// une vidéo — l'enregistrement persistant natif survit à la bascule,
-  /// comme Snapchat) et Oneshot en vue simple de secours.
+  /// Bascule avant/arrière (double-tap OU bouton), pour la Card classique.
+  /// Jamais en BeReal ni en Oneshot — voir [_lensToggleAllowed].
   Future<void> _toggleLens() async {
     // Pendant l'ouverture du double live, CameraX est libéré : une bascule
     // taperait dans le vide (NullPointerException natif, journal v0.9.1).
     if (_busy || _switching || _camera.glDualActive || _dualOpening) return;
-    // Pendant une vidéo : bascule autorisée UNIQUEMENT en Mono (consigne).
-    if (_recording && _type != CardType.mono) return;
-    if (_recording && !_videoStarted) return; // démarrage caméra en cours
+    // Jamais pendant un enregistrement vidéo : le seul mode qui l'autorisait
+    // était la Mono, supprimée le 2026-08-10.
+    if (_recording) return;
     // La réouverture de la caméra prend quelques centaines de ms : haptique
     // immédiate + voile flouté pendant la bascule, pour que l'attente se
     // lise comme une transition et non comme un gel (retour Jay v0.7.0).
@@ -817,14 +811,17 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   }
 
   /// Dernier rempart avant le récap : **le contenu doit correspondre au type**.
-  /// Une Mono a UNE face, un Oneshot/BeReal/standard en a DEUX. Si ce n'est pas
-  /// le cas, c'est un bug — on le consigne et on refuse de continuer plutôt que
-  /// de fabriquer une card impossible (une Mono à deux faces a été créée le
-  /// 2026-07-14).
+  ///
+  /// Depuis la refonte du 2026-08-10, une Card classique accepte UNE ou DEUX
+  /// faces (le verso peut être « passé »). Restent contraints à deux faces le
+  /// **Oneshot** (deux caméras d'un même déclenché) et le **BeReal**. Si ce
+  /// n'est pas le cas, c'est un bug — on le consigne et on refuse de continuer
+  /// plutôt que de fabriquer une card impossible (une Mono à deux faces avait
+  /// été créée le 2026-07-14).
   bool _facesMatchType() {
     final type = _cardType;
     final twoFaces = _back != null;
-    final ok = type == CardType.mono ? !twoFaces : twoFaces;
+    final ok = type.requiresTwoFaces ? twoFaces : true;
     if (!ok) {
       NativeCameraController.log(
         'INCOHÉRENCE : type=${type.name} mais faces=${twoFaces ? 2 : 1} '
@@ -850,15 +847,6 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     _lockType();
     setState(() => _busy = true);
     try {
-      if (_cardType == CardType.mono) {
-        // Mono : une seule face, celle de la caméra active — comme un snap.
-        final shot = await _camera.takePicture();
-        _front = await _cropTo916(shot, hd: _hd);
-        _back = null;
-        if (!_facesMatchType()) return;
-        setState(() => _step = 2);
-        return;
-      }
       if (_cardType == CardType.oneshot && _step == 0) {
         var shot = false;
         if (_camera.glDualActive) {
@@ -929,18 +917,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     bool isVideo = false,
   }) async {
     _lockType(); // une face posée = le type de la card est décidé
-    if (_cardType == CardType.mono || _step != 0) {
-      // Mono : face unique ; sinon on est au verso.
-      if (_cardType == CardType.mono) {
-        _front = file;
-        _frontImported = imported;
-        _frontIsVideo = isVideo;
-        _back = null;
-      } else {
-        _back = file;
-        _backImported = imported;
-        _backIsVideo = isVideo;
-      }
+    if (_step != 0) {
+      // On est au verso.
+      _back = file;
+      _backImported = imported;
+      _backIsVideo = isVideo;
       _berealTimer?.cancel();
       setState(() => _step = 2);
     } else {
@@ -971,6 +952,28 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     await _ensureLens(back: true);
   }
 
+  /// **Passer le verso** (demande de Jay 2026-08-10, remplace le mode Mono).
+  ///
+  /// Apparaît une fois le recto posé : la Card s'arrête à une face et part
+  /// directement au récap. Ce n'est plus un type à part — c'est la même Card
+  /// classique, simplement non retournable faute de verso.
+  ///
+  /// Réservé aux types dont le verso est optionnel : le Oneshot n'atteint
+  /// jamais cette étape (ses deux faces partent d'un même déclenché) et le
+  /// BeReal a besoin de ses deux faces par définition.
+  bool get _canSkipBackFace =>
+      _step == 1 && !_recording && !_cardType.requiresTwoFaces;
+
+  void _skipBackFace() {
+    if (_busy || !_canSkipBackFace) return;
+    _back = null;
+    _backImported = false;
+    _backIsVideo = false;
+    _berealTimer?.cancel();
+    if (!_facesMatchType()) return;
+    setState(() => _step = 2);
+  }
+
   /// Refaire UNE face depuis le récap, en gardant l'autre.
   ///
   /// Le Oneshot est à part, comme toujours : ses deux faces sont capturées au
@@ -987,7 +990,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       });
       return;
     }
-    _retakeOnly = _back != null; // Mono : une seule face, flux normal
+    // Card à une seule face (verso passé) : pas de face à préserver, on
+    // repasse par le flux normal — et le bouton « Passer » se represente.
+    _retakeOnly = _back != null;
     setState(() {
       // Reprise d'une face : le retardateur choisi pour la prise précédente est
       // rétabli (consigne Jay).
@@ -1073,11 +1078,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     }
   }
 
-  /// Import galerie (cards classiques et Mono uniquement, consigne Jay) :
+  /// Import galerie (cards classiques uniquement, consigne Jay) :
   /// choix dans la galerie puis ajustement (recadrage, zoom, rotation,
   /// remplir/adapter sur fond noir) — pas d'outils dessin/texte ensuite.
-  bool get _galleryAllowed =>
-      _type == CardType.standard || _type == CardType.mono;
+  bool get _galleryAllowed => _type == CardType.standard;
 
   Future<void> _importFromGallery() async {
     if (_busy) return;
@@ -1473,6 +1477,22 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                   onPressed: _busy || _switching ? null : _retakePreviousFace,
                 ),
               ),
+            // « Passer » : la Card s'arrête à une face (demande de Jay
+            // 2026-08-10, en remplacement du mode Mono). N'apparaît qu'une
+            // fois le recto posé, et jamais là où le verso est obligatoire
+            // (Oneshot, BeReal).
+            // Placé en bas à DROITE, en miroir du bouton galerie : le
+            // haut-droite est pris par le bandeau d'étape et le flanc droit
+            // par la colonne d'outils.
+            if (_canSkipBackFace)
+              Positioned(
+                key: const ValueKey('skip-back'),
+                bottom: 42,
+                right: 28,
+                child: _SkipBackButton(
+                  onPressed: _busy || _switching ? null : _skipBackFace,
+                ),
+              ),
             Positioned(
               key: const ValueKey('header'),
               top: 16,
@@ -1490,11 +1510,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      _type == CardType.mono
-                          ? 'Mono — face unique'
-                          : _step == 0
-                          ? 'Recto — ce que tu vois'
-                          : 'Verso — toi',
+                      _step == 0 ? 'Recto — ce que tu vois' : 'Verso — toi',
                       style: const TextStyle(color: Colors.white),
                     ),
                   ),
@@ -1626,7 +1642,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                   ),
                 ),
               ),
-            // Import galerie (cards classiques et Mono uniquement)
+            // Import galerie (cards classiques uniquement)
             if (_galleryAllowed && !_recording)
               Positioned(
                 key: const ValueKey('gallery'),
@@ -1898,6 +1914,41 @@ class _DualLiveButton extends StatelessWidget {
   }
 }
 
+/// « Passer » : termine la Card sur son recto seul (demande de Jay
+/// 2026-08-10). Volontairement discret et non coloré — c'est une sortie de
+/// secours du parcours, pas une action mise en avant : la Card à deux faces
+/// reste la forme normale du produit.
+class _SkipBackButton extends StatelessWidget {
+  const _SkipBackButton({required this.onPressed});
+
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black45,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: Colors.white24),
+      ),
+      child: TextButton.icon(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          foregroundColor: Colors.white,
+          disabledForegroundColor: Colors.white38,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        ),
+        iconAlignment: IconAlignment.end,
+        icon: const Icon(Icons.arrow_forward, size: 18),
+        label: const Text(
+          'Passer',
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+        ),
+      ),
+    );
+  }
+}
+
 class _CameraHud extends StatelessWidget {
   const _CameraHud({required this.camera, this.caps, this.dualError});
   final NativeCameraController camera;
@@ -2052,7 +2103,7 @@ class _RecapStepState extends State<_RecapStep> {
         padding: const EdgeInsets.all(16),
         children: [
           if (back == null)
-            // Mono : face unique, présentée seule et centrée
+            // Verso passé : face unique, présentée seule et centrée
             Row(
               children: [
                 const Spacer(),

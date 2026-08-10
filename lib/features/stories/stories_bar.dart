@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/story.dart';
@@ -62,7 +63,7 @@ class StoriesBar extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
             child: Text(
               emptyHint!,
-              style: const TextStyle(color: Colors.white38, fontSize: 12),
+              style: TextStyle(color: context.faint, fontSize: 12),
             ),
           );
         }

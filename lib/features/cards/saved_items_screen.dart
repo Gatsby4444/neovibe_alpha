@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/card.dart';
@@ -84,7 +85,7 @@ class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
                         Icon(
                           Icons.bookmark_border,
                           size: 56,
-                          color: Colors.white24,
+                          color: context.ghost,
                         ),
                         Padding(
                           padding: const EdgeInsets.all(24),
@@ -98,7 +99,7 @@ class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
                                 'Rien ici pour l\'instant — cet espace servira plus tard.',
                             },
                             textAlign: TextAlign.center,
-                            style: const TextStyle(color: Colors.white54),
+                            style: TextStyle(color: context.muted),
                           ),
                         ),
                       ],
