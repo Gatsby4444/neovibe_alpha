@@ -50,10 +50,10 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
     final quotaBytes = quota * 1024 * 1024;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Stockage des Cards')),
+      appBar: AppBar(title: const Text('Stockage des Vibes')),
       body: ListView(
         children: [
-          const _Header('Mes Cards (copies locales)'),
+          const _Header('Mes Vibes (copies locales)'),
           ListTile(
             dense: true,
             leading: const Icon(Icons.style),
@@ -102,7 +102,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
             ),
           ),
           const Divider(),
-          const _Header('Cache des Cards reçues'),
+          const _Header('Cache des Vibes reçues'),
           ListTile(
             dense: true,
             leading: const Icon(Icons.cached),

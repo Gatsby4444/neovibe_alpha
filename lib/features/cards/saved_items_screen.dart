@@ -92,7 +92,7 @@ class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
                           child: Text(
                             switch (_filter) {
                               _SavedFilter.mine =>
-                                'Aucune création enregistrée.\nDepuis l\'envoi d\'une Card, active « Enregistrer pour moi ».',
+                                'Aucune création enregistrée.\nDepuis l\'envoi d\'une Vibe, active « Enregistrer pour moi ».',
                               _SavedFilter.friends =>
                                 'Aucune card d\'ami enregistrée.\nLes cards « sauvegardables » reçues peuvent être gardées ici.',
                               _SavedFilter.others =>

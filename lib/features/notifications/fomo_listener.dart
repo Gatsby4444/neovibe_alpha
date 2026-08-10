@@ -61,7 +61,7 @@ class FomoListener {
       final type = CardType.fromDb(card['card_type'] as String);
       await NotificationService.instance.show(
         NotifChannel.fomo,
-        '${owner['display_name']} t\'a envoyé une Card',
+        '${owner['display_name']} t\'a envoyé une Vibe',
         '[${type.tag}] ${type.description}',
       );
     } catch (_) {

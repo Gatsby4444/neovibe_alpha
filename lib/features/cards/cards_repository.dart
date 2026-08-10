@@ -150,7 +150,7 @@ class CardsRepository {
   Future<void> send(CardModel card, List<String> recipientIds) async {
     final me = _client.auth.currentUser!.id;
     if (card.type == CardType.oneOfOne && recipientIds.length > 1) {
-      throw StateError('Une Card 1/1 ne peut avoir qu\'un destinataire');
+      throw StateError('Une Vibe 1/1 ne peut avoir qu\'un destinataire');
     }
     for (final recipientId in recipientIds) {
       final convId =

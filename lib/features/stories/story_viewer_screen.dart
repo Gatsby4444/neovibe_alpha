@@ -131,7 +131,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Retirer cette story ?'),
         content: const Text(
-          'Elle disparaît pour tout le monde. La Card, elle, reste.',
+          'Elle disparaît pour tout le monde. La Vibe, elle, reste.',
         ),
         actions: [
           TextButton(

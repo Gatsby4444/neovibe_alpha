@@ -200,7 +200,7 @@ enum StartupTab {
   String get label => switch (this) {
     StartupTab.ping => 'Ping',
     StartupTab.circle => 'Cercle',
-    StartupTab.card => 'Card',
+    StartupTab.card => 'Vibe',
     StartupTab.play => 'Jeux',
     StartupTab.profile => 'Profil',
   };

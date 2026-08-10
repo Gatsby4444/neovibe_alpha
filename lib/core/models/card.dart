@@ -37,10 +37,13 @@ enum CardType {
     CardType.bereal => 'bereal',
   };
 
-  /// Tag textuel visible sur la Card (spec 4.8.1 ; « One of One » depuis la
+  /// Tag textuel visible sur la Vibe (spec 4.8.1 ; « One of One » depuis la
   /// consigne Jay du 2026-07-12).
+  ///
+  /// Depuis le 2026-08-10, le nom PUBLIC de l'objet est « Vibe » — le code et
+  /// la base gardent `card` (décision de Jay : renommage d'interface seulement).
   String get tag => switch (this) {
-    CardType.standard => 'Card',
+    CardType.standard => 'Vibe',
     CardType.oneshot => 'Oneshot',
     CardType.oneOfOne => 'One of One',
     CardType.bereal => 'BeReal',

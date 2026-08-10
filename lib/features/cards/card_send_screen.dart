@@ -144,14 +144,14 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Comment vivent tes Cards'),
+        title: const Text('Comment vivent tes Vibes'),
         content: const SingleChildScrollView(
           child: Text(
-            'Dans les chats, une Card se voit un nombre limité de fois '
+            'Dans les chats, une Vibe se voit un nombre limité de fois '
             '(2 par défaut) et pendant une durée limitée par vue (10 s par '
-            'défaut) — tu choisis ces limites pour chaque Card, et tes '
-            'défauts se règlent dans Réglages > Cards.\n\n'
-            'Chaque Card apparaît dans le chat comme un container : on clique '
+            'défaut) — tu choisis ces limites pour chaque Vibe, et tes '
+            'défauts se règlent dans Réglages > Vibes.\n\n'
+            'Chaque Vibe apparaît dans le chat comme un container : on clique '
             'pour l\'ouvrir, jamais d\'aperçu. Le container reste 24 h et le '
             'destinataire peut te demander un replay : rien ne se revoit sans '
             'ton accord.\n\n'
@@ -230,7 +230,7 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
         }
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Card envoyée ✓')));
+        ).showSnackBar(const SnackBar(content: Text('Vibe envoyée ✓')));
       }
     } catch (e) {
       if (mounted) {
@@ -515,10 +515,10 @@ class _OneOfOneBanner extends StatelessWidget {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'Un seul destinataire et aucune publication : cette Card '
+                  'Un seul destinataire et aucune publication : cette Vibe '
                   'devient exclusive, pour elle seule et à jamais. Ajoute '
                   'quelqu\'un, publie-la ou mets-la en story pour revenir à '
-                  'une Card normale.',
+                  'une Vibe normale.',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],

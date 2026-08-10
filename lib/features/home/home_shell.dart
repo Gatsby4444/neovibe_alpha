@@ -139,7 +139,7 @@ class _HomeShellState extends ConsumerState<HomeShell> {
               size: 38,
               child: Icon(Icons.photo_camera, color: Colors.white, size: 20),
             ),
-            label: 'Card',
+            label: 'Vibe',
           ),
           NavigationDestination(
             icon: Icon(Icons.sports_esports_outlined),

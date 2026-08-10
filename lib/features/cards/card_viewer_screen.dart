@@ -415,7 +415,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
         _Phase.destroyed => _EndState(
           icon: Icons.lock_outline,
           color: type.color,
-          message: 'Cette Card a été détruite.',
+          message: 'Cette Vibe a été détruite.',
         ),
         _Phase.exhausted => _ExhaustedState(
           card: widget.card,
@@ -510,7 +510,7 @@ class _LoadingState extends StatelessWidget {
           ),
           SizedBox(height: 16),
           Text(
-            'Chargement de la Card…',
+            'Chargement de la Vibe…',
             style: TextStyle(color: Colors.white54),
           ),
         ],
@@ -535,7 +535,7 @@ class _ErrorState extends StatelessWidget {
             const Icon(Icons.wifi_off, size: 56, color: Colors.white38),
             const SizedBox(height: 16),
             const Text(
-              'Impossible de charger la Card.\nVérifie ta connexion.',
+              'Impossible de charger la Vibe.\nVérifie ta connexion.',
               textAlign: TextAlign.center,
               style: TextStyle(color: Colors.white70),
             ),
@@ -602,7 +602,7 @@ class _ExhaustedState extends StatelessWidget {
             Icon(Icons.visibility_off, size: 56, color: card.type.color),
             const SizedBox(height: 16),
             const Text(
-              'Tu as utilisé tous tes visionnages pour cette Card.',
+              'Tu as utilisé tous tes visionnages pour cette Vibe.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 20),

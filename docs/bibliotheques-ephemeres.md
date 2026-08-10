@@ -174,16 +174,42 @@ l'envoi direct et de la publication.
 
 ---
 
-## Points non tranchés, à poser à Jay avant de coder
+## Règles complémentaires — tranchées par Jay le 2026-08-10
 
-1. **Notification à 18h30** — pousse-t-on une notification au reveal ? (Probable,
-   mais non validé.)
-2. **Structure de la bibliothèque souvenir** — les jours s'empilent-ils en
-   sections datées, en albums, ou en un seul flux continu ?
-3. **Bibliothèque vide** — que montre l'écran un jour où personne n'a rien
-   ajouté, et le reveal a-t-il lieu quand même ?
-4. **Quitter un groupe** — que deviennent les vibes déjà révélées d'un membre
-   parti ? Et ses vibes en attente de reveal ?
-5. **Types de vibes** — la bibliothèque accepte-t-elle une Oneshot ou une BeReal,
-   ou seulement une vibe classique ? (L'absence de preview suggère un mode à
-   part entière ; à confirmer.)
+### Notification
+
+**Oui, notification au reveal de 18h30.** Sauf si personne n'a rien ajouté :
+dans ce cas **pas de notification**, et le reveal est un non-événement (il n'y a
+rien à révéler). Aucun écran d'attente à prévoir, aucun message « bibliothèque
+vide aujourd'hui » à pousser.
+
+### Structure de la bibliothèque
+
+**Albums datés.** Un album par journée de collecte, empilés. Pas de flux
+continu.
+
+### Départ d'un membre
+
+**Tout reste.** Le départ d'un membre du groupe n'annule rien : ni ses vibes
+déjà révélées, ni celles en attente de reveal, qui se révèlent normalement à
+18h30.
+
+### Types de vibes acceptés
+
+**Pas de BeReal** dans la bibliothèque. Les autres types sont acceptés — donc
+la vibe classique et la Oneshot (le One of One, lui, est exclu par l'exemption
+décrite plus haut, et n'est de toute façon plus un type sélectionnable).
+
+⚠️ **Tension à trancher avec Jay avant de coder ce cas précis** : la Oneshot est
+définie par « vue unique puis destruction », ce qui contredit frontalement la
+*bibliothèque souvenir*. Lecture par défaut retenue faute d'arbitrage, alignée
+sur le comportement déjà en place dans les chats : **chaque membre peut l'ouvrir
+une fois, puis elle passe en « épuisée » ; l'entrée reste dans l'album.**
+« Souvenir » signifie alors que la trace demeure, pas que l'image reste
+revoyable. À confirmer.
+
+## Points encore ouverts
+
+- La lecture par défaut de la **Oneshot en bibliothèque** ci-dessus.
+- Le **drapeau « éphémère »** (disparition 24 h après le reveal) appliqué à une
+  Oneshot : redondant avec sa mécanique propre. À clarifier en même temps.

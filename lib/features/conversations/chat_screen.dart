@@ -398,7 +398,7 @@ class _ComposerState extends State<_Composer> {
               IconButton(
                 icon: const Icon(Icons.photo_camera_outlined),
                 color: iconColor,
-                tooltip: 'Envoyer une Card',
+                tooltip: 'Envoyer une Vibe',
                 onPressed: widget.onCard,
               ),
             // Bouton 2 — pendant du bouton « apps » d'iMessage. Dessiné à la
@@ -837,7 +837,7 @@ class _CardContainer extends ConsumerWidget {
             : ref.watch(_cardProvider(message.cardId!)).value);
     if (card == null) {
       return Text(
-        '[Card expirée]',
+        '[Vibe expirée]',
         style: TextStyle(fontStyle: FontStyle.italic, color: context.faint),
       );
     }
@@ -856,7 +856,7 @@ class _CardContainer extends ConsumerWidget {
     var blocked = false;
     var unopened = false;
     if (isMine) {
-      stateLabel = 'Ta Card — rouvrir';
+      stateLabel = 'Ta Vibe — rouvrir';
     } else if (delivery == null) {
       stateLabel = 'Appuie pour ouvrir';
       unopened = true;

@@ -6,7 +6,7 @@ import 'package:timezone/timezone.dart' as tz;
 /// Notifications locales, par catégorie (désactivables individuellement
 /// dans les réglages système Android — spec 4.9).
 enum NotifChannel {
-  fomo('fomo', 'Activité du cercle', 'Publications et Cards reçues'),
+  fomo('fomo', 'Activité du cercle', 'Publications et Vibes reçues'),
   waves('waves', 'Waves', 'Croisements physiques manqués'),
   proximity('proximity', 'Proximité', 'Demandes de connexion à proximité'),
   bereal('bereal', 'BeReal', 'C\'est le moment de capturer l\'instant');

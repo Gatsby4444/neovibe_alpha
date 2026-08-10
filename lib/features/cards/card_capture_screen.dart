@@ -2074,7 +2074,7 @@ class _RecapStepState extends State<_RecapStep> {
       appBar: AppBar(
         title: Row(
           children: [
-            const Text('Ta Card '),
+            const Text('Ta Vibe '),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(

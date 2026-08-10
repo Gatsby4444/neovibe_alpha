@@ -61,7 +61,7 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
           StoriesBar(
             provider: friendStoriesProvider,
             emptyHint:
-                'Pas de story pour l\'instant. Publie une Card en story '
+                'Pas de story pour l\'instant. Publie une Vibe en story '
                 'depuis l\'écran d\'envoi.',
           ),
           SizedBox(
@@ -212,7 +212,7 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
                             MessageKind.text => last!.body ?? '',
                             MessageKind.image => '📷 Photo',
                             MessageKind.video => '🎥 Vidéo',
-                            MessageKind.card => '🃏 Card',
+                            MessageKind.card => '🃏 Vibe',
                           },
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,

@@ -37,7 +37,7 @@ class SettingsScreen extends ConsumerWidget {
             ),
             title: const Text('Thème clair'),
             subtitle: const Text(
-              'La caméra et la visionneuse de Cards restent sombres : c\'est '
+              'La caméra et la visionneuse de Vibes restent sombres : c\'est '
               'le contenu qui porte la lumière.',
             ),
             value: ref.watch(lightThemeProvider),
@@ -83,11 +83,11 @@ class SettingsScreen extends ConsumerWidget {
             onChanged: (v) => ref.read(selfieMirrorProvider.notifier).set(v),
           ),
           const Divider(),
-          const _Header('Cards'),
+          const _Header('Vibes'),
           SwitchListTile(
             title: const Text('Inverser le sens de retournement'),
             subtitle: const Text(
-              'Change le sens dans lequel le swipe retourne une Card',
+              'Change le sens dans lequel le swipe retourne une Vibe',
             ),
             value: ref.watch(flipDirectionInvertedProvider),
             onChanged: (v) =>
@@ -107,7 +107,7 @@ class SettingsScreen extends ConsumerWidget {
           ),
           ListTile(
             leading: const Icon(Icons.storage),
-            title: const Text('Stockage des Cards'),
+            title: const Text('Stockage des Vibes'),
             subtitle: const Text('Copies locales, cache et espace alloué'),
             onTap: () => Navigator.of(
               context,
@@ -355,11 +355,11 @@ class _Divulgation extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: Text(
-        'Dans les chats, tes Cards apparaissent comme des containers '
+        'Dans les chats, tes Vibes apparaissent comme des containers '
         'cliquables et se voient un nombre de fois et une durée limités '
         '(que tu choisis). Le container reste 24 h et le replay ne se fait '
         'qu\'avec ton accord. Envoyée à une seule personne sans être publiée, '
-        'une Card devient une One of One : exclusive, à jamais. En '
+        'une Vibe devient une One of One : exclusive, à jamais. En '
         'bibliothèque, la lecture est illimitée.',
         style: Theme.of(
           context,

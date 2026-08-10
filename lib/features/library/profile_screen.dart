@@ -154,7 +154,7 @@ class ProfileScreen extends ConsumerWidget {
                   ? Padding(
                       padding: const EdgeInsets.all(32),
                       child: Text(
-                        'Ta bibliothèque est vide.\nPublie une Card ou ajoute une photo : ici, ça reste.',
+                        'Ta bibliothèque est vide.\nPublie une Vibe ou ajoute une photo : ici, ça reste.',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: context.muted),
                       ),
