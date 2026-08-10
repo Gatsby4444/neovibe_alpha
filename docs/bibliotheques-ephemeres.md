@@ -280,6 +280,70 @@ Deux pièges évités à l'écriture, invisibles pour `flutter analyze` :
 5. **Fuseau de la conversation** — la colonne existe et vaut `Europe/Paris` pour
    toutes les conversations. Rien ne le règle encore à la création.
 
+---
+
+## Retours du test de Jay (2026-08-10, v0.9.43)
+
+### Le flou était pixelisé — CORRIGÉ
+
+Jay : « le flou n'est pas suffisant, il est pixelisé et non fluide ». Constat
+juste, et la cause est une confusion que j'avais laissée dans l'implémentation :
+je faisais porter au **redimensionnement** le rôle du **flou**.
+
+Ce sont deux choses distinctes, et il faut les deux :
+
+| | Rôle | Ce que ça garantit |
+|---|---|---|
+| Réduction à 20 px | **Sécurité** | L'information est détruite. Rien ne la reconstitue. |
+| Flou gaussien | **Habillage** | Une nappe de couleurs continue, au lieu d'un damier. |
+
+**Les appliquer tous les deux ne coûte aucune sécurité** : flouter une image
+déjà détruite n'y réinjecte pas d'information. Le placeholder reste donc à
+20 px, et il est rendu à travers un vrai flou (`MaskedPlaceholder`).
+
+C'est aussi ce qui rend la **dissipation** possible : un flou est un paramètre
+continu, qu'on fait tomber à zéro en fondu — une mosaïque ne se dissipe pas,
+elle saute d'une résolution à l'autre.
+
+`RevealedVibeScreen` enchaîne désormais trois couches sur une seule animation :
+le placeholder flouté (déjà en mémoire, donc aucun temps de chargement), puis
+l'image réelle qui apparaît **sous le même flou** — l'échange est invisible —,
+puis le flou qui tombe à zéro. Le rayon de départ suit la taille d'affichage :
+~7 sur une tuile, 44 en plein écran.
+
+**Réglages à ajuster au test** : `MaskedPlaceholder.sigma` par appel, et
+`_startSigma` dans `RevealedVibeScreen`. La largeur du placeholder
+(`_placeholderWidth`, 20 px) peut monter à ~32 px pour des masses de couleur
+plus riches, au prix d'un peu plus d'indices avant l'heure.
+
+### Le double flux ne s'ouvre pas en mode bibliothèque — NON RÉSOLU
+
+Jay au test : le double live du Oneshot ne s'active pas depuis la capture de
+bibliothèque.
+
+**Rien dans le mode bibliothèque ne touche ce chemin** : le sélecteur de type,
+l'initialisation de `_type`, `_onTypeChanged` et `_applyTypeToCamera` sont
+strictement identiques aux deux modes (vérifié en lecture).
+
+**Hypothèse la plus probable** : `NativeCameraController.dualFailedThisSession`
+est un **statique de classe**, donc valable pour tout le lancement de l'app. Un
+seul échec — y compris un dépassement des 12 s — bascule définitivement en
+séquentiel jusqu'au redémarrage. Le scénario qui colle : ouvrir un Oneshot en
+capture normale, ressortir, puis rouvrir aussitôt depuis la bibliothèque —
+`openGlDual` est alors appelé pendant que la session GL précédente se libère
+encore, d'où un timeout.
+
+Si c'est cela, le défaut **préexiste** aux bibliothèques : elles le rendent
+seulement facile à déclencher, en enchaînant deux captures depuis le même chat.
+
+**À faire avant de corriger** : lire le journal caméra (Réglages → Développeur →
+Journal caméra) juste après un cas raté, et relever la ligne
+`Oneshot : double live GPU refusé — <raison>`. La raison exacte (timeout,
+`GL_UNSUPPORTED`, `DUAL_UNSUPPORTED`) décide du correctif. Ne pas modifier
+`dualFailedThisSession` à l'aveugle : la règle « un réessai par session » est une
+décision de Jay, motivée par le fait qu'un essai raté peut laisser le service
+caméra d'Android hors service.
+
 ## Points encore ouverts
 
 - La lecture par défaut de la **Oneshot en bibliothèque** ci-dessus.

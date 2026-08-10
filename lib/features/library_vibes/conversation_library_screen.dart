@@ -6,6 +6,7 @@ import '../../core/models/library_vibe.dart';
 import '../../core/theme.dart';
 import '../../core/utils/formats.dart';
 import 'library_vibes_repository.dart';
+import 'masked_placeholder.dart';
 import 'revealed_vibe_screen.dart';
 
 /// Bibliothèque éphémère d'une conversation — **albums datés** (consigne Jay
@@ -194,8 +195,13 @@ class _VibeTileState extends ConsumerState<_VibeTile> {
           ? () async {
               await Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) =>
-                      RevealedVibeScreen(vibe: vibe, sealedBytes: _sealed),
+                  builder: (_) => RevealedVibeScreen(
+                    vibe: vibe,
+                    sealedBytes: _sealed,
+                    // Passé pour que l'écran de reveal démarre sur EXACTEMENT
+                    // ce que montrait la tuile : pas de rupture à l'ouverture.
+                    placeholderBytes: _placeholder,
+                  ),
                 ),
               );
               widget.onRefresh();
@@ -214,14 +220,9 @@ class _VibeTileState extends ConsumerState<_VibeTile> {
               color: Theme.of(context).colorScheme.surfaceContainerHighest,
               child: _placeholder == null
                   ? null
-                  : Image.memory(
-                      _placeholder!,
-                      fit: BoxFit.cover,
-                      // L'image fait 20 px de large : sans ce filtrage, elle
-                      // s'afficherait en gros carrés nets plutôt qu'en dégradé
-                      // doux. C'est ce lissage qui donne l'aspect « flouté ».
-                      filterQuality: FilterQuality.medium,
-                    ),
+                  : (revealed
+                        ? Image.memory(_placeholder!, fit: BoxFit.cover)
+                        : MaskedPlaceholder(bytes: _placeholder!, sigma: 7)),
             ),
             if (!revealed)
               const Center(
