@@ -1,8 +1,11 @@
-# Contrôle de la distribution — plan
+# Contrôle de la distribution
 
 > Mot d'ordre donné par Jay le 2026-08-10 : **« comme Apple : contrôle complet
-> de l'écosystème »**. Ce document propose le mécanisme et le séquençage.
-> Rien ici n'est implémenté sauf mention contraire.
+> de l'écosystème »**.
+>
+> État au 2026-08-10 au soir : le **mécanisme est livré** (v0.9.46) ; le plan de
+> séparation des buckets qui l'accompagnait a été **retiré le même jour** — voir
+> la section révisée. Ce qui reste à faire y est marqué comme tel.
 
 ## Ce qu'on peut contrôler, et ce qu'on ne peut pas
 
@@ -22,105 +25,129 @@ qu'il a vu ».
 
 ---
 
-## Le défaut actuel
+## Le défaut, et ce qui l'a corrigé (v0.9.46)
 
-Aujourd'hui, une face de Vibe est servie parce qu'une **permission permanente**
-existe : `can_view_card_file` renvoie vrai, donc le fichier est téléchargeable,
-autant de fois qu'on veut, tant que la condition tient.
+**Avant** : une face était servie parce qu'une **permission permanente** existait
+(`can_view_card_file`). Le compteur de vues vivait ailleurs, dans
+`mark_card_viewed`, une RPC que le client **choisissait** d'appeler. Pire, la
+face reçue était mise en cache local et c'est l'app qui purgeait son propre
+cache à l'épuisement. **La limite n'était pas une garantie serveur : c'était une
+convention client.**
 
-Le compteur de vues, lui, vit ailleurs : dans `mark_card_viewed`, une RPC que le
-client **choisit** d'appeler. Un client modifié saute l'appel et télécharge
-quand même.
+### Le mécanisme retenu : la clé délivrée par le décompte
 
-**La limite de vues n'est donc pas une garantie serveur. C'est une convention
-client.**
+**Une première proposition a été écartée par Jay** : signer une URL courte à
+chaque vue. Elle fonctionnait, mais imposait de **retélécharger la face à chaque
+visionnage** — donc de multiplier l'egress, contre la contrainte de coût posée
+au début du projet. Objection décisive.
 
-## Le mécanisme proposé : l'autorisation à l'acte
-
-Cesser d'accorder un droit de lecture permanent. Servir chaque octet par une
-**autorisation courte, nominative et à usage unique, délivrée par le serveur au
-moment même où il décompte**.
+Le modèle retenu est celui des bibliothèques éphémères, généralisé :
 
 ```
-        AUJOURD'HUI                          PROPOSÉ
-   client → storage (RLS: oui)      client → RPC open_card_face()
-   client → mark_card_viewed()                 │ vérifie le droit
-       (facultatif !)                          │ DÉCRÉMENTE le compteur
-                                               │ signe une URL de 30 s
-                                               ▼
-                                      client → storage (URL signée)
+   1. Les faces sont CHIFFREES au dépôt (AES-256-GCM).
+   2. Les octets voyagent UNE FOIS et restent en cache local, chiffrés.
+   3. À chaque ouverture :
+        client → open_card_media(card_id)
+                   │ vérifie le droit
+                   │ DÉCRÉMENTE le compteur
+                   │ rend la clé          ← une seule transaction
+                   ▼
+              déchiffrement en local, affichage
 ```
-
-Concrètement :
-
-1. **Retirer** la politique `SELECT` du bucket `cards` pour tout le monde sauf
-   le propriétaire. Plus personne ne télécharge directement.
-2. **Ajouter** une RPC `open_card_face(delivery_id, face)` en `SECURITY DEFINER`
-   qui, **dans une seule transaction** : vérifie l'appelant, vérifie et
-   **décrémente** le compteur, puis renvoie une URL signée valable ~30 s.
-3. Le client n'a plus d'autre moyen d'obtenir les octets.
 
 **Pourquoi c'est robuste** : le décompte n'est plus une étape que le client peut
-sauter — **c'est l'acte même qui délivre l'URL**. Pas de décompte, pas d'URL,
-pas d'octets. Un client modifié n'a rien à contourner : il n'y a plus de porte
-dérobée, il n'y a plus qu'une porte.
+sauter — **c'est l'acte qui délivre la clé**. Pas de décompte, pas de clé, pas
+d'image. Il n'y a plus de porte dérobée, il n'y a plus qu'une porte.
 
-**C'est exactement le modèle des bibliothèques éphémères**, où le serveur retient
-la clé. Il a déjà fait ses preuves ici — il s'agit de le généraliser.
+**Pourquoi c'est bon marché** : seule la clé (44 caractères) circule à chaque
+vue. Le nombre de téléchargements de médias ne bouge pas — trois ordres de
+grandeur sous une URL signée par vue.
 
 ### Ce que ça ne fait pas
 
-Une URL signée, une fois émise, reste valable ses 30 secondes et peut servir
-plusieurs fois. On obtient donc **un téléchargement par vue décomptée**, pas
-l'impossibilité de conserver le fichier. C'est la limite honnête énoncée plus
-haut, et elle est acceptable : le quota est respecté.
+Un client modifié qui a **déjà déchiffré une fois** peut conserver le clair.
+Aucun mécanisme ne l'empêche sans retélécharger — précisément le coût refusé.
+La garantie est donc : **aucun accès NOUVEAU sans le serveur**, pas « on ne
+revoit jamais ce qu'on a déchiffré ».
 
-### Deux niveaux, à arbitrer
+### Effets de bord obtenus
 
-| | Niveau 1 — URL signée à l'acte | Niveau 2 — chiffrement systématique |
-|---|---|---|
-| Principe | Le serveur ne signe qu'en décomptant | Tout média chiffré au dépôt ; le serveur délivre la clé en décomptant |
-| Effort | Moyen : 1 RPC + politiques + appels client | Élevé : chiffrement au dépôt, gestion de clés, déchiffrement à l'affichage pour **tous** les médias |
-| Gagne | Le quota devient une garantie serveur | En plus : le stockage lui-même ne contient plus rien de lisible |
-| Contre qui | Client modifié | Client modifié **et** fuite du stockage |
-
-**Recommandation : niveau 1 d'abord.** Il ferme le trou réel pour un coût
-mesuré. Le niveau 2 n'apporte que contre un adversaire ayant accès au stockage
-lui-même — scénario à considérer avant la prod, pas maintenant.
+- Le cache de l'appareil ne contient plus rien de lisible, **même pour ses
+  propres Vibes** (le scellé y est rangé tel quel).
+- Le clair ne vit que dans le répertoire temporaire, le temps de l'écran.
+- Le bucket lui-même devient **peu critique** : les octets y sont inertes. C'est
+  ce constat qui a fait tomber le plan de séparation ci-dessous.
 
 ---
 
-## Séquençage des séparations
+## Séquençage des séparations — RÉVISÉ le 2026-08-10 au soir
 
-Jay a validé le principe : **un objet, un bucket, une règle**.
+⚠️ **Le plan initial de ce document a été retiré le jour même**, après une
+objection de Jay. Il proposait de séparer stories, sauvegardes et bibliothèque
+publique dans des buckets distincts. **Deux erreurs de raisonnement** :
 
-| # | Chantier | Effet | Migration de fichiers ? |
+**1. Ces objets ne sont pas distincts.** Une vibe de bibliothèque éphémère est un
+objet à part — jamais envoyée, sans livraison, sans limite de vues : elle n'a
+jamais eu deux copies. Stories, sauvegardes et bibliothèque publique sont
+**la même Vibe dans plusieurs états de publication**. Les séparer physiquement
+**dupliquerait des fichiers identiques** : une Vibe envoyée en DM, publiée et
+mise en story vivrait en trois exemplaires — sur des faces vidéo, le poste le
+plus lourd de l'app. C'est Jay qui l'a vu.
+
+**2. Le chiffrement a déplacé le problème.** Avant lui, « accéder au fichier »
+signifiait « voir l'image », donc le bucket comptait. Depuis la v0.9.46, **les
+octets sont inertes partout** : ce qui décide est uniquement **qui obtient la
+clé**, et cela se joue dans une seule fonction (`open_card_media`). Le contrôle
+n'est plus une question de **stockage** mais de **politique de clé**.
+
+**Leçon de méthode** : après un changement d'architecture, rejouer les décisions
+qui en dépendaient au lieu de dérouler un plan écrit avant.
+
+### Ce qui reste au programme
+
+| # | Chantier | Verdict | Motif |
 |---|---|---|---|
-| ✅ | **Bibliothèques éphémères** | Fait le 2026-08-10 | — |
-| ✅ | **Avatars privés** | Fait le 2026-08-10 : bucket fermé, URL signées via `can_view_profile` | Non (aucun avatar en base) |
-| 1 | **Autorisation à l'acte** (ci-dessus) | La limite de vues devient réelle | Non |
-| 2 | **Stories** | Bucket `stories` propre. Supprime le contournement des limites de livraison par `is_story_card` | **Oui** |
-| 3 | **Vibes sauvegardées** | Copie dans l'espace de celui qui sauvegarde, au lieu d'un accès perpétuel au fichier d'origine | **Oui** |
-| 4 | **Bibliothèque de profil publique** | Sépare le contenu ouvert du contenu réservé au cercle | **Oui** |
+| ✅ | Bibliothèques éphémères | Fait | Objet réellement distinct, aucune duplication |
+| ✅ | Avatars privés | Fait | Le bucket était public |
+| ✅ | Limite de vues garantie | Fait (v0.9.46) | Le décompte délivre la clé |
+| ❌ | Stories — bucket | **Abandonné** | Duplication coûteuse, gain nul depuis le chiffrement |
+| ❌ | Bibliothèque publique — bucket | **Abandonné** | Idem |
+| ❓ | Stories — règle de vues | **En attente de Jay** | Gratuit, mais change la sémantique |
+| ⏳ | Sauvegardes — copie réelle | **À faire** | Corrige une promesse non tenue |
 
-### La contrainte qui décide du séquençage
+### Stories : une question de produit, pas de sécurité
+
+Publier une Vibe en story **annule** aujourd'hui la limite de vues fixée pour un
+destinataire en DM : `has_unlimited_card_access` est évaluée **avant** la
+livraison. Ce n'est pas un trou — c'est la règle affichée dans l'app — mais
+l'émetteur ne réalise probablement pas qu'en publiant une story il vide de son
+sens le « 2 vues » qu'il a choisi.
+
+Correctif : quelques lignes dans `open_card_media`, **zéro octet dupliqué**.
+Revers : un destinataire ayant épuisé ses vues ne verrait plus une story que
+tout le monde voit. **Question posée à Jay le 2026-08-10, sans réponse.**
+
+### Sauvegardes : le seul cas où dupliquer est le BUT
+
+`saved_cards_card_id_fkey` est en **`ON DELETE CASCADE`** : si l'auteur supprime
+sa Vibe, **tous ceux qui l'ont enregistrée la perdent, sans avertissement**. Or
+« Enregistrer » promet de garder.
+
+Une vraie copie dans l'espace de celui qui sauvegarde règle le problème, et son
+coût est **borné** — seulement les Vibes marquées sauvegardables **et**
+réellement enregistrées (16 sur 64 en base de dev). Ici la duplication n'est pas
+un coût subi : c'est exactement ce qui rend la sauvegarde indépendante de son
+auteur.
+
+### La contrainte qui commande toute migration de fichiers
 
 **Supabase interdit de déplacer ou supprimer des fichiers depuis SQL** (trigger
-`storage.protect_delete` — découvert à nos dépens le 2026-08-10, voir le rapport
-de session). Toute séparation qui déplace des fichiers existants exige donc soit
-une Edge Function, soit un script client, soit… de repartir de zéro sur les
-données de dev.
+`storage.protect_delete`). Toute séparation touchant des fichiers existants exige
+une Edge Function, un script client, ou une purge des données de dev.
 
-D'où l'ordre proposé : **le chantier 1 ne déplace aucun fichier**, il se fait
-tout de suite. Les chantiers 2 à 4 en déplacent, et demandent d'abord une
-décision de Jay :
-
-> Purge-t-on les données de dev existantes, ou écrit-on un outil de migration ?
-
-En base de dev, la purge est presque toujours le bon choix — mais c'est son
-arbitrage.
-
----
+**Décision de Jay (2026-08-10) : on purge.** Non exécutée à ce jour — elle n'a
+d'utilité qu'au moment où on déplace des fichiers, et détruirait entre-temps les
+64 Vibes qui servent à vérifier la compatibilité des Vibes non chiffrées.
 
 ## Points restants sur le contrôle, à ne pas oublier
 
