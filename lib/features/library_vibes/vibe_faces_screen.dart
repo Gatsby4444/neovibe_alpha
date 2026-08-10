@@ -78,7 +78,7 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
     if (!vibe.revealed) return;
 
     // Révélée : on remplace les placeholders par les vraies faces.
-    final isVideo = vibe.card?.frontIsVideo ?? false;
+    final isVideo = vibe.frontIsVideo;
     try {
       final front = await repo.openRevealed(
         vibe,
@@ -90,7 +90,7 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
       return;
     }
     if (vibe.hasBack) {
-      final backIsVideo = vibe.card?.backIsVideo ?? false;
+      final backIsVideo = vibe.backIsVideo;
       try {
         final back = await repo.openRevealed(
           vibe,
@@ -114,7 +114,7 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
         foregroundColor: Colors.white,
         elevation: 0,
         title: Text(
-          revealed ? vibe.card?.type.tag ?? 'Vibe' : 'Visible à 18h30',
+          revealed ? vibe.type.tag : 'Visible à 18h30',
           style: const TextStyle(fontSize: 15),
         ),
       ),

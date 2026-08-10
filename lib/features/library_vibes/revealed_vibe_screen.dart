@@ -92,7 +92,7 @@ class _RevealedVibeScreenState extends ConsumerState<RevealedVibeScreen>
 
   Future<void> _open() async {
     try {
-      final isVideo = widget.vibe.card?.frontIsVideo ?? false;
+      final isVideo = widget.vibe.frontIsVideo;
       final file = await ref
           .read(libraryVibesRepositoryProvider)
           .openRevealed(

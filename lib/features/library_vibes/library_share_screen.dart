@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/card.dart';
 import '../../core/theme.dart';
-import '../cards/cards_repository.dart';
 import 'library_target.dart';
 import 'library_vibes_repository.dart';
 
@@ -58,24 +57,16 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
       _error = null;
     });
     try {
-      // La vibe est d'abord créée comme n'importe quelle Card : c'est le même
-      // objet, seule sa destination change.
-      final card = await ref
-          .read(cardsRepositoryProvider)
-          .create(
-            front: widget.front,
-            back: widget.back,
-            type: widget.type,
-            saveable: _saveableByOthers,
-            frontIsVideo: widget.frontIsVideo,
-            backIsVideo: widget.backIsVideo,
-          );
-
+      // ⚠️ On ne crée PLUS de Card (décision de Jay, 2026-08-10). Une vibe de
+      // bibliothèque n'est pas une Card envoyée : elle n'a ni destinataire, ni
+      // limite de vues, ni limite de durée, et surtout **son original ne doit
+      // exister nulle part en clair**. Passer par `CardsRepository.create`
+      // déposait une copie non chiffrée dans le bucket `cards`.
       await ref
           .read(libraryVibesRepositoryProvider)
           .addVibe(
             conversationId: widget.target.conversationId,
-            cardId: card.id,
+            type: widget.type,
             source: widget.front,
             isVideo: widget.frontIsVideo,
             // Le verso est masqué et scellé comme le recto, sans quoi on ne

@@ -15,7 +15,6 @@ class LibraryVibe {
   const LibraryVibe({
     required this.id,
     required this.conversationId,
-    required this.cardId,
     required this.authorId,
     required this.revealAt,
     required this.saveableByOthers,
@@ -23,14 +22,15 @@ class LibraryVibe {
     required this.placeholderPath,
     required this.sealedPath,
     required this.createdAt,
+    required this.type,
+    required this.frontIsVideo,
+    required this.backIsVideo,
     this.placeholderBackPath,
     this.sealedBackPath,
-    this.card,
   });
 
   final String id;
   final String conversationId;
-  final String cardId;
   final String authorId;
 
   /// Instant du reveal, identique pour tous les membres de la conversation
@@ -57,10 +57,15 @@ class LibraryVibe {
 
   final DateTime createdAt;
 
-  bool get hasBack => placeholderBackPath != null;
+  /// Type, pour l'identité visuelle seulement. Une vibe de bibliothèque
+  /// **n'a ni limite de vues ni limite de durée** (décision de Jay) : les
+  /// mécaniques de la Card envoyée ne s'y appliquent pas.
+  final CardType type;
 
-  /// La vibe elle-même, jointe quand on en a besoin (type, faces vidéo…).
-  final CardModel? card;
+  final bool frontIsVideo;
+  final bool backIsVideo;
+
+  bool get hasBack => placeholderBackPath != null;
 
   /// Le contenu est-il révélé ? C'est une simple comparaison d'horloge, et
   /// c'est aussi la règle appliquée côté serveur — rien ne « bascule » à 18h30.
@@ -81,11 +86,9 @@ class LibraryVibe {
   }
 
   factory LibraryVibe.fromJson(Map<String, dynamic> json) {
-    final rawCard = json['cards'];
     return LibraryVibe(
       id: json['id'] as String,
       conversationId: json['conversation_id'] as String,
-      cardId: json['card_id'] as String,
       authorId: json['author_id'] as String,
       revealAt: DateTime.parse(json['reveal_at'] as String),
       saveableByOthers: json['saveable_by_others'] as bool? ?? false,
@@ -95,9 +98,9 @@ class LibraryVibe {
       placeholderBackPath: json['placeholder_back_path'] as String?,
       sealedBackPath: json['sealed_back_path'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
-      card: rawCard is Map<String, dynamic>
-          ? CardModel.fromJson(rawCard)
-          : null,
+      type: CardType.fromDb(json['card_type'] as String? ?? 'standard'),
+      frontIsVideo: json['front_is_video'] as bool? ?? false,
+      backIsVideo: json['back_is_video'] as bool? ?? false,
     );
   }
 }

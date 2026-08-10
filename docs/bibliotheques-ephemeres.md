@@ -346,6 +346,53 @@ caméra d'Android hors service.
 
 ---
 
+## Deux objets distincts — décision de Jay, 2026-08-10
+
+Une vibe **envoyée** et une vibe **de bibliothèque** ne sont plus le même objet.
+Elles n'obéissent pas aux mêmes règles, elles ne partagent donc plus ni stockage
+ni chemin d'accès.
+
+| | Vibe envoyée en conversation | Vibe de bibliothèque |
+|---|---|---|
+| Bucket | `cards` | `library_vault` |
+| Accès | **Livraison nominative** (une ligne par destinataire) | **Appartenance** à la conversation |
+| Limite de vues | Oui, paramétrable | **Aucune** |
+| Limite de durée | Oui, paramétrable | **Aucune** |
+| Replay | Sur accord de l'auteur | Sans objet |
+| Disparition | Conteneur 24 h | Seulement si le drapeau **éphémère** est posé |
+| Original en clair | Oui, dans `cards` | **Nulle part** |
+
+### Pourquoi cette séparation, et pas un simple garde-fou
+
+Avant, une vibe de bibliothèque était **aussi** une Card : son original partait
+en clair dans `cards`, en plus de la copie scellée. Sa protection reposait donc
+sur l'**absence**, dans `can_view_card_file`, d'une règle du type « les membres
+d'une conversation voient les Vibes de cette conversation ».
+
+Or cette règle **paraît naturelle** — Jay a spontanément supposé qu'elle
+existait déjà. Une protection qui tient à l'absence d'une règle évidente finit
+par tomber : il suffisait qu'on l'ajoute un jour, de bonne foi, pour que le
+reveal cesse de protéger quoi que ce soit. En silence, sans rien casser.
+
+La séparation **supprime** le problème au lieu de le contenir : il n'existe plus
+d'original en clair, donc plus rien à protéger dans `cards`, et
+`can_view_card_file` ne concerne plus du tout les bibliothèques.
+
+`library_vibes` porte désormais elle-même son type et ses drapeaux vidéo : elle
+ne dépend plus d'une ligne `cards`.
+
+### Corollaire sur l'arrivée d'un membre
+
+Décidé dans le même mouvement : **la bibliothèque se partage en entier, la
+conversation non.**
+
+- Un nouveau membre voit **tous les albums depuis le premier jour** — la
+  bibliothèque est la mémoire du groupe.
+- Il ne voit les messages **qu'à partir de son arrivée**
+  (`created_at >= joined_at`, migration `messages_visible_since_joining`). Le
+  TTL de 24 h limitait déjà la fuite en pratique, mais la règle n'était pas
+  écrite et ne devait pas dépendre d'un réglage de purge.
+
 ## Qui fait quoi : client ou serveur ? (question de Jay, 2026-08-10)
 
 Réponse directe : **la réduction est faite par l'app de l'auteur, pas par le
@@ -371,17 +418,12 @@ Un client modifié ne change rien à cela : il demanderait les mêmes fichiers e
 essuierait le même refus. **La barrière est côté serveur**, même si la
 fabrication est côté client.
 
-**Vérifié en base** : l'original non chiffré existe aussi dans le bucket
-`cards`, mais `private.can_view_card_file` ne l'ouvre qu'au propriétaire, à un
-destinataire de livraison, à la bibliothèque de profil, à une sauvegarde ou à
-une story. Une vibe de bibliothèque n'a **aucun** de ces liens pour les autres
-membres — ils ne peuvent donc pas le lire.
-
-⚠️ **Garde-fou à ne jamais oublier** : si quelqu'un ajoute un jour à
-`can_view_card_file` une branche du type « les membres d'une conversation
-voient les cards de cette conversation », **tout le mécanisme de reveal tombe
-en silence**. Cette fonction est un point de fragilité à relire à chaque
-évolution des accès.
+**Depuis la séparation du 2026-08-10, il n'existe plus d'original en clair
+du tout** pour une vibe de bibliothèque : rien n'est déposé dans le bucket
+`cards`, et `can_view_card_file` ne joue plus aucun rôle ici. Le garde-fou
+décrit dans les versions précédentes de ce document est devenu **sans objet** —
+c'était une protection par l'absence, elle a été remplacée par une absence de
+cible.
 
 ### La seule limite réelle
 

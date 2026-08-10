@@ -10,6 +10,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/diagnostics/app_log.dart';
+import '../../core/models/card.dart';
 import '../../core/models/library_vibe.dart';
 import '../../core/supabase_providers.dart';
 import '../cards/card_media_cache.dart';
@@ -55,15 +56,20 @@ class LibraryVibesRepository {
 
   // ─── Écriture ───────────────────────────────────────────────────────────
 
-  /// Ajoute une vibe déjà créée (table `cards`) à la bibliothèque d'une
-  /// conversation.
+  /// Ajoute une vibe à la bibliothèque d'une conversation.
   ///
   /// [source] est le fichier de la face à masquer — la photo, ou la vidéo. Pour
   /// une vidéo, le placeholder est tiré de son image de couverture : flouter la
   /// vidéo elle-même imposerait un ré-encodage, hors de question sur l'appareil.
+  /// ⚠️ Aucune ligne `cards` n'est créée, et **rien ne part dans le bucket
+  /// `cards`** — décision de Jay du 2026-08-10. Une vibe de bibliothèque et une
+  /// vibe envoyée sont deux objets distincts, avec des règles d'accès
+  /// distinctes : l'une par appartenance à la conversation, l'autre par
+  /// livraison nominative. En conséquence, **il n'existe nulle part d'original
+  /// en clair** pour une vibe de bibliothèque.
   Future<LibraryVibe> addVibe({
     required String conversationId,
-    required String cardId,
+    required CardType type,
     required File source,
     required bool isVideo,
     File? back,
@@ -132,10 +138,12 @@ class LibraryVibesRepository {
         params: {
           'p_id': id,
           'p_conversation_id': conversationId,
-          'p_card_id': cardId,
           'p_placeholder_path': placeholderPath,
           'p_sealed_path': sealedPath,
           'p_media_key': base64Encode(await secretKey.extractBytes()),
+          'p_card_type': type.dbValue,
+          'p_front_is_video': isVideo,
+          'p_back_is_video': backIsVideo,
           'p_saveable_by_others': saveableByOthers,
           'p_ephemeral': ephemeral,
           'p_placeholder_back_path': placeholderBackPath,
@@ -160,9 +168,11 @@ class LibraryVibesRepository {
   /// visible dès l'ajout (qui a déposé, combien, quand ça se révèle) ; c'est le
   /// CONTENU qui ne l'est pas.
   Future<List<LibraryVibe>> vibesOf(String conversationId) async {
+    // Plus de jointure sur `cards` : la table porte désormais tout ce dont
+    // l'affichage a besoin.
     final rows = await _client
         .from('library_vibes')
-        .select('*, cards(*)')
+        .select()
         .eq('conversation_id', conversationId)
         .order('reveal_at', ascending: false);
     return rows
