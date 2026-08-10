@@ -13,6 +13,8 @@ import 'package:video_player/video_player.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
+import '../library_vibes/library_share_screen.dart';
+import '../library_vibes/library_target.dart';
 import 'capture_tools.dart';
 import 'card_send_screen.dart';
 import 'face_background.dart';
@@ -35,7 +37,19 @@ class CardCaptureScreen extends ConsumerStatefulWidget {
     this.bereal = false,
     this.directRecipientIds,
     this.directRecipientLabel,
+    this.libraryTarget,
   });
+
+  /// **Bibliothèque éphémère** (chantier Jay 2026-08-10) : la capture est
+  /// ouverte depuis le bouton « plus » d'un chat, pour ALIMENTER la
+  /// bibliothèque partagée de la conversation plutôt qu'envoyer.
+  ///
+  /// Ce mode retire trois choses, à la demande de Jay : **l'aperçu après la
+  /// prise** (l'auteur ne voit pas ce qu'il vient de capturer, c'est le cœur du
+  /// format), la **couleur de fond** et l'**import galerie** — « le but est de
+  /// prendre de vraies photos ou vidéos », et une image de la pellicule
+  /// contredirait cette intention plus encore que le fond uni.
+  final LibraryTarget? libraryTarget;
 
   /// Mode BeReal : fenêtre de capture contrainte de 5 minutes après la
   /// notification (le déclenchement manuel a été retiré du menu).
@@ -1081,7 +1095,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// Import galerie (cards classiques uniquement, consigne Jay) :
   /// choix dans la galerie puis ajustement (recadrage, zoom, rotation,
   /// remplir/adapter sur fond noir) — pas d'outils dessin/texte ensuite.
-  bool get _galleryAllowed => _type == CardType.standard;
+  /// Exclu en bibliothèque éphémère : une photo de la pellicule n'est pas une
+  /// prise du moment (consigne Jay 2026-08-10).
+  bool get _galleryAllowed =>
+      _type == CardType.standard && widget.libraryTarget == null;
 
   Future<void> _importFromGallery() async {
     if (_busy) return;
@@ -1329,6 +1346,19 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       );
     }
     if (_step == 2) {
+      // Bibliothèque éphémère : PAS de récap. L'auteur ne revoit pas sa prise —
+      // il passe directement à l'écran de partage (consigne Jay 2026-08-10).
+      final target = widget.libraryTarget;
+      if (target != null) {
+        return LibraryShareScreen(
+          front: _front!,
+          back: _back,
+          type: _cardType,
+          target: target,
+          frontIsVideo: _frontIsVideo,
+          backIsVideo: _backIsVideo,
+        );
+      }
       return _RecapStep(
         front: _front!,
         back: _back,
@@ -1745,7 +1775,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                       // PRISE AVEC LES CAMÉRAS du téléphone. Une face de
                       // couleur unie n'est pas une prise de vue — elle viderait
                       // le format de sa contrainte.
-                      if (_type != CardType.bereal)
+                      // Exclu aussi en **bibliothèque éphémère** (consigne Jay
+                      // 2026-08-10) : le tableau n'y sert à rien, le but est
+                      // une vraie photo ou vidéo du moment.
+                      if (_type != CardType.bereal &&
+                          widget.libraryTarget == null)
                         _ColorButton(
                           background: _background,
                           onTap: _busy ? null : _useColorFace,

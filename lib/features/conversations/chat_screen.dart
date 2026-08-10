@@ -14,6 +14,8 @@ import '../../core/utils/formats.dart';
 import '../cards/card_capture_screen.dart';
 import '../cards/card_viewer_screen.dart';
 import '../cards/cards_repository.dart';
+import '../library_vibes/conversation_library_screen.dart';
+import '../library_vibes/library_target.dart';
 import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
 import 'video_player_screen.dart';
@@ -141,6 +143,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     );
   }
 
+  /// Bouton « plus » de la barre de saisie : alimente la **bibliothèque
+  /// éphémère** de la conversation au lieu d'envoyer (chantier Jay 2026-08-10).
+  /// La capture bascule alors en mode sans aperçu.
+  void _addToLibrary(Conversation conversation, String me) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CardCaptureScreen(
+          libraryTarget: LibraryTarget(
+            conversationId: conversation.id,
+            label: conversation.displayName(me),
+            isGroup: conversation.type == ConversationType.group,
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openLibrary(Conversation conversation, String me) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ConversationLibraryScreen(
+          conversationId: conversation.id,
+          title: conversation.displayName(me),
+        ),
+      ),
+    );
+  }
+
   String _friendlyError(Object e) {
     final text = e.toString();
     if (text.contains('Limite de 3 messages')) {
@@ -202,6 +232,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ? _GroupTitle(name: conversation?.displayName(me) ?? '…')
             : _PeerTitle(peerId: peer.id),
         actions: [
+          // Bibliothèque éphémère de la conversation (chantier Jay
+          // 2026-08-10). Ajoutée SANS retirer le bouton voisin : le wave et le
+          // détail du groupe restent là où Jay les a placés.
+          // Exclue du canal de proximité, limité au texte côté serveur.
+          if (!isProximity && conversation != null)
+            IconButton(
+              icon: const Icon(Icons.collections_outlined),
+              tooltip: 'Bibliothèque de la conversation',
+              onPressed: () => _openLibrary(conversation, me),
+            ),
           if (isGroup)
             IconButton(
               icon: const Icon(Icons.group_outlined),
@@ -311,6 +351,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             onCard: isProximity || conversation == null
                 ? null
                 : () => _sendCard(conversation, me),
+            onLibrary: isProximity || conversation == null
+                ? null
+                : () => _addToLibrary(conversation, me),
           ),
         ],
       ),
@@ -338,14 +381,19 @@ class _Composer extends StatefulWidget {
     required this.onChanged,
     required this.onSend,
     required this.onCard,
+    required this.onLibrary,
   });
 
   final TextEditingController controller;
   final VoidCallback onChanged;
   final VoidCallback onSend;
 
-  /// Null = canal texte seul (proximité) : le bouton Card disparaît.
+  /// Null = canal texte seul (proximité) : le bouton Vibe disparaît.
   final VoidCallback? onCard;
+
+  /// Ajout à la **bibliothèque éphémère** de la conversation — l'action du
+  /// bouton « plus », restée à définir jusqu'au 2026-08-10.
+  final VoidCallback? onLibrary;
 
   @override
   State<_Composer> createState() => _ComposerState();
@@ -401,20 +449,16 @@ class _ComposerState extends State<_Composer> {
                 tooltip: 'Envoyer une Vibe',
                 onPressed: widget.onCard,
               ),
-            // Bouton 2 — pendant du bouton « apps » d'iMessage. Dessiné à la
-            // demande de Jay ; **son action reste à définir**.
-            IconButton(
-              icon: const Icon(Icons.add_circle_outline),
-              color: iconColor,
-              tooltip: 'Action à définir',
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text(
-                    'Bouton en place — son action reste à définir.',
-                  ),
-                ),
+            // Bouton 2 — pendant du bouton « apps » d'iMessage. Dessiné le
+            // 2026-08-01 sans action ; depuis le 2026-08-10 il alimente la
+            // **bibliothèque éphémère** de la conversation.
+            if (widget.onLibrary != null)
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline),
+                color: iconColor,
+                tooltip: 'Ajouter à la bibliothèque',
+                onPressed: widget.onLibrary,
               ),
-            ),
             const SizedBox(width: 2),
             Expanded(
               child: Container(
@@ -660,6 +704,33 @@ class _MessageBubble extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
+    // Annonce d'ajout à la bibliothèque : ligne système discrète et centrée,
+    // jamais une bulle — elle n'appartient à personne dans le fil, elle
+    // signale un événement (consigne Jay 2026-08-10 : l'annonce est NOMMÉE).
+    if (message.kind == MessageKind.libraryAdd) {
+      final author = ref.watch(profileByIdProvider(message.senderId)).value;
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.lock_clock_outlined, size: 13, color: context.faint),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                '${isMine ? 'Tu as' : '${author?.displayName ?? 'Quelqu\'un'} a'} '
+                'ajouté une vibe — 18h30',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: context.faint,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     final isAttachment = message.kind != MessageKind.text;
     final senderProfile = isMine || !showSenderName
         ? null
@@ -676,6 +747,8 @@ class _MessageBubble extends ConsumerWidget {
       ),
       MessageKind.image || MessageKind.video => _MediaPreview(message: message),
       MessageKind.card => _CardContainer(message: message),
+      // Traité en amont par un retour anticipé — jamais atteint.
+      MessageKind.libraryAdd => const SizedBox.shrink(),
     };
 
     return Padding(

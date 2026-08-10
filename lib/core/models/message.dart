@@ -5,9 +5,36 @@ enum MessageKind {
   text,
   image,
   video,
-  card;
+  card,
 
-  static MessageKind fromDb(String value) => MessageKind.values.byName(value);
+  /// Annonce système : « X a ajouté une vibe » à la bibliothèque éphémère de
+  /// la conversation (2026-08-10). Rendue comme une ligne discrète et centrée,
+  /// pas comme une bulle.
+  libraryAdd;
+
+  /// Le nom Dart et la valeur en base diffèrent (`libraryAdd` / `library_add`),
+  /// d'où la table explicite plutôt que `byName`.
+  ///
+  /// ⚠️ Et surtout : `byName` **lève** sur une valeur inconnue. Un client plus
+  /// ancien que la base aurait vu la conversation entière échouer au premier
+  /// message d'un type qu'il ne connaît pas. Le repli sur [text] garantit qu'un
+  /// APK déjà installé continue d'afficher le fil.
+  static MessageKind fromDb(String value) => switch (value) {
+    'text' => MessageKind.text,
+    'image' => MessageKind.image,
+    'video' => MessageKind.video,
+    'card' => MessageKind.card,
+    'library_add' => MessageKind.libraryAdd,
+    _ => MessageKind.text,
+  };
+
+  String get dbValue => switch (this) {
+    MessageKind.text => 'text',
+    MessageKind.image => 'image',
+    MessageKind.video => 'video',
+    MessageKind.card => 'card',
+    MessageKind.libraryAdd => 'library_add',
+  };
 }
 
 class Message {

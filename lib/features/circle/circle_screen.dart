@@ -213,6 +213,7 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
                             MessageKind.image => '📷 Photo',
                             MessageKind.video => '🎥 Vidéo',
                             MessageKind.card => '🃏 Vibe',
+                            MessageKind.libraryAdd => '🔒 Vibe en attente',
                           },
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,

@@ -237,20 +237,48 @@ le serveur était indisponible à l'heure dite.
 lui-même le placeholder et chiffre. Le serveur ne traite aucune image : il ne
 fait que **retenir la clé**.
 
-### Reste à faire — la couche Dart
+### Fait — la couche Dart (2026-08-10)
 
-1. Génération du placeholder (réduction 16-24 px) et chiffrement à la capture.
-2. Dépôt des deux fichiers dans `library_vault`, puis appel de
-   `add_vibe_to_library`.
-3. Écran de bibliothèque : albums datés, placeholders, préchargement du scellé à
-   reveal − 5 min, récupération de la clé et animation de défloutage.
-4. Mode caméra sans preview (tableau noir et import galerie désactivés) et écran
-   de partage simplifié.
-5. Rendu de l'annonce `library_add` comme ligne système discrète.
-6. **Notification du reveal** : à planifier en local (`NotificationService.schedule`,
-   déjà présent) à partir de `reveal_at`. Rien à faire côté serveur, et la règle
-   « pas de notification si personne n'a rien ajouté » est satisfaite d'office
-   puisque le client ne planifie que s'il connaît au moins une vibe.
+| Fichier | Rôle |
+|---|---|
+| `core/models/library_vibe.dart` | Le modèle, avec `revealed`, `prefetchable` (reveal − 5 min) et `albumDay`. |
+| `features/library_vibes/library_vibes_repository.dart` | Placeholder (réduction 20 px au **décodage**), scellé AES-GCM, dépôt, appel RPC, ouverture et déchiffrement. |
+| `features/library_vibes/library_target.dart` | La conversation visée ; sa présence bascule la capture en mode bibliothèque. |
+| `features/library_vibes/library_share_screen.dart` | Écran de partage simplifié — **aucun aperçu**, trois réglages. |
+| `features/library_vibes/conversation_library_screen.dart` | Albums datés, tuiles en placeholder, préchargement. |
+| `features/library_vibes/revealed_vibe_screen.dart` | Ouverture avec **défloutage animé** sur la vraie image. |
+| `cards/card_capture_screen.dart` | Mode bibliothèque : pas de récap, pas de fond coloré, pas d'import galerie. |
+| `conversations/chat_screen.dart` | Bouton « plus » → ajout ; bouton en haut à droite → bibliothèque ; rendu de l'annonce `library_add`. |
+| `core/models/message.dart` | `MessageKind.libraryAdd` + `fromDb` rendu **tolérant** (voir ci-dessous). |
+| `core/utils/formats.dart` | `albumDayLabel` — « Aujourd'hui », « Hier », « Mardi 12 août ». |
+
+Deux pièges évités à l'écriture, invisibles pour `flutter analyze` :
+
+- **`MessageKind.fromDb` utilisait `byName`, qui LÈVE sur une valeur inconnue.**
+  Un APK antérieur à cette migration aurait vu la conversation entière échouer
+  au premier `library_add`. Remplacé par une table explicite avec repli sur
+  `text`.
+- **`DateFormat(…, 'fr_FR')` exige `initializeDateFormatting`**, qui n'est
+  appelé nulle part dans l'app : l'écran aurait planté à l'ouverture. Les dates
+  sont écrites à la main, comme ailleurs dans le projet.
+
+### Reste à faire
+
+1. **Notification du reveal** — à planifier en local
+   (`NotificationService.schedule`, déjà présent) à partir de `reveal_at`. Rien
+   à faire côté serveur, et la règle « pas de notification si personne n'a rien
+   ajouté » est satisfaite d'office : le client ne planifie que s'il connaît au
+   moins une vibe.
+2. **Vidéo au reveal** — `RevealedVibeScreen` n'affiche aujourd'hui que les
+   images. Le fichier déchiffré est déjà écrit en `.mp4` quand il le faut : il
+   reste à le passer au lecteur existant (`video_player_screen.dart`).
+3. **Sauvegarde au reveal** — le bouton décidé par Jay (garder une vibe révélée
+   dans sa bibliothèque perso, soumis à `saveable_by_others` pour les autres,
+   toujours permis à l'auteur) n'est pas encore posé dans l'écran de reveal.
+4. **Rafraîchissement au passage de 18h30** — l'écran ne se met à jour qu'à sa
+   réouverture. Un minuteur sur `reveal_at` ferait basculer les tuiles en direct.
+5. **Fuseau de la conversation** — la colonne existe et vaut `Europe/Paris` pour
+   toutes les conversations. Rien ne le règle encore à la création.
 
 ## Points encore ouverts
 
