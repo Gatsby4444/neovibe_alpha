@@ -208,6 +208,50 @@ une fois, puis elle passe en « épuisée » ; l'entrée reste dans l'album.**
 « Souvenir » signifie alors que la trace demeure, pas que l'image reste
 revoyable. À confirmer.
 
+---
+
+## État d'implémentation
+
+### Fait — le socle en base (2026-08-10)
+
+Migrations `20260810190000`, `20260810190100`, `20260810190200`, **appliquées et
+vérifiées en base**.
+
+| Objet | Rôle |
+|---|---|
+| `conversations.library_timezone` | Fuseau fixé par conversation — un seul instant de reveal pour tous. |
+| `library_reveal_at(tz, at)` | Calcule le prochain 18h30. Vérifié : 14h → le jour même ; 20h → le lendemain ; 18h30 pile → le lendemain. |
+| `library_vibes` | Les entrées : reveal, drapeaux `saveable_by_others` / `ephemeral`, chemins du placeholder et du scellé. |
+| `library_vibe_keys` | Les clés, **table sans aucune politique** : illisible directement, par quiconque. |
+| `add_vibe_to_library(...)` | Vérifie l'appartenance, refuse le BeReal et la One of One, calcule le reveal, range la clé, poste l'annonce nommée. |
+| `get_library_vibe_key(id)` | **Le seul vrai verrou.** Refuse la clé avant `reveal_at`, y compris à l'auteur. |
+| Bucket `library_vault` | 4 politiques : dépôt sous son propre identifiant, lecture du placeholder immédiate, lecture du scellé **à partir de reveal − 5 min**, suppression par l'auteur. |
+| `purge_expired_library_vibes()` | Greffée sur la tâche `neovibe_purge` existante. Ne supprime que les vibes `ephemeral`, 24 h après leur reveal. |
+
+**Le reveal n'est pas une tâche planifiée.** `reveal_at` étant stocké, la
+révélation est une règle de **lecture** (`now() >= reveal_at`) : rien ne
+« bascule » à 18h30, donc aucun cron à surveiller, aucun rattrapage à prévoir si
+le serveur était indisponible à l'heure dite.
+
+**Pas d'Edge Function.** Le client possède l'original, il fabrique donc
+lui-même le placeholder et chiffre. Le serveur ne traite aucune image : il ne
+fait que **retenir la clé**.
+
+### Reste à faire — la couche Dart
+
+1. Génération du placeholder (réduction 16-24 px) et chiffrement à la capture.
+2. Dépôt des deux fichiers dans `library_vault`, puis appel de
+   `add_vibe_to_library`.
+3. Écran de bibliothèque : albums datés, placeholders, préchargement du scellé à
+   reveal − 5 min, récupération de la clé et animation de défloutage.
+4. Mode caméra sans preview (tableau noir et import galerie désactivés) et écran
+   de partage simplifié.
+5. Rendu de l'annonce `library_add` comme ligne système discrète.
+6. **Notification du reveal** : à planifier en local (`NotificationService.schedule`,
+   déjà présent) à partir de `reveal_at`. Rien à faire côté serveur, et la règle
+   « pas de notification si personne n'a rien ajouté » est satisfaite d'office
+   puisque le client ne planifie que s'il connaît au moins une vibe.
+
 ## Points encore ouverts
 
 - La lecture par défaut de la **Oneshot en bibliothèque** ci-dessus.
