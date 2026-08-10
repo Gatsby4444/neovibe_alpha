@@ -344,6 +344,73 @@ Journal caméra) juste après un cas raté, et relever la ligne
 décision de Jay, motivée par le fait qu'un essai raté peut laisser le service
 caméra d'Android hors service.
 
+---
+
+## Qui fait quoi : client ou serveur ? (question de Jay, 2026-08-10)
+
+Réponse directe : **la réduction est faite par l'app de l'auteur, pas par le
+serveur.** Le flou gaussien aussi. Le serveur ne traite **aucune** image.
+
+| Étape | Où | Pourquoi |
+|---|---|---|
+| Réduction à 20 px | **App de l'auteur** | Il possède déjà l'original — il vient de le capturer. Le faire côté serveur imposerait une Edge Function et un traitement d'image, pour un résultat identique. |
+| Chiffrement AES-GCM | **App de l'auteur** | Même raison. |
+| **Rétention de la clé** | **SERVEUR** | ⚠️ **C'est ici, et uniquement ici, qu'est la sécurité.** |
+| Flou gaussien | **App de chaque lecteur** | Pur habillage, au rendu. |
+
+### Pourquoi la garantie tient quand même
+
+Ce que les **autres membres** peuvent obtenir du serveur avant 18h30 :
+
+- le fichier placeholder — **20 px**, l'information est détruite ;
+- le fichier scellé — **illisible sans la clé** ;
+- la clé — **refusée** par `get_library_vibe_key` tant que `reveal_at` n'est pas
+  atteint.
+
+Un client modifié ne change rien à cela : il demanderait les mêmes fichiers et
+essuierait le même refus. **La barrière est côté serveur**, même si la
+fabrication est côté client.
+
+**Vérifié en base** : l'original non chiffré existe aussi dans le bucket
+`cards`, mais `private.can_view_card_file` ne l'ouvre qu'au propriétaire, à un
+destinataire de livraison, à la bibliothèque de profil, à une sauvegarde ou à
+une story. Une vibe de bibliothèque n'a **aucun** de ces liens pour les autres
+membres — ils ne peuvent donc pas le lire.
+
+⚠️ **Garde-fou à ne jamais oublier** : si quelqu'un ajoute un jour à
+`can_view_card_file` une branche du type « les membres d'une conversation
+voient les cards de cette conversation », **tout le mécanisme de reveal tombe
+en silence**. Cette fonction est un point de fragilité à relire à chaque
+évolution des accès.
+
+### La seule limite réelle
+
+Comme le placeholder est fabriqué par le client, un auteur au client modifié
+pourrait déposer un placeholder qui n'est pas une réduction de son image. Il
+n'exposerait que **son propre contenu**, ce qui est de toute façon sa
+prérogative. Aucun membre ne peut exposer le contenu d'un autre.
+
+**Si tu veux malgré tout la fabrication côté serveur**, il faut une Edge
+Function déclenchée à l'upload, qui produirait le placeholder et scellerait
+l'original. Cela fermerait ce dernier cas, au prix d'un traitement d'image
+serveur et d'un délai entre la prise et la disponibilité de la vibe. Non fait —
+à décider.
+
+## Réglages du masquage
+
+Trois curseurs, tous indépendants :
+
+| Réglage | Où | Effet | Valeur |
+|---|---|---|---|
+| **Pixelisation** | `LibraryVibesRepository._placeholderWidth` | Largeur de la source. **C'est le seul paramètre de sécurité.** Plus bas = moins d'indices. Monter à 32 px donne des masses de couleur plus riches, au prix d'un peu plus d'information avant l'heure. | `20` |
+| **Flou, en grille** | `sigma` passé à `MaskedPlaceholder` dans `conversation_library_screen.dart` | Adoucit le damier sur une tuile. Aucun effet sur la sécurité. | `7` |
+| **Flou, en plein écran** | `_sigma` de `VibeFacesScreen`, `_startSigma` de `RevealedVibeScreen` | Le rayon est en pixels logiques : il doit suivre la taille d'affichage, d'où l'écart avec la grille. | `40` / `44` |
+| **Durée de la dissipation** | `AnimationController` de `RevealedVibeScreen` | Vitesse du dévoilement. | `1600 ms` |
+
+**Le point à retenir** : seule la largeur du placeholder protège. Les `sigma` et
+la durée sont esthétiques et se règlent librement, sans jamais affaiblir le
+mécanisme.
+
 ## Points encore ouverts
 
 - La lecture par défaut de la **Oneshot en bibliothèque** ci-dessus.

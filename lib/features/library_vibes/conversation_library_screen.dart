@@ -7,6 +7,7 @@ import '../../core/theme.dart';
 import '../../core/utils/formats.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
+import 'vibe_faces_screen.dart';
 import 'revealed_vibe_screen.dart';
 
 /// Bibliothèque éphémère d'une conversation — **albums datés** (consigne Jay
@@ -191,26 +192,25 @@ class _VibeTileState extends ConsumerState<_VibeTile> {
     final revealed = vibe.revealed;
 
     return GestureDetector(
-      onTap: revealed
-          ? () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => RevealedVibeScreen(
+      // Ouvrable À TOUT MOMENT depuis le 2026-08-10 (demande de Jay) : avant le
+      // reveal on ouvre les faces floutées, qu'on peut retourner. L'écran de
+      // dissipation ne sert qu'au tout premier dévoilement.
+      onTap: () async {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => revealed
+                ? RevealedVibeScreen(
                     vibe: vibe,
                     sealedBytes: _sealed,
                     // Passé pour que l'écran de reveal démarre sur EXACTEMENT
                     // ce que montrait la tuile : pas de rupture à l'ouverture.
                     placeholderBytes: _placeholder,
-                  ),
-                ),
-              );
-              widget.onRefresh();
-            }
-          : () => ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('Patience — tout se découvre à 18h30.'),
-              ),
-            ),
+                  )
+                : VibeFacesScreen(vibe: vibe, frontPlaceholder: _placeholder),
+          ),
+        );
+        widget.onRefresh();
+      },
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
         child: Stack(

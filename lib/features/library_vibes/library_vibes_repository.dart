@@ -66,6 +66,8 @@ class LibraryVibesRepository {
     required String cardId,
     required File source,
     required bool isVideo,
+    File? back,
+    bool backIsVideo = false,
     bool saveableByOthers = false,
     bool ephemeral = false,
   }) async {
@@ -76,38 +78,46 @@ class LibraryVibesRepository {
 
     final placeholderPath = '$me/$id/placeholder.png';
     final sealedPath = '$me/$id/sealed.bin';
+    final placeholderBackPath = back == null
+        ? null
+        : '$me/$id/placeholder_back.png';
+    final sealedBackPath = back == null ? null : '$me/$id/sealed_back.bin';
 
     AppLog.instance.action(
       'Ajout d\'une vibe à la bibliothèque',
-      'conversation=$conversationId · vidéo=$isVideo · '
+      'conversation=$conversationId · vidéo=$isVideo · verso=${back != null} · '
           'sauvegardable=$saveableByOthers · éphémère=$ephemeral',
     );
 
     final started = DateTime.now();
     final placeholder = await _makePlaceholder(source, isVideo: isVideo);
-    final sealed = await _seal(source);
+    // La MÊME clé chiffre les deux faces : AES-GCM tire un nonce aléatoire à
+    // chaque appel, donc deux fichiers distincts restent sûrs.
+    final secretKey = await _algorithm.newSecretKey();
+    final sealed = await _seal(source, secretKey);
+    final placeholderBack = back == null
+        ? null
+        : await _makePlaceholder(back, isVideo: backIsVideo);
+    final sealedBack = back == null ? null : await _seal(back, secretKey);
+
     AppLog.instance.app(
       'Vibe préparée',
-      'placeholder=${placeholder.length} o · scellé=${sealed.bytes.length} o · '
+      'placeholder=${placeholder.length} o · scellé=${sealed.length} o · '
+          'verso=${sealedBack?.length ?? 0} o · '
           '${DateTime.now().difference(started).inMilliseconds} ms',
     );
 
-    await _client.storage
+    Future<void> put(String path, Uint8List bytes, String type) => _client
+        .storage
         .from(_bucket)
-        .uploadBinary(
-          placeholderPath,
-          placeholder,
-          fileOptions: const FileOptions(contentType: 'image/png'),
-        );
-    await _client.storage
-        .from(_bucket)
-        .uploadBinary(
-          sealedPath,
-          sealed.bytes,
-          fileOptions: const FileOptions(
-            contentType: 'application/octet-stream',
-          ),
-        );
+        .uploadBinary(path, bytes, fileOptions: FileOptions(contentType: type));
+
+    await put(placeholderPath, placeholder, 'image/png');
+    await put(sealedPath, sealed, 'application/octet-stream');
+    if (back != null) {
+      await put(placeholderBackPath!, placeholderBack!, 'image/png');
+      await put(sealedBackPath!, sealedBack!, 'application/octet-stream');
+    }
 
     AppLog.instance.server('Fichiers déposés dans library_vault', 'vibe=$id');
 
@@ -125,9 +135,11 @@ class LibraryVibesRepository {
           'p_card_id': cardId,
           'p_placeholder_path': placeholderPath,
           'p_sealed_path': sealedPath,
-          'p_media_key': sealed.keyBase64,
+          'p_media_key': base64Encode(await secretKey.extractBytes()),
           'p_saveable_by_others': saveableByOthers,
           'p_ephemeral': ephemeral,
+          'p_placeholder_back_path': placeholderBackPath,
+          'p_sealed_back_path': sealedBackPath,
         },
       );
       final vibe = LibraryVibe.fromJson(Map<String, dynamic>.from(row as Map));
@@ -158,9 +170,12 @@ class LibraryVibesRepository {
         .toList();
   }
 
-  /// Le placeholder, lisible à tout moment.
-  Future<Uint8List> placeholderBytes(LibraryVibe vibe) =>
-      _client.storage.from(_bucket).download(vibe.placeholderPath);
+  /// Le placeholder d'une face, lisible à tout moment.
+  Future<Uint8List> placeholderBytes(LibraryVibe vibe, {bool back = false}) {
+    final path = back ? vibe.placeholderBackPath : vibe.placeholderPath;
+    if (path == null) throw StateError('Cette vibe n\'a pas de verso');
+    return _client.storage.from(_bucket).download(path);
+  }
 
   /// Précharge les octets scellés. À appeler dès [LibraryVibe.prefetchable] :
   /// ils arrivent avant l'heure pour que le reveal ne soit pas un temps de
@@ -168,8 +183,11 @@ class LibraryVibesRepository {
   ///
   /// Échoue tant que le serveur n'ouvre pas (politique de storage) : c'est
   /// voulu, l'appelant réessaiera.
-  Future<Uint8List> prefetchSealed(LibraryVibe vibe) =>
-      _client.storage.from(_bucket).download(vibe.sealedPath);
+  Future<Uint8List> prefetchSealed(LibraryVibe vibe, {bool back = false}) {
+    final path = back ? vibe.sealedBackPath : vibe.sealedPath;
+    if (path == null) throw StateError('Cette vibe n\'a pas de verso');
+    return _client.storage.from(_bucket).download(path);
+  }
 
   /// Ouvre une vibe révélée : réclame la clé, déchiffre, écrit le résultat dans
   /// un fichier temporaire utilisable par un lecteur d'image ou de vidéo.
@@ -183,8 +201,12 @@ class LibraryVibesRepository {
     LibraryVibe vibe, {
     Uint8List? sealedBytes,
     required String extension,
+    bool back = false,
   }) async {
-    AppLog.instance.action('Ouverture d\'une vibe révélée', 'vibe=${vibe.id}');
+    AppLog.instance.action(
+      'Ouverture d\'une vibe révélée',
+      'vibe=${vibe.id} · face=${back ? 'verso' : 'recto'}',
+    );
     try {
       final key = await _client.rpc(
         'get_library_vibe_key',
@@ -195,11 +217,12 @@ class LibraryVibesRepository {
         'vibe=${vibe.id} · préchargé=${sealedBytes != null}',
       );
 
-      final bytes = sealedBytes ?? await prefetchSealed(vibe);
+      final bytes = sealedBytes ?? await prefetchSealed(vibe, back: back);
       final clear = await _unseal(bytes, key as String);
 
       final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/vibe_${vibe.id}.$extension');
+      final suffix = back ? '_back' : '';
+      final file = File('${dir.path}/vibe_${vibe.id}$suffix.$extension');
       await file.writeAsBytes(clear, flush: true);
       AppLog.instance.app('Vibe déchiffrée', '${clear.length} o · $extension');
       return file;
@@ -272,20 +295,17 @@ class LibraryVibesRepository {
 
   // ─── Scellé ─────────────────────────────────────────────────────────────
 
-  /// Chiffre le média avec une clé AES-256-GCM à usage unique.
+  /// Chiffre un média en AES-256-GCM.
   ///
   /// Le nonce et le MAC voyagent avec le chiffré (`concatenation`) : c'est la
-  /// clé, et elle seule, qui est retenue par le serveur.
-  Future<({Uint8List bytes, String keyBase64})> _seal(File source) async {
-    final secretKey = await _algorithm.newSecretKey();
+  /// clé, et elle seule, qui est retenue par le serveur. La clé est fournie par
+  /// l'appelant pour que les deux faces d'une même vibe la partagent.
+  Future<Uint8List> _seal(File source, SecretKey secretKey) async {
     final box = await _algorithm.encrypt(
       await source.readAsBytes(),
       secretKey: secretKey,
     );
-    return (
-      bytes: Uint8List.fromList(box.concatenation()),
-      keyBase64: base64Encode(await secretKey.extractBytes()),
-    );
+    return Uint8List.fromList(box.concatenation());
   }
 
   Future<List<int>> _unseal(Uint8List sealed, String keyBase64) async {

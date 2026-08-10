@@ -23,6 +23,8 @@ class LibraryVibe {
     required this.placeholderPath,
     required this.sealedPath,
     required this.createdAt,
+    this.placeholderBackPath,
+    this.sealedBackPath,
     this.card,
   });
 
@@ -46,7 +48,16 @@ class LibraryVibe {
 
   final String placeholderPath;
   final String sealedPath;
+
+  /// Verso — null pour une vibe à face unique. Masqué et scellé comme le recto,
+  /// pour qu'on puisse retourner la vibe **même floutée** (demande de Jay,
+  /// 2026-08-10).
+  final String? placeholderBackPath;
+  final String? sealedBackPath;
+
   final DateTime createdAt;
+
+  bool get hasBack => placeholderBackPath != null;
 
   /// La vibe elle-même, jointe quand on en a besoin (type, faces vidéo…).
   final CardModel? card;
@@ -81,6 +92,8 @@ class LibraryVibe {
       ephemeral: json['ephemeral'] as bool? ?? false,
       placeholderPath: json['placeholder_path'] as String,
       sealedPath: json['sealed_path'] as String,
+      placeholderBackPath: json['placeholder_back_path'] as String?,
+      sealedBackPath: json['sealed_back_path'] as String?,
       createdAt: DateTime.parse(json['created_at'] as String),
       card: rawCard is Map<String, dynamic>
           ? CardModel.fromJson(rawCard)

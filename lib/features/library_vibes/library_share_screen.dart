@@ -78,6 +78,10 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
             cardId: card.id,
             source: widget.front,
             isVideo: widget.frontIsVideo,
+            // Le verso est masqué et scellé comme le recto, sans quoi on ne
+            // pourrait pas retourner la vibe avant le reveal.
+            back: widget.back,
+            backIsVideo: widget.backIsVideo,
             saveableByOthers: _saveableByOthers,
             ephemeral: _ephemeral,
           );

@@ -177,6 +177,41 @@ class AppLog {
     }
   }
 
+  /// Encadre un appel serveur : journalise le départ, la durée, et l'échec le
+  /// cas échéant — puis relance l'exception, sans rien changer au flot.
+  ///
+  /// Écrit après le test de la v0.9.44 : l'erreur RLS de création de groupe
+  /// n'apparaissait **pas** dans le journal. Motif — `AppLogProviderObserver`
+  /// ne voit que les échecs de PROVIDERS, or cet appel partait d'un bouton, via
+  /// un repository, dans un `try/catch` qui affichait un message et avalait
+  /// l'exception. Le point d'observation manquait.
+  ///
+  /// Règle qui en découle : **instrumenter la couche REPOSITORY**, où vivent
+  /// tous les appels serveur, plutôt que d'espérer que tout remonte par les
+  /// providers.
+  Future<T> trace<T>(
+    String label,
+    Future<T> Function() run, {
+    String? details,
+  }) async {
+    final started = DateTime.now();
+    server('→ $label', details);
+    try {
+      final result = await run();
+      server(
+        '✓ $label',
+        '${DateTime.now().difference(started).inMilliseconds} ms',
+      );
+      return result;
+    } catch (e) {
+      error(
+        '✗ $label',
+        '${DateTime.now().difference(started).inMilliseconds} ms · $e',
+      );
+      rethrow;
+    }
+  }
+
   /// Marque de début de session, pour repérer les redémarrages dans une trace
   /// longue — un journal couvre plusieurs lancements.
   ///

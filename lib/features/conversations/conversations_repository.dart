@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/diagnostics/app_log.dart';
 import '../../core/models/message.dart';
 import '../../core/supabase_providers.dart';
 
@@ -108,31 +109,30 @@ class ConversationsRepository {
     return id as String;
   }
 
-  Future<String> createGroup(String title, List<String> memberIds) async {
-    final me = _client.auth.currentUser!.id;
-    final conv = await _client
-        .from('conversations')
-        .insert({
-          'conversation_type': 'group',
-          'title': title,
-          'created_by': me,
-        })
-        .select()
-        .single();
-    final convId = conv['id'] as String;
-    // Le créateur d'abord (policy bootstrap), puis ses connexions
-    await _client.from('conversation_members').insert({
-      'conversation_id': convId,
-      'user_id': me,
-    });
-    for (final memberId in memberIds) {
-      await _client.from('conversation_members').insert({
-        'conversation_id': convId,
-        'user_id': memberId,
-      });
-    }
-    return convId;
-  }
+  /// Crée un groupe.
+  ///
+  /// Passe par une RPC depuis le 2026-08-10, comme les conversations directes
+  /// et de proximité juste au-dessus — les groupes étaient les seuls à faire
+  /// des insertions brutes, et c'est ce qui les cassait.
+  ///
+  /// **Le bug** (erreur 42501 relevée par Jay) : l'ancien code faisait
+  /// `.insert({...}).select().single()`. Le `.select()` ajoute un `RETURNING`,
+  /// et PostgreSQL applique alors la politique **SELECT** à la ligne renvoyée.
+  /// Or celle-ci exige d'être membre de la conversation — ce que le créateur ne
+  /// devient qu'à l'insertion SUIVANTE. La ligne était créée puis refusée au
+  /// retour, et le message d'erreur accusait à tort la politique d'insertion.
+  ///
+  /// La RPC rend en prime la création **atomique** : conversation, créateur et
+  /// membres en une transaction, au lieu de trois allers-retours dont les
+  /// derniers pouvaient échouer en laissant un groupe à moitié formé.
+  Future<String> createGroup(String title, List<String> memberIds) =>
+      AppLog.instance.trace('create_group_conversation', () async {
+        final id = await _client.rpc(
+          'create_group_conversation',
+          params: {'p_title': title, 'p_member_ids': memberIds},
+        );
+        return id as String;
+      }, details: '${memberIds.length} membre(s)');
 
   Future<void> renameGroup(String conversationId, String title) => _client
       .from('conversations')
