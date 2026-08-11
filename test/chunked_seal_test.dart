@@ -85,7 +85,8 @@ void main() {
     expect(
       () => ChunkedSeal.readAll(sealed, other),
       throwsA(anything),
-      reason: 'AES-GCM authentifie : une mauvaise clé doit lever, pas rendre '
+      reason:
+          'AES-GCM authentifie : une mauvaise clé doit lever, pas rendre '
           'des octets faux',
     );
   });
@@ -107,8 +108,11 @@ void main() {
     );
   });
 
-  test('un fichier d\'un autre format n\'est pas pris pour du chunked', () async {
-    final f = await makeFile('foreign', 200);
-    expect(await ChunkedSeal.isChunked(f), isFalse);
-  });
+  test(
+    'un fichier d\'un autre format n\'est pas pris pour du chunked',
+    () async {
+      final f = await makeFile('foreign', 200);
+      expect(await ChunkedSeal.isChunked(f), isFalse);
+    },
+  );
 }
