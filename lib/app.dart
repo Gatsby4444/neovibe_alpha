@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/content/saved_store.dart';
 import 'core/diagnostics/app_log_observers.dart';
 import 'core/prefs.dart';
 import 'core/supabase_providers.dart';
@@ -38,11 +39,38 @@ class NeoVibeApp extends ConsumerWidget {
 
 /// Aiguillage racine : non connecté → auth ; connecté sans profil →
 /// onboarding ; sinon → app.
-class RootGate extends ConsumerWidget {
+class RootGate extends ConsumerStatefulWidget {
   const RootGate({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<RootGate> createState() => _RootGateState();
+}
+
+class _RootGateState extends ConsumerState<RootGate> {
+  @override
+  void initState() {
+    super.initState();
+    // Balayage des révocations, une fois par lancement.
+    //
+    // C'est le SEUL point de contact entre les Enregistrements et le serveur :
+    // ils sont locaux et en clair, donc lisibles hors ligne. On demande
+    // simplement « lesquels de ceux-ci ont été révoqués ? » et on supprime
+    // ceux-là.
+    //
+    // ⚠️ Révocation COOPÉRATIVE, faille connue et acceptée par Jay le
+    // 2026-08-11 : un client modifié peut ignorer cette étape. On ne promet
+    // donc jamais « révocation garantie » sur une sauvegarde — seulement sur
+    // un contenu que le serveur sert encore.
+    //
+    // Différé après la première image : rien ici ne doit retarder l'affichage.
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final removed = await ref.read(savedStoreProvider).purgeRevoked();
+      if (removed > 0) ref.invalidate(savedItemsProvider);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
     ref.watch(authStateProvider);
     final user = ref.watch(currentUserProvider);
     if (user == null) return const AuthScreen();

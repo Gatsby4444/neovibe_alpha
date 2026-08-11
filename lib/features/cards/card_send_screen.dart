@@ -5,6 +5,7 @@ import '../../core/widgets/avatar.dart';
 import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/content/saved_store.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
@@ -239,15 +240,29 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
       // Un contexte, un chemin. Aucune branche ne peut en déclencher une
       // autre : c'est ce qui garantit qu'un média n'existe que dans un seul
       // bucket, avec un seul cycle de vie.
-      switch (_destination) {
-        case _Destination.story:
-          await _publishStory();
-        case _Destination.publication:
-          await _publishToLibrary();
-        case _Destination.circle:
-          await _sendToCircle();
-        case _Destination.conversationLibrary:
-          await _addToConversationLibrary();
+      final id = switch (_destination) {
+        _Destination.story => await _publishStory(),
+        _Destination.publication => await _publishToLibrary(),
+        _Destination.circle => await _sendToCircle(),
+        _Destination.conversationLibrary => await _addToConversationLibrary(),
+      };
+
+      // « Enregistrer pour moi » : une copie EN CLAIR dans les
+      // Enregistrements. Les fichiers sont déjà là — ils viennent d'être
+      // capturés — donc aucun téléchargement ni déchiffrement.
+      if (_saveForMe && id != null) {
+        await ref
+            .read(savedStoreProvider)
+            .add(
+              contentId: id,
+              cardType: _effectiveType,
+              front: widget.front,
+              back: widget.back,
+              frontIsVideo: widget.frontIsVideo,
+              backIsVideo: widget.backIsVideo,
+              mine: true,
+            );
+        ref.invalidate(savedItemsProvider);
       }
       if (mounted) {
         if (_direct) {
@@ -286,8 +301,8 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
   /// bucket `stories`, avec son propre Content ID et sa propre règle d'accès.
   /// Ni limite de vues, ni durée de lecture : elles n'ont pas de sens ici, et
   /// c'est précisément ce que la séparation des formats a permis de supprimer.
-  Future<void> _publishStory() async {
-    await ref
+  Future<String> _publishStory() async {
+    return ref
         .read(storiesRepositoryProvider)
         .publish(
           front: widget.front,
@@ -296,6 +311,7 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
           frontIsVideo: widget.frontIsVideo,
           backIsVideo: widget.backIsVideo,
           shareable: _shareable,
+          saveable: _saveable,
         );
   }
 
@@ -307,8 +323,8 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
   /// d'accès. Ni limite de vues ni durée de lecture — elles n'ont pas de sens
   /// ici, et c'est la séparation des formats qui a permis de les supprimer au
   /// lieu de les neutraliser au cas par cas.
-  Future<void> _publishToLibrary() async {
-    await ref
+  Future<String> _publishToLibrary() async {
+    return ref
         .read(libraryRepositoryProvider)
         .publish(
           front: widget.front,
@@ -318,12 +334,13 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
           backIsVideo: widget.backIsVideo,
           isPublic: _publishPublic,
           shareable: _shareable,
+          saveable: _saveable,
         );
   }
 
   /// Partage direct dans le cercle (DM et groupes) : le seul contexte où les
   /// limites de vues et de durée s'appliquent, et le seul jamais repartageable.
-  Future<void> _sendToCircle() async {
+  Future<String> _sendToCircle() async {
     final repo = ref.read(cardsRepositoryProvider);
     final type = _effectiveType;
     final card = await repo.create(
@@ -345,12 +362,14 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
       scrubbable: _hasVideo && _scrubbable,
     );
     await repo.send(card, _selected.toList());
-    if (_saveForMe) await repo.saveCard(card.id);
+    return card.id;
   }
 
   /// Bibliothèque éphémère de conversation — quatrième contexte, déjà autonome
   /// depuis le 2026-08-10 (bucket `library_vault`, aucun original en clair).
-  Future<void> _addToConversationLibrary() async {
+  Future<String?> _addToConversationLibrary() async {
+    // Aucune copie locale possible : le principe même de la bibliothèque
+    // éphémère est que l'auteur ne revoit pas son ajout avant le reveal.
     await ref
         .read(libraryVibesRepositoryProvider)
         .addVibe(
@@ -362,6 +381,7 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
           backIsVideo: widget.backIsVideo,
           saveableByOthers: _saveable,
         );
+    return null;
   }
 
   /// Cette destination est-elle ouverte à CETTE capture ?
@@ -599,40 +619,39 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
           // Une One of One n'est jamais enregistrable par son destinataire :
           // l'interrupteur reste visible mais inerte, pour que la règle se
           // lise au lieu de disparaître sans explication.
-          if (_destination != _Destination.story)
-            SwitchListTile(
-              title: const Text('Sauvegardable'),
-              subtitle: Text(
-                type.canBeSaveable
-                    ? 'Les destinataires pourront la garder dans leurs Enregistrements'
-                    : 'Impossible sur une One of One — elle n\'existe que pour '
-                          'son destinataire, le temps de sa vue',
-              ),
-              value: _saveable && type.canBeSaveable,
-              onChanged: type.canBeSaveable
-                  ? (v) => setState(() => _saveable = v)
-                  : null,
+          SwitchListTile(
+            title: const Text('Sauvegardable'),
+            subtitle: Text(
+              type.canBeSaveable
+                  ? 'Les destinataires pourront la garder dans leurs Enregistrements'
+                  : 'Impossible sur une One of One — elle n\'existe que pour '
+                        'son destinataire, le temps de sa vue',
             ),
+            value: _saveable && type.canBeSaveable,
+            onChanged: type.canBeSaveable
+                ? (v) => setState(() => _saveable = v)
+                : null,
+          ),
 
           // Ouvert AUSSI à la One of One depuis le 2026-08-10 (demande de
           // Jay) : l'exclusivité vaut pour le destinataire, elle n'empêche pas
           // l'auteur de garder sa propre card.
           //
-          // Absent de la story et de la bibliothèque de conversation : les
-          // Enregistrements référencent la table `cards`, et ces deux
-          // contextes n'en créent aucune. La sauvegarde locale de l'étape 5
-          // lèvera cette restriction.
-          // Absent de la publication : publier dans MA bibliothèque, c'est
-          // déjà la garder — l'option ferait doublon avec elle-même.
-          if (_destination == _Destination.circle)
-            SwitchListTile(
-              title: const Text('Enregistrer pour moi'),
-              subtitle: const Text(
-                'Copie privée dans mes Enregistrements, visible de moi seul',
-              ),
-              value: _saveForMe,
-              onChanged: (v) => setState(() => _saveForMe = v),
+          //
+          // Depuis l'étape 5, ce n'est plus une ligne serveur mais une **copie
+          // locale**. Elle garde tout son sens malgré le cache de mes propres
+          // contenus : ce cache a un QUOTA et évince les plus anciens, un
+          // Enregistrement non. C'est la différence entre « gardé tant qu'il y
+          // a la place » et « gardé ».
+          SwitchListTile(
+            title: const Text('Enregistrer pour moi'),
+            subtitle: const Text(
+              'Copie sur cet appareil, définitive — à l\'abri du quota qui '
+              'évince mes contenus les plus anciens',
             ),
+            value: _saveForMe,
+            onChanged: (v) => setState(() => _saveForMe = v),
+          ),
 
           const Divider(),
           // Les destinataires ne se choisissent que pour le cercle : une story

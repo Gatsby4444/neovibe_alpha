@@ -1,18 +1,28 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
-import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/models/card.dart';
-import '../../core/supabase_providers.dart';
-import 'card_viewer_screen.dart';
-import 'cards_repository.dart';
-import 'face_thumb.dart';
+import '../../core/content/saved_store.dart';
+import '../../core/theme.dart';
+import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/vibe_face.dart';
+import '../library/mini_card.dart' show kMiniCardRatio;
+import 'flippable_card.dart';
 
-enum _SavedFilter { mine, friends, others }
+enum _SavedFilter { mine, others }
 
 /// Enregistrements : la bibliothèque PRIVÉE, visible de moi seul.
-/// Tri : mes créations / cards sauvegardées de mes amis / les autres
-/// (onglet d'anticipation, vide pour l'instant — consigne Jay).
+///
+/// ⚠️ Entièrement **locale** depuis le 2026-08-11. Cet écran ne fait plus
+/// aucun appel serveur : les fichiers sont sur l'appareil, en clair, et
+/// s'affichent hors ligne. C'est le volet 3 de Jay — « plus besoin d'appeler
+/// le serveur pour les afficher, pas d'espace serveur dédié ».
+///
+/// Ce que ça corrige : `saved_cards` était en `ON DELETE CASCADE`. Si l'auteur
+/// supprimait sa Vibe, tous ceux qui l'avaient enregistrée la perdaient — alors
+/// qu'« Enregistrer » promet de garder. Désormais une sauvegarde ne dépend que
+/// de son propriétaire ; seule la **modération** peut la retirer.
 class SavedItemsScreen extends ConsumerStatefulWidget {
   const SavedItemsScreen({super.key});
 
@@ -25,8 +35,7 @@ class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final me = ref.watch(currentUserIdProvider)!;
-    final saved = ref.watch(savedCardsProvider);
+    final saved = ref.watch(savedItemsProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Enregistrements')),
@@ -42,14 +51,9 @@ class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
                   icon: Icon(Icons.person, size: 16),
                 ),
                 ButtonSegment(
-                  value: _SavedFilter.friends,
-                  label: Text('Amis'),
-                  icon: Icon(Icons.people, size: 16),
-                ),
-                ButtonSegment(
                   value: _SavedFilter.others,
-                  label: Text('Autres'),
-                  icon: Icon(Icons.public, size: 16),
+                  label: Text('Les autres'),
+                  icon: Icon(Icons.people, size: 16),
                 ),
               ],
               selected: {_filter},
@@ -57,107 +61,48 @@ class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
             ),
           ),
           Expanded(
-            child: RefreshIndicator(
-              onRefresh: () async => ref.invalidate(savedCardsProvider),
-              child: saved.when(
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => ListView(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text('Erreur : $e'),
-                    ),
-                  ],
+            child: saved.when(
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (e, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text('Erreur : $e'),
                 ),
-                data: (list) {
-                  final filtered = switch (_filter) {
-                    _SavedFilter.mine =>
-                      list.where((s) => s.card!.ownerId == me).toList(),
-                    _SavedFilter.friends =>
-                      list.where((s) => s.card!.ownerId != me).toList(),
-                    // Anticipation : contenus de non-amis (événements futurs)
-                    _SavedFilter.others => <SavedCard>[],
-                  };
-                  if (filtered.isEmpty) {
-                    return ListView(
-                      children: [
-                        const SizedBox(height: 100),
-                        Icon(
-                          Icons.bookmark_border,
-                          size: 56,
-                          color: context.ghost,
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text(
-                            switch (_filter) {
-                              _SavedFilter.mine =>
-                                'Aucune création enregistrée.\nDepuis l\'envoi d\'une Vibe, active « Enregistrer pour moi ».',
-                              _SavedFilter.friends =>
-                                'Aucune card d\'ami enregistrée.\nLes cards « sauvegardables » reçues peuvent être gardées ici.',
-                              _SavedFilter.others =>
-                                'Rien ici pour l\'instant — cet espace servira plus tard.',
-                            },
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: context.muted),
-                          ),
-                        ),
-                      ],
-                    );
-                  }
-                  return GridView.builder(
-                    padding: const EdgeInsets.all(8),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          mainAxisSpacing: 6,
-                          crossAxisSpacing: 6,
-                        ),
-                    itemCount: filtered.length,
-                    itemBuilder: (context, index) {
-                      final savedCard = filtered[index];
-                      final card = savedCard.card!;
-                      return GestureDetector(
-                        // Lecture illimitée dans les Enregistrements
-                        onTap: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                CardViewerScreen(card: card, fromLibrary: true),
-                          ),
-                        ),
-                        onLongPress: () async {
-                          final remove = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: const Text(
-                                'Retirer des Enregistrements ?',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: const Text('Annuler'),
-                                ),
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  child: const Text('Retirer'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (remove == true) {
-                            await ref
-                                .read(cardsRepositoryProvider)
-                                .unsaveCard(card.id);
-                            ref.invalidate(savedCardsProvider);
-                          }
-                        },
-                        child: _SavedThumb(card: card),
-                      );
-                    },
-                  );
-                },
               ),
+              data: (all) {
+                final list = all
+                    .where((i) => i.mine == (_filter == _SavedFilter.mine))
+                    .toList();
+                if (list.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(32),
+                      child: Text(
+                        _filter == _SavedFilter.mine
+                            ? 'Rien d\'enregistré.\nCoche « Enregistrer pour '
+                                  'moi » à l\'envoi pour garder une Vibe ici, '
+                                  'définitivement.'
+                            : 'Rien d\'enregistré.\nOuvre une Vibe, une story '
+                                  'ou une publication que son auteur a rendue '
+                                  'sauvegardable, puis touche le signet.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: context.muted),
+                      ),
+                    ),
+                  );
+                }
+                return GridView.builder(
+                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 80),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    mainAxisSpacing: 10,
+                    crossAxisSpacing: 10,
+                    childAspectRatio: kMiniCardRatio,
+                  ),
+                  itemCount: list.length,
+                  itemBuilder: (context, i) => _SavedTile(item: list[i]),
+                );
+              },
             ),
           ),
         ],
@@ -166,54 +111,121 @@ class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
   }
 }
 
-class _SavedThumb extends ConsumerWidget {
-  const _SavedThumb({required this.card});
-  final CardModel card;
+/// Vignette d'un Enregistrement : le fichier est en clair sur l'appareil,
+/// donc rien à déchiffrer ni à télécharger.
+class _SavedTile extends ConsumerWidget {
+  const _SavedTile({required this.item});
+  final SavedItem item;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final url = ref.watch(_savedUrlProvider(card.frontPath));
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: card.type.color, width: 2),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(8),
-            child: FaceThumb(path: card.frontPath, url: url.value),
-          ),
-          Positioned(
-            bottom: 4,
-            left: 4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-              decoration: BoxDecoration(
-                color: Colors.black87,
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                card.type.tag,
-                style: TextStyle(
-                  color: card.type.color,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+    return GestureDetector(
+      onTap: () => Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => _SavedViewerScreen(item: item))),
+      onLongPress: () => _confirmRemove(context, ref),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border.all(color: item.cardType.color, width: 1.5),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: item.frontIsVideo
+              ? const ColoredBox(
+                  color: Color(0xFF1C1C24),
+                  child: Center(
+                    child: Icon(
+                      Icons.videocam,
+                      color: Colors.white38,
+                      size: 26,
+                    ),
+                  ),
+                )
+              : Image.file(
+                  File(item.frontPath),
+                  fit: BoxFit.cover,
+                  cacheWidth: 400,
+                  errorBuilder: (_, _, _) => const ColoredBox(
+                    color: Color(0xFF1C1C24),
+                    child: Center(
+                      child: Icon(
+                        Icons.broken_image,
+                        color: Colors.white38,
+                        size: 26,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmRemove(BuildContext context, WidgetRef ref) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Retirer de mes Enregistrements ?'),
+        content: const Text(
+          'La copie sur cet appareil sera supprimée. Si le contenu existe '
+          'encore chez son auteur, tu pourras le réenregistrer.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Retirer'),
           ),
         ],
       ),
     );
+    if (ok != true) return;
+    await ref.read(savedStoreProvider).remove(item.contentId);
+    ref.invalidate(savedItemsProvider);
+    ref.invalidate(isSavedProvider(item.contentId));
   }
 }
 
-final _savedUrlProvider = FutureProvider.family<String, String>(
-  (ref, path) => ref
-      .watch(supabaseProvider)
-      .storage
-      .from('cards')
-      .createSignedUrl(path, 3600),
-);
+/// Lecture d'un Enregistrement. Aucun réseau, aucune clé : le fichier est là.
+class _SavedViewerScreen extends StatefulWidget {
+  const _SavedViewerScreen({required this.item});
+  final SavedItem item;
+
+  @override
+  State<_SavedViewerScreen> createState() => _SavedViewerScreenState();
+}
+
+class _SavedViewerScreenState extends State<_SavedViewerScreen> {
+  var _showFront = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    Widget face(String path, bool isVideo, bool active) => isVideo
+        ? VibeVideoFace(file: File(path), type: item.cardType, active: active)
+        : VibePhotoFace(file: File(path), type: item.cardType);
+
+    final front = face(item.frontPath, item.frontIsVideo, _showFront);
+
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        title: CardTypeBadge(type: item.cardType, fontSize: 12),
+      ),
+      body: Center(
+        child: item.hasBack
+            ? FlippableCard(
+                onSideChanged: (f) => setState(() => _showFront = f),
+                front: front,
+                back: face(item.backPath!, item.backIsVideo, !_showFront),
+              )
+            : TiltableCard(child: front),
+      ),
+    );
+  }
+}

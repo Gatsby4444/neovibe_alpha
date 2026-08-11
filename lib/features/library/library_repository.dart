@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/content/content_face.dart';
 import '../../core/content/content_media_cache.dart';
+import '../../core/content/own_keys.dart';
 import '../../core/crypto/media_seal.dart';
 import '../../core/models/card.dart';
 import '../../core/models/library_item.dart';
@@ -25,7 +26,7 @@ final libraryItemsProvider = FutureProvider.family<List<LibraryItem>, String>((
   final rows = await ref
       .watch(supabaseProvider)
       .from('library_items')
-      .select('*, contents(shareable)')
+      .select('*, contents(shareable, saveable)')
       .eq('owner_id', ownerId)
       .order('created_at', ascending: false);
   return rows.map(LibraryItem.fromJson).toList();
@@ -70,6 +71,7 @@ class LibraryRepository {
     String? caption,
     bool isPublic = false,
     bool shareable = false,
+    bool saveable = false,
   }) async {
     final me = _client.auth.currentUser!.id;
     final itemId = newUuid();
@@ -109,8 +111,12 @@ class LibraryRepository {
         'p_is_public': isPublic,
         'p_shareable': shareable,
         'p_media_key': mediaKey,
+        'p_saveable': saveable,
       },
     );
+
+    // Voir `stories_repository.publish` : la clé de MES contenus reste locale.
+    await ref.read(ownKeyStoreProvider).put(itemId, mediaKey);
 
     // Copie locale immédiate : ma bibliothèque s'affiche depuis l'appareil, pas
     // depuis le réseau (consigne de Jay). On y range le scellé — une seule

@@ -7,6 +7,7 @@ import '../../core/content/content_face.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../cards/flippable_card.dart';
 import '../conversations/conversations_repository.dart';
@@ -60,6 +61,18 @@ class _PublicationViewerScreenState
         backgroundColor: Colors.black,
         title: CardTypeBadge(type: item.cardType, fontSize: 12),
         actions: [
+          // Enregistrer : une copie EN CLAIR sur l'appareil, à partir des
+          // fichiers déjà déchiffrés à l'écran. Aucun appel serveur.
+          SaveButton(
+            contentId: item.id,
+            cardType: item.cardType,
+            canSave: item.saveable || mine,
+            front: front.value,
+            back: back?.value,
+            frontIsVideo: item.frontIsVideo,
+            backIsVideo: item.backIsVideo,
+            mine: mine,
+          ),
           // Le bouton n'existe que si l'auteur a autorisé le relais : sans
           // quoi il proposerait une action que le serveur refuserait.
           if (item.shareable)

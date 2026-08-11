@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import '../crypto/media_seal.dart';
 import '../supabase_providers.dart';
 import 'content_media_cache.dart';
+import 'own_keys.dart';
 
 /// Toutes les clés d'une bibliothèque, en **un** aller-retour.
 ///
@@ -64,6 +65,7 @@ final contentFaceProvider = FutureProvider.family<File, ContentFace>((
   final client = ref.watch(supabaseProvider);
   final cache = ref.watch(contentMediaCacheProvider);
   final me = ref.watch(currentUserIdProvider);
+  final ownKeys = ref.watch(ownKeyStoreProvider);
   final batch = spec.batchOwner == null
       ? null
       : ref.watch(libraryKeysProvider(spec.batchOwner!).future);
@@ -81,11 +83,17 @@ final contentFaceProvider = FutureProvider.family<File, ContentFace>((
 
   if (!spec.encrypted) return sealed;
 
-  // La clé vient du lot quand il y en a un ; sinon d'un appel unitaire. Dans
-  // les deux cas c'est le serveur qui décide, et un contenu révoqué n'en
-  // obtient aucune.
-  final key =
-      (batch == null ? null : (await batch)[spec.contentId]) ??
+  // Ordre de recherche de la clé :
+  //   1. MES propres contenus : la clé est sur l'appareil, elle y a été
+  //      fabriquée. Rouvrir ma story ne demande donc RIEN au réseau — c'est le
+  //      « local d'abord » de Jay, enfin tenu de bout en bout.
+  //   2. Le lot de la bibliothèque, quand on affiche une grille.
+  //   3. Un appel unitaire au serveur.
+  // Pour le contenu d'AUTRUI, seul le serveur décide — toujours, à chaque
+  // ouverture. La garantie n'est pas touchée.
+  var key = spec.ownerId == me ? await ownKeys.get(spec.contentId) : null;
+  key ??= batch == null ? null : (await batch)[spec.contentId];
+  key ??=
       await client.rpc(
             'open_content_media',
             params: {'p_content_id': spec.contentId},

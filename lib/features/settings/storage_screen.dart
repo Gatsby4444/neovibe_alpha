@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/prefs.dart';
 import '../cards/card_media_cache.dart';
 import '../../core/content/content_media_cache.dart';
+import '../../core/content/saved_store.dart';
 
 /// Gestion du stockage local des cards (consigne Jay 2026-07-13, C4 option
 /// a) : occupation, espace alloué réglable, emplacement affiché, vidage —
@@ -20,6 +21,7 @@ class StorageScreen extends ConsumerStatefulWidget {
 class _StorageScreenState extends ConsumerState<StorageScreen> {
   ({int ownBytes, int othersBytes, String path})? _usage;
   ({int ownBytes, int othersBytes})? _spineUsage;
+  int? _savedBytes;
 
   @override
   void initState() {
@@ -30,10 +32,12 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
   Future<void> _refresh() async {
     final usage = await ref.read(cardMediaCacheProvider).usage();
     final stories = await ref.read(contentMediaCacheProvider).usage();
+    final saved = await ref.read(savedStoreProvider).usedBytes();
     if (mounted) {
       setState(() {
         _usage = usage;
         _spineUsage = stories;
+        _savedBytes = saved;
       });
     }
   }
@@ -123,6 +127,20 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
               'Préchargement des faces pour un retournement fluide. Purgé '
               'automatiquement : cards épuisées immédiatement, le reste au '
               'plus tard après 24 h.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+          const Divider(),
+          const _Header('Enregistrements'),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.bookmark),
+            title: Text(_savedBytes == null ? 'Calcul…' : _fmt(_savedBytes!)),
+            subtitle: const Text(
+              "Tes sauvegardes, en clair sur cet appareil. Elles ne dépendent "
+              "plus du serveur : elles s'affichent hors ligne et survivent à "
+              "la suppression par leur auteur. Aucun quota ne les évince — "
+              "c'est à toi de faire le tri.",
               style: TextStyle(fontSize: 12),
             ),
           ),

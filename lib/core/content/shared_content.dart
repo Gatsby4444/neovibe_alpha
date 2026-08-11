@@ -26,12 +26,13 @@ final sharedContentProvider = FutureProvider.family<SharedContent, String>((
 
   final content = await client
       .from('contents')
-      .select('context, shareable')
+      .select('context, shareable, saveable')
       .eq('id', contentId)
       .maybeSingle();
   if (content == null) return (story: null, item: null);
 
   final shareable = content['shareable'] as bool? ?? false;
+  final saveable = content['saveable'] as bool? ?? false;
 
   switch (content['context'] as String) {
     case 'story':
@@ -46,7 +47,7 @@ final sharedContentProvider = FutureProvider.family<SharedContent, String>((
       return (
         story: Story.fromJson({
           ...row,
-          'contents': {'shareable': shareable},
+          'contents': {'shareable': shareable, 'saveable': saveable},
         }),
         item: null,
       );
@@ -62,7 +63,7 @@ final sharedContentProvider = FutureProvider.family<SharedContent, String>((
         story: null,
         item: LibraryItem.fromJson({
           ...row,
-          'contents': {'shareable': shareable},
+          'contents': {'shareable': shareable, 'saveable': saveable},
         }),
       );
 

@@ -27,6 +27,7 @@ class LibraryItem {
     this.caption,
     this.isPublic = false,
     this.shareable = false,
+    this.saveable = false,
     this.encrypted = true,
   });
 
@@ -55,6 +56,11 @@ class LibraryItem {
   /// CONTENU, quel que soit son format. Il arrive donc par la jointure.
   final bool shareable;
 
+  /// L'auteur autorise la copie locale dans les Enregistrements. Porté par
+  /// `contents`, comme [shareable] : la sauvegardabilité appartient au CONTENU,
+  /// quel que soit son format.
+  final bool saveable;
+
   /// Faces chiffrées au dépôt : la clé ne s'obtient que par
   /// `open_content_media`, ou en lot par `library_media_keys`.
   final bool encrypted;
@@ -75,6 +81,9 @@ class LibraryItem {
     isPublic: json['is_public'] as bool? ?? false,
     shareable:
         (json['contents'] as Map<String, dynamic>?)?['shareable'] as bool? ??
+        false,
+    saveable:
+        (json['contents'] as Map<String, dynamic>?)?['saveable'] as bool? ??
         false,
     encrypted: json['encrypted'] as bool? ?? true,
     createdAt: DateTime.parse(json['created_at'] as String),

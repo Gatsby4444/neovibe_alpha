@@ -10,6 +10,7 @@ import '../../core/crypto/media_seal.dart';
 
 import '../../core/models/card.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
@@ -404,7 +405,6 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     final canSave = isOwner
         ? type != CardType.oneOfOne
         : (widget.card.saveable && type.canBeSaveable);
-    final isSaved = ref.watch(isCardSavedProvider(widget.card.id)).value;
 
     // Jauge visible : face photo posée, à durée limitée, encore vivante
     final showGauge =
@@ -422,32 +422,20 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
               backgroundColor: Colors.black,
               title: CardTypeBadge(type: type),
               actions: [
-                if (canSave && _phase == _Phase.viewing)
-                  IconButton(
-                    icon: Icon(
-                      isSaved == true ? Icons.bookmark : Icons.bookmark_border,
-                    ),
-                    tooltip: isSaved == true
-                        ? 'Retirer de mes Enregistrements'
-                        : 'Enregistrer pour moi',
-                    onPressed: () async {
-                      final repo = _cards;
-                      try {
-                        if (isSaved == true) {
-                          await repo.unsaveCard(widget.card.id);
-                        } else {
-                          await repo.saveCard(widget.card.id);
-                        }
-                        ref.invalidate(isCardSavedProvider(widget.card.id));
-                        ref.invalidate(savedCardsProvider);
-                      } catch (e) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Erreur : $e')),
-                          );
-                        }
-                      }
-                    },
+                // Enregistrer : une copie EN CLAIR sur l'appareil, faite
+                // à partir des faces déjà déchiffrées à l'écran. Depuis
+                // l'étape 5, plus aucune ligne serveur — c'est ce qui rend la
+                // sauvegarde indépendante de son auteur.
+                if (_phase == _Phase.viewing)
+                  SaveButton(
+                    contentId: widget.card.id,
+                    cardType: type,
+                    canSave: canSave,
+                    front: _shownFront,
+                    back: _shownBack,
+                    frontIsVideo: widget.card.frontIsVideo,
+                    backIsVideo: widget.card.backIsVideo,
+                    mine: isOwner,
                   ),
               ],
               bottom: showGauge

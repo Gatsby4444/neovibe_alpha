@@ -288,27 +288,6 @@ class CardsRepository {
   Future<String> imageUrl(String path) =>
       _client.storage.from('cards').createSignedUrl(path, 3600);
 
-  /// Enregistre une card dans MES Enregistrements (bibliothèque privée).
-  Future<void> saveCard(String cardId) async {
-    final me = _client.auth.currentUser!.id;
-    await _client
-        .from('saved_cards')
-        .upsert(
-          {'owner_id': me, 'card_id': cardId},
-          onConflict: 'owner_id,card_id',
-          ignoreDuplicates: true,
-        );
-  }
-
-  Future<void> unsaveCard(String cardId) async {
-    final me = _client.auth.currentUser!.id;
-    await _client
-        .from('saved_cards')
-        .delete()
-        .eq('owner_id', me)
-        .eq('card_id', cardId);
-  }
-
   /// Statistiques de profil (amis, posts, cards 7 jours) — RLS : soi + amis.
   Future<({int friends, int posts, int cardsWeek})?> profileStats(
     String userId,
@@ -331,47 +310,16 @@ final profileStatsProvider =
       (ref, userId) => ref.watch(cardsRepositoryProvider).profileStats(userId),
     );
 
-/// Mes Enregistrements, cards jointes, plus récents d'abord.
-final savedCardsProvider = FutureProvider<List<SavedCard>>((ref) async {
-  final me = ref.watch(currentUserIdProvider);
-  if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('saved_cards')
-      .select('*, cards(*)')
-      .order('created_at', ascending: false);
-  return rows.map(SavedCard.fromJson).where((s) => s.card != null).toList();
-});
-
-/// La card [cardId] est-elle déjà dans mes Enregistrements ?
-final isCardSavedProvider = FutureProvider.family<bool, String>((
-  ref,
-  cardId,
-) async {
-  final me = ref.watch(currentUserIdProvider);
-  if (me == null) return false;
-  final row = await ref
-      .watch(supabaseProvider)
-      .from('saved_cards')
-      .select('card_id')
-      .eq('card_id', cardId)
-      .maybeSingle();
-  return row != null;
-});
-
-class SavedCard {
-  const SavedCard({required this.cardId, required this.savedAt, this.card});
-  final String cardId;
-  final DateTime savedAt;
-  final CardModel? card;
-
-  factory SavedCard.fromJson(Map<String, dynamic> json) => SavedCard(
-    cardId: json['card_id'] as String,
-    savedAt: DateTime.parse(json['created_at'] as String),
-    card: json['cards'] == null
-        ? null
-        : CardModel.fromJson(json['cards'] as Map<String, dynamic>),
-  );
-}
+/// ⚠️ Les Enregistrements ne vivent plus ici. Depuis le 2026-08-11, une
+/// sauvegarde est une **copie locale** (`core/content/saved_store.dart`) et
+/// non une ligne serveur : la table `saved_cards` a disparu.
+///
+/// Motif : elle était en `ON DELETE CASCADE`. Si l'auteur supprimait sa Vibe,
+/// tous ceux qui l'avaient enregistrée la perdaient — alors qu'« Enregistrer »
+/// promet de garder.
+///
+/// Bénéfice d'architecture : c'était aussi la dernière branche « accès
+/// illimité » de `can_view_card_file`, qui passe de trois chemins à **deux**
+/// (propriétaire, livraison).
 
 final cardsRepositoryProvider = Provider((ref) => CardsRepository(ref));

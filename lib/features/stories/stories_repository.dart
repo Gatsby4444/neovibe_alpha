@@ -11,6 +11,7 @@ import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
 import '../connections/connections_repository.dart';
 import '../../core/content/content_media_cache.dart';
+import '../../core/content/own_keys.dart';
 
 /// Toutes les stories vivantes que j'ai le droit de voir.
 ///
@@ -27,7 +28,9 @@ final _visibleStoriesProvider = FutureProvider<List<Story>>((ref) async {
   final rows = await ref
       .watch(supabaseProvider)
       .from('stories')
-      .select('*, contents(shareable), profiles!stories_owner_id_fkey(*)')
+      .select(
+        '*, contents(shareable, saveable), profiles!stories_owner_id_fkey(*)',
+      )
       .gt('expires_at', DateTime.now().toUtc().toIso8601String())
       .order('created_at', ascending: false);
   return rows.map(Story.fromJson).toList();
@@ -137,6 +140,7 @@ class StoriesRepository {
     bool frontIsVideo = false,
     bool backIsVideo = false,
     bool shareable = false,
+    bool saveable = false,
   }) async {
     final me = _client.auth.currentUser!.id;
     final storyId = newUuid();
@@ -174,8 +178,13 @@ class StoriesRepository {
         'p_back_is_video': backIsVideo,
         'p_shareable': shareable,
         'p_media_key': mediaKey,
+        'p_saveable': saveable,
       },
     );
+
+    // La clé reste sur l'appareil : rouvrir MA story ne demandera plus le
+    // réseau. Elle a été fabriquée ici, elle n'y ajoute aucun droit.
+    await ref.read(ownKeyStoreProvider).put(storyId, mediaKey);
 
     // Copie locale immédiate : rouvrir MA propre story ne doit jamais
     // dépendre du réseau. On y range le scellé, comme pour les Cards — une

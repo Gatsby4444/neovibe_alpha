@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/content/content_face.dart';
 import '../../core/models/card.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../../core/models/story.dart';
 import '../../core/supabase_providers.dart';
@@ -181,6 +182,12 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
               index: _index,
               story: story,
               isMine: isMine,
+              // Les faces déchiffrées, s'il y en a : le bouton Enregistrer les
+              // copie telles quelles.
+              front: ref.watch(contentFaceProvider(_spec(story, true))).value,
+              back: story.hasBack
+                  ? ref.watch(contentFaceProvider(_spec(story, false))).value
+                  : null,
               onClose: () => Navigator.of(context).pop(),
               onDelete: !isMine ? null : _confirmDelete,
               onShare: story.shareable ? _share : null,
@@ -392,17 +399,17 @@ class _StoryStatsSheet extends ConsumerWidget {
 /// (consigne Jay 2026-08-02), horodatage, type, partage, statistiques,
 /// suppression, fermeture.
 ///
-/// ⚠️ **Le bouton « Enregistrer » a disparu.** `saved_cards` référence la table
-/// `cards` ; une story n'en est plus une, l'enregistrement y provoquerait une
-/// violation de clé étrangère. La sauvegarde revient à l'étape 5 de la refonte,
-/// sous la forme décidée par Jay : une **copie locale** sur l'appareil, qui ne
-/// dépend plus de la ligne de l'auteur.
+/// Le bouton « Enregistrer » y est **revenu** à l'étape 5, sous la forme
+/// décidée par Jay : une **copie locale** sur l'appareil, indépendante de son
+/// auteur. Il n'apparaît que si celui-ci a coché « Sauvegardable ».
 class _Header extends ConsumerWidget {
   const _Header({
     required this.ring,
     required this.index,
     required this.story,
     required this.isMine,
+    this.front,
+    this.back,
     required this.onClose,
     this.onDelete,
     this.onShare,
@@ -413,6 +420,8 @@ class _Header extends ConsumerWidget {
   final int index;
   final Story story;
   final bool isMine;
+  final File? front;
+  final File? back;
   final VoidCallback onClose;
   final VoidCallback? onDelete;
   final VoidCallback? onShare;
@@ -503,6 +512,16 @@ class _Header extends ConsumerWidget {
                   const Spacer(),
                   CardTypeBadge(type: story.cardType, fontSize: 11),
                   const SizedBox(width: 4),
+                  SaveButton(
+                    contentId: story.id,
+                    cardType: story.cardType,
+                    canSave: story.saveable || isMine,
+                    front: front,
+                    back: back,
+                    frontIsVideo: story.frontIsVideo,
+                    backIsVideo: story.backIsVideo,
+                    mine: isMine,
+                  ),
                   if (onStats != null)
                     IconButton(
                       color: Colors.white,
