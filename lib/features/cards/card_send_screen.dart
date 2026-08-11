@@ -9,6 +9,7 @@ import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import '../connections/connections_repository.dart';
+import '../library/library_repository.dart';
 import '../conversations/conversations_repository.dart';
 import '../library_vibes/library_vibes_repository.dart';
 import '../stories/stories_repository.dart';
@@ -298,30 +299,26 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
         );
   }
 
-  /// Publication en bibliothèque de profil. Permanente — décision de Jay
+  /// Publication en bibliothèque de profil. **Permanente** — décision de Jay
   /// (2026-08-11) : « c'est ce qui a toujours été décidé ».
   ///
-  /// ⚠️ Passe encore par `cards` + `library_items` : l'autonomisation de la
-  /// publication est l'étape 2 de la refonte. La destination est déjà
-  /// EXCLUSIVE côté produit — seul le stockage reste à séparer.
+  /// Aucune Card n'est créée : depuis l'étape 2 de la refonte, la publication
+  /// porte ses propres faces dans le bucket `library`, avec sa seule règle
+  /// d'accès. Ni limite de vues ni durée de lecture — elles n'ont pas de sens
+  /// ici, et c'est la séparation des formats qui a permis de les supprimer au
+  /// lieu de les neutraliser au cas par cas.
   Future<void> _publishToLibrary() async {
-    final repo = ref.read(cardsRepositoryProvider);
-    final card = await repo.create(
-      front: widget.front,
-      back: widget.back,
-      type: widget.type,
-      // En bibliothèque, la lecture est illimitée : ni budget de vues, ni
-      // durée. Les passer serait écrire une règle que personne n'applique.
-      viewDurationSeconds: null,
-      maxViews: null,
-      saveable: _saveable,
-      imported: widget.imported,
-      frontIsVideo: widget.frontIsVideo,
-      backIsVideo: widget.backIsVideo,
-      scrubbable: _hasVideo && _scrubbable,
-    );
-    await repo.publishToLibrary(card, isPublic: _publishPublic);
-    if (_saveForMe) await repo.saveCard(card.id);
+    await ref
+        .read(libraryRepositoryProvider)
+        .publish(
+          front: widget.front,
+          back: widget.back,
+          type: widget.type,
+          frontIsVideo: widget.frontIsVideo,
+          backIsVideo: widget.backIsVideo,
+          isPublic: _publishPublic,
+          shareable: _shareable,
+        );
   }
 
   /// Partage direct dans le cercle (DM et groupes) : le seul contexte où les
@@ -559,8 +556,13 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
               onChanged: (v) => setState(() => _scrubbable = v),
             ),
 
-          // ─── Options de la STORY ───────────────────────────────────────
-          if (_destination == _Destination.story)
+          // ─── Partage hors cercle : story ET publication ────────────────
+          // Même mécanique serveur (`share_content`) : le contenu voyage
+          // d'ami en ami, sans limite de sauts, et chaque saut est une
+          // personne qui décide. Le partage direct dans le cercle en est
+          // exclu par construction.
+          if (_destination == _Destination.story ||
+              _destination == _Destination.publication)
             SwitchListTile(
               title: const Text('Partageable'),
               subtitle: Text(
@@ -620,8 +622,9 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
           // Enregistrements référencent la table `cards`, et ces deux
           // contextes n'en créent aucune. La sauvegarde locale de l'étape 5
           // lèvera cette restriction.
-          if (_destination == _Destination.circle ||
-              _destination == _Destination.publication)
+          // Absent de la publication : publier dans MA bibliothèque, c'est
+          // déjà la garder — l'option ferait doublon avec elle-même.
+          if (_destination == _Destination.circle)
             SwitchListTile(
               title: const Text('Enregistrer pour moi'),
               subtitle: const Text(

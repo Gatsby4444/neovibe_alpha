@@ -15,7 +15,7 @@ import 'core/notifications/notification_service.dart';
 import 'core/prefs.dart';
 import 'features/cards/card_capture_screen.dart';
 import 'features/cards/card_media_cache.dart';
-import 'features/stories/story_media_cache.dart';
+import 'core/content/content_media_cache.dart';
 import 'features/cards/native_camera.dart';
 
 Future<void> main() async {
@@ -85,9 +85,10 @@ Future<void> main() async {
   // (RAPPELS.md).
   SharedPreferences.getInstance().then((prefs) {
     CardMediaCache().sweep(prefs.getInt(OwnCardsQuotaMb.prefsKey) ?? 2048);
-    // Le cache des stories a son propre balayage : sa règle est l'expiration
-    // de la story, pas un budget de vues. Deux cycles de vie, deux espaces.
-    StoryMediaCache().sweep();
+    // Le socle de contenu (stories et publications) a son propre balayage :
+    // sa règle est l'expiration du contenu, pas un budget de vues.
+    // Deux cycles de vie, deux espaces.
+    ContentMediaCache().sweep();
     NativeCameraController.setSecure(
       prefs.getBool(DevSecureEnabled.prefsKey) ?? false,
     );

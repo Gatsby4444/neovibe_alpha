@@ -10,7 +10,7 @@ import '../../core/models/story.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
 import '../connections/connections_repository.dart';
-import 'story_media_cache.dart';
+import '../../core/content/content_media_cache.dart';
 
 /// Toutes les stories vivantes que j'ai le droit de voir.
 ///
@@ -27,7 +27,7 @@ final _visibleStoriesProvider = FutureProvider<List<Story>>((ref) async {
   final rows = await ref
       .watch(supabaseProvider)
       .from('stories')
-      .select('*, profiles!stories_owner_id_fkey(*)')
+      .select('*, contents(shareable), profiles!stories_owner_id_fkey(*)')
       .gt('expires_at', DateTime.now().toUtc().toIso8601String())
       .order('created_at', ascending: false);
   return rows.map(Story.fromJson).toList();
@@ -98,7 +98,7 @@ final storyViewersProvider = FutureProvider.family<List<StoryViewer>, String>((
 ) async {
   final rows = await ref
       .watch(supabaseProvider)
-      .rpc('story_viewers', params: {'p_story_id': storyId});
+      .rpc('content_viewers', params: {'p_content_id': storyId});
   return (rows as List)
       .map((r) => StoryViewer.fromJson(r as Map<String, dynamic>))
       .toList();
@@ -111,7 +111,7 @@ final storyViewerCountProvider = FutureProvider.family<int, String>((
 ) async {
   final value = await ref
       .watch(supabaseProvider)
-      .rpc('story_viewer_count', params: {'p_story_id': storyId});
+      .rpc('content_viewer_count', params: {'p_content_id': storyId});
   return (value as int?) ?? 0;
 });
 
@@ -180,7 +180,7 @@ class StoriesRepository {
     // Copie locale immédiate : rouvrir MA propre story ne doit jamais
     // dépendre du réseau. On y range le scellé, comme pour les Cards — une
     // seule règle vaut alors partout, tout fichier en cache est chiffré.
-    final cache = ref.read(storyMediaCacheProvider);
+    final cache = ref.read(contentMediaCacheProvider);
     final temp = await getTemporaryDirectory();
     Future<void> keep(List<int> sealed, {required bool isFront}) async {
       try {
@@ -207,8 +207,8 @@ class StoriesRepository {
   /// Lève si le contenu a été **révoqué** : c'est le point de contrôle unique.
   Future<String> openMedia(String storyId) async {
     final key = await _client.rpc(
-      'open_story_media',
-      params: {'p_story_id': storyId},
+      'open_content_media',
+      params: {'p_content_id': storyId},
     );
     return key as String;
   }
@@ -218,8 +218,8 @@ class StoriesRepository {
   /// Le serveur refuse si la story n'est pas `shareable`.
   Future<int> shareToConversation(String storyId, String conversationId) async {
     final added = await _client.rpc(
-      'share_story',
-      params: {'p_story_id': storyId, 'p_conversation_id': conversationId},
+      'share_content',
+      params: {'p_content_id': storyId, 'p_conversation_id': conversationId},
     );
     return (added as int?) ?? 0;
   }
@@ -229,7 +229,7 @@ class StoriesRepository {
     // Les fichiers locaux n'ont plus de raison d'être : le serveur ne les
     // sert plus. L'identité et le graphe, eux, survivent côté serveur — c'est
     // ce qui permettra la traçabilité après coup.
-    await ref.read(storyMediaCacheProvider).purge(storyId);
+    await ref.read(contentMediaCacheProvider).purge(storyId);
     _invalidate();
   }
 

@@ -52,9 +52,13 @@ class Story {
   /// 2026-08-11). **Faux par défaut** : le partage hors cercle est un acte
   /// délibéré, repris à chaque publication — il n'existe pas de réglage global
   /// « compte public ».
+  ///
+  /// Porté par `contents`, pas par `stories` : la partageabilité appartient au
+  /// CONTENU, quel que soit son format. Il arrive donc par la jointure.
   final bool shareable;
 
-  /// Faces chiffrées au dépôt : la clé ne s'obtient que par `open_story_media`.
+  /// Faces chiffrées au dépôt : la clé ne s'obtient que par
+  /// `open_content_media`, la porte unique du socle de contenu.
   final bool encrypted;
 
   final DateTime createdAt;
@@ -73,7 +77,9 @@ class Story {
     backPath: json['back_path'] as String?,
     frontIsVideo: json['front_is_video'] as bool? ?? false,
     backIsVideo: json['back_is_video'] as bool? ?? false,
-    shareable: json['shareable'] as bool? ?? false,
+    shareable:
+        (json['contents'] as Map<String, dynamic>?)?['shareable'] as bool? ??
+        false,
     encrypted: json['encrypted'] as bool? ?? true,
     createdAt: DateTime.parse(json['created_at'] as String),
     expiresAt: DateTime.parse(json['expires_at'] as String),
@@ -96,9 +102,9 @@ class StoryRing {
 /// Un spectateur d'une de MES stories, tel que le serveur accepte de le
 /// nommer.
 ///
-/// `story_viewers` ne renvoie que les spectateurs que l'auteur peut situer
+/// `content_viewers` ne renvoie que les spectateurs que l'auteur peut situer
 /// dans son cercle ; les autres n'existent que dans le **compte total**
-/// (`story_viewer_count`). Le nominatif complet est enregistré côté serveur et
+/// (`content_viewer_count`). Le nominatif complet est enregistré côté serveur et
 /// réservé à la future option premium (décision de Jay 2026-08-11).
 class StoryViewer {
   const StoryViewer({

@@ -16,7 +16,7 @@ import '../cards/flippable_card.dart';
 import '../conversations/conversations_repository.dart';
 import '../library/user_library_screen.dart';
 import 'stories_repository.dart';
-import 'story_media_cache.dart';
+import '../../core/content/content_media_cache.dart';
 
 /// Hauteur de l'en-tête sous la barre d'état : padding 8 + barres de
 /// progression 2 + espace 10 + rangée d'icônes 48 + padding 8.
@@ -80,12 +80,12 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
   /// Récupère les faces : le scellé (cache local d'abord), puis la clé auprès
   /// du serveur, puis le déchiffrement en fichier temporaire.
   ///
-  /// C'est `open_story_media` qui décide : elle refuse si je ne suis pas dans
+  /// C'est `open_content_media` qui décide : elle refuse si je ne suis pas dans
   /// l'audience, **ou si le contenu a été révoqué**. Sans clé, pas d'image —
   /// il n'y a pas de porte dérobée.
   Future<({File front, File? back})> _loadFaces(Story story) async {
     final repo = ref.read(storiesRepositoryProvider);
-    final cache = ref.read(storyMediaCacheProvider);
+    final cache = ref.read(contentMediaCacheProvider);
     final me = ref.read(currentUserIdProvider);
     final isMine = story.ownerId == me;
 
@@ -97,9 +97,9 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
       }
       return cache.others(
         story.id,
-        story.expiresAt,
         front: front,
         signedUrl: () => repo.mediaUrl(path),
+        expiresAt: story.expiresAt,
       );
     }
 

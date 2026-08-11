@@ -251,23 +251,6 @@ class CardsRepository {
     }
   }
 
-  /// [isPublic] : visible par toute personne accédant au profil par un moyen
-  /// légitime (croisement ping, recommandation…).
-  Future<void> publishToLibrary(
-    CardModel card, {
-    String? caption,
-    bool isPublic = false,
-  }) async {
-    final me = _client.auth.currentUser!.id;
-    await _client.from('library_items').insert({
-      'owner_id': me,
-      'kind': 'card',
-      'card_id': card.id,
-      'is_public': isPublic,
-      if (caption != null && caption.isNotEmpty) 'caption': caption,
-    });
-  }
-
   /// Ma livraison pour une card donnée (état de visionnage).
   Future<CardDelivery?> myDelivery(String cardId) async {
     final me = _client.auth.currentUser!.id;

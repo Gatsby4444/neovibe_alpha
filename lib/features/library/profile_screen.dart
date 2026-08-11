@@ -90,10 +90,11 @@ class ProfileScreen extends ConsumerWidget {
             ),
           );
           if (isPublic == null) return;
+          // Une photo importée est une publication à face unique : même
+          // chemin que celles issues de la caméra depuis le 2026-08-11.
           await ref
               .read(libraryRepositoryProvider)
-              .addMedia(File(picked.path), 'photo', isPublic: isPublic);
-          ref.invalidate(libraryItemsProvider(me));
+              .publish(front: File(picked.path), isPublic: isPublic);
         },
       ),
       body: RefreshIndicator(

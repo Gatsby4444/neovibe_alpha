@@ -4,29 +4,28 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
-/// Cache local des faces de stories — **séparé de celui des Cards**.
+/// Cache local des médias du **socle de contenu** (stories et publications) —
+/// séparé de celui des Cards.
 ///
-/// Ce n'est pas de la duplication de code par négligence : une story et une
-/// Card n'ont pas la même règle de rétention. Le cache des Cards raisonne en
-/// budgets de vues et en TTL de message ; une story a **une seule règle**, sa
-/// date d'expiration. Mélanger les deux index aurait remis dans un même
-/// endroit deux cycles de vie différents — exactement ce que la refonte
-/// supprime côté serveur.
+/// Ce n'est pas une duplication par négligence. Le cache des Cards raisonne en
+/// budgets de vues et en TTL de message ; ces contenus-là n'ont ni l'un ni
+/// l'autre. Ce qui les distingue entre eux est une seule donnée : leur date
+/// d'expiration, **nulle pour une publication** (permanente, décision de Jay
+/// du 2026-08-11) et à 24 h pour une story.
 ///
-/// Deux espaces, comme pour les Cards :
-/// - `own/`    : MES stories, déposées à la publication. Elles ne sont **jamais
-///   retéléchargées** — l'affichage de mes propres contenus ne doit pas
-///   dépendre du réseau (consigne de Jay).
-/// - `others/` : les stories que je consulte, gardées jusqu'à leur expiration
-///   puis effacées. Elles évitent de retélécharger à chaque ouverture.
+/// Deux espaces :
+/// - `own/`    : MES contenus, déposés à la publication. Jamais retéléchargés —
+///   l'affichage de mes propres contenus ne doit pas dépendre du réseau.
+/// - `others/` : ce que je consulte, gardé jusqu'à expiration (ou sous plafond
+///   global si le contenu est permanent).
 ///
 /// Les fichiers y sont **chiffrés** : le clair ne vit que dans le répertoire
 /// temporaire, le temps de l'écran. Une seule règle vaut donc partout — tout
 /// fichier de ce cache est un scellé, quelle que soit sa provenance.
-class StoryMediaCache {
-  StoryMediaCache();
+class ContentMediaCache {
+  ContentMediaCache();
 
-  static const othersMaxBytes = 100 * 1024 * 1024; // 100 Mo
+  static const othersMaxBytes = 150 * 1024 * 1024; // 150 Mo
 
   Directory? _root;
   Map<String, dynamic>? _index;
@@ -34,20 +33,20 @@ class StoryMediaCache {
   Future<Directory> _dir(String sub) async {
     _root ??= await getApplicationSupportDirectory();
     final dir = Directory(
-      '${_root!.path}${Platform.pathSeparator}story_media'
+      '${_root!.path}${Platform.pathSeparator}content_media'
       '${Platform.pathSeparator}$sub',
     );
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }
 
-  File _faceFile(Directory dir, String storyId, bool front) => File(
-    '${dir.path}${Platform.pathSeparator}${storyId}_'
+  File _faceFile(Directory dir, String contentId, bool front) => File(
+    '${dir.path}${Platform.pathSeparator}${contentId}_'
     '${front ? 'front' : 'back'}.seal',
   );
 
   // ---------------------------------------------------------------------
-  // Index des entrées `others/` : une seule donnée, la date d'expiration.
+  // Index des entrées `others/` : la date d'expiration, ou rien.
   // ---------------------------------------------------------------------
 
   Future<File> _indexFile() async =>
@@ -74,58 +73,65 @@ class StoryMediaCache {
   }
 
   // ---------------------------------------------------------------------
-  // Mes stories
+  // Mes contenus
   // ---------------------------------------------------------------------
 
   /// Dépose le scellé d'une de MES faces, à la publication.
   Future<void> storeOwn(
-    String storyId,
+    String contentId,
     File sealed, {
     required bool front,
   }) async {
     try {
-      await sealed.copy(_faceFile(await _dir('own'), storyId, front).path);
+      await sealed.copy(_faceFile(await _dir('own'), contentId, front).path);
     } catch (_) {
       // Le cache est un confort : un échec ne doit jamais bloquer la
-      // publication (la story existe déjà côté serveur à ce moment-là).
+      // publication (le contenu existe déjà côté serveur à ce moment-là).
     }
   }
 
-  Future<File?> tryOwn(String storyId, {required bool front}) async {
-    final file = _faceFile(await _dir('own'), storyId, front);
-    return await file.exists() ? file : null;
+  Future<File?> tryOwn(String contentId, {required bool front}) async {
+    final file = _faceFile(await _dir('own'), contentId, front);
+    if (!await file.exists()) return null;
+    try {
+      await file.setLastModified(DateTime.now()); // usage LRU
+    } catch (_) {}
+    return file;
   }
 
   // ---------------------------------------------------------------------
-  // Les stories des autres
+  // Les contenus des autres
   // ---------------------------------------------------------------------
 
   /// Scellé d'une face d'autrui : depuis le cache s'il est là, sinon
-  /// téléchargé puis indexé avec la date d'expiration de la story.
+  /// téléchargé puis indexé. [expiresAt] nul = contenu permanent (publication).
   Future<File> others(
-    String storyId,
-    DateTime expiresAt, {
+    String contentId, {
     required bool front,
     required Future<String> Function() signedUrl,
+    DateTime? expiresAt,
   }) async {
-    final file = _faceFile(await _dir('others'), storyId, front);
+    final file = _faceFile(await _dir('others'), contentId, front);
     final index = await _loadIndex();
-    if (await file.exists() && index.containsKey(storyId)) return file;
+    if (await file.exists() && index.containsKey(contentId)) return file;
     await _download(await signedUrl(), file);
-    index[storyId] = {'expiresAt': expiresAt.toIso8601String()};
+    index[contentId] = {
+      if (expiresAt != null) 'expiresAt': expiresAt.toIso8601String(),
+      'storedAt': DateTime.now().toIso8601String(),
+    };
     await _saveIndex();
     await _enforceLimits();
     return file;
   }
 
-  /// Purge immédiate de toutes les faces d'une story : expiration, retrait par
-  /// l'auteur, ou **révocation** par la modération.
-  Future<void> purge(String storyId) async {
+  /// Purge immédiate de toutes les faces d'un contenu : expiration, retrait
+  /// par l'auteur, ou **révocation** par la modération.
+  Future<void> purge(String contentId) async {
     for (final sub in const ['own', 'others']) {
       final dir = await _dir(sub);
       await for (final entity in dir.list()) {
         if (entity is File &&
-            entity.uri.pathSegments.last.startsWith('${storyId}_')) {
+            entity.uri.pathSegments.last.startsWith('${contentId}_')) {
           try {
             await entity.delete();
           } catch (_) {}
@@ -133,18 +139,20 @@ class StoryMediaCache {
       }
     }
     final index = await _loadIndex();
-    if (index.remove(storyId) != null) await _saveIndex();
+    if (index.remove(contentId) != null) await _saveIndex();
   }
 
-  /// Expiration + plafond global. Une story expirée n'a aucune raison de
-  /// rester sur l'appareil : le serveur ne la sert plus.
+  /// Expiration puis plafond global. Un contenu expiré n'a aucune raison de
+  /// rester : le serveur ne le sert plus.
   Future<void> _enforceLimits() async {
     final index = await _loadIndex();
     final now = DateTime.now();
     final expired = <String>[];
     for (final entry in index.entries) {
       final meta = entry.value as Map<String, dynamic>;
-      final expiresAt = DateTime.tryParse(meta['expiresAt'] as String? ?? '');
+      final raw = meta['expiresAt'] as String?;
+      if (raw == null) continue; // permanent
+      final expiresAt = DateTime.tryParse(raw);
       if (expiresAt == null || now.isAfter(expiresAt)) expired.add(entry.key);
     }
     for (final id in expired) {
@@ -164,14 +172,14 @@ class StoryMediaCache {
       sizes[id] = (sizes[id] ?? 0) + size;
     }
     if (total <= othersMaxBytes) return;
-    // Les plus proches de l'expiration partent d'abord.
-    final byDeadline = index.entries.toList()
+    // Les plus anciennement stockés partent d'abord.
+    final byAge = index.entries.toList()
       ..sort((a, b) {
-        final ea = (a.value as Map)['expiresAt'] as String? ?? '';
-        final eb = (b.value as Map)['expiresAt'] as String? ?? '';
-        return ea.compareTo(eb);
+        final sa = (a.value as Map)['storedAt'] as String? ?? '';
+        final sb = (b.value as Map)['storedAt'] as String? ?? '';
+        return sa.compareTo(sb);
       });
-    for (final entry in byDeadline) {
+    for (final entry in byAge) {
       if (total <= othersMaxBytes) break;
       total -= sizes[entry.key] ?? 0;
       await purge(entry.key);
@@ -226,4 +234,4 @@ class StoryMediaCache {
   }
 }
 
-final storyMediaCacheProvider = Provider((ref) => StoryMediaCache());
+final contentMediaCacheProvider = Provider((ref) => ContentMediaCache());

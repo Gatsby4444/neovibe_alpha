@@ -7,121 +7,12 @@ import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
 import '../cards/card_media_cache.dart';
-import '../cards/card_viewer_screen.dart';
 import '../cards/flippable_card.dart';
-import '../conversations/video_player_screen.dart';
 import 'library_repository.dart';
-import 'photo_viewer_screen.dart';
+import 'publication_viewer_screen.dart';
 
 /// Format d'une mini-card : portrait, comme la card en grand.
 const kMiniCardRatio = 9 / 16;
-
-// ---------------------------------------------------------------------------
-// Résolution d'une vignette : LOCAL d'abord, réseau en repli
-// ---------------------------------------------------------------------------
-
-/// De quoi retrouver une vignette. `mine` conditionne la lecture locale : le
-/// cache `own/` ne contient que MES contenus.
-typedef ThumbSpec = ({
-  String bucket, // 'cards' | 'library'
-  String path, // chemin dans le bucket
-  String? cardId, // face de card : identifiant de la card
-  bool front, // face de card : recto ?
-  bool isVideo,
-  bool mine,
-});
-
-/// Fichier local si disponible, sinon URL signée.
-typedef ThumbSource = ({File? file, String? url});
-
-/// Cause des lenteurs constatées par Jay (2026-07-25) : la grille demandait une
-/// URL signée PUIS téléchargeait l'image pleine résolution, à chaque vignette,
-/// alors que mes propres contenus sont déjà sur l'appareil (`CardMediaCache`,
-/// dossier `own/`). On lit donc le local d'abord ; le réseau n'est plus qu'un
-/// repli (contenu d'un autre, ou mien mais évincé par le quota).
-final thumbSourceProvider = FutureProvider.family<ThumbSource, ThumbSpec>((
-  ref,
-  spec,
-) async {
-  final cache = ref.read(cardMediaCacheProvider);
-  if (spec.mine) {
-    final local = spec.cardId != null
-        ? await cache.tryOwnFace(
-            spec.cardId!,
-            front: spec.front,
-            isVideo: spec.isVideo,
-          )
-        : await cache.tryOwnMedia(spec.path);
-    if (local != null) {
-      // Une vidéo ne se décode pas comme une image : on affiche son image de
-      // couverture, extraite en natif au premier affichage puis gardée.
-      final shown = spec.isVideo ? await cache.videoThumb(local) : local;
-      if (shown != null) return (file: shown, url: null);
-    }
-  }
-  // Vidéo distante : pas de vignette (il faudrait télécharger la vidéo entière
-  // pour en extraire une image — hors de question depuis une grille).
-  if (spec.isVideo) return (file: null, url: null);
-
-  final url = await ref
-      .read(supabaseProvider)
-      .storage
-      .from(spec.bucket)
-      .createSignedUrl(spec.path, 3600);
-  return (file: null, url: url);
-});
-
-/// Image d'une face, résolue par [thumbSourceProvider].
-///
-/// `cacheWidth` : les fichiers font 720×1280 et les vignettes quelques
-/// centaines de pixels — décoder en pleine résolution coûtait de la mémoire
-/// et du temps pour rien.
-class Thumb extends ConsumerWidget {
-  const Thumb({super.key, required this.spec, this.decodeWidth = 400});
-
-  final ThumbSpec spec;
-  final int decodeWidth;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final source = ref.watch(thumbSourceProvider(spec));
-    return source.when(
-      loading: () => ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      ),
-      error: (_, _) => const _ThumbPlaceholder(icon: Icons.broken_image),
-      data: (s) {
-        // Vidéo sans image de couverture disponible (fichier distant, ou
-        // extraction impossible) : on garde le repli d'avant.
-        if (s.file == null && s.url == null) {
-          return const _ThumbPlaceholder(icon: Icons.videocam);
-        }
-        final image = s.file != null
-            ? Image.file(
-                s.file!,
-                fit: BoxFit.cover,
-                cacheWidth: decodeWidth,
-                errorBuilder: (_, _, _) =>
-                    const _ThumbPlaceholder(icon: Icons.broken_image),
-              )
-            : Image.network(
-                s.url!,
-                fit: BoxFit.cover,
-                cacheWidth: decodeWidth,
-                errorBuilder: (_, _, _) =>
-                    const _ThumbPlaceholder(icon: Icons.broken_image),
-              );
-        if (!spec.isVideo) return image;
-        // Une image de couverture ressemble à une photo : le pictogramme dit
-        // que la face est filmée.
-        return Stack(
-          fit: StackFit.expand,
-          children: [image, const _PlayBadge()],
-        );
-      },
-    );
-  }
-}
 
 /// Pastille « c'est une vidéo », posée sur l'image de couverture.
 class _PlayBadge extends StatelessWidget {
@@ -191,92 +82,38 @@ class MiniCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final me = ref.watch(currentUserIdProvider);
     final mine = item.ownerId == me;
-    final card = item.card;
-    final isCard = item.kind == 'card' && card != null;
 
-    // Une photo n'a pas de couleur de type : simple liseré discret, qui doit
-    // suivre le thème (il était blanc, donc invisible en clair — 2026-08-10).
-    final borderColor = isCard
-        ? card.type.color
-        : Theme.of(context).colorScheme.onSurface.withValues(alpha: .14);
+    // Depuis la refonte du 2026-08-11, une publication est TOUJOURS un contenu
+    // à une ou deux faces : la distinction « card » / « photo » a disparu avec
+    // la colonne `kind`. Une photo importée est simplement une publication à
+    // face unique — même stockage, même règle, même chemin d'affichage.
+    final borderColor = item.cardType.color;
 
     Widget face(Widget child) => _MiniFrame(
       borderColor: borderColor,
-      badge: isCard ? card.type.tag : null,
-      badgeColor: isCard ? card.type.color : null,
+      badge: item.cardType.tag,
+      badgeColor: item.cardType.color,
       showPublic: item.isPublic && mine,
       child: child,
     );
 
-    // Cas dégradé : entrée de type « card » dont la card n'a pas été jointe
-    // (supprimée, ou refusée par la RLS) — rien à afficher, pas de plantage.
-    if (!isCard && item.mediaPath == null) {
-      return AspectRatio(
-        aspectRatio: kMiniCardRatio,
-        child: _MiniFrame(
-          borderColor: borderColor,
-          child: const _ThumbPlaceholder(icon: Icons.help_outline),
-        ),
-      );
-    }
-
     final front = face(
-      isCard
-          ? Thumb(
-              spec: (
-                bucket: 'cards',
-                path: card.frontPath,
-                cardId: card.id,
-                front: true,
-                isVideo: card.frontIsVideo,
-                mine: mine,
-              ),
-              decodeWidth: decodeWidth,
-            )
-          : Thumb(
-              spec: (
-                bucket: 'library',
-                path: item.mediaPath!,
-                cardId: null,
-                front: true,
-                isVideo: item.kind == 'video',
-                mine: mine,
-              ),
-              decodeWidth: decodeWidth,
-            ),
+      _PublicationThumb(item: item, front: true, decodeWidth: decodeWidth),
     );
 
-    // **Une mini-card ne se retourne que si elle a VRAIMENT une deuxième
-    // face** (correction Jay 2026-07-26 : le retournement avait été mis aussi
-    // sur les Mono, « ce qui est incohérent »). Une Mono est une face unique
-    // par définition du format — comme dans le viewer plein écran, où elle
-    // n'est pas retournable non plus. Même règle pour une photo ou une vidéo
-    // simple : rien derrière, donc pas de geste.
-    final hasBackFace = isCard && card.backPath != null;
-    if (!hasBackFace) {
+    // Une mini-card ne se retourne que si elle a VRAIMENT une deuxième face
+    // (correction Jay 2026-07-26 : le retournement avait été mis aussi sur les
+    // faces uniques, « ce qui est incohérent »).
+    if (!item.hasBack) {
       return AspectRatio(
         aspectRatio: kMiniCardRatio,
         child: GestureDetector(
           onLongPress: onLongPress,
-          onTap: () => _open(context, ref),
+          onTap: () => _open(context),
           child: front,
         ),
       );
     }
-
-    final back = face(
-      Thumb(
-        spec: (
-          bucket: 'cards',
-          path: card.backPath!,
-          cardId: card.id,
-          front: false,
-          isVideo: card.backIsVideo,
-          mine: mine,
-        ),
-        decodeWidth: decodeWidth,
-      ),
-    );
 
     return AspectRatio(
       aspectRatio: kMiniCardRatio,
@@ -284,38 +121,112 @@ class MiniCard extends ConsumerWidget {
         onLongPress: onLongPress,
         child: FlippableCard(
           front: front,
-          back: back,
+          back: face(
+            _PublicationThumb(
+              item: item,
+              front: false,
+              decodeWidth: decodeWidth,
+            ),
+          ),
           dragAxis: flipAxis,
           // Le tap n'appartient plus au retournement : il ouvre en grand.
-          onTap: () => _open(context, ref),
+          onTap: () => _open(context),
         ),
       ),
     );
   }
 
-  Future<void> _open(BuildContext context, WidgetRef ref) async {
-    final card = item.card;
-    if (item.kind == 'card' && card != null) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => CardViewerScreen(card: card, fromLibrary: true),
-        ),
-      );
-      return;
-    }
-    final path = item.mediaPath;
-    if (path == null) return;
-    final url = await ref.read(libraryRepositoryProvider).mediaUrl(path);
-    if (!context.mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => item.kind == 'video'
-            ? VideoPlayerScreen(url: url)
-            : PhotoViewerScreen(url: url, caption: item.caption),
+  void _open(BuildContext context) => Navigator.of(context).push(
+    MaterialPageRoute(builder: (_) => PublicationViewerScreen(item: item)),
+  );
+}
+
+/// Vignette d'une face de publication.
+///
+/// Les octets sont chiffrés : la vignette passe donc par le même chemin que la
+/// lecture plein écran (scellé → clé → clair), avec la clé prise dans le LOT
+/// de la bibliothèque — sans quoi chaque vignette coûterait un appel serveur.
+class _PublicationThumb extends ConsumerWidget {
+  const _PublicationThumb({
+    required this.item,
+    required this.front,
+    required this.decodeWidth,
+  });
+
+  final LibraryItem item;
+  final bool front;
+  final int decodeWidth;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isVideo = front ? item.frontIsVideo : item.backIsVideo;
+    final face = ref.watch(
+      publicationFaceProvider((
+        itemId: item.id,
+        ownerId: item.ownerId,
+        path: front ? item.frontPath : item.backPath!,
+        front: front,
+        isVideo: isVideo,
+        encrypted: item.encrypted,
+      )),
+    );
+    return face.when(
+      loading: () => ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
       ),
+      error: (_, _) => const _ThumbPlaceholder(icon: Icons.broken_image),
+      data: (file) => isVideo
+          ? _VideoCover(file: file, decodeWidth: decodeWidth)
+          // `cacheWidth` : les fichiers font 720×1280 et les vignettes
+          // quelques centaines de pixels — décoder en pleine résolution
+          // coûtait de la mémoire et du temps pour rien.
+          : Image.file(
+              file,
+              fit: BoxFit.cover,
+              cacheWidth: decodeWidth,
+              errorBuilder: (_, _, _) =>
+                  const _ThumbPlaceholder(icon: Icons.broken_image),
+            ),
     );
   }
 }
+
+/// Image de couverture d'une face filmée.
+///
+/// Extraite en natif du fichier **déjà déchiffré sur l'appareil**, puis gardée
+/// à côté de lui. C'était impossible avant la refonte pour le contenu d'autrui
+/// (il aurait fallu télécharger la vidéo entière depuis une grille) ; ça ne
+/// l'est plus, puisque la face est de toute façon descendue pour être lue.
+class _VideoCover extends ConsumerWidget {
+  const _VideoCover({required this.file, required this.decodeWidth});
+
+  final File file;
+  final int decodeWidth;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cover = ref.watch(_videoCoverProvider(file.path));
+    return cover.when(
+      loading: () => ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      ),
+      error: (_, _) => const _ThumbPlaceholder(icon: Icons.videocam),
+      data: (thumb) => thumb == null
+          ? const _ThumbPlaceholder(icon: Icons.videocam)
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.file(thumb, fit: BoxFit.cover, cacheWidth: decodeWidth),
+                const _PlayBadge(),
+              ],
+            ),
+    );
+  }
+}
+
+final _videoCoverProvider = FutureProvider.family<File?, String>(
+  (ref, path) => ref.read(cardMediaCacheProvider).videoThumb(File(path)),
+);
 
 /// Cadre commun aux deux faces : coins arrondis, liseré de la couleur du type,
 /// tag du type et badge « Public ».

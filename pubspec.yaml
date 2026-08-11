@@ -1,12 +1,12 @@
-name: neovibe
-description: "NeoVibe — le réseau social de la présence physique."
+﻿name: neovibe
+description: "NeoVibe â€” le rÃ©seau social de la prÃ©sence physique."
 publish_to: 'none'
 
-# versionName+versionCode. À INCRÉMENTER à chaque release à tester : sans un
-# versionCode plus élevé, Android refuse de mettre à jour un APK sideloadé (Jay
-# est resté bloqué en v0.9.2 en croyant installer la v0.9.3). Convention :
-# 0.9.4+94 → versionName 0.9.4, versionCode 94 (suffixe = version sans points).
-version: 0.9.47+137
+# versionName+versionCode. Ã€ INCRÃ‰MENTER Ã  chaque release Ã  tester : sans un
+# versionCode plus Ã©levÃ©, Android refuse de mettre Ã  jour un APK sideloadÃ© (Jay
+# est restÃ© bloquÃ© en v0.9.2 en croyant installer la v0.9.3). Convention :
+# 0.9.4+94 â†’ versionName 0.9.4, versionCode 94 (suffixe = version sans points).
+version: 0.9.48+138
 
 environment:
   sdk: ^3.12.2
@@ -15,17 +15,17 @@ dependencies:
   flutter:
     sdk: flutter
 
-  # État & backend
+  # Ã‰tat & backend
   flutter_riverpod: ^3.0.0
   supabase_flutter: ^2.10.0
 
-  # Capture & médias — la caméra est NATIVE (NativeCamera.kt + platform
-  # channel), le plugin `camera` a été remplacé (chantier Jay 2026-07-13)
+  # Capture & mÃ©dias â€” la camÃ©ra est NATIVE (NativeCamera.kt + platform
+  # channel), le plugin `camera` a Ã©tÃ© remplacÃ© (chantier Jay 2026-07-13)
   image_picker: ^1.1.0
   video_player: ^2.9.0
 
-  # Proximité BLE — le lien (advertising/scan/GATT) est NATIF (NativeBle.kt),
-  # le protocole (poignée de main chiffrée, certificats) vit en Dart
+  # ProximitÃ© BLE â€” le lien (advertising/scan/GATT) est NATIF (NativeBle.kt),
+  # le protocole (poignÃ©e de main chiffrÃ©e, certificats) vit en Dart
   permission_handler: ^12.0.0
   flutter_foreground_task: ^9.1.0
   cryptography: ^2.7.0

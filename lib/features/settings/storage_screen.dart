@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/prefs.dart';
 import '../cards/card_media_cache.dart';
-import '../stories/story_media_cache.dart';
+import '../../core/content/content_media_cache.dart';
 
 /// Gestion du stockage local des cards (consigne Jay 2026-07-13, C4 option
 /// a) : occupation, espace alloué réglable, emplacement affiché, vidage —
@@ -19,7 +19,7 @@ class StorageScreen extends ConsumerStatefulWidget {
 
 class _StorageScreenState extends ConsumerState<StorageScreen> {
   ({int ownBytes, int othersBytes, String path})? _usage;
-  ({int ownBytes, int othersBytes})? _storyUsage;
+  ({int ownBytes, int othersBytes})? _spineUsage;
 
   @override
   void initState() {
@@ -29,11 +29,11 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
 
   Future<void> _refresh() async {
     final usage = await ref.read(cardMediaCacheProvider).usage();
-    final stories = await ref.read(storyMediaCacheProvider).usage();
+    final stories = await ref.read(contentMediaCacheProvider).usage();
     if (mounted) {
       setState(() {
         _usage = usage;
-        _storyUsage = stories;
+        _spineUsage = stories;
       });
     }
   }
@@ -127,32 +127,34 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
             ),
           ),
           const Divider(),
-          const _Header('Stories'),
+          const _Header('Stories et publications'),
           ListTile(
             dense: true,
             leading: const Icon(Icons.auto_awesome),
             title: Text(
-              _storyUsage == null
+              _spineUsage == null
                   ? 'Calcul…'
-                  : '${_fmt(_storyUsage!.ownBytes)} pour les miennes · '
-                        '${_fmt(_storyUsage!.othersBytes)} en cache',
+                  : '${_fmt(_spineUsage!.ownBytes)} pour les miennes · '
+                        '${_fmt(_spineUsage!.othersBytes)} en cache',
             ),
             subtitle: const Text(
-              'Espace séparé de celui des Vibes : une story a sa propre règle '
-              'de rétention, son expiration. Tout y est effacé automatiquement '
-              'au bout de 24 h.',
+              'Espace séparé de celui des Vibes envoyées : ces contenus n\'ont '
+              'pas de budget de vues. Les stories y sont effacées à leur '
+              'expiration, les publications restent.',
               style: TextStyle(fontSize: 12),
             ),
           ),
-          if (_storyUsage != null)
+          if (_spineUsage != null)
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: OutlinedButton(
                 onPressed: () async {
-                  await ref.read(storyMediaCacheProvider).clear();
+                  await ref.read(contentMediaCacheProvider).clear();
                   await _refresh();
                 },
-                child: const Text('Vider le stockage des stories'),
+                child: const Text(
+                  'Vider le stockage des stories et publications',
+                ),
               ),
             ),
           const Divider(),
