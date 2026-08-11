@@ -1,0 +1,805 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeoVibe — comment vit un contenu</title>
+<style>
+:root{
+  --bg:#0d0d12; --panel:#16161f; --panel2:#1d1d28; --line:#2c2c3a;
+  --ink:#e9e9f2; --muted:#9a9ab0; --faint:#65657d;
+  --story:#c05cff; --pub:#3ba9ff; --circle:#ffb03b; --vault:#3bd6a8;
+  --ok:#3bd6a8; --no:#ff5f6d; --key:#ffd24a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{padding:28px 24px 10px;max-width:1180px;margin:0 auto}
+h1{margin:0 0 4px;font-size:26px;letter-spacing:-.3px}
+.sub{color:var(--muted);margin:0}
+nav{max-width:1180px;margin:18px auto 0;padding:0 24px;display:flex;gap:8px;flex-wrap:wrap}
+nav button{background:var(--panel);color:var(--muted);border:1px solid var(--line);
+  padding:9px 16px;border-radius:999px;cursor:pointer;font-size:14px}
+nav button.on{background:var(--ink);color:#0d0d12;border-color:var(--ink);font-weight:600}
+main{max-width:1180px;margin:0 auto;padding:22px 24px 80px}
+section{display:none} section.on{display:block}
+h2{font-size:20px;margin:34px 0 10px;letter-spacing:-.2px}
+h2:first-child{margin-top:8px}
+h3{font-size:16px;margin:24px 0 6px;color:var(--ink)}
+p{margin:10px 0;color:#cfcfe0;max-width:78ch}
+.lead{font-size:16.5px;color:var(--ink)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+.warn{border-left:3px solid var(--circle)}
+.good{border-left:3px solid var(--ok)}
+.bad{border-left:3px solid var(--no)}
+code{background:#000;padding:1px 6px;border-radius:5px;font-size:13px;color:#ffd9a0}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+th{background:var(--panel2);color:var(--muted);font-weight:600;white-space:nowrap}
+ul{color:#cfcfe0;max-width:78ch} li{margin:5px 0}
+.tag{display:inline-block;padding:2px 9px;border-radius:6px;font-size:12px;font-weight:700}
+.t-story{background:rgba(192,92,255,.16);color:var(--story);border:1px solid rgba(192,92,255,.45)}
+.t-pub{background:rgba(59,169,255,.16);color:var(--pub);border:1px solid rgba(59,169,255,.45)}
+.t-circle{background:rgba(255,176,59,.16);color:var(--circle);border:1px solid rgba(255,176,59,.45)}
+.t-vault{background:rgba(59,214,168,.16);color:var(--vault);border:1px solid rgba(59,214,168,.45)}
+
+/* ---------- simulateur ---------- */
+.sim{display:grid;grid-template-columns:290px 1fr;gap:18px;align-items:start}
+@media(max-width:900px){.sim{grid-template-columns:1fr}}
+.ctrl{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.ctrl h4{margin:0 0 8px;font-size:12px;letter-spacing:.10em;text-transform:uppercase;color:var(--faint)}
+.ctrl h4:not(:first-child){margin-top:18px}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opt{background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+  padding:7px 11px;border-radius:9px;cursor:pointer;font-size:13px}
+.opt.on{border-color:currentColor;font-weight:600}
+.opt[data-d=story].on{color:var(--story);background:rgba(192,92,255,.12)}
+.opt[data-d=publication].on{color:var(--pub);background:rgba(59,169,255,.12)}
+.opt[data-d=direct].on{color:var(--circle);background:rgba(255,176,59,.12)}
+.opt[data-d=vault].on{color:var(--vault);background:rgba(59,214,168,.12)}
+.opt.dis{opacity:.32;cursor:not-allowed}
+.sw{display:flex;align-items:center;gap:9px;margin:8px 0;font-size:13.5px;color:#cfcfe0;cursor:pointer}
+.sw input{accent-color:var(--ok);width:16px;height:16px}
+.hint{font-size:12.5px;color:var(--faint);margin:6px 0 0;line-height:1.45}
+button.go{width:100%;margin-top:16px;padding:11px;border-radius:10px;border:0;
+  background:var(--ink);color:#0d0d12;font-weight:700;cursor:pointer;font-size:14px}
+button.go:disabled{opacity:.35;cursor:not-allowed}
+button.ghost{width:100%;margin-top:8px;padding:9px;border-radius:10px;
+  background:transparent;color:var(--muted);border:1px solid var(--line);cursor:pointer;font-size:13px}
+button.ghost:hover:not(:disabled){color:var(--ink)}
+button.ghost:disabled{opacity:.3;cursor:not-allowed}
+
+.stagewrap{position:relative;background:var(--panel);border:1px solid var(--line);
+  border-radius:14px;padding:18px;min-height:430px}
+#wires{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.cols{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:16px;position:relative;z-index:2}
+.col h5{margin:0 0 10px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+.box{background:var(--panel2);border:1px solid var(--line);border-radius:11px;
+  padding:10px 12px;margin-bottom:9px;transition:.28s}
+.box .t{font-size:13px;font-weight:600}
+.box .s{font-size:11.5px;color:var(--faint);margin-top:2px;line-height:1.4}
+.box.lit{border-color:var(--ok);box-shadow:0 0 0 2px rgba(59,214,168,.18)}
+.box.no{border-color:var(--no);box-shadow:0 0 0 2px rgba(255,95,109,.18)}
+.box.empty{opacity:.38}
+.who{display:flex;align-items:center;gap:9px}
+.av{width:26px;height:26px;border-radius:50%;flex:0 0 26px;display:grid;place-items:center;
+  font-size:11px;font-weight:700;color:#0d0d12}
+.pill{font-size:10.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--faint)}
+.acts{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.acts button{font-size:11.5px;padding:4px 9px;border-radius:7px;background:#000;
+  border:1px solid var(--line);color:var(--muted);cursor:pointer}
+.acts button:hover:not(:disabled){color:var(--ink);border-color:var(--muted)}
+.acts button:disabled{opacity:.3;cursor:not-allowed}
+.dot{position:absolute;width:13px;height:13px;border-radius:50%;z-index:5;
+  transform:translate(-50%,-50%);pointer-events:none;box-shadow:0 0 12px currentColor}
+.dot span{position:absolute;left:17px;top:-8px;font-size:10.5px;white-space:nowrap;
+  color:var(--ink);background:#000a;padding:1px 6px;border-radius:5px;border:1px solid var(--line)}
+#log{background:#000;border:1px solid var(--line);border-radius:12px;padding:14px 16px;
+  margin-top:16px;max-height:280px;overflow:auto;font-size:13px;line-height:1.65}
+#log .l{margin:3px 0;color:#b9b9cc}
+#log .l b{color:var(--ink)}
+#log .step{color:var(--faint);margin-right:7px}
+#log .l.ok b{color:var(--ok)} #log .l.no b{color:var(--no)} #log .l.key b{color:var(--key)}
+#log .l.head{color:var(--ink);font-weight:700;margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.graph{margin-top:16px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--faint);margin-top:8px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px}
+svg text{font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.diag{width:100%;height:auto;background:#000;border:1px solid var(--line);border-radius:12px;margin:14px 0}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Comment vit un contenu dans NeoVibe</h1>
+  <p class="sub">Le cours, le schéma, et un simulateur pour voir le trajet de chaque contenu.
+  Tout est local : ce fichier ne parle ni au serveur ni à l'app.</p>
+</header>
+
+<nav>
+  <button class="on" data-tab="cours">Le cours</button>
+  <button data-tab="schema">Le schéma</button>
+  <button data-tab="sim">Le simulateur</button>
+</nav>
+
+<main>
+
+<!-- ═══════════════════════════ COURS ═══════════════════════════ -->
+<section id="cours" class="on">
+
+<h2>1. L'idée en une phrase</h2>
+<p class="lead"><b>Un contenu appartient à un seul contexte de diffusion, choisi au moment de
+l'envoi, et il n'en change jamais.</b></p>
+<p>Un « contexte de diffusion », c'est une manière de partager : une story, une publication de
+bibliothèque, un envoi dans le cercle, une bibliothèque de conversation. Chacune a ses propres
+règles — qui peut voir, pendant combien de temps, combien de fois.</p>
+
+<div class="card bad">
+<h3>Ce qu'on avait avant, et pourquoi ça coinçait</h3>
+<p>Avant, une même Vibe pouvait être <b>envoyée en DM, publiée en bibliothèque et mise en story
+en même temps</b>. Un seul fichier, trois régimes de règles qui se contredisaient. Trois
+conséquences concrètes :</p>
+<ul>
+<li><b>Le compteur de vues était partagé.</b> Tu envoies une Vibe à quelqu'un avec « 2 vues ».
+Il la voit une fois en story : il ne lui en reste qu'une dans le chat. Rien ne le lui disait.</li>
+<li><b>La story annulait la limite.</b> Pire : comme une story se regarde sans limite, publier
+en story vidait de son sens le « 2 vues » que tu venais de choisir — en silence.</li>
+<li><b>La suppression en cascade.</b> Tu supprimes ta story, tu risquais d'emporter la
+publication et l'envoi avec.</li>
+</ul>
+<p>Le vrai problème était plus profond que ces trois bugs : <b>on avait mélangé le contenu et le
+format.</b> Une photo, c'est un contenu. Une story, c'est un format. On essayait de faire trois
+formats avec un seul objet.</p>
+</div>
+
+<div class="card good">
+<h3>La règle qui remplace tout ça</h3>
+<p>Un contenu = un format = un stockage = un cycle de vie. Trois formats différents demandent
+trois objets différents. Ce n'est pas une barrière ajoutée : c'est une <b>cause supprimée</b>.
+Il n'y a plus de conflit à arbitrer, parce qu'il ne peut plus s'en produire.</p>
+</div>
+
+<h2>2. Les quatre contextes</h2>
+<table>
+<tr><th>Contexte</th><th>Qui voit</th><th>Combien de temps</th><th>Limite de vues</th><th>Repartageable&nbsp;?</th></tr>
+<tr><td><span class="tag t-story">Story</span></td><td>Mes amis (+ les croisés si « stories publiques »)</td><td>24 h</td><td>Aucune</td><td>Oui, si coché</td></tr>
+<tr><td><span class="tag t-pub">Publication</span></td><td>Selon mes règles de bibliothèque, ou tout profil visible si « publique »</td><td><b>Permanente</b></td><td>Aucune</td><td>Oui, si coché</td></tr>
+<tr><td><span class="tag t-circle">Cercle</span></td><td>Les destinataires nommés, un par un</td><td>24 h</td><td><b>Oui</b> (+ durée par vue)</td><td><b>Jamais</b></td></tr>
+<tr><td><span class="tag t-vault">Biblio. de conv.</span></td><td>Les membres de la conversation</td><td>Selon « souvenir » ou éphémère</td><td>Aucune, mais masqué jusqu'à 18h30</td><td><b>Jamais</b></td></tr>
+</table>
+<p>Regarde la colonne « limite de vues » : <b>une seule ligne sur quatre en a une</b>. C'est ça que
+la séparation a permis. Avant, il fallait décider au cas par cas si la limite s'appliquait, avec
+des règles qui se marchaient dessus. Maintenant la question ne se pose plus : la limite appartient
+au Cercle, point.</p>
+
+<h3>Et le repartage, alors ?</h3>
+<p>Tu voulais qu'un contenu puisse voyager. Il le peut — mais <b>sans jamais être copié</b>.
+Quand tu repartages ta story dans une conversation, on ne fabrique pas une deuxième story :
+on ajoute un <b>chemin d'accès</b> vers celle qui existe. Un raccourci.</p>
+<p>Deux conséquences que tu dois avoir en tête :</p>
+<ul>
+<li><b>Si tu supprimes la source, tous les raccourcis meurent avec.</b> C'est normal et c'est
+honnête : ils ne pointaient nulle part ailleurs.</li>
+<li><b>Le stockage ne bouge pas.</b> Une story relayée 400 fois occupe exactement la même place
+qu'une story vue par personne. Seule la liste des chemins grandit, et une ligne de liste pèse
+quelques dizaines d'octets.</li>
+</ul>
+<p>Et comme <b>toute personne de l'audience peut relayer</b> — y compris quelqu'un qui a lui-même
+reçu par un relais — le contenu peut voyager de cercle en cercle sans limite de sauts. Chaque saut
+est une personne qui décide. Aucun algorithme ne pousse rien.</p>
+
+<h2>3. Le socle : l'identité d'un contenu</h2>
+<p>Chaque contenu reçoit à sa naissance un <b>Content ID</b> : un numéro unique et définitif.
+Trois registres s'y accrochent.</p>
+<table>
+<tr><th>Registre</th><th>Ce qu'il contient</th><th>Qui peut le lire</th></tr>
+<tr><td><code>contents</code></td><td>L'identité : qui a créé, quand, dans quel contexte, est-ce partageable, est-ce révoqué</td><td>Toi et ceux qui ont accès au contenu</td></tr>
+<tr><td><code>content_grants</code></td><td>Le <b>graphe</b> : qui a donné accès à qui, par quelle conversation</td><td><b>Personne.</b> Réservé à l'admin, côté serveur</td></tr>
+<tr><td><code>content_views</code></td><td>Qui a vu, quand, combien de fois — <b>toujours nominatif</b></td><td><b>Personne</b> directement. Deux fonctions filtrées le résument</td></tr>
+</table>
+
+<div class="card warn">
+<h3>Le point que tu dois retenir : le journal survit au contenu</h3>
+<p>Une story meurt à 24 h : ses fichiers disparaissent, sa ligne de format aussi. <b>Mais son
+identité, son graphe et ses vues restent.</b></p>
+<p>C'est délibéré, et c'est toi qui l'as tranché. Sans ça, il n'y aurait plus rien à retracer une
+fois le mal fait : un contenu problématique disparaîtrait au bout de 24 h avec toute la preuve de
+sa circulation. C'est la seule chose dans l'app qui contredise l'éphémère, et elle est là pour
+protéger les utilisateurs.</p>
+<p><b>Nuance importante</b> : une story <i>expirée</i> laisse son journal. Une publication que son
+auteur <i>supprime</i> emporte le sien — il a le droit de retirer ce qu'il a publié.</p>
+</div>
+
+<h2>4. Le chiffrement, ou pourquoi le serveur ne rend qu'une clé</h2>
+<p>C'est la pièce la plus contre-intuitive, alors prenons-la lentement.</p>
+<p><b>Le problème d'origine</b> : ton app disait au serveur « j'ai regardé, décompte une vue ».
+Une app modifiée pouvait simplement… ne pas le dire. La limite de vues n'était pas une garantie,
+c'était une politesse.</p>
+<p><b>La solution</b> : on chiffre le média <b>sur ton téléphone</b>, avant qu'il ne parte. Le
+fichier qui arrive sur le serveur est un bloc illisible. La <b>clé</b> qui l'ouvre est confiée au
+serveur, séparément.</p>
+<p>Résultat : ouvrir un contenu, c'est <b>demander la clé</b>. Et c'est le même geste, indivisible,
+qui vérifie les droits, décompte s'il y a lieu, et rend la clé. <b>Pas de clé, pas d'image.</b>
+Il n'y a plus de porte dérobée, il n'y a plus qu'une porte.</p>
+<p><b>Et c'est bon marché</b> : le média lourd ne voyage qu'une fois et reste en cache sur
+l'appareil, chiffré. Seule la clé — 44 caractères — refait le trajet à chaque ouverture.</p>
+
+<div class="card">
+<h3>Ce que ça permet, et ce que ça ne permet pas</h3>
+<p><b>Ça permet la révocation.</b> Tu marques un contenu comme révoqué : plus aucune clé n'est
+délivrée, à personne, y compris à son auteur. Les copies qui traînent sur les appareils
+deviennent des blocs inertes. C'est la base du système de modération à venir.</p>
+<p><b>Ça ne permet pas</b> d'effacer ce que quelqu'un a déjà déchiffré et gardé. Aucun système
+ne le peut sans faire retélécharger à chaque vue, ce qui coûterait cher. La garantie exacte est
+donc : <b>aucun accès nouveau sans le serveur</b> — pas « on ne revoit jamais ce qu'on a vu ».</p>
+<p><b>Et pour les sauvegardes</b>, tu as tranché autrement : elles seront des copies locales en
+clair, et leur révocation reposera sur la coopération de l'app. Un client modifié pourra les
+garder. Tu l'as accepté en connaissance de cause.</p>
+</div>
+
+<h2>5. Les statistiques</h2>
+<p>Tu vois <b>qui a vu</b> ton contenu. Mais nommément seulement pour les gens de ton cercle ;
+au-delà, tu vois un nombre. Deux raisons :</p>
+<ul>
+<li>Les inconnus atteints par un relais n'ont pas accepté d'apparaître dans ta liste. Si tu voyais
+leurs noms, tu apprendrais qui sont les amis de tes amis.</li>
+<li>Une liste nominative de 300 inconnus, ce n'est plus un signal de relation : c'est un compteur
+d'audience. Le nombre devient la récompense, et on publie pour le faire monter.</li>
+</ul>
+<p><b>Mais le nominatif complet est enregistré côté serveur</b>, dans tous les cas. Le jour où tu
+ouvres l'option premium, il n'y aura rien à migrer : c'est l'affichage qui s'abstient, pas la
+base qui ignore.</p>
+
+<h2>6. Ce que tu ne vois pas, et qui te protège</h2>
+<p>Chaque objet a désormais <b>une seule fonction</b> qui répond à <b>une seule question</b> :
+« cette personne est-elle dans l'audience de ce contenu ? »</p>
+<p>Avant la refonte, l'accès à un fichier de Vibe passait par <b>six</b> chemins reliés par « ou ».
+Quand six règles s'additionnent, c'est toujours <b>la plus permissive qui gagne</b> — et en
+silence, sans que personne ne l'ait décidé. C'est de là que venaient les deux bugs du haut de
+cette page.</p>
+<p>Aujourd'hui il en reste <b>trois</b> pour les Vibes envoyées (propriétaire, livraison,
+sauvegarde), et la troisième disparaîtra quand les sauvegardes deviendront locales. L'objectif est
+d'arriver à <b>un</b>.</p>
+
+</section>
+
+<!-- ═══════════════════════════ SCHÉMA ═══════════════════════════ -->
+<section id="schema">
+<h2>Le trajet d'un contenu, de bout en bout</h2>
+<p>Chaque couleur est un contexte. Remarque que les quatre colonnes du milieu ne se touchent
+jamais : c'est exactement ça, « un contenu, un format ».</p>
+
+<svg class="diag" viewBox="0 0 980 470" role="img" aria-label="Schéma d'architecture">
+  <defs>
+    <marker id="ar" markerWidth="9" markerHeight="9" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#65657d"/>
+    </marker>
+  </defs>
+  <!-- appareil -->
+  <rect x="14" y="96" width="176" height="250" rx="12" fill="#16161f" stroke="#2c2c3a"/>
+  <text x="102" y="120" fill="#9a9ab0" text-anchor="middle">MON APPAREIL</text>
+  <rect x="32" y="138" width="140" height="42" rx="8" fill="#1d1d28" stroke="#2c2c3a"/>
+  <text x="102" y="157" fill="#e9e9f2" text-anchor="middle">Capture</text>
+  <text x="102" y="171" fill="#65657d" text-anchor="middle">photo / vidéo</text>
+  <rect x="32" y="192" width="140" height="42" rx="8" fill="#1d1d28" stroke="#ffd24a"/>
+  <text x="102" y="211" fill="#ffd24a" text-anchor="middle">Chiffrement</text>
+  <text x="102" y="225" fill="#65657d" text-anchor="middle">la clé naît ici</text>
+  <rect x="32" y="246" width="140" height="42" rx="8" fill="#1d1d28" stroke="#2c2c3a"/>
+  <text x="102" y="265" fill="#e9e9f2" text-anchor="middle">Cache local</text>
+  <text x="102" y="279" fill="#65657d" text-anchor="middle">scellé, illisible</text>
+  <text x="102" y="316" fill="#65657d" text-anchor="middle">Le clair ne vit que</text>
+  <text x="102" y="330" fill="#65657d" text-anchor="middle">le temps de l'écran</text>
+
+  <!-- buckets -->
+  <rect x="248" y="34" width="470" height="188" rx="12" fill="#16161f" stroke="#2c2c3a"/>
+  <text x="483" y="56" fill="#9a9ab0" text-anchor="middle">LE SERVEUR — QUATRE COFFRES ÉTANCHES</text>
+  <rect x="266" y="72" width="104" height="130" rx="9" fill="rgba(192,92,255,.10)" stroke="#c05cff"/>
+  <text x="318" y="94" fill="#c05cff" text-anchor="middle" font-weight="700">stories</text>
+  <text x="318" y="116" fill="#9a9ab0" text-anchor="middle">24 h</text>
+  <text x="318" y="134" fill="#9a9ab0" text-anchor="middle">mes amis</text>
+  <text x="318" y="152" fill="#9a9ab0" text-anchor="middle">vues illimitées</text>
+  <text x="318" y="176" fill="#65657d" text-anchor="middle">relayable</text>
+  <rect x="378" y="72" width="104" height="130" rx="9" fill="rgba(59,169,255,.10)" stroke="#3ba9ff"/>
+  <text x="430" y="94" fill="#3ba9ff" text-anchor="middle" font-weight="700">library</text>
+  <text x="430" y="116" fill="#9a9ab0" text-anchor="middle">permanent</text>
+  <text x="430" y="134" fill="#9a9ab0" text-anchor="middle">ma biblio.</text>
+  <text x="430" y="152" fill="#9a9ab0" text-anchor="middle">vues illimitées</text>
+  <text x="430" y="176" fill="#65657d" text-anchor="middle">relayable</text>
+  <rect x="490" y="72" width="104" height="130" rx="9" fill="rgba(255,176,59,.10)" stroke="#ffb03b"/>
+  <text x="542" y="94" fill="#ffb03b" text-anchor="middle" font-weight="700">cards</text>
+  <text x="542" y="116" fill="#9a9ab0" text-anchor="middle">24 h</text>
+  <text x="542" y="134" fill="#9a9ab0" text-anchor="middle">destinataires</text>
+  <text x="542" y="152" fill="#ff5f6d" text-anchor="middle">vues LIMITÉES</text>
+  <text x="542" y="176" fill="#65657d" text-anchor="middle">jamais relayable</text>
+  <rect x="602" y="72" width="104" height="130" rx="9" fill="rgba(59,214,168,.10)" stroke="#3bd6a8"/>
+  <text x="654" y="94" fill="#3bd6a8" text-anchor="middle" font-weight="700">library_vault</text>
+  <text x="654" y="116" fill="#9a9ab0" text-anchor="middle">conversation</text>
+  <text x="654" y="134" fill="#9a9ab0" text-anchor="middle">membres</text>
+  <text x="654" y="152" fill="#9a9ab0" text-anchor="middle">masqué</text>
+  <text x="654" y="176" fill="#65657d" text-anchor="middle">jusqu'à 18h30</text>
+
+  <!-- socle -->
+  <rect x="248" y="244" width="470" height="176" rx="12" fill="#16161f" stroke="#ffd24a" stroke-dasharray="4 3"/>
+  <text x="483" y="266" fill="#ffd24a" text-anchor="middle">LE SOCLE — commun aux quatre</text>
+  <rect x="266" y="282" width="212" height="52" rx="8" fill="#1d1d28" stroke="#2c2c3a"/>
+  <text x="372" y="302" fill="#e9e9f2" text-anchor="middle">contents · le Content ID</text>
+  <text x="372" y="320" fill="#65657d" text-anchor="middle">identité · partageable · révocation</text>
+  <rect x="488" y="282" width="212" height="52" rx="8" fill="#1d1d28" stroke="#2c2c3a"/>
+  <text x="594" y="302" fill="#ffd24a" text-anchor="middle">content_media_keys</text>
+  <text x="594" y="320" fill="#65657d" text-anchor="middle">les clés — illisible par tous</text>
+  <rect x="266" y="344" width="212" height="52" rx="8" fill="#1d1d28" stroke="#2c2c3a"/>
+  <text x="372" y="364" fill="#e9e9f2" text-anchor="middle">content_grants · le graphe</text>
+  <text x="372" y="382" fill="#65657d" text-anchor="middle">qui a relayé à qui — admin seul</text>
+  <rect x="488" y="344" width="212" height="52" rx="8" fill="#1d1d28" stroke="#2c2c3a"/>
+  <text x="594" y="364" fill="#e9e9f2" text-anchor="middle">content_views · les vues</text>
+  <text x="594" y="382" fill="#65657d" text-anchor="middle">nominatif, toujours enregistré</text>
+  <text x="483" y="440" fill="#ffd24a" text-anchor="middle">↑ ces trois registres SURVIVENT à l'expiration du contenu</text>
+
+  <!-- destinataires -->
+  <rect x="776" y="96" width="190" height="250" rx="12" fill="#16161f" stroke="#2c2c3a"/>
+  <text x="871" y="120" fill="#9a9ab0" text-anchor="middle">CEUX QUI REGARDENT</text>
+  <rect x="794" y="138" width="154" height="40" rx="8" fill="#1d1d28" stroke="#2c2c3a"/>
+  <text x="871" y="163" fill="#e9e9f2" text-anchor="middle">1. « je veux ouvrir »</text>
+  <rect x="794" y="188" width="154" height="40" rx="8" fill="#1d1d28" stroke="#ffd24a"/>
+  <text x="871" y="206" fill="#ffd24a" text-anchor="middle">2. le serveur vérifie</text>
+  <text x="871" y="221" fill="#65657d" text-anchor="middle">et rend la clé</text>
+  <rect x="794" y="238" width="154" height="40" rx="8" fill="#1d1d28" stroke="#2c2c3a"/>
+  <text x="871" y="263" fill="#e9e9f2" text-anchor="middle">3. déchiffrement local</text>
+  <text x="871" y="302" fill="#65657d" text-anchor="middle">Pas de clé,</text>
+  <text x="871" y="318" fill="#65657d" text-anchor="middle">pas d'image.</text>
+
+  <line x1="192" y1="176" x2="244" y2="140" stroke="#65657d" marker-end="url(#ar)"/>
+  <text x="218" y="164" fill="#65657d" text-anchor="middle" font-size="10">scellé</text>
+  <line x1="192" y1="212" x2="244" y2="300" stroke="#ffd24a" marker-end="url(#ar)"/>
+  <text x="228" y="252" fill="#ffd24a" font-size="10">clé</text>
+  <line x1="722" y1="140" x2="772" y2="160" stroke="#65657d" marker-end="url(#ar)"/>
+  <line x1="722" y1="300" x2="772" y2="212" stroke="#ffd24a" marker-end="url(#ar)"/>
+</svg>
+
+<div class="card">
+<h3>Comment lire ce schéma</h3>
+<p><b>Deux flux séparés partent de ton appareil.</b> Le média chiffré monte vers un coffre — un
+seul, celui de son contexte. La clé, elle, part ailleurs, dans le socle. Ces deux choses ne se
+retrouvent jamais côté serveur.</p>
+<p><b>Les quatre coffres ne communiquent pas.</b> Il n'existe aucune flèche entre eux. C'est ce
+qui rend impossible qu'une règle de story s'applique à une Vibe envoyée.</p>
+<p><b>Le socle, lui, est commun.</b> C'est ce qui permet d'avoir une seule porte d'entrée
+(<code>open_content_media</code>), un seul mécanisme de partage, un seul de révocation — au lieu
+d'en réécrire un par format.</p>
+</div>
+</section>
+
+<!-- ═══════════════════════════ SIMULATEUR ═══════════════════════════ -->
+<section id="sim">
+<h2>Simulateur</h2>
+<p>Crée un contenu, envoie-le, puis regarde ce que chaque personne peut ou ne peut pas faire.
+Rien ici ne touche l'app ni le serveur.</p>
+
+<div class="sim">
+  <div class="ctrl">
+    <h4>1 · La capture</h4>
+    <div class="opts" id="faces">
+      <button class="opt on" data-f="1">Une face</button>
+      <button class="opt" data-f="2">Recto / verso</button>
+      <button class="opt" data-f="v">Vidéo</button>
+    </div>
+
+    <h4>2 · La destination</h4>
+    <p class="hint" style="margin:0 0 8px">Une seule. C'est tout le principe.</p>
+    <div class="opts" id="dest">
+      <button class="opt" data-d="story">Story</button>
+      <button class="opt" data-d="publication">Bibliothèque</button>
+      <button class="opt on" data-d="direct">Cercle</button>
+      <button class="opt" data-d="vault">Biblio. conv.</button>
+    </div>
+
+    <h4>3 · Les options</h4>
+    <div id="opts"></div>
+
+    <button class="go" id="send">Envoyer</button>
+    <button class="ghost" id="tick" disabled>Faire passer 24 h</button>
+    <button class="ghost" id="revoke" disabled>Révoquer (modération)</button>
+    <button class="ghost" id="reset">Tout remettre à zéro</button>
+  </div>
+
+  <div>
+    <div class="stagewrap">
+      <svg id="wires"></svg>
+      <div class="cols">
+        <div class="col">
+          <h5>Mon appareil</h5>
+          <div class="box" id="b-capture"><div class="t">Capture</div><div class="s" id="s-capture">rien encore</div></div>
+          <div class="box" id="b-seal"><div class="t">Chiffrement</div><div class="s" id="s-seal">la clé naît ici</div></div>
+          <div class="box" id="b-cache"><div class="t">Cache local</div><div class="s" id="s-cache">vide</div></div>
+        </div>
+        <div class="col">
+          <h5>Le serveur</h5>
+          <div class="box empty" id="k-story"><div class="t"><span class="tag t-story">stories</span></div><div class="s">vide</div></div>
+          <div class="box empty" id="k-publication"><div class="t"><span class="tag t-pub">library</span></div><div class="s">vide</div></div>
+          <div class="box empty" id="k-direct"><div class="t"><span class="tag t-circle">cards</span></div><div class="s">vide</div></div>
+          <div class="box empty" id="k-vault"><div class="t"><span class="tag t-vault">library_vault</span></div><div class="s">vide</div></div>
+          <div class="box" id="b-spine"><div class="t">Le socle</div><div class="s" id="s-spine">aucun contenu</div></div>
+        </div>
+        <div class="col">
+          <h5>Les autres</h5>
+          <div id="people"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="graph">
+      <svg id="graph" viewBox="0 0 620 190" class="diag" style="margin:16px 0 0"></svg>
+      <div class="legend">
+        <span><i style="background:#3bd6a8"></i>a vu</span>
+        <span><i style="background:#ffd24a"></i>a relayé</span>
+        <span><i style="background:#65657d"></i>a accès, n'a pas ouvert</span>
+        <span><i style="background:#ff5f6d"></i>aucun accès</span>
+      </div>
+    </div>
+
+    <div id="log"></div>
+  </div>
+</div>
+</section>
+
+</main>
+
+<script>
+"use strict";
+
+/* ─────────── onglets ─────────── */
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id===b.dataset.tab));
+  if(b.dataset.tab==='sim') draw();
+});
+
+/* ─────────── le monde simulé ─────────── */
+const PEOPLE=[
+  {id:'alice',n:'Alice',r:'amie',  c:'#3bd6a8'},
+  {id:'bob',  n:'Bob',  r:'ami',   c:'#3ba9ff'},
+  {id:'chloe',n:'Chloé',r:'croisée, pas amie', c:'#ffb03b'},
+  {id:'david',n:'David',r:"ami d'Alice, inconnu de moi", c:'#c05cff'},
+];
+const DEST={
+  story:{lab:'Story',cls:'t-story',col:'#c05cff',bucket:'stories',
+    ttl:'24 h',views:'illimitées',audience:['alice','bob'],
+    why:"tes amis. Chloé t'a croisé mais tu n'as pas activé « stories publiques »."},
+  publication:{lab:'Publication',cls:'t-pub',col:'#3ba9ff',bucket:'library',
+    ttl:'permanente',views:'illimitées',audience:['alice','bob'],
+    why:'ceux qui peuvent voir ta bibliothèque.'},
+  direct:{lab:'Cercle',cls:'t-circle',col:'#ffb03b',bucket:'cards',
+    ttl:'24 h',views:'LIMITÉES',audience:['alice'],
+    why:'les destinataires que tu as nommés, un par un.'},
+  vault:{lab:'Bibliothèque de conversation',cls:'t-vault',col:'#3bd6a8',bucket:'library_vault',
+    ttl:'jusqu’au reveal',views:'illimitées',audience:['alice','bob'],
+    why:'les membres de la conversation.'},
+};
+
+let S=null, step=0;
+function fresh(){
+  S={faces:'1',dest:'direct',shareable:false,isPublic:false,maxViews:2,
+     sent:false,revoked:false,expired:false,
+     id:null,key:null,grants:[],views:{},opened:{},cacheOf:{},left:{}};
+}
+fresh();
+
+/* ─────────── journal ─────────── */
+const logEl=document.getElementById('log');
+function log(t,cls,head){
+  const d=document.createElement('div');
+  d.className='l '+(cls||'')+(head?' head':'');
+  d.innerHTML=head?t:`<span class="step">${++step}</span>${t}`;
+  logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight;
+}
+function section(t){ step=0; log(t,'',true); }
+
+/* ─────────── options selon la destination ─────────── */
+function renderOpts(){
+  const d=S.dest, box=document.getElementById('opts'); let h='';
+  if(d==='direct'){
+    h+=`<label class="sw"><input type="checkbox" id="o-oneofone" checked disabled>
+        <span>Un seul destinataire → <b>One of One</b></span></label>
+        <p class="hint">Un destinataire et aucune publication : la Vibe devient exclusive,
+        automatiquement.</p>
+        <label class="sw"><input type="range" id="o-views" min="1" max="5" value="${S.maxViews}"
+        style="width:100px;accent-color:#ffb03b"><span>Vues : <b id="vv">${S.maxViews}</b></span></label>
+        <p class="hint">Le seul contexte qui compte les vues. Le décompte est fait par le serveur
+        au moment où il rend la clé — l'app ne peut pas le sauter.</p>`;
+  }
+  if(d==='story'||d==='publication'){
+    h+=`<label class="sw"><input type="checkbox" id="o-share" ${S.shareable?'checked':''}>
+        <span>Partageable</span></label>
+        <p class="hint">Décoché : ça reste dans ton cercle. Coché : ceux qui le voient peuvent
+        le relayer à leurs amis, qui pourront le relayer à leur tour. Sans limite de sauts.</p>`;
+  }
+  if(d==='publication'){
+    h+=`<label class="sw"><input type="checkbox" id="o-public" ${S.isPublic?'checked':''}>
+        <span>Publication publique</span></label>
+        <p class="hint">Visible par toute personne qui accède à ton profil, croisements compris.</p>`;
+  }
+  if(d==='vault'){
+    h+=`<p class="hint">Masquée pour tous — <b>toi compris</b> — jusqu'au reveal de 18h30.
+        Pas de limite de vues, jamais repartageable.</p>`;
+  }
+  box.innerHTML=h;
+  const v=document.getElementById('o-views');
+  if(v)v.oninput=e=>{S.maxViews=+e.target.value;document.getElementById('vv').textContent=S.maxViews;};
+  const sh=document.getElementById('o-share');
+  if(sh)sh.onchange=e=>{S.shareable=e.target.checked;};
+  const pu=document.getElementById('o-public');
+  if(pu)pu.onchange=e=>{S.isPublic=e.target.checked;};
+}
+
+document.querySelectorAll('#faces .opt').forEach(b=>b.onclick=()=>{
+  if(S.sent)return;
+  document.querySelectorAll('#faces .opt').forEach(x=>x.classList.toggle('on',x===b));
+  S.faces=b.dataset.f;
+});
+document.querySelectorAll('#dest .opt').forEach(b=>b.onclick=()=>{
+  if(S.sent)return;
+  document.querySelectorAll('#dest .opt').forEach(x=>x.classList.toggle('on',x===b));
+  S.dest=b.dataset.d; S.shareable=false; S.isPublic=false; renderOpts(); draw();
+});
+
+/* ─────────── audience ─────────── */
+function hasAccess(p){
+  if(S.revoked||S.expired||!S.sent) return false;
+  if(DEST[S.dest].audience.includes(p)) return true;
+  return S.grants.some(g=>g.to===p);
+}
+function canRelay(p){ return S.sent && S.shareable && hasAccess(p) && !S.revoked && !S.expired; }
+
+/* ─────────── rendu des personnes ─────────── */
+function renderPeople(){
+  const c=document.getElementById('people'); c.innerHTML='';
+  PEOPLE.forEach(p=>{
+    const acc=hasAccess(p.id), seen=!!S.views[p.id];
+    const exhausted = S.dest==='direct' && (S.views[p.id]||0)>=S.maxViews;
+    const d=document.createElement('div');
+    d.className='box'+(acc?'':' empty'); d.id='p-'+p.id;
+    d.innerHTML=`<div class="who">
+        <div class="av" style="background:${p.c}">${p.n[0]}</div>
+        <div><div class="t">${p.n}</div><div class="s">${p.r}</div></div>
+      </div>
+      <div class="s" style="margin-top:6px">
+        ${acc?(seen?`<span class="pill" style="color:#3bd6a8;border-color:#3bd6a8">vu ${S.views[p.id]}×</span>`
+                   :'<span class="pill">accès, pas encore ouvert</span>')
+             :'<span class="pill" style="color:#ff5f6d;border-color:#ff5f6d">aucun accès</span>'}
+      </div>
+      <div class="acts">
+        <button data-open="${p.id}" ${(!acc||exhausted)?'disabled':''}>Ouvrir</button>
+        <button data-relay="${p.id}" ${canRelay(p.id)?'':'disabled'}>Relayer</button>
+      </div>`;
+    c.appendChild(d);
+  });
+  c.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>open_(b.dataset.open));
+  c.querySelectorAll('[data-relay]').forEach(b=>b.onclick=()=>relay(b.dataset.relay));
+}
+
+/* ─────────── animation d'un point ─────────── */
+function centerOf(el){
+  const w=document.querySelector('.stagewrap').getBoundingClientRect();
+  const r=el.getBoundingClientRect();
+  return {x:r.left-w.left+r.width/2, y:r.top-w.top+r.height/2};
+}
+function fly(fromEl,toEl,color,label){
+  return new Promise(res=>{
+    const wrap=document.querySelector('.stagewrap');
+    const a=centerOf(fromEl), b=centerOf(toEl);
+    const d=document.createElement('div');
+    d.className='dot'; d.style.color=color; d.style.background=color;
+    d.style.left=a.x+'px'; d.style.top=a.y+'px';
+    if(label) d.innerHTML=`<span>${label}</span>`;
+    wrap.appendChild(d);
+    const t0=performance.now(), dur=620;
+    (function f(t){
+      const k=Math.min(1,(t-t0)/dur), e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;
+      d.style.left=(a.x+(b.x-a.x)*e)+'px';
+      d.style.top=(a.y+(b.y-a.y)*e-Math.sin(e*Math.PI)*26)+'px';
+      if(k<1)requestAnimationFrame(f); else{d.remove();res();}
+    })(t0);
+  });
+}
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+function lit(id,cls){const e=document.getElementById(id);e.classList.add(cls||'lit');
+  setTimeout(()=>e.classList.remove(cls||'lit'),900);}
+
+/* ─────────── envoyer ─────────── */
+document.getElementById('send').onclick=async()=>{
+  if(S.sent)return;
+  const D=DEST[S.dest];
+  S.sent=true; S.id='c-'+Math.random().toString(16).slice(2,8);
+  S.key='k-'+Math.random().toString(16).slice(2,10);
+  document.getElementById('send').disabled=true;
+  document.getElementById('tick').disabled=false;
+  document.getElementById('revoke').disabled=false;
+
+  section(`<span class="tag ${D.cls}">${D.lab}</span> &nbsp;envoi d'un contenu ${
+    S.faces==='2'?'à deux faces':S.faces==='v'?'vidéo':'à une face'}`);
+
+  document.getElementById('s-capture').textContent =
+    S.faces==='2'?'recto + verso':S.faces==='v'?'vidéo':'une face';
+  lit('b-capture');
+  log(`Le média est capturé <b>sur ton téléphone</b>. À cet instant, il n'existe nulle part ailleurs.`);
+  await wait(420);
+
+  lit('b-seal');
+  await fly(document.getElementById('b-capture'),document.getElementById('b-seal'),'#e9e9f2','média');
+  log(`Chiffré <b>avant de partir</b>. Une clé unique est fabriquée ici, sur l'appareil : <b>${S.key}</b>`,'key');
+  document.getElementById('s-seal').textContent='clé '+S.key;
+  await wait(260);
+
+  const bucket=document.getElementById('k-'+S.dest);
+  bucket.classList.remove('empty');
+  bucket.querySelector('.s').textContent=`1 contenu · ${D.ttl} · vues ${D.views}`;
+  await fly(document.getElementById('b-seal'),bucket,D.col,'scellé');
+  lit('k-'+S.dest);
+  log(`Le bloc chiffré monte dans le coffre <b>${D.bucket}</b> — et <b>dans celui-là seulement</b>. Le télécharger ne montrerait rien.`);
+  await wait(200);
+
+  await fly(document.getElementById('b-seal'),document.getElementById('b-spine'),'#ffd24a','clé');
+  lit('b-spine');
+  document.getElementById('s-spine').innerHTML=
+    `Content ID <b>${S.id}</b><br>contexte ${S.dest} · partageable : ${S.shareable?'oui':'non'}`;
+  log(`Le socle enregistre l'identité — <b>Content ID ${S.id}</b> — et range la clé hors de portée de tous.`,'key');
+  await wait(200);
+
+  await fly(document.getElementById('b-seal'),document.getElementById('b-cache'),'#65657d','copie');
+  document.getElementById('s-cache').textContent='1 scellé (le mien)';
+  log(`Une copie <b>chiffrée</b> reste sur mon appareil : je n'aurai plus à la retélécharger.`);
+
+  log(`Audience : <b>${D.audience.map(a=>PEOPLE.find(p=>p.id===a).n).join(', ')}</b> — ${D.why}`,'ok');
+  if(S.dest==='direct')
+    log(`Un seul destinataire et aucune publication : cette Vibe est une <b>One of One</b>, avec ${S.maxViews} vue(s) maximum.`,'ok');
+  if(S.shareable) log(`Marquée <b>partageable</b> : ceux qui y ont accès pourront la relayer.`,'ok');
+  else if(S.dest==='story'||S.dest==='publication')
+    log(`Non partageable : personne ne pourra la relayer ailleurs.`);
+  else log(`Un partage direct n'est <b>jamais</b> repartageable, quoi qu'il arrive.`);
+
+  renderPeople(); draw();
+};
+
+/* ─────────── ouvrir ─────────── */
+async function open_(pid){
+  const p=PEOPLE.find(x=>x.id===pid), D=DEST[S.dest];
+  section(`${p.n} ouvre le contenu`);
+  await fly(document.getElementById('p-'+pid),document.getElementById('b-spine'),'#9a9ab0','« je veux ouvrir »');
+  log(`${p.n} ne demande pas l'image : il demande <b>la clé</b>. C'est le serveur qui décide.`);
+
+  if(S.revoked){ lit('b-spine','no'); log(`<b>Refusé — contenu révoqué.</b> Plus aucune clé n'est délivrée, à personne.`,'no'); return; }
+  if(S.expired){ lit('b-spine','no'); log(`<b>Refusé — le contenu a expiré.</b> Le fichier n'existe plus.`,'no'); return; }
+  if(!hasAccess(pid)){ lit('b-spine','no'); log(`<b>Refusé.</b> ${p.n} n'est pas dans l'audience — et il n'apprend même pas que le contenu existe.`,'no'); return; }
+
+  const used=S.views[pid]||0;
+  if(S.dest==='direct'&&used>=S.maxViews){
+    lit('b-spine','no');
+    log(`<b>Refusé — ${used} vue(s) sur ${S.maxViews} déjà consommées.</b> Le décompte et la remise de la clé sont le même geste : impossible de le contourner.`,'no');
+    renderPeople(); return;
+  }
+
+  S.views[pid]=used+1;
+  lit('b-spine');
+  if(S.dest==='direct') log(`Le serveur vérifie, <b>décompte une vue</b> (${S.views[pid]}/${S.maxViews}) et rend la clé — en une seule opération indivisible.`,'key');
+  else log(`Le serveur vérifie, <b>enregistre la vue</b> pour tes statistiques, et rend la clé. Aucun décompte : ce format n'a pas de limite.`,'key');
+
+  await fly(document.getElementById('b-spine'),document.getElementById('p-'+pid),'#ffd24a','clé');
+  await fly(document.getElementById('k-'+S.dest),document.getElementById('p-'+pid),D.col,'scellé');
+  log(`${p.n} déchiffre <b>sur son appareil</b>. Le clair ne vit que le temps de l'écran.`,'ok');
+
+  const inCircle=['alice','bob'].includes(pid);
+  log(inCircle
+    ? `Dans tes statistiques, ${p.n} apparaîtra <b>nommément</b> : il est de ton cercle.`
+    : `Dans tes statistiques, ${p.n} sera <b>compté sans être nommé</b> — il n'est pas de ton cercle, et il n'a pas accepté d'y figurer.`);
+  renderPeople(); draw();
+}
+
+/* ─────────── relayer ─────────── */
+async function relay(pid){
+  const p=PEOPLE.find(x=>x.id===pid);
+  const cible=PEOPLE.filter(q=>q.id!==pid && !hasAccess(q.id))[0]
+           || PEOPLE.filter(q=>q.id!==pid)[0];
+  section(`${p.n} relaie le contenu à ${cible.n}`);
+  log(`${p.n} fait partie de l'audience : il a donc le droit de relayer. <b>C'est ça, la propagation sans limite de sauts</b> — celui qui a reçu devient à son tour un relais.`);
+  await fly(document.getElementById('p-'+pid),document.getElementById('b-spine'),'#ffd24a','partage');
+  S.grants.push({from:pid,to:cible.id});
+  lit('b-spine');
+  log(`<b>Aucun octet n'est copié.</b> Le serveur ajoute une ligne au graphe : « ${p.n} a donné accès à ${cible.n} ». Un raccourci vers l'unique média, pas un deuxième média.`,'ok');
+  log(`Cette ligne est <b>invisible pour tout le monde</b>, toi compris : la chaîne « qui a partagé à qui » est réservée à l'administration.`);
+  await fly(document.getElementById('b-spine'),document.getElementById('p-'+cible.id),'#3bd6a8','accès');
+  log(`${cible.n} peut maintenant ouvrir — alors qu'il n'est pas dans ton cercle.`,'ok');
+  renderPeople(); draw();
+}
+
+/* ─────────── 24 h ─────────── */
+document.getElementById('tick').onclick=async()=>{
+  section('24 heures passent');
+  if(S.dest==='publication'){
+    log(`Rien ne se passe : une <b>publication est permanente</b>. C'est le seul format durable de l'app.`,'ok');
+    return;
+  }
+  S.expired=true;
+  const b=document.getElementById('k-'+S.dest);
+  b.classList.add('empty'); b.querySelector('.s').textContent='vide — expiré';
+  lit('k-'+S.dest,'no');
+  log(`Le fichier est supprimé du coffre <b>${DEST[S.dest].bucket}</b>. Personne ne pourra plus l'ouvrir, même avec une copie locale : la clé ne sortira plus.`,'no');
+  document.getElementById('s-spine').innerHTML=
+    `Content ID <b>${S.id}</b><br><b style="color:#ffd24a">le journal survit</b> — ${S.grants.length} relais, ${Object.keys(S.views).length} spectateur(s)`;
+  lit('b-spine');
+  log(`<b>Mais le socle garde tout</b> : l'identité, qui a relayé à qui, qui a vu. Sans ça, un contenu problématique disparaîtrait au bout de 24 h avec toute la preuve de sa circulation.`,'key');
+  log(`C'est la seule chose de l'app qui contredise l'éphémère, et c'est assumé : elle est là pour protéger les utilisateurs.`);
+  renderPeople(); draw();
+};
+
+/* ─────────── révocation ─────────── */
+document.getElementById('revoke').onclick=async()=>{
+  section('Révocation par la modération');
+  S.revoked=true;
+  lit('b-spine','no');
+  document.getElementById('s-spine').innerHTML=
+    `Content ID <b>${S.id}</b><br><b style="color:#ff5f6d">RÉVOQUÉ</b>`;
+  log(`Le contenu est marqué révoqué <b>par son Content ID</b>. Une seule ligne change.`,'no');
+  log(`À partir de cet instant, <b>plus aucune clé n'est délivrée</b> — ni aux ${Object.keys(S.views).length} personne(s) qui l'ont déjà vu, ni à celles qui l'ont reçu par relais, ni à son auteur.`,'no');
+  log(`Les copies qui traînent sur les appareils sont chiffrées : elles deviennent des <b>blocs inertes</b>. C'est ce qui rend la révocation réelle et pas seulement demandée.`,'ok');
+  log(`Seule exception, assumée : le contenu qu'un utilisateur a <b>sauvegardé</b> sera un fichier en clair chez lui. Sa suppression dépendra de la coopération de l'app. Tu l'as accepté.`);
+  renderPeople(); draw();
+};
+
+document.getElementById('reset').onclick=()=>{
+  fresh(); logEl.innerHTML=''; step=0;
+  document.getElementById('send').disabled=false;
+  document.getElementById('tick').disabled=true;
+  document.getElementById('revoke').disabled=true;
+  document.getElementById('s-capture').textContent='rien encore';
+  document.getElementById('s-seal').textContent='la clé naît ici';
+  document.getElementById('s-cache').textContent='vide';
+  document.getElementById('s-spine').textContent='aucun contenu';
+  ['story','publication','direct','vault'].forEach(k=>{
+    const b=document.getElementById('k-'+k);
+    b.classList.add('empty'); b.querySelector('.s').textContent='vide';
+  });
+  document.querySelectorAll('#dest .opt').forEach(x=>x.classList.toggle('on',x.dataset.d==='direct'));
+  document.querySelectorAll('#faces .opt').forEach(x=>x.classList.toggle('on',x.dataset.f==='1'));
+  renderOpts(); renderPeople(); draw();
+};
+
+/* ─────────── graphe de propagation ─────────── */
+function draw(){
+  const g=document.getElementById('graph'); if(!g)return;
+  const N=[{id:'moi',n:'Moi',x:60,y:95},
+    {id:'alice',x:230,y:40},{id:'bob',x:230,y:150},
+    {id:'chloe',x:420,y:40},{id:'david',x:420,y:150}];
+  N.forEach(n=>{if(!n.n)n.n=PEOPLE.find(p=>p.id===n.id).n;});
+  const pos=Object.fromEntries(N.map(n=>[n.id,n]));
+  let h='';
+  if(S.sent){
+    DEST[S.dest].audience.forEach(a=>{
+      h+=`<line x1="${pos.moi.x+22}" y1="${pos.moi.y}" x2="${pos[a].x-22}" y2="${pos[a].y}"
+           stroke="${DEST[S.dest].col}" stroke-width="2" opacity=".55"/>`;
+    });
+    S.grants.forEach(gr=>{
+      h+=`<line x1="${pos[gr.from].x+22}" y1="${pos[gr.from].y}" x2="${pos[gr.to].x-22}" y2="${pos[gr.to].y}"
+           stroke="#ffd24a" stroke-width="2" stroke-dasharray="5 3"/>`;
+    });
+  }
+  N.forEach(n=>{
+    const me=n.id==='moi';
+    const acc=me||hasAccess(n.id), seen=!!S.views[n.id];
+    const relayed=S.grants.some(x=>x.from===n.id);
+    const col=me?'#e9e9f2':relayed?'#ffd24a':seen?'#3bd6a8':acc?'#65657d':'#ff5f6d';
+    h+=`<circle cx="${n.x}" cy="${n.y}" r="21" fill="#16161f" stroke="${col}" stroke-width="2"/>
+        <text x="${n.x}" y="${n.y+4}" fill="${col}" text-anchor="middle">${n.n}</text>`;
+    if(seen)h+=`<text x="${n.x}" y="${n.y+36}" fill="#65657d" text-anchor="middle">${S.views[n.id]} vue(s)</text>`;
+  });
+  h+=`<text x="310" y="182" fill="#65657d" text-anchor="middle">${
+    S.sent?(S.grants.length?`${S.grants.length} relais — le contenu est sorti du cercle initial`
+                           :'aucun relais — le contenu est resté dans son audience de départ')
+          :'rien n’a encore été envoyé'}</text>`;
+  g.innerHTML=h;
+}
+
+renderOpts(); renderPeople(); draw();
+window.addEventListener('resize',draw);
+</script>
+</body>
+</html>
