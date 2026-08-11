@@ -44,6 +44,27 @@ Ce qui en découle, à appliquer avant d'écrire la moindre ligne :
    cycle de vie. Un objet appartient à **un seul contexte de diffusion**.
 6. **Après un changement d'architecture, rejouer les décisions qui en
    dépendaient** au lieu de dérouler un plan écrit avant.
+7. **Ne jamais livrer un correctif fondé sur une déduction.** Reproduire la
+   panne d'abord — en base, sous l'identité de l'utilisateur, avec la sécurité
+   active (`set local role authenticated` + `request.jwt.claims`). Une
+   hypothèse plausible qui ne corrige rien fait perdre un aller-retour de test
+   à Jay **et** ajoute des changements non justifiés au diff.
+
+### Deux pièges Supabase déjà payés
+
+- **Une fonction citée dans une politique RLS doit être exécutable par
+  `authenticated`.** Une politique s'évalue avec les droits de celui qui
+  interroge. Révoquer l'exécution d'une fonction du schéma `private` ne protège
+  de rien — ce schéma n'est pas exposé par PostgREST — et casse toutes les
+  politiques qui s'en servent. La consigne « révoquer les fonctions
+  `SECURITY DEFINER` » ne vaut que pour le schéma **`public`**, le seul joignable
+  sur `/rest/v1/rpc/`. *(Panne du 2026-08-11.)*
+- **Une clé étrangère est aussi un chemin de jointure pour le client.**
+  PostgREST résout les jointures par le **nom de la contrainte** :
+  `profiles!stories_owner_id_fkey(*)` casse si cette contrainte cesse de
+  pointer vers `profiles`. En reconstruisant une table, relever les contraintes
+  de l'ancienne au lieu de les réécrire de mémoire. La convention du projet est
+  `owner_id references public.profiles(id)`. *(Même panne.)*
 
 ---
 
