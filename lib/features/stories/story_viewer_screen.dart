@@ -1,9 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/content/content_face.dart';
+import '../../core/crypto/media_open.dart';
 import '../../core/models/card.dart';
 import '../../core/widgets/card_type_badge.dart';
 import '../../core/widgets/content_overflow_menu.dart';
@@ -203,9 +202,10 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
   /// Une story reste une Vibe : même cadre, même couleur de type, même halo.
   /// Seules les RÈGLES diffèrent (aucune limite de vues ni de durée), pas
   /// l'apparence.
-  Widget _face(File file, bool isVideo, CardType type, bool active) => isVideo
-      ? VibeVideoFace(file: file, type: type, active: active)
-      : VibePhotoFace(file: file, type: type);
+  Widget _face(OpenedMedia m, bool isVideo, CardType type, bool active) =>
+      isVideo
+      ? VibeVideoFace(media: m, type: type, active: active)
+      : VibePhotoFace(bytes: m.photoBytes!, type: type);
 
   Future<void> _confirmDelete() async {
     final delete = await showDialog<bool>(
@@ -421,8 +421,8 @@ class _Header extends ConsumerWidget {
   final int index;
   final Story story;
   final bool isMine;
-  final File? front;
-  final File? back;
+  final OpenedMedia? front;
+  final OpenedMedia? back;
   final VoidCallback onClose;
   final VoidCallback? onDelete;
   final VoidCallback? onShare;

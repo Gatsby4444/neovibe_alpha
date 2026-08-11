@@ -1,11 +1,14 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/content/saved_store.dart';
+import '../../core/models/card.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/crypto/media_open.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../library/mini_card.dart' show kMiniCardRatio;
 import 'flippable_card.dart';
@@ -205,9 +208,15 @@ class _SavedViewerScreenState extends State<_SavedViewerScreen> {
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
+    // Un Enregistrement est en clair par conception : rien à déchiffrer, rien
+    // à demander au serveur — il s'ouvre hors ligne.
     Widget face(String path, bool isVideo, bool active) => isVideo
-        ? VibeVideoFace(file: File(path), type: item.cardType, active: active)
-        : VibePhotoFace(file: File(path), type: item.cardType);
+        ? VibeVideoFace(
+            media: OpenedMedia.clear(File(path)),
+            type: item.cardType,
+            active: active,
+          )
+        : _SavedPhoto(path: path, type: item.cardType);
 
     final front = face(item.frontPath, item.frontIsVideo, _showFront);
 
@@ -226,6 +235,28 @@ class _SavedViewerScreenState extends State<_SavedViewerScreen> {
               )
             : TiltableCard(child: front),
       ),
+    );
+  }
+}
+
+/// Une photo enregistrée : lue depuis le disque, où elle est en clair.
+class _SavedPhoto extends StatelessWidget {
+  const _SavedPhoto({required this.path, required this.type});
+
+  final String path;
+  final CardType type;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Uint8List>(
+      future: File(path).readAsBytes(),
+      builder: (context, snapshot) {
+        final bytes = snapshot.data;
+        if (bytes == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        return VibePhotoFace(bytes: bytes, type: type);
+      },
     );
   }
 }

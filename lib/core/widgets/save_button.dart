@@ -1,9 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../content/saved_store.dart';
+import '../crypto/media_open.dart';
 import '../models/card.dart';
 
 /// Le bouton « Enregistrer », commun aux trois visionneuses.
@@ -35,10 +34,13 @@ class SaveButton extends ConsumerWidget {
   final CardType cardType;
   final bool canSave;
 
-  /// Les faces **en clair**, telles qu'affichées. Nulles tant que le
-  /// déchiffrement n'a pas abouti : le bouton est alors inerte.
-  final File? front;
-  final File? back;
+  /// Les faces **ouvertes**, telles qu'affichées. Nulles tant que
+  /// l'ouverture n'a pas abouti : le bouton est alors inerte.
+  ///
+  /// Une sauvegarde régénère le clair depuis le scellé — l'affichage, lui, ne
+  /// l'écrit plus sur le disque depuis le format par blocs.
+  final OpenedMedia? front;
+  final OpenedMedia? back;
 
   final bool frontIsVideo;
   final bool backIsVideo;
@@ -71,8 +73,8 @@ class SaveButton extends ConsumerWidget {
         await store.add(
           contentId: contentId,
           cardType: cardType,
-          front: front!,
-          back: back,
+          writeFront: front!.writeClearTo,
+          writeBack: back?.writeClearTo,
           frontIsVideo: frontIsVideo,
           backIsVideo: backIsVideo,
           authorName: authorName,

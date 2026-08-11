@@ -1187,7 +1187,7 @@ class _SharedContentTile extends ConsumerWidget {
                           color: Colors.white38,
                         ),
                       ),
-                      data: (file) =>
+                      data: (media) =>
                           (story?.frontIsVideo ?? item!.frontIsVideo)
                           ? const ColoredBox(
                               color: Color(0xFF1C1C24),
@@ -1197,8 +1197,8 @@ class _SharedContentTile extends ConsumerWidget {
                                 color: Colors.white54,
                               ),
                             )
-                          : Image.file(
-                              file,
+                          : Image.memory(
+                              media.photoBytes!,
                               fit: BoxFit.cover,
                               cacheWidth: 160,
                             ),

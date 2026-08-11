@@ -7,7 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/content/content_face.dart';
 import '../../core/content/content_media_cache.dart';
 import '../../core/content/own_keys.dart';
-import '../../core/crypto/media_seal.dart';
+import '../../core/crypto/chunked_seal.dart';
 import '../../core/models/card.dart';
 import '../../core/models/library_item.dart';
 import '../../core/models/profile.dart';
@@ -82,20 +82,31 @@ class LibraryRepository {
 
     // La MÊME clé chiffre les deux faces : AES-GCM tire un nonce aléatoire à
     // chaque appel, deux fichiers distincts restent donc sûrs.
-    final mediaKey = await MediaSeal.newKey();
+    final mediaKey = await ChunkedSeal.newKey();
     const sealedType = FileOptions(contentType: 'application/octet-stream');
 
-    final sealedFront = await MediaSeal.sealFile(front, mediaKey);
+    // Scellé par blocs, en flux : voir `stories_repository.publish`.
+    final temp = await getTemporaryDirectory();
+    final sealedFront = File('${temp.path}/seal_${itemId}_f');
+    await ChunkedSeal.sealFile(front, sealedFront, mediaKey);
     await _client.storage
         .from(_bucket)
-        .uploadBinary(frontPath, sealedFront, fileOptions: sealedType);
-    final sealedBack = back == null
-        ? null
-        : await MediaSeal.sealFile(back, mediaKey);
-    if (sealedBack != null) {
+        .uploadBinary(
+          frontPath,
+          await sealedFront.readAsBytes(),
+          fileOptions: sealedType,
+        );
+    File? sealedBack;
+    if (back != null) {
+      sealedBack = File('${temp.path}/seal_${itemId}_b');
+      await ChunkedSeal.sealFile(back, sealedBack, mediaKey);
       await _client.storage
           .from(_bucket)
-          .uploadBinary(backPath!, sealedBack, fileOptions: sealedType);
+          .uploadBinary(
+            backPath!,
+            await sealedBack.readAsBytes(),
+            fileOptions: sealedType,
+          );
     }
 
     await _client.rpc(
@@ -122,15 +133,10 @@ class LibraryRepository {
     // depuis le réseau (consigne de Jay). On y range le scellé — une seule
     // règle vaut alors partout, tout fichier en cache est chiffré.
     final cache = ref.read(contentMediaCacheProvider);
-    final temp = await getTemporaryDirectory();
-    Future<void> keep(List<int> sealed, {required bool isFront}) async {
+    Future<void> keep(File sealed, {required bool isFront}) async {
       try {
-        final file = File(
-          '${temp.path}/pub_seal_${itemId}_${isFront ? 'f' : 'b'}',
-        );
-        await file.writeAsBytes(sealed, flush: true);
-        await cache.storeOwn(itemId, file, front: isFront);
-        await file.delete();
+        await cache.storeOwn(itemId, sealed, front: isFront);
+        await sealed.delete();
       } catch (_) {}
     }
 

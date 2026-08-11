@@ -1,9 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
-import '../crypto/media_seal.dart';
+import '../crypto/media_open.dart';
 import '../supabase_providers.dart';
 import 'content_media_cache.dart';
 import 'own_keys.dart';
@@ -46,19 +45,18 @@ typedef ContentFace = ({
   String? batchOwner,
 });
 
-/// Une face **en clair**, prête à l'affichage — pour les stories comme pour
-/// les publications.
+/// Une face **ouverte**, prête à l'affichage.
 ///
 /// Le chemin est le même partout depuis la v0.9.46 : scellé (cache local
-/// d'abord) → clé → déchiffrement en fichier temporaire. Le clair meurt avec
-/// le provider (`onDispose`) : il ne reste jamais sur le disque une fois
-/// l'écran quitté.
+/// d'abord) → clé → ouverture. Ce qui change depuis le format par blocs
+/// (2026-08-12) : une **photo** arrive en mémoire, une **vidéo** par une URL
+/// locale servie bloc par bloc. Plus rien n'est écrit en clair sur le disque.
 ///
 /// ⚠️ **Tout `ref.watch` est fait AVANT le premier `await`** — un `ref.watch`
 /// placé après une suspension n'enregistre pas sa dépendance de façon fiable.
 /// C'est la règle du 2026-08-02, et l'avoir enfreinte a coûté une panne le
 /// 2026-08-11.
-final contentFaceProvider = FutureProvider.family<File, ContentFace>((
+final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   ref,
   spec,
 ) async {
@@ -81,12 +79,9 @@ final contentFaceProvider = FutureProvider.family<File, ContentFace>((
         client.storage.from(spec.bucket).createSignedUrl(spec.path, 3600),
   );
 
-  if (!spec.encrypted) return sealed;
-
   // Ordre de recherche de la clé :
   //   1. MES propres contenus : la clé est sur l'appareil, elle y a été
-  //      fabriquée. Rouvrir ma story ne demande donc RIEN au réseau — c'est le
-  //      « local d'abord » de Jay, enfin tenu de bout en bout.
+  //      fabriquée. Rouvrir ma story ne demande donc RIEN au réseau.
   //   2. Le lot de la bibliothèque, quand on affiche une grille.
   //   3. Un appel unitaire au serveur.
   // Pour le contenu d'AUTRUI, seul le serveur décide — toujours, à chaque
@@ -100,16 +95,14 @@ final contentFaceProvider = FutureProvider.family<File, ContentFace>((
           )
           as String;
 
-  final temp = await getTemporaryDirectory();
-  final target = File(
-    '${temp.path}/clear_${spec.contentId}_${spec.front ? 'f' : 'b'}'
-    '${spec.isVideo ? '.mp4' : '.jpg'}',
+  final media = await MediaOpen.open(
+    sealed,
+    key,
+    isVideo: spec.isVideo,
+    cacheId: '${spec.contentId}_${spec.front ? 'f' : 'b'}',
   );
-  final clear = await MediaSeal.unsealToFile(sealed, key, target);
-  ref.onDispose(() {
-    try {
-      clear.deleteSync();
-    } catch (_) {}
-  });
-  return clear;
+  // Le jeton du serveur local et l'éventuel fichier hérité meurent avec
+  // l'écran.
+  ref.onDispose(media.dispose);
+  return media;
 });

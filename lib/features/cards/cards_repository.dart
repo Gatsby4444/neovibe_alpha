@@ -5,7 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:path_provider/path_provider.dart';
 
-import '../../core/crypto/media_seal.dart';
+import '../../core/crypto/chunked_seal.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
@@ -92,22 +92,30 @@ class CardsRepository {
     //
     // La MÊME clé chiffre les deux faces : AES-GCM tire un nonce aléatoire à
     // chaque appel, deux fichiers distincts restent donc sûrs.
-    final mediaKey = await MediaSeal.newKey();
+    final mediaKey = await ChunkedSeal.newKey();
     const sealedType = FileOptions(contentType: 'application/octet-stream');
 
+    // Scellé PAR BLOCS et en flux : une face vidéo de 28 Mo n'est jamais
+    // montée en mémoire, et se lira sans écrire de clair sur le disque.
+    final temp = await getTemporaryDirectory();
+    final sealedFront = File('${temp.path}/seal_card_${stamp}_f');
+    await ChunkedSeal.sealFile(front, sealedFront, mediaKey);
     await _client.storage
         .from('cards')
         .uploadBinary(
           frontPath,
-          await MediaSeal.sealFile(front, mediaKey),
+          await sealedFront.readAsBytes(),
           fileOptions: sealedType,
         );
+    File? sealedBack;
     if (back != null) {
+      sealedBack = File('${temp.path}/seal_card_${stamp}_b');
+      await ChunkedSeal.sealFile(back, sealedBack, mediaKey);
       await _client.storage
           .from('cards')
           .uploadBinary(
             backPath!,
-            await MediaSeal.sealFile(back, mediaKey),
+            await sealedBack.readAsBytes(),
             fileOptions: sealedType,
           );
     }
@@ -151,16 +159,8 @@ class CardsRepository {
     // disque de l'appareil.
     final cache = ref.read(cardMediaCacheProvider);
     final quota = ref.read(ownCardsQuotaMbProvider);
-    final temp = await getTemporaryDirectory();
 
-    Future<void> keepSealed(File source, {required bool isFront}) async {
-      final sealed = File(
-        '${temp.path}/seal_${card.id}_${isFront ? 'f' : 'b'}',
-      );
-      await sealed.writeAsBytes(
-        await MediaSeal.sealFile(source, mediaKey),
-        flush: true,
-      );
+    Future<void> keepSealed(File sealed, {required bool isFront}) async {
       await cache.storeOwnFace(
         card.id,
         sealed,
@@ -173,8 +173,8 @@ class CardsRepository {
       } catch (_) {}
     }
 
-    await keepSealed(front, isFront: true);
-    if (back != null) await keepSealed(back, isFront: false);
+    await keepSealed(sealedFront, isFront: true);
+    if (sealedBack != null) await keepSealed(sealedBack, isFront: false);
     return card;
   }
 

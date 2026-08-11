@@ -1,9 +1,8 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/content/content_face.dart';
+import '../../core/crypto/media_open.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/widgets/card_type_badge.dart';
@@ -145,9 +144,9 @@ class _PublicationViewerScreenState
 
   /// Une publication reste une Vibe : même cadre, même couleur de type.
   /// Seules les RÈGLES diffèrent, pas l'apparence.
-  Widget _face(File file, bool isVideo, bool active) => isVideo
-      ? VibeVideoFace(file: file, type: widget.item.cardType, active: active)
-      : VibePhotoFace(file: file, type: widget.item.cardType);
+  Widget _face(OpenedMedia m, bool isVideo, bool active) => isVideo
+      ? VibeVideoFace(media: m, type: widget.item.cardType, active: active)
+      : VibePhotoFace(bytes: m.photoBytes!, type: widget.item.cardType);
 
   Future<void> _share() async {
     final conversationId = await showModalBottomSheet<String>(

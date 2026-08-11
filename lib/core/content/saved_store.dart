@@ -133,16 +133,18 @@ class SavedStore {
   Future<bool> isSaved(String contentId) async =>
       (await _load()).containsKey(contentId);
 
-  /// Copie les faces **déjà déchiffrées** dans l'espace des Enregistrements.
+  /// Écrit les faces en clair dans l'espace des Enregistrements.
   ///
-  /// L'appelant a forcément le clair sous la main : il est en train de
-  /// l'afficher. Aucun téléchargement, aucune clé à redemander — c'est ce qui
-  /// rend l'opération instantanée et hors ligne.
+  /// L'appelant fournit de quoi ÉCRIRE, pas un fichier déjà en clair : depuis
+  /// le format par blocs, l'affichage ne produit plus de clair sur le disque.
+  /// Le clair est donc régénéré ici, en flux — une vidéo de 28 Mo n'est jamais
+  /// montée en mémoire. Aucun téléchargement, aucune clé à redemander : les
+  /// octets scellés sont déjà sur l'appareil.
   Future<void> add({
     required String contentId,
     required CardType cardType,
-    required File front,
-    File? back,
+    required Future<void> Function(File target) writeFront,
+    Future<void> Function(File target)? writeBack,
     bool frontIsVideo = false,
     bool backIsVideo = false,
     String? authorName,
@@ -152,12 +154,12 @@ class SavedStore {
     String ext(bool v) => v ? 'mp4' : 'jpg';
     final frontPath =
         '${dir.path}${Platform.pathSeparator}${contentId}_front.${ext(frontIsVideo)}';
-    await front.copy(frontPath);
+    await writeFront(File(frontPath));
     String? backPath;
-    if (back != null) {
+    if (writeBack != null) {
       backPath =
           '${dir.path}${Platform.pathSeparator}${contentId}_back.${ext(backIsVideo)}';
-      await back.copy(backPath);
+      await writeBack(File(backPath));
     }
 
     final index = await _load();

@@ -1,8 +1,9 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
+import '../crypto/media_open.dart';
 import '../models/card.dart';
 
 /// L'**apparence** d'une face de Vibe : liseré à la couleur du type (dégradé
@@ -50,18 +51,21 @@ class VibeFaceFrame extends StatelessWidget {
 }
 
 /// Face photo d'une Vibe, dans son cadre.
+///
+/// Elle reçoit des **octets en mémoire**, pas un fichier : depuis le format
+/// par blocs, une photo déchiffrée ne touche jamais le disque.
 class VibePhotoFace extends StatelessWidget {
-  const VibePhotoFace({super.key, required this.file, required this.type});
+  const VibePhotoFace({super.key, required this.bytes, required this.type});
 
-  final File file;
+  final Uint8List bytes;
   final CardType type;
 
   @override
   Widget build(BuildContext context) {
     return VibeFaceFrame(
       type: type,
-      child: Image.file(
-        file,
+      child: Image.memory(
+        bytes,
         fit: BoxFit.contain,
         errorBuilder: (context, error, stack) => const AspectRatio(
           aspectRatio: 3 / 4,
@@ -95,12 +99,14 @@ class VibePhotoFace extends StatelessWidget {
 class VibeVideoFace extends StatefulWidget {
   const VibeVideoFace({
     super.key,
-    required this.file,
+    required this.media,
     required this.type,
     required this.active,
   });
 
-  final File file;
+  /// Le média ouvert : une URL locale servie bloc par bloc, ou — pour un
+  /// contenu scellé avant le format par blocs — un fichier temporaire.
+  final OpenedMedia media;
   final CardType type;
 
   /// La face est posée à l'écran : la vidéo joue avec le son. Sinon elle est
@@ -112,9 +118,11 @@ class VibeVideoFace extends StatefulWidget {
 }
 
 class _VibeVideoFaceState extends State<VibeVideoFace> {
-  late final VideoPlayerController _controller = VideoPlayerController.file(
-    widget.file,
-  );
+  late final VideoPlayerController _controller = widget.media.videoUrl != null
+      // Flux local : le lecteur demande des intervalles, le serveur déchiffre
+      // à la demande. Rien n'est écrit en clair sur le disque.
+      ? VideoPlayerController.networkUrl(widget.media.videoUrl!)
+      : VideoPlayerController.file(widget.media.clearFile!);
 
   @override
   void initState() {

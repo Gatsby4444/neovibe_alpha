@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,35 +5,11 @@ import '../../core/content/content_face.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
-import '../cards/card_media_cache.dart';
 import '../cards/flippable_card.dart';
 import 'publication_viewer_screen.dart';
 
 /// Format d'une mini-card : portrait, comme la card en grand.
 const kMiniCardRatio = 9 / 16;
-
-/// Pastille « c'est une vidéo », posée sur l'image de couverture.
-class _PlayBadge extends StatelessWidget {
-  const _PlayBadge();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: Colors.black.withValues(alpha: .45),
-        ),
-        child: const Icon(
-          Icons.play_arrow_rounded,
-          color: Colors.white,
-          size: 22,
-        ),
-      ),
-    );
-  }
-}
 
 class _ThumbPlaceholder extends StatelessWidget {
   const _ThumbPlaceholder({required this.icon});
@@ -196,13 +170,15 @@ class _PublicationThumb extends ConsumerWidget {
         message: '$e',
         child: const _ThumbPlaceholder(icon: Icons.error_outline),
       ),
-      data: (file) => isVideo
-          ? _VideoCover(file: file, decodeWidth: decodeWidth)
+      data: (media) => isVideo
+          // Une vignette de vidéo demanderait d'extraire une image du flux :
+          // c'est le chantier « vignettes vidéo » (RAPPELS #4), pas celui-ci.
+          ? const _ThumbPlaceholder(icon: Icons.videocam)
           // `cacheWidth` : les fichiers font 720×1280 et les vignettes
           // quelques centaines de pixels — décoder en pleine résolution
           // coûtait de la mémoire et du temps pour rien.
-          : Image.file(
-              file,
+          : Image.memory(
+              media.photoBytes!,
               fit: BoxFit.cover,
               cacheWidth: decodeWidth,
               errorBuilder: (_, _, _) =>
@@ -211,43 +187,6 @@ class _PublicationThumb extends ConsumerWidget {
     );
   }
 }
-
-/// Image de couverture d'une face filmée.
-///
-/// Extraite en natif du fichier **déjà déchiffré sur l'appareil**, puis gardée
-/// à côté de lui. C'était impossible avant la refonte pour le contenu d'autrui
-/// (il aurait fallu télécharger la vidéo entière depuis une grille) ; ça ne
-/// l'est plus, puisque la face est de toute façon descendue pour être lue.
-class _VideoCover extends ConsumerWidget {
-  const _VideoCover({required this.file, required this.decodeWidth});
-
-  final File file;
-  final int decodeWidth;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final cover = ref.watch(_videoCoverProvider(file.path));
-    return cover.when(
-      loading: () => ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      ),
-      error: (_, _) => const _ThumbPlaceholder(icon: Icons.videocam),
-      data: (thumb) => thumb == null
-          ? const _ThumbPlaceholder(icon: Icons.videocam)
-          : Stack(
-              fit: StackFit.expand,
-              children: [
-                Image.file(thumb, fit: BoxFit.cover, cacheWidth: decodeWidth),
-                const _PlayBadge(),
-              ],
-            ),
-    );
-  }
-}
-
-final _videoCoverProvider = FutureProvider.family<File?, String>(
-  (ref, path) => ref.read(cardMediaCacheProvider).videoThumb(File(path)),
-);
 
 /// Cadre commun aux deux faces : coins arrondis, liseré de la couleur du type,
 /// tag du type et badge « Public ».

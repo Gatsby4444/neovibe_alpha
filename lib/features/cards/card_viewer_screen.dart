@@ -3,10 +3,9 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
-import '../../core/crypto/media_seal.dart';
+import '../../core/crypto/media_open.dart';
 
 import '../../core/models/card.dart';
 import '../../core/widgets/card_type_badge.dart';
@@ -69,15 +68,19 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   File? _frontFile;
   File? _backFile;
 
-  /// Faces DÉCHIFFRÉES, dans le répertoire temporaire. Nulles pour une Vibe
-  /// d'avant le chiffrement (2026-08-10), qui s'affiche directement.
-  File? _clearFront;
-  File? _clearBack;
+  /// Faces OUVERTES : photo en mémoire, vidéo servie bloc par bloc par le
+  /// serveur local. Nulles pour une Vibe d'avant le chiffrement (2026-08-10),
+  /// qui s'affiche directement depuis le cache.
+  OpenedMedia? _openFront;
+  OpenedMedia? _openBack;
 
-  /// Ce que l'affichage doit lire : le clair s'il existe, sinon le fichier tel
-  /// quel (Vibes antérieures au chiffrement).
-  File? get _shownFront => _clearFront ?? _frontFile;
-  File? get _shownBack => _clearBack ?? _backFile;
+  /// Ce que l'affichage doit lire : le média ouvert s'il existe, sinon le
+  /// fichier tel quel (Vibes antérieures au chiffrement).
+  OpenedMedia? get _shownFront =>
+      _openFront ??
+      (_frontFile == null ? null : OpenedMedia.clear(_frontFile!));
+  OpenedMedia? get _shownBack =>
+      _openBack ?? (_backFile == null ? null : OpenedMedia.clear(_backFile!));
   String _error = '';
   CardDelivery? _delivery;
 
@@ -175,16 +178,16 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   /// temporaire et est supprimé en quittant l'écran ([dispose]).
   Future<void> _unsealFaces() async {
     final key = await _cards.openMedia(widget.card.id);
-    final temp = await getTemporaryDirectory();
 
-    Future<File> open(File sealed, bool front) => MediaSeal.unsealToFile(
+    Future<OpenedMedia> open(File sealed, bool front) => MediaOpen.open(
       sealed,
       key,
-      File('${temp.path}/clear_${widget.card.id}_${front ? 'f' : 'b'}'),
+      isVideo: front ? widget.card.frontIsVideo : widget.card.backIsVideo,
+      cacheId: '${widget.card.id}_${front ? 'f' : 'b'}',
     );
 
-    _clearFront = await open(_frontFile!, true);
-    if (_backFile != null) _clearBack = await open(_backFile!, false);
+    _openFront = await open(_frontFile!, true);
+    if (_backFile != null) _openBack = await open(_backFile!, false);
   }
 
   Future<void> _load() async {
@@ -347,13 +350,12 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   @override
   void dispose() {
     _gaugeTimer?.cancel();
-    // Le clair ne survit pas à l'écran : le cache garde le scellé, la copie
-    // lisible disparaît avec la visionneuse. C'est ce qui rend le décompte
-    // utile — sans cela, le fichier déchiffré resterait consultable hors
-    // contrôle du serveur.
-    for (final file in [_clearFront, _clearBack]) {
-      if (file == null) continue;
-      file.delete().catchError((_) => file);
+    // Le clair ne survit pas à l'écran. Depuis le format par blocs il n'y en a
+    // même plus sur le disque : on ferme le flux local, et le cache ne garde
+    // que le scellé. C'est ce qui rend le décompte utile — sans cela, un
+    // fichier déchiffré resterait consultable hors contrôle du serveur.
+    for (final media in [_openFront, _openBack]) {
+      media?.dispose();
     }
     super.dispose();
   }
@@ -369,10 +371,10 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
             : _frontDone,
       );
     }
-    final file = front ? _shownFront! : _shownBack!;
+    final media = front ? _shownFront! : _shownBack!;
     if (_faceIsVideo(front)) {
       return _VideoFace(
-        file: file,
+        media: media,
         type: type,
         // La vidéo ne joue que lorsque sa face est posée à l'écran
         active: _phase == _Phase.viewing && _settledFront == front,
@@ -391,7 +393,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
         onCompleted: _limitsApply ? () => _markFaceDone(front) : null,
       );
     }
-    return VibePhotoFace(file: file, type: type);
+    return VibePhotoFace(bytes: media.photoBytes!, type: type);
   }
 
   @override
@@ -642,7 +644,7 @@ class _ExhaustedState extends StatelessWidget {
 /// contrôlable uniquement si le créateur l'a permis (consigne Jay).
 class _VideoFace extends StatefulWidget {
   const _VideoFace({
-    required this.file,
+    required this.media,
     required this.type,
     required this.active,
     required this.allowScrub,
@@ -652,7 +654,10 @@ class _VideoFace extends StatefulWidget {
     this.syncTo,
     this.onPosition,
   });
-  final File file;
+
+  /// Le média ouvert : une URL locale servie bloc par bloc, ou un fichier
+  /// en clair pour une Vibe héritée.
+  final OpenedMedia media;
   final CardType type;
 
   /// Oneshot filmé : la face cachée continue de tourner (en silence) pour que
@@ -677,9 +682,9 @@ class _VideoFace extends StatefulWidget {
 }
 
 class _VideoFaceState extends State<_VideoFace> {
-  late final VideoPlayerController _controller = VideoPlayerController.file(
-    widget.file,
-  );
+  late final VideoPlayerController _controller = widget.media.videoUrl != null
+      ? VideoPlayerController.networkUrl(widget.media.videoUrl!)
+      : VideoPlayerController.file(widget.media.clearFile!);
   var _completedFired = false;
 
   @override

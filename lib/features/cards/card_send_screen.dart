@@ -251,13 +251,17 @@ class _CardSendScreenState extends ConsumerState<CardSendScreen> {
       // Enregistrements. Les fichiers sont déjà là — ils viennent d'être
       // capturés — donc aucun téléchargement ni déchiffrement.
       if (_saveForMe && id != null) {
+        // Les fichiers capturés sont encore en clair sous la main : la copie
+        // est une simple recopie, sans déchiffrement ni réseau.
         await ref
             .read(savedStoreProvider)
             .add(
               contentId: id,
               cardType: _effectiveType,
-              front: widget.front,
-              back: widget.back,
+              writeFront: (t) => widget.front.copy(t.path),
+              writeBack: widget.back == null
+                  ? null
+                  : (t) => widget.back!.copy(t.path),
               frontIsVideo: widget.frontIsVideo,
               backIsVideo: widget.backIsVideo,
               mine: true,
