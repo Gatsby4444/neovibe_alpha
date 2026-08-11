@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/content/content_face.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/widgets/card_type_badge.dart';
@@ -32,22 +33,25 @@ class _PublicationViewerScreenState
     extends ConsumerState<PublicationViewerScreen> {
   var _showFront = true;
 
-  PublicationFace _spec(bool front) => (
-    itemId: widget.item.id,
+  ContentFace _spec(bool front) => (
+    contentId: widget.item.id,
     ownerId: widget.item.ownerId,
+    bucket: 'library',
     path: front ? widget.item.frontPath : widget.item.backPath!,
     front: front,
     isVideo: front ? widget.item.frontIsVideo : widget.item.backIsVideo,
     encrypted: widget.item.encrypted,
+    // Un contenu isolé : un appel de clé suffit, pas de lot à charger.
+    batchOwner: null,
   );
 
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
     final mine = item.ownerId == ref.watch(currentUserIdProvider);
-    final front = ref.watch(publicationFaceProvider(_spec(true)));
+    final front = ref.watch(contentFaceProvider(_spec(true)));
     final back = item.hasBack
-        ? ref.watch(publicationFaceProvider(_spec(false)))
+        ? ref.watch(contentFaceProvider(_spec(false)))
         : null;
 
     return Scaffold(

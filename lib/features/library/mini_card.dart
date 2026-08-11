@@ -3,12 +3,12 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/content/content_face.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
 import '../cards/card_media_cache.dart';
 import '../cards/flippable_card.dart';
-import 'library_repository.dart';
 import 'publication_viewer_screen.dart';
 
 /// Format d'une mini-card : portrait, comme la card en grand.
@@ -161,13 +161,16 @@ class _PublicationThumb extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isVideo = front ? item.frontIsVideo : item.backIsVideo;
     final face = ref.watch(
-      publicationFaceProvider((
-        itemId: item.id,
+      contentFaceProvider((
+        contentId: item.id,
         ownerId: item.ownerId,
+        bucket: 'library',
         path: front ? item.frontPath : item.backPath!,
         front: front,
         isVideo: isVideo,
         encrypted: item.encrypted,
+        // Une grille : les clés viennent du lot, pas une par vignette.
+        batchOwner: item.ownerId,
       )),
     );
     // Trois états, trois rendus DISTINCTS. Un chargement qui ressemble à un

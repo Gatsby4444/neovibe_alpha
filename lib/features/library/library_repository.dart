@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/content/content_face.dart';
 import '../../core/content/content_media_cache.dart';
 import '../../core/crypto/media_seal.dart';
 import '../../core/models/card.dart';
@@ -28,92 +29,6 @@ final libraryItemsProvider = FutureProvider.family<List<LibraryItem>, String>((
       .eq('owner_id', ownerId)
       .order('created_at', ascending: false);
   return rows.map(LibraryItem.fromJson).toList();
-});
-
-/// Les clés de déchiffrement de toute une bibliothèque, en **un** aller-retour.
-///
-/// Sans ce lot, afficher une grille de 20 publications coûterait 20 appels
-/// serveur — un par vignette. Le serveur ne renvoie que ce à quoi j'ai droit,
-/// et rien de ce qui a été révoqué.
-final libraryKeysProvider = FutureProvider.family<Map<String, String>, String>((
-  ref,
-  ownerId,
-) async {
-  final rows = await ref
-      .watch(supabaseProvider)
-      .rpc('library_media_keys', params: {'p_owner_id': ownerId});
-  return {
-    for (final row in rows as List)
-      (row as Map<String, dynamic>)['content_id'] as String:
-          row['media_key'] as String,
-  };
-});
-
-/// Identifie une face de publication à afficher.
-typedef PublicationFace = ({
-  String itemId,
-  String ownerId,
-  String path,
-  bool front,
-  bool isVideo,
-  bool encrypted,
-});
-
-/// Une face de publication **en clair**, prête à l'affichage.
-///
-/// Le chemin est le même que partout ailleurs depuis la v0.9.46 :
-/// scellé (cache local d'abord) → clé → déchiffrement en fichier temporaire.
-/// Le clair meurt avec le provider (`onDispose`) : il ne reste jamais sur le
-/// disque une fois l'écran quitté.
-///
-/// La clé vient du **lot** `libraryKeysProvider` quand il est déjà chargé —
-/// sans quoi une grille de 20 vignettes coûterait 20 appels serveur.
-final publicationFaceProvider = FutureProvider.family<File, PublicationFace>((
-  ref,
-  spec,
-) async {
-  // ⚠️ TOUT `ref.watch` se fait AVANT le premier `await`.
-  //
-  // C'est la règle déjà écrite dans `stories_repository.dart` après la panne du
-  // 2026-08-02 : un `ref.watch` placé après une suspension n'enregistre pas sa
-  // dépendance de façon fiable. Je l'avais enfreinte ici en allant chercher le
-  // lot de clés au milieu de la fonction — les vignettes ne se résolvaient
-  // jamais et restaient grises indéfiniment.
-  final repo = ref.watch(libraryRepositoryProvider);
-  final cache = ref.watch(contentMediaCacheProvider);
-  final me = ref.watch(currentUserIdProvider);
-  final keysFuture = spec.encrypted
-      ? ref.watch(libraryKeysProvider(spec.ownerId).future)
-      : null;
-
-  File? sealed;
-  if (spec.ownerId == me) {
-    sealed = await cache.tryOwn(spec.itemId, front: spec.front);
-  }
-  sealed ??= await cache.others(
-    spec.itemId,
-    front: spec.front,
-    signedUrl: () => repo.mediaUrl(spec.path),
-    // Une publication est permanente : pas d'expiration à indexer.
-  );
-
-  if (keysFuture == null) return sealed;
-
-  final keys = await keysFuture;
-  final key = keys[spec.itemId] ?? await repo.openMedia(spec.itemId);
-
-  final temp = await getTemporaryDirectory();
-  final target = File(
-    '${temp.path}/pub_clear_${spec.itemId}_${spec.front ? 'f' : 'b'}'
-    '${spec.isVideo ? '.mp4' : '.jpg'}',
-  );
-  final clear = await MediaSeal.unsealToFile(sealed, key, target);
-  ref.onDispose(() {
-    try {
-      clear.deleteSync();
-    } catch (_) {}
-  });
-  return clear;
 });
 
 /// Liste d'accès restreint à MA bibliothèque.

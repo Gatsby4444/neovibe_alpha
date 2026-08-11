@@ -8,6 +8,13 @@ import '../../core/widgets/avatar.dart';
 import '../../core/models/card.dart';
 import '../../core/models/connection.dart';
 import '../../core/models/message.dart';
+import '../stories/story_viewer_screen.dart';
+import '../library/publication_viewer_screen.dart';
+import '../library/mini_card.dart';
+import '../../core/widgets/card_type_badge.dart';
+import '../../core/models/story.dart';
+import '../../core/content/shared_content.dart';
+import '../../core/content/content_face.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
@@ -744,6 +751,7 @@ class _MessageBubble extends ConsumerWidget {
       ),
       MessageKind.image || MessageKind.video => _MediaPreview(message: message),
       MessageKind.card => _CardContainer(message: message),
+      MessageKind.contentShare => _SharedContentTile(message: message),
       // Traité en amont par un retour anticipé — jamais atteint.
       MessageKind.libraryAdd => const SizedBox.shrink(),
     };
@@ -1097,3 +1105,188 @@ final _cardProvider = FutureProvider.family<CardModel?, String>((
       .maybeSingle();
   return row == null ? null : CardModel.fromJson(row);
 });
+
+/// Aperçu d'un contenu **repartagé** dans le fil.
+///
+/// Volontairement différent du container d'une Vibe envoyée : celui-ci cache
+/// son contenu et se consomme en un nombre de vues limité. Un repartage, lui,
+/// n'est qu'un **raccourci** vers une story ou une publication qui vit
+/// ailleurs — il s'affiche donc en aperçu réduit, et le clic ouvre la source.
+///
+/// Quand la source a disparu (story expirée, publication retirée, contenu
+/// révoqué), la tuile le DIT au lieu de s'évaporer : un raccourci vers rien
+/// doit s'annoncer comme tel (règle arrêtée par Jay le 2026-08-11).
+class _SharedContentTile extends ConsumerWidget {
+  const _SharedContentTile({required this.message});
+
+  final Message message;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final id = message.contentId;
+    if (id == null) return const _SharedGone();
+
+    final shared = ref.watch(sharedContentProvider(id));
+    return shared.when(
+      loading: () => const _SharedShell(
+        child: Center(
+          child: SizedBox(
+            height: 18,
+            width: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ),
+      ),
+      error: (_, _) => const _SharedGone(),
+      data: (content) {
+        final story = content.story;
+        final item = content.item;
+        if (story == null && item == null) return const _SharedGone();
+
+        final type = story?.cardType ?? item!.cardType;
+        final label = story != null ? 'Story' : 'Publication';
+        final face = ref.watch(
+          contentFaceProvider((
+            contentId: id,
+            ownerId: story?.ownerId ?? item!.ownerId,
+            bucket: story != null ? 'stories' : 'library',
+            path: story?.frontPath ?? item!.frontPath,
+            front: true,
+            isVideo: story?.frontIsVideo ?? item!.frontIsVideo,
+            encrypted: story?.encrypted ?? item!.encrypted,
+            batchOwner: null,
+          )),
+        );
+
+        return GestureDetector(
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => story != null
+                  ? StoryViewerScreen(
+                      ring: StoryRing(owner: story.owner!, stories: [story]),
+                    )
+                  : PublicationViewerScreen(item: item!),
+            ),
+          ),
+          child: _SharedShell(
+            borderColor: type.color,
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: SizedBox(
+                    width: 46,
+                    height: 46 / kMiniCardRatio,
+                    child: face.when(
+                      loading: () => const ColoredBox(color: Color(0xFF1C1C24)),
+                      error: (_, _) => const ColoredBox(
+                        color: Color(0xFF1C1C24),
+                        child: Icon(
+                          Icons.error_outline,
+                          size: 16,
+                          color: Colors.white38,
+                        ),
+                      ),
+                      data: (file) =>
+                          (story?.frontIsVideo ?? item!.frontIsVideo)
+                          ? const ColoredBox(
+                              color: Color(0xFF1C1C24),
+                              child: Icon(
+                                Icons.videocam,
+                                size: 16,
+                                color: Colors.white54,
+                              ),
+                            )
+                          : Image.file(
+                              file,
+                              fit: BoxFit.cover,
+                              cacheWidth: 160,
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          CardTypeBadge(type: type, fontSize: 10),
+                          const SizedBox(width: 6),
+                          Text(
+                            label,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: type.color,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Appuie pour ouvrir',
+                        style: TextStyle(fontSize: 12, color: context.muted),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right, color: context.faint, size: 20),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Le cadre commun de la tuile de repartage.
+class _SharedShell extends StatelessWidget {
+  const _SharedShell({required this.child, this.borderColor});
+
+  final Widget child;
+  final Color? borderColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 250,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: borderColor ?? Theme.of(context).dividerColor,
+          width: borderColor == null ? 1 : 1.5,
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// La source n'existe plus. On le dit.
+class _SharedGone extends StatelessWidget {
+  const _SharedGone();
+
+  @override
+  Widget build(BuildContext context) {
+    return _SharedShell(
+      child: Row(
+        children: [
+          Icon(Icons.link_off, size: 18, color: context.faint),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Ce contenu n\'est plus disponible.',
+              style: TextStyle(fontSize: 13, color: context.muted),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

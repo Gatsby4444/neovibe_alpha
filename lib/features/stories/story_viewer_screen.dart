@@ -2,9 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
-import '../../core/crypto/media_seal.dart';
+import '../../core/content/content_face.dart';
 import '../../core/models/card.dart';
 import '../../core/widgets/card_type_badge.dart';
 import '../../core/widgets/vibe_face.dart';
@@ -17,7 +16,6 @@ import '../cards/flippable_card.dart';
 import '../conversations/conversations_repository.dart';
 import '../library/user_library_screen.dart';
 import 'stories_repository.dart';
-import '../../core/content/content_media_cache.dart';
 
 /// Hauteur de l'en-tête sous la barre d'état : padding 8 + barres de
 /// progression 2 + espace 10 + rangée d'icônes 48 + padding 8.
@@ -46,23 +44,26 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
 
   Story get _story => widget.ring.stories[_index];
 
-  /// Fichiers en CLAIR de la story affichée. Ils vivent dans le répertoire
-  /// temporaire et meurent avec l'écran ([dispose]) — un clair qui resterait
-  /// sur le disque échapperait au serveur.
-  Future<({File front, File? back})>? _faces;
-  final _clearFiles = <File>[];
-
-  @override
-  void initState() {
-    super.initState();
-    _faces = _loadFaces(_story);
-  }
+  /// Une face de la story affichée, en clair.
+  ///
+  /// Passe par le provider commun du socle : même cache, même chemin
+  /// scellé → clé → clair, et le clair meurt avec le provider. Cet écran
+  /// avait sa propre copie de cette logique — une de trop.
+  ContentFace _spec(Story story, bool front) => (
+    contentId: story.id,
+    ownerId: story.ownerId,
+    bucket: 'stories',
+    path: front ? story.frontPath : story.backPath!,
+    front: front,
+    isVideo: front ? story.frontIsVideo : story.backIsVideo,
+    encrypted: story.encrypted,
+    batchOwner: null,
+  );
 
   void _goTo(int index) {
     setState(() {
       _index = index;
       _showFront = true;
-      _faces = _loadFaces(_story);
     });
   }
 
@@ -76,69 +77,6 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
 
   void _previous() {
     if (_index > 0) _goTo(_index - 1);
-  }
-
-  /// Récupère les faces : le scellé (cache local d'abord), puis la clé auprès
-  /// du serveur, puis le déchiffrement en fichier temporaire.
-  ///
-  /// C'est `open_content_media` qui décide : elle refuse si je ne suis pas dans
-  /// l'audience, **ou si le contenu a été révoqué**. Sans clé, pas d'image —
-  /// il n'y a pas de porte dérobée.
-  Future<({File front, File? back})> _loadFaces(Story story) async {
-    final repo = ref.read(storiesRepositoryProvider);
-    final cache = ref.read(contentMediaCacheProvider);
-    final me = ref.read(currentUserIdProvider);
-    final isMine = story.ownerId == me;
-
-    Future<File> sealed(bool front) async {
-      final path = front ? story.frontPath : story.backPath!;
-      if (isMine) {
-        final local = await cache.tryOwn(story.id, front: front);
-        if (local != null) return local;
-      }
-      return cache.others(
-        story.id,
-        front: front,
-        signedUrl: () => repo.mediaUrl(path),
-        expiresAt: story.expiresAt,
-      );
-    }
-
-    final sealedFront = await sealed(true);
-    final sealedBack = story.hasBack ? await sealed(false) : null;
-
-    if (!story.encrypted) {
-      return (front: sealedFront, back: sealedBack);
-    }
-
-    final key = await repo.openMedia(story.id);
-    final temp = await getTemporaryDirectory();
-
-    Future<File> unseal(File source, bool front) async {
-      final target = File(
-        '${temp.path}/story_clear_${story.id}_${front ? 'f' : 'b'}'
-        '${(front ? story.frontIsVideo : story.backIsVideo) ? '.mp4' : '.jpg'}',
-      );
-      final file = await MediaSeal.unsealToFile(source, key, target);
-      _clearFiles.add(file);
-      return file;
-    }
-
-    return (
-      front: await unseal(sealedFront, true),
-      back: sealedBack == null ? null : await unseal(sealedBack, false),
-    );
-  }
-
-  @override
-  void dispose() {
-    // Le clair ne survit pas à l'écran.
-    for (final file in _clearFiles) {
-      try {
-        file.deleteSync();
-      } catch (_) {}
-    }
-    super.dispose();
   }
 
   @override
@@ -160,49 +98,53 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
         // que lui laisse le Scaffold.
         children: [
           Positioned.fill(
-            child: FutureBuilder<({File front, File? back})>(
+            child: Builder(
               key: ValueKey(story.id),
-              future: _faces,
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return const Center(
+              builder: (context) {
+                final front = ref.watch(
+                  contentFaceProvider(_spec(story, true)),
+                );
+                final back = story.hasBack
+                    ? ref.watch(contentFaceProvider(_spec(story, false)))
+                    : null;
+                return front.when(
+                  loading: () => const Center(
+                    child: CircularProgressIndicator(color: Colors.white24),
+                  ),
+                  error: (e, _) => const Center(
                     child: Padding(
                       padding: EdgeInsets.all(24),
                       child: Text(
-                        'Cette story n\'est plus disponible.',
+                        "Cette story n'est plus disponible.",
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.white54),
                       ),
                     ),
-                  );
-                }
-                final faces = snapshot.data;
-                if (faces == null) {
-                  return const Center(
-                    child: CircularProgressIndicator(color: Colors.white24),
-                  );
-                }
-                final front = _face(
-                  faces.front,
-                  story.frontIsVideo,
-                  story.cardType,
-                  _showFront,
-                );
-                if (faces.back == null) {
-                  return Center(child: TiltableCard(child: front));
-                }
-                return Center(
-                  child: FlippableCard(
-                    onSideChanged: (front) =>
-                        setState(() => _showFront = front),
-                    front: front,
-                    back: _face(
-                      faces.back!,
-                      story.backIsVideo,
-                      story.cardType,
-                      !_showFront,
-                    ),
                   ),
+                  data: (frontFile) {
+                    final frontFace = _face(
+                      frontFile,
+                      story.frontIsVideo,
+                      story.cardType,
+                      _showFront,
+                    );
+                    final backFile = back?.value;
+                    if (backFile == null) {
+                      return Center(child: TiltableCard(child: frontFace));
+                    }
+                    return Center(
+                      child: FlippableCard(
+                        onSideChanged: (f) => setState(() => _showFront = f),
+                        front: frontFace,
+                        back: _face(
+                          backFile,
+                          story.backIsVideo,
+                          story.cardType,
+                          !_showFront,
+                        ),
+                      ),
+                    );
+                  },
                 );
               },
             ),

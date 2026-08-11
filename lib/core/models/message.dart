@@ -10,7 +10,13 @@ enum MessageKind {
   /// Annonce système : « X a ajouté une vibe » à la bibliothèque éphémère de
   /// la conversation (2026-08-10). Rendue comme une ligne discrète et centrée,
   /// pas comme une bulle.
-  libraryAdd;
+  libraryAdd,
+
+  /// **Repartage** d'une story ou d'une publication (2026-08-11). Ce n'est
+  /// pas une copie : le message porte un simple chemin vers la source, et
+  /// l'ouvrir ouvre la source. Si celle-ci disparaît, le message reste et le
+  /// dit — au lieu de s'évaporer en silence.
+  contentShare;
 
   /// Le nom Dart et la valeur en base diffèrent (`libraryAdd` / `library_add`),
   /// d'où la table explicite plutôt que `byName`.
@@ -25,6 +31,7 @@ enum MessageKind {
     'video' => MessageKind.video,
     'card' => MessageKind.card,
     'library_add' => MessageKind.libraryAdd,
+    'content_share' => MessageKind.contentShare,
     _ => MessageKind.text,
   };
 
@@ -34,6 +41,7 @@ enum MessageKind {
     MessageKind.video => 'video',
     MessageKind.card => 'card',
     MessageKind.libraryAdd => 'library_add',
+    MessageKind.contentShare => 'content_share',
   };
 }
 
@@ -46,6 +54,7 @@ class Message {
     this.body,
     this.mediaPath,
     this.cardId,
+    this.contentId,
     required this.createdAt,
     required this.expiresAt,
     this.sender,
@@ -59,6 +68,12 @@ class Message {
   final String? body;
   final String? mediaPath;
   final String? cardId;
+
+  /// Content ID visé par un [MessageKind.contentShare]. **Null quand la source
+  /// a disparu** : la contrainte est en `on delete set null`, donc le message
+  /// survit à ce qu'il désignait et peut l'annoncer.
+  final String? contentId;
+
   final DateTime createdAt;
   final DateTime expiresAt;
   final Profile? sender;
@@ -74,6 +89,7 @@ class Message {
     body: json['body'] as String?,
     mediaPath: json['media_path'] as String?,
     cardId: json['card_id'] as String?,
+    contentId: json['content_id'] as String?,
     createdAt: DateTime.parse(json['created_at'] as String),
     expiresAt: DateTime.parse(json['expires_at'] as String),
     sender: json['sender'] == null
