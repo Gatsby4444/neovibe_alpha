@@ -72,9 +72,19 @@ final publicationFaceProvider = FutureProvider.family<File, PublicationFace>((
   ref,
   spec,
 ) async {
+  // ⚠️ TOUT `ref.watch` se fait AVANT le premier `await`.
+  //
+  // C'est la règle déjà écrite dans `stories_repository.dart` après la panne du
+  // 2026-08-02 : un `ref.watch` placé après une suspension n'enregistre pas sa
+  // dépendance de façon fiable. Je l'avais enfreinte ici en allant chercher le
+  // lot de clés au milieu de la fonction — les vignettes ne se résolvaient
+  // jamais et restaient grises indéfiniment.
   final repo = ref.watch(libraryRepositoryProvider);
   final cache = ref.watch(contentMediaCacheProvider);
   final me = ref.watch(currentUserIdProvider);
+  final keysFuture = spec.encrypted
+      ? ref.watch(libraryKeysProvider(spec.ownerId).future)
+      : null;
 
   File? sealed;
   if (spec.ownerId == me) {
@@ -87,9 +97,9 @@ final publicationFaceProvider = FutureProvider.family<File, PublicationFace>((
     // Une publication est permanente : pas d'expiration à indexer.
   );
 
-  if (!spec.encrypted) return sealed;
+  if (keysFuture == null) return sealed;
 
-  final keys = await ref.watch(libraryKeysProvider(spec.ownerId).future);
+  final keys = await keysFuture;
   final key = keys[spec.itemId] ?? await repo.openMedia(spec.itemId);
 
   final temp = await getTemporaryDirectory();

@@ -170,11 +170,29 @@ class _PublicationThumb extends ConsumerWidget {
         encrypted: item.encrypted,
       )),
     );
+    // Trois états, trois rendus DISTINCTS. Un chargement qui ressemble à un
+    // échec est le défaut qui a rendu la panne du 2026-08-11 illisible : des
+    // tuiles grises, impossible de dire si ça charge ou si c'est cassé.
     return face.when(
-      loading: () => ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      loading: () => Stack(
+        fit: StackFit.expand,
+        children: [
+          ColoredBox(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          ),
+          const Center(
+            child: SizedBox(
+              height: 16,
+              width: 16,
+              child: CircularProgressIndicator(strokeWidth: 1.6),
+            ),
+          ),
+        ],
       ),
-      error: (_, _) => const _ThumbPlaceholder(icon: Icons.broken_image),
+      error: (e, _) => Tooltip(
+        message: '$e',
+        child: const _ThumbPlaceholder(icon: Icons.error_outline),
+      ),
       data: (file) => isVideo
           ? _VideoCover(file: file, decodeWidth: decodeWidth)
           // `cacheWidth` : les fichiers font 720×1280 et les vignettes

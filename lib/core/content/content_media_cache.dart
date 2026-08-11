@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -217,19 +218,28 @@ class ContentMediaCache {
     _index = <String, dynamic>{};
   }
 
+  /// Un téléchargement qui n'aboutit pas doit **échouer**, pas attendre.
+  ///
+  /// Sans délai maximal, une requête bloquée laissait l'écran sur son
+  /// indicateur de chargement pour toujours : l'utilisateur ne peut ni
+  /// comprendre ni réessayer. Mieux vaut une erreur visible qu'une attente
+  /// silencieuse.
+  static const _timeout = Duration(seconds: 25);
+
   Future<void> _download(String url, File target) async {
-    final client = HttpClient();
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
     try {
-      final request = await client.getUrl(Uri.parse(url));
-      final response = await request.close();
+      final request = await client.getUrl(Uri.parse(url)).timeout(_timeout);
+      final response = await request.close().timeout(_timeout);
       if (response.statusCode != 200) {
         throw HttpException('Téléchargement échoué (${response.statusCode})');
       }
       final tmp = File('${target.path}.part');
-      await response.pipe(tmp.openWrite());
+      await response.pipe(tmp.openWrite()).timeout(_timeout);
       await tmp.rename(target.path);
     } finally {
-      client.close();
+      client.close(force: true);
     }
   }
 }
