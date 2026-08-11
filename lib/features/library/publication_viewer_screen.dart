@@ -2,11 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_player/video_player.dart';
 
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/vibe_face.dart';
 import '../cards/flippable_card.dart';
 import '../conversations/conversations_repository.dart';
 import 'library_repository.dart';
@@ -90,10 +90,10 @@ class _PublicationViewerScreenState
                 ),
               ),
               data: (frontFile) {
-                final frontFace = _Face(
-                  file: frontFile,
-                  isVideo: item.frontIsVideo,
-                  active: _showFront,
+                final frontFace = _face(
+                  frontFile,
+                  item.frontIsVideo,
+                  _showFront,
                 );
                 final backFile = back?.value;
                 if (backFile == null) {
@@ -103,11 +103,7 @@ class _PublicationViewerScreenState
                   child: FlippableCard(
                     onSideChanged: (f) => setState(() => _showFront = f),
                     front: frontFace,
-                    back: _Face(
-                      file: backFile,
-                      isVideo: item.backIsVideo,
-                      active: !_showFront,
-                    ),
+                    back: _face(backFile, item.backIsVideo, !_showFront),
                   ),
                 );
               },
@@ -125,6 +121,12 @@ class _PublicationViewerScreenState
       ),
     );
   }
+
+  /// Une publication reste une Vibe : même cadre, même couleur de type.
+  /// Seules les RÈGLES diffèrent, pas l'apparence.
+  Widget _face(File file, bool isVideo, bool active) => isVideo
+      ? VibeVideoFace(file: file, type: widget.item.cardType, active: active)
+      : VibePhotoFace(file: file, type: widget.item.cardType);
 
   Future<void> _share() async {
     final conversationId = await showModalBottomSheet<String>(
@@ -181,80 +183,6 @@ class _PublicationViewerScreenState
     if (delete != true || !mounted) return;
     await ref.read(libraryRepositoryProvider).removeItem(widget.item.id);
     if (mounted) Navigator.of(context).pop();
-  }
-}
-
-class _Face extends StatelessWidget {
-  const _Face({
-    required this.file,
-    required this.isVideo,
-    required this.active,
-  });
-
-  final File file;
-  final bool isVideo;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!isVideo) return Image.file(file, fit: BoxFit.contain);
-    return _Video(file: file, active: active);
-  }
-}
-
-class _Video extends StatefulWidget {
-  const _Video({required this.file, required this.active});
-  final File file;
-  final bool active;
-
-  @override
-  State<_Video> createState() => _VideoState();
-}
-
-class _VideoState extends State<_Video> {
-  late final VideoPlayerController _controller = VideoPlayerController.file(
-    widget.file,
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _controller.initialize().then((_) {
-      if (!mounted) return;
-      // Une publication se regarde sans limite : lecture en boucle, aucun
-      // budget à consommer.
-      _controller.setLooping(true);
-      _controller.setVolume(widget.active ? 1 : 0);
-      if (widget.active) _controller.play();
-      setState(() {});
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant _Video oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!_controller.value.isInitialized) return;
-    _controller.setVolume(widget.active ? 1 : 0);
-    widget.active ? _controller.play() : _controller.pause();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_controller.value.isInitialized) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.white24),
-      );
-    }
-    return AspectRatio(
-      aspectRatio: _controller.value.aspectRatio,
-      child: VideoPlayer(_controller),
-    );
   }
 }
 

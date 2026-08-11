@@ -3,10 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:video_player/video_player.dart';
 
 import '../../core/crypto/media_seal.dart';
+import '../../core/models/card.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/vibe_face.dart';
 import '../../core/models/story.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/formats.dart';
@@ -181,10 +182,11 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                     child: CircularProgressIndicator(color: Colors.white24),
                   );
                 }
-                final front = _StoryFace(
-                  file: faces.front,
-                  isVideo: story.frontIsVideo,
-                  active: _showFront,
+                final front = _face(
+                  faces.front,
+                  story.frontIsVideo,
+                  story.cardType,
+                  _showFront,
                 );
                 if (faces.back == null) {
                   return Center(child: TiltableCard(child: front));
@@ -194,10 +196,11 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                     onSideChanged: (front) =>
                         setState(() => _showFront = front),
                     front: front,
-                    back: _StoryFace(
-                      file: faces.back!,
-                      isVideo: story.backIsVideo,
-                      active: !_showFront,
+                    back: _face(
+                      faces.back!,
+                      story.backIsVideo,
+                      story.cardType,
+                      !_showFront,
                     ),
                   ),
                 );
@@ -246,6 +249,13 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
       ),
     );
   }
+
+  /// Une story reste une Vibe : même cadre, même couleur de type, même halo.
+  /// Seules les RÈGLES diffèrent (aucune limite de vues ni de durée), pas
+  /// l'apparence.
+  Widget _face(File file, bool isVideo, CardType type, bool active) => isVideo
+      ? VibeVideoFace(file: file, type: type, active: active)
+      : VibePhotoFace(file: file, type: type);
 
   Future<void> _confirmDelete() async {
     final delete = await showDialog<bool>(
@@ -311,82 +321,6 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
       context: context,
       backgroundColor: const Color(0xFF16161C),
       builder: (context) => _StoryStatsSheet(storyId: _story.id),
-    );
-  }
-}
-
-/// Une face de story : photo ou vidéo. Pas de budget de durée, pas de barre
-/// contrôlable, pas de fin de session — une story se regarde, c'est tout.
-class _StoryFace extends StatelessWidget {
-  const _StoryFace({
-    required this.file,
-    required this.isVideo,
-    required this.active,
-  });
-
-  final File file;
-  final bool isVideo;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!isVideo) return Image.file(file, fit: BoxFit.contain);
-    return _StoryVideo(file: file, active: active);
-  }
-}
-
-class _StoryVideo extends StatefulWidget {
-  const _StoryVideo({required this.file, required this.active});
-  final File file;
-  final bool active;
-
-  @override
-  State<_StoryVideo> createState() => _StoryVideoState();
-}
-
-class _StoryVideoState extends State<_StoryVideo> {
-  late final VideoPlayerController _controller = VideoPlayerController.file(
-    widget.file,
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _controller.initialize().then((_) {
-      if (!mounted) return;
-      // Une story tourne en boucle : elle n'a pas de fin à atteindre, aucun
-      // budget ne se consomme.
-      _controller.setLooping(true);
-      _controller.setVolume(widget.active ? 1 : 0);
-      if (widget.active) _controller.play();
-      setState(() {});
-    });
-  }
-
-  @override
-  void didUpdateWidget(covariant _StoryVideo oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!_controller.value.isInitialized) return;
-    _controller.setVolume(widget.active ? 1 : 0);
-    widget.active ? _controller.play() : _controller.pause();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_controller.value.isInitialized) {
-      return const Center(
-        child: CircularProgressIndicator(color: Colors.white24),
-      );
-    }
-    return AspectRatio(
-      aspectRatio: _controller.value.aspectRatio,
-      child: VideoPlayer(_controller),
     );
   }
 }

@@ -10,6 +10,7 @@ import '../../core/crypto/media_seal.dart';
 
 import '../../core/models/card.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/vibe_face.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import 'card_media_cache.dart';
@@ -389,7 +390,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
         onCompleted: _limitsApply ? () => _markFaceDone(front) : null,
       );
     }
-    return _CardFace(file: file, type: type);
+    return VibePhotoFace(file: file, type: type);
   }
 
   @override
@@ -649,70 +650,6 @@ class _ExhaustedState extends StatelessWidget {
   }
 }
 
-/// Cadre commun d'une face : liseré à la couleur du type (dégradé pour
-/// Oneshot/BeReal), coins arrondis, fond noir.
-class _FaceFrame extends StatelessWidget {
-  const _FaceFrame({required this.type, required this.child});
-  final CardType type;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final borderWidth = type == CardType.oneOfOne ? 4.0 : 2.5;
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: EdgeInsets.all(borderWidth),
-      decoration: BoxDecoration(
-        gradient: type.gradient,
-        color: type.gradient == null ? type.color : null,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(color: type.color.withValues(alpha: 0.35), blurRadius: 24),
-        ],
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(17),
-        child: ColoredBox(color: Colors.black, child: child),
-      ),
-    );
-  }
-}
-
-/// Face photo : image servie depuis le cache local (préchargée à
-/// l'ouverture — plus de réseau ici).
-class _CardFace extends StatelessWidget {
-  const _CardFace({required this.file, required this.type});
-  final File file;
-  final CardType type;
-
-  @override
-  Widget build(BuildContext context) {
-    return _FaceFrame(
-      type: type,
-      child: Image.file(
-        file,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stack) => const AspectRatio(
-          aspectRatio: 3 / 4,
-          child: Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.broken_image, color: Colors.white38, size: 40),
-                SizedBox(height: 8),
-                Text(
-                  'Image indisponible',
-                  style: TextStyle(color: Colors.white54),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Face vidéo : lecture avec son, barre de progression toujours visible —
 /// contrôlable uniquement si le créateur l'a permis (consigne Jay).
 class _VideoFace extends StatefulWidget {
@@ -826,7 +763,7 @@ class _VideoFaceState extends State<_VideoFace> {
 
   @override
   Widget build(BuildContext context) {
-    return _FaceFrame(
+    return VibeFaceFrame(
       type: widget.type,
       child: AspectRatio(
         aspectRatio: 9 / 16,
@@ -878,7 +815,7 @@ class _DeadFace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _FaceFrame(
+    return VibeFaceFrame(
       type: type,
       child: AspectRatio(
         aspectRatio: 9 / 16,
