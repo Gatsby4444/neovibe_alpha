@@ -14,6 +14,39 @@ La vision complète (mécaniques fondatrices, ce qui reste à construire, points
 
 ---
 
+## Règle impérative : la fiabilité vient de l'architecture, pas du colmatage
+
+*Consigne de Jay, 2026-08-11 — impérative, applicable à tout chantier.*
+
+> « On doit construire une architecture robuste et claire, ne pas tout mélanger
+> et colmater les brèches. La fiabilité vient de l'architecture et de la
+> structure, pas du rebouchage des failles. Et **on sépare clairement et
+> distinctement tout ce que l'on peut**. »
+
+Ce qui en découle, à appliquer avant d'écrire la moindre ligne :
+
+1. **Devant un risque, chercher d'abord à supprimer la cause**, et seulement
+   ensuite à empêcher qu'elle nuise. Un garde-fou est un aveu : il faut le
+   maintenir, le comprendre et ne jamais le contourner par mégarde. Une cause
+   supprimée ne coûte plus rien.
+2. **Deux objets qui n'obéissent pas aux mêmes règles ne partagent ni le même
+   stockage, ni la même table, ni le même chemin d'accès.** S'ils les
+   partagent, c'est la règle la plus permissive qui gagne — toujours, et en
+   silence.
+3. **Compter les chemins qui mènent à un contenu.** Plusieurs chemins aux
+   règles différentes = défaut de conception, pas contrainte à documenter.
+4. **Une règle de sécurité doit s'énoncer positivement.** « Ce fichier n'existe
+   pas » vaut infiniment mieux que « ce fichier existe mais rien ne le rend
+   lisible ». Toute sécurité qui s'énonce par une négation (« tant que personne
+   n'ajoute… ») a une date de péremption.
+5. **Ne pas mélanger le contenu et le format.** Un même média diffusé selon
+   plusieurs règles doit donner plusieurs objets distincts, chacun avec son
+   cycle de vie. Un objet appartient à **un seul contexte de diffusion**.
+6. **Après un changement d'architecture, rejouer les décisions qui en
+   dépendaient** au lieu de dérouler un plan écrit avant.
+
+---
+
 ## Règle impérative : rapport de session
 
 **À chaque nouvelle session**, créer un rapport dans le dossier `rapports-de-sessions/` à la racine du repo.

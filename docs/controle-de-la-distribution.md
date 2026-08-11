@@ -103,17 +103,39 @@ n'est plus une question de **stockage** mais de **politique de clé**.
 **Leçon de méthode** : après un changement d'architecture, rejouer les décisions
 qui en dépendaient au lieu de dérouler un plan écrit avant.
 
-### Ce qui reste au programme
+### ⚠️ RÉVISION DU 2026-08-11 — l'abandon est levé
+
+Le motif de l'abandon était la **duplication de fichiers**. Jay a supprimé
+cette objection en changeant le modèle plutôt que le stockage :
+
+> **Au partage, l'utilisateur choisit UNE destination. Il ne peut plus publier
+> en story, en bibliothèque et dans le cercle en parallèle.**
+
+Un média n'existant plus que dans un seul contexte, le séparer ne duplique
+rien. Le raisonnement de la section précédente reste juste — il ne s'appliquait
+qu'au modèle où un contenu vivait dans plusieurs états de publication à la
+fois, et ce modèle n'existe plus.
+
+Ce que la séparation apporte, et que le chiffrement seul n'apportait pas : le
+chiffrement rend les octets inertes, mais il ne dit pas **quelle règle**
+s'applique à un fichier. Tant qu'une story et une livraison partageaient le
+même objet, il fallait choisir laquelle des deux règles gagnait — et c'est
+toujours la plus permissive qui gagnait, en silence.
+
+### État au 2026-08-11
 
 | # | Chantier | Verdict | Motif |
 |---|---|---|---|
-| ✅ | Bibliothèques éphémères | Fait | Objet réellement distinct, aucune duplication |
+| ✅ | Bibliothèques éphémères | Fait | Objet réellement distinct |
 | ✅ | Avatars privés | Fait | Le bucket était public |
 | ✅ | Limite de vues garantie | Fait (v0.9.46) | Le décompte délivre la clé |
-| ❌ | Stories — bucket | **Abandonné** | Duplication coûteuse, gain nul depuis le chiffrement |
-| ❌ | Bibliothèque publique — bucket | **Abandonné** | Idem |
-| ❓ | Stories — règle de vues | **En attente de Jay** | Gratuit, mais change la sémantique |
-| ⏳ | Sauvegardes — copie réelle | **À faire** | Corrige une promesse non tenue |
+| ✅ | **Stories — bucket + objet autonome** | **Fait (étape 1)** | Le choix exclusif supprime la duplication |
+| ✅ | **Content ID + graphe + révocation** | **Fait (étape 1)** | Socle `contents` / `content_grants` / `content_views` |
+| ✅ | Stories — règle de vues | **Sans objet** | Une story n'a plus de compteur : la question ne se pose plus |
+| ⏳ | Publication — objet autonome | Étape 2 | Fait tomber 2 des 5 chemins restants |
+| ⏳ | Sauvegardes — copie **locale** | Étape 5 | Décision de Jay : pas d'espace serveur dédié |
+| ⏳ | Clé de MES contenus en local | Étape 5 | Sans elle, « local d'abord » n'est pas tenu |
+| ⏳ | Chiffrement par blocs (lecture en flux) | Chantier suivant | Le scellé actuel porte sur le fichier entier |
 
 ### Stories : une question de produit, pas de sécurité
 

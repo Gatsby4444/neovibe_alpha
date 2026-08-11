@@ -1,16 +1,22 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:video_player/video_player.dart';
 
-import '../../core/widgets/avatar.dart';
-import '../../core/models/card.dart';
+import '../../core/crypto/media_seal.dart';
+import '../../core/widgets/card_type_badge.dart';
 import '../../core/models/story.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/formats.dart';
+import '../../core/widgets/avatar.dart';
 import '../../core/widgets/gradient.dart';
-import '../cards/card_viewer_screen.dart';
-import '../cards/cards_repository.dart';
+import '../cards/flippable_card.dart';
+import '../conversations/conversations_repository.dart';
 import '../library/user_library_screen.dart';
 import 'stories_repository.dart';
+import 'story_media_cache.dart';
 
 /// Hauteur de l'en-tête sous la barre d'état : padding 8 + barres de
 /// progression 2 + espace 10 + rangée d'icônes 48 + padding 8.
@@ -19,11 +25,12 @@ const _headerHeight = 76.0;
 /// Visionneuse de stories d'un auteur : on avance d'une story à l'autre en
 /// tapant à droite, on recule à gauche.
 ///
-/// La Card elle-même est rendue par `CardViewerScreen` en mode **chromeless**
-/// (`fromLibrary: true` = lecture illimitée, décision de Jay du 2026-08-02 :
-/// une story se revoit autant qu'on veut pendant 24 h). Sans `chromeless`,
-/// l'AppBar de la Card passait SOUS l'en-tête de la story et les deux
-/// s'écrasaient — défaut relevé au test de la v0.9.40.
+/// ⚠️ Depuis la refonte « 1 contenu = 1 format » (2026-08-11), cet écran ne
+/// passe plus par `CardViewerScreen`. Une story n'est plus une Card : elle n'a
+/// **ni livraison, ni limite de vues, ni budget de durée**. Faire transiter son
+/// média par la machinerie des Cards imposait de neutraliser tout cela au cas
+/// par cas — c'est exactement le mélange que la refonte supprime. Le chemin
+/// média est donc ici, et il est court : scellé → clé → clair → affichage.
 class StoryViewerScreen extends ConsumerStatefulWidget {
   const StoryViewerScreen({super.key, required this.ring});
   final StoryRing ring;
@@ -34,19 +41,103 @@ class StoryViewerScreen extends ConsumerStatefulWidget {
 
 class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
   var _index = 0;
+  var _showFront = true;
 
   Story get _story => widget.ring.stories[_index];
 
+  /// Fichiers en CLAIR de la story affichée. Ils vivent dans le répertoire
+  /// temporaire et meurent avec l'écran ([dispose]) — un clair qui resterait
+  /// sur le disque échapperait au serveur.
+  Future<({File front, File? back})>? _faces;
+  final _clearFiles = <File>[];
+
+  @override
+  void initState() {
+    super.initState();
+    _faces = _loadFaces(_story);
+  }
+
+  void _goTo(int index) {
+    setState(() {
+      _index = index;
+      _showFront = true;
+      _faces = _loadFaces(_story);
+    });
+  }
+
   void _next() {
     if (_index < widget.ring.stories.length - 1) {
-      setState(() => _index++);
+      _goTo(_index + 1);
     } else {
       Navigator.of(context).pop();
     }
   }
 
   void _previous() {
-    if (_index > 0) setState(() => _index--);
+    if (_index > 0) _goTo(_index - 1);
+  }
+
+  /// Récupère les faces : le scellé (cache local d'abord), puis la clé auprès
+  /// du serveur, puis le déchiffrement en fichier temporaire.
+  ///
+  /// C'est `open_story_media` qui décide : elle refuse si je ne suis pas dans
+  /// l'audience, **ou si le contenu a été révoqué**. Sans clé, pas d'image —
+  /// il n'y a pas de porte dérobée.
+  Future<({File front, File? back})> _loadFaces(Story story) async {
+    final repo = ref.read(storiesRepositoryProvider);
+    final cache = ref.read(storyMediaCacheProvider);
+    final me = ref.read(currentUserIdProvider);
+    final isMine = story.ownerId == me;
+
+    Future<File> sealed(bool front) async {
+      final path = front ? story.frontPath : story.backPath!;
+      if (isMine) {
+        final local = await cache.tryOwn(story.id, front: front);
+        if (local != null) return local;
+      }
+      return cache.others(
+        story.id,
+        story.expiresAt,
+        front: front,
+        signedUrl: () => repo.mediaUrl(path),
+      );
+    }
+
+    final sealedFront = await sealed(true);
+    final sealedBack = story.hasBack ? await sealed(false) : null;
+
+    if (!story.encrypted) {
+      return (front: sealedFront, back: sealedBack);
+    }
+
+    final key = await repo.openMedia(story.id);
+    final temp = await getTemporaryDirectory();
+
+    Future<File> unseal(File source, bool front) async {
+      final target = File(
+        '${temp.path}/story_clear_${story.id}_${front ? 'f' : 'b'}'
+        '${(front ? story.frontIsVideo : story.backIsVideo) ? '.mp4' : '.jpg'}',
+      );
+      final file = await MediaSeal.unsealToFile(source, key, target);
+      _clearFiles.add(file);
+      return file;
+    }
+
+    return (
+      front: await unseal(sealedFront, true),
+      back: sealedBack == null ? null : await unseal(sealedBack, false),
+    );
+  }
+
+  @override
+  void dispose() {
+    // Le clair ne survit pas à l'écran.
+    for (final file in _clearFiles) {
+      try {
+        file.deleteSync();
+      } catch (_) {}
+    }
+    super.dispose();
   }
 
   @override
@@ -54,7 +145,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     final me = ref.watch(currentUserIdProvider);
     final owner = widget.ring.owner;
     final isMine = owner.id == me;
-    final card = _story.card;
+    final story = _story;
     final headerBottom = MediaQuery.paddingOf(context).top + _headerHeight;
 
     return Scaffold(
@@ -68,22 +159,50 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
         // que lui laisse le Scaffold.
         children: [
           Positioned.fill(
-            child: card == null
-                ? const Center(
-                    child: Text(
-                      'Story indisponible.',
-                      style: TextStyle(color: Colors.white54),
+            child: FutureBuilder<({File front, File? back})>(
+              key: ValueKey(story.id),
+              future: _faces,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text(
+                        'Cette story n\'est plus disponible.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.white54),
+                      ),
                     ),
-                  )
-                : CardViewerScreen(
-                    // Clé sur l'identifiant : sans elle, passer d'une story à
-                    // l'autre réutiliserait l'état du lecteur précédent
-                    // (média déjà chargé, face retournée).
-                    key: ValueKey(card.id),
-                    card: card,
-                    fromLibrary: true,
-                    chromeless: true,
+                  );
+                }
+                final faces = snapshot.data;
+                if (faces == null) {
+                  return const Center(
+                    child: CircularProgressIndicator(color: Colors.white24),
+                  );
+                }
+                final front = _StoryFace(
+                  file: faces.front,
+                  isVideo: story.frontIsVideo,
+                  active: _showFront,
+                );
+                if (faces.back == null) {
+                  return Center(child: TiltableCard(child: front));
+                }
+                return Center(
+                  child: FlippableCard(
+                    onSideChanged: (front) =>
+                        setState(() => _showFront = front),
+                    front: front,
+                    back: _StoryFace(
+                      file: faces.back!,
+                      isVideo: story.backIsVideo,
+                      active: !_showFront,
+                    ),
                   ),
+                );
+              },
+            ),
           ),
           // Zones de navigation, sous l'en-tête pour ne pas manger ses taps.
           Positioned(
@@ -115,10 +234,12 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
             child: _Header(
               ring: widget.ring,
               index: _index,
-              card: card,
+              story: story,
               isMine: isMine,
               onClose: () => Navigator.of(context).pop(),
-              onDelete: !isMine ? null : () => _confirmDelete(),
+              onDelete: !isMine ? null : _confirmDelete,
+              onShare: story.shareable ? _share : null,
+              onStats: !isMine ? null : _showStats,
             ),
           ),
         ],
@@ -132,7 +253,9 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
       builder: (context) => AlertDialog(
         title: const Text('Retirer cette story ?'),
         content: const Text(
-          'Elle disparaît pour tout le monde. La Vibe, elle, reste.',
+          'Elle disparaît pour tout le monde, y compris pour ceux à qui elle a '
+          'été repartagée — un repartage est un raccourci vers celle-ci, pas '
+          'une copie.',
         ),
         actions: [
           TextButton(
@@ -150,46 +273,278 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     await ref.read(storiesRepositoryProvider).remove(_story.id);
     if (mounted) Navigator.of(context).pop();
   }
+
+  /// Repartage dans une conversation. Aucun octet n'est copié : la story
+  /// gagne des chemins d'accès, elle ne se duplique pas.
+  Future<void> _share() async {
+    final storyId = _story.id;
+    final conversations = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: const Color(0xFF16161C),
+      builder: (context) => _ConversationPicker(),
+    );
+    if (conversations == null || !mounted) return;
+    try {
+      final added = await ref
+          .read(storiesRepositoryProvider)
+          .shareToConversation(storyId, conversations);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            added == 0
+                ? 'Déjà partagée dans cette conversation.'
+                : 'Story partagée à $added personne${added > 1 ? 's' : ''}.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
+    }
+  }
+
+  void _showStats() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: const Color(0xFF16161C),
+      builder: (context) => _StoryStatsSheet(storyId: _story.id),
+    );
+  }
+}
+
+/// Une face de story : photo ou vidéo. Pas de budget de durée, pas de barre
+/// contrôlable, pas de fin de session — une story se regarde, c'est tout.
+class _StoryFace extends StatelessWidget {
+  const _StoryFace({
+    required this.file,
+    required this.isVideo,
+    required this.active,
+  });
+
+  final File file;
+  final bool isVideo;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!isVideo) return Image.file(file, fit: BoxFit.contain);
+    return _StoryVideo(file: file, active: active);
+  }
+}
+
+class _StoryVideo extends StatefulWidget {
+  const _StoryVideo({required this.file, required this.active});
+  final File file;
+  final bool active;
+
+  @override
+  State<_StoryVideo> createState() => _StoryVideoState();
+}
+
+class _StoryVideoState extends State<_StoryVideo> {
+  late final VideoPlayerController _controller = VideoPlayerController.file(
+    widget.file,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.initialize().then((_) {
+      if (!mounted) return;
+      // Une story tourne en boucle : elle n'a pas de fin à atteindre, aucun
+      // budget ne se consomme.
+      _controller.setLooping(true);
+      _controller.setVolume(widget.active ? 1 : 0);
+      if (widget.active) _controller.play();
+      setState(() {});
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _StoryVideo oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_controller.value.isInitialized) return;
+    _controller.setVolume(widget.active ? 1 : 0);
+    widget.active ? _controller.play() : _controller.pause();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_controller.value.isInitialized) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white24),
+      );
+    }
+    return AspectRatio(
+      aspectRatio: _controller.value.aspectRatio,
+      child: VideoPlayer(_controller),
+    );
+  }
+}
+
+/// Choix de la conversation où repartager.
+class _ConversationPicker extends ConsumerWidget {
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final me = ref.watch(currentUserIdProvider) ?? '';
+    final conversations = ref.watch(conversationsProvider);
+    return SafeArea(
+      child: conversations.when(
+        loading: () => const Padding(
+          padding: EdgeInsets.all(32),
+          child: Center(child: CircularProgressIndicator()),
+        ),
+        error: (e, _) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text('Erreur : $e'),
+        ),
+        data: (list) => list.isEmpty
+            ? const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('Aucune conversation où partager.'),
+              )
+            : ListView.builder(
+                shrinkWrap: true,
+                itemCount: list.length,
+                itemBuilder: (context, i) {
+                  final conv = list[i];
+                  return ListTile(
+                    title: Text(conv.displayName(me)),
+                    onTap: () => Navigator.pop(context, conv.id),
+                  );
+                },
+              ),
+      ),
+    );
+  }
+}
+
+/// Statistiques d'une de MES stories.
+///
+/// Les spectateurs de mon cercle sont NOMMÉS ; ceux atteints par propagation
+/// ne le sont pas — ils ne sont comptés que dans le total. Ce n'est pas une
+/// limite technique : le serveur enregistre le nominatif dans tous les cas,
+/// c'est l'affichage qui s'abstient (arbitrage de Jay, 2026-08-11 ; le détail
+/// complet est réservé à la future option premium).
+class _StoryStatsSheet extends ConsumerWidget {
+  const _StoryStatsSheet({required this.storyId});
+  final String storyId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final viewers = ref.watch(storyViewersProvider(storyId));
+    final total = ref.watch(storyViewerCountProvider(storyId)).value;
+
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+            child: Text(
+              total == null
+                  ? 'Vues'
+                  : 'Vue par $total personne${total > 1 ? 's' : ''}',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          Flexible(
+            child: viewers.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+              error: (e, _) => Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text('Erreur : $e'),
+              ),
+              data: (list) {
+                final beyond = (total ?? list.length) - list.length;
+                return ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final viewer in list)
+                      ListTile(
+                        leading: Avatar(stored: viewer.avatarUrl, radius: 18),
+                        title: Text(
+                          viewer.tagName ?? viewer.displayName ?? 'Quelqu\'un',
+                        ),
+                        trailing: Text(
+                          shortTime(viewer.firstViewedAt),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    if (beyond > 0)
+                      ListTile(
+                        leading: const Icon(Icons.share_outlined),
+                        title: Text(
+                          'et $beyond personne${beyond > 1 ? 's' : ''} '
+                          'hors de ton cercle',
+                        ),
+                        subtitle: const Text(
+                          'atteintes par repartage',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      ),
+                    if (list.isEmpty && beyond == 0)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('Personne ne l\'a encore vue.'),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// En-tête façon Instagram : barres de progression, avatar + pseudo cliquables
-/// (consigne Jay 2026-08-02), horodatage, type de la Card, enregistrement,
-/// fermeture.
+/// (consigne Jay 2026-08-02), horodatage, type, partage, statistiques,
+/// suppression, fermeture.
 ///
-/// C'est le SEUL habillage de l'écran : la `CardViewerScreen` est en mode
-/// `chromeless`, donc les actions qu'elle porte d'ordinaire dans son AppBar
-/// (enregistrer) sont reprises ici.
+/// ⚠️ **Le bouton « Enregistrer » a disparu.** `saved_cards` référence la table
+/// `cards` ; une story n'en est plus une, l'enregistrement y provoquerait une
+/// violation de clé étrangère. La sauvegarde revient à l'étape 5 de la refonte,
+/// sous la forme décidée par Jay : une **copie locale** sur l'appareil, qui ne
+/// dépend plus de la ligne de l'auteur.
 class _Header extends ConsumerWidget {
   const _Header({
     required this.ring,
     required this.index,
-    required this.card,
+    required this.story,
     required this.isMine,
     required this.onClose,
     this.onDelete,
+    this.onShare,
+    this.onStats,
   });
 
   final StoryRing ring;
   final int index;
-  final CardModel? card;
+  final Story story;
   final bool isMine;
   final VoidCallback onClose;
   final VoidCallback? onDelete;
+  final VoidCallback? onShare;
+  final VoidCallback? onStats;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final owner = ring.owner;
-    final type = card?.type;
-    // Mêmes règles que dans la CardViewerScreen : ses propres cards (1/1
-    // exclue), ou une card reçue que son créateur a marquée sauvegardable.
-    final canSave =
-        card != null &&
-        (isMine
-            ? type != CardType.oneOfOne
-            : (card!.saveable && type!.canBeSaveable));
-    final isSaved = card == null
-        ? null
-        : ref.watch(isCardSavedProvider(card!.id)).value;
 
     return SafeArea(
       bottom: false,
@@ -266,27 +621,25 @@ class _Header extends ConsumerWidget {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    shortTime(ring.stories[index].createdAt),
+                    shortTime(story.createdAt),
                     style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                   const Spacer(),
-                  if (type != null) ...[
-                    CardTypeBadge(type: type, fontSize: 11),
-                    const SizedBox(width: 4),
-                  ],
-                  if (canSave)
+                  CardTypeBadge(type: story.cardType, fontSize: 11),
+                  const SizedBox(width: 4),
+                  if (onStats != null)
                     IconButton(
                       color: Colors.white,
-                      icon: Icon(
-                        isSaved == true
-                            ? Icons.bookmark
-                            : Icons.bookmark_border,
-                      ),
-                      tooltip: isSaved == true
-                          ? 'Retirer de mes Enregistrements'
-                          : 'Enregistrer pour moi',
-                      onPressed: () =>
-                          _toggleSave(context, ref, isSaved == true),
+                      icon: const Icon(Icons.visibility_outlined),
+                      tooltip: 'Qui a vu',
+                      onPressed: onStats,
+                    ),
+                  if (onShare != null)
+                    IconButton(
+                      color: Colors.white,
+                      icon: const Icon(Icons.reply_outlined),
+                      tooltip: 'Partager dans une conversation',
+                      onPressed: onShare,
                     ),
                   if (onDelete != null)
                     IconButton(
@@ -307,25 +660,5 @@ class _Header extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  Future<void> _toggleSave(
-    BuildContext context,
-    WidgetRef ref,
-    bool saved,
-  ) async {
-    final repo = ref.read(cardsRepositoryProvider);
-    final id = card!.id;
-    try {
-      saved ? await repo.unsaveCard(id) : await repo.saveCard(id);
-      ref.invalidate(isCardSavedProvider(id));
-      ref.invalidate(savedCardsProvider);
-    } catch (e) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
-      }
-    }
   }
 }

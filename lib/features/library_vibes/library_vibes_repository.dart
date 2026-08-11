@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
@@ -13,6 +12,7 @@ import '../../core/diagnostics/app_log.dart';
 import '../../core/models/card.dart';
 import '../../core/models/library_vibe.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/utils/ids.dart';
 import '../cards/card_media_cache.dart';
 
 /// Bibliothèques éphémères de conversation — couche d'accès.
@@ -80,7 +80,7 @@ class LibraryVibesRepository {
     final me = _client.auth.currentUser!.id;
     // L'identifiant est fabriqué ICI : il nomme les fichiers dans le coffre,
     // et il faut donc le connaître avant de les déposer.
-    final id = _uuid();
+    final id = newUuid();
 
     final placeholderPath = '$me/$id/placeholder.png';
     final sealedPath = '$me/$id/sealed.bin';
@@ -328,22 +328,6 @@ class LibraryVibesRepository {
       box,
       secretKey: SecretKey(base64Decode(keyBase64)),
     );
-  }
-
-  // ─── Divers ─────────────────────────────────────────────────────────────
-
-  /// UUID v4, sans dépendance supplémentaire (le paquet `uuid` n'est pas au
-  /// pubspec, et un seul appel ne justifie pas de l'ajouter).
-  String _uuid() {
-    final rnd = Random.secure();
-    final bytes = List<int>.generate(16, (_) => rnd.nextInt(256));
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    String hex(int from, int to) => bytes
-        .sublist(from, to)
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
-    return '${hex(0, 4)}-${hex(4, 6)}-${hex(6, 8)}-${hex(8, 10)}-${hex(10, 16)}';
   }
 }
 

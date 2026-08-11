@@ -1,25 +1,33 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/crypto/media_seal.dart';
+import '../../core/models/card.dart';
 import '../../core/models/story.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/utils/ids.dart';
 import '../connections/connections_repository.dart';
+import 'story_media_cache.dart';
 
 /// Toutes les stories vivantes que j'ai le droit de voir.
 ///
-/// C'est la RLS qui décide, pas le client : `stories_select_visible` laisse
-/// passer les miennes, celles de mes amis, et — si l'auteur a activé « stories
-/// publiques » — celles des personnes que j'ai croisées physiquement dans les
-/// dernières 24 h (croisement certifié, deux signatures Ed25519 vérifiées
-/// côté serveur). Une requête suffit donc pour les deux fils ; on ne les
-/// sépare ensuite que pour l'affichage.
+/// C'est la RLS qui décide, pas le client : `stories_select_audience` appelle
+/// `private.story_audience`, qui répond à **une seule question** — cette
+/// personne est-elle dans l'audience de cette story ? Trois façons d'y entrer
+/// (l'auteur, le cercle, un repartage reçu), une seule règle.
+///
+/// Plus de jointure `cards(*)` : une story n'est plus une Card, elle porte ses
+/// propres fichiers.
 final _visibleStoriesProvider = FutureProvider<List<Story>>((ref) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
   final rows = await ref
       .watch(supabaseProvider)
       .from('stories')
-      .select('*, cards(*), profiles!stories_owner_id_fkey(*)')
+      .select('*, profiles!stories_owner_id_fkey(*)')
       .gt('expires_at', DateTime.now().toUtc().toIso8601String())
       .order('created_at', ascending: false);
   return rows.map(Story.fromJson).toList();
@@ -82,25 +90,146 @@ final crossedStoriesProvider = FutureProvider<List<StoryRing>>((ref) async {
   );
 });
 
+/// Spectateurs NOMMÉS d'une de mes stories (ceux que je peux situer dans mon
+/// cercle). Les autres n'apparaissent que dans [storyViewerCountProvider].
+final storyViewersProvider = FutureProvider.family<List<StoryViewer>, String>((
+  ref,
+  storyId,
+) async {
+  final rows = await ref
+      .watch(supabaseProvider)
+      .rpc('story_viewers', params: {'p_story_id': storyId});
+  return (rows as List)
+      .map((r) => StoryViewer.fromJson(r as Map<String, dynamic>))
+      .toList();
+});
+
+/// Nombre TOTAL de personnes ayant vu, propagation comprise.
+final storyViewerCountProvider = FutureProvider.family<int, String>((
+  ref,
+  storyId,
+) async {
+  final value = await ref
+      .watch(supabaseProvider)
+      .rpc('story_viewer_count', params: {'p_story_id': storyId});
+  return (value as int?) ?? 0;
+});
+
 class StoriesRepository {
   StoriesRepository(this.ref);
   final Ref ref;
 
   SupabaseClient get _client => ref.read(supabaseProvider);
 
-  /// Publie une Card existante en story (24 h). `upsert` sur la contrainte
-  /// (owner_id, card_id) : republier la même card ne crée pas de doublon.
-  Future<void> publish(String cardId) async {
+  /// Publie une story : dépôt des faces **chiffrées** dans le bucket
+  /// `stories`, puis création de l'identité, du format et de la clé en une
+  /// seule transaction serveur (`publish_story`).
+  ///
+  /// L'identifiant est fabriqué ici parce qu'il nomme les fichiers **avant**
+  /// leur téléversement — et il devient le Content ID du contenu.
+  ///
+  /// [shareable] : l'auteur autorise la propagation de cercle en cercle. Faux
+  /// par défaut, c'est une décision reprise à chaque publication.
+  Future<String> publish({
+    required File front,
+    File? back,
+    required CardType type,
+    bool frontIsVideo = false,
+    bool backIsVideo = false,
+    bool shareable = false,
+  }) async {
     final me = _client.auth.currentUser!.id;
-    await _client.from('stories').upsert({
-      'owner_id': me,
-      'card_id': cardId,
-    }, onConflict: 'owner_id,card_id');
+    final storyId = newUuid();
+    final frontPath = '$me/${storyId}_front.${frontIsVideo ? 'mp4' : 'jpg'}';
+    final backPath = back == null
+        ? null
+        : '$me/${storyId}_back.${backIsVideo ? 'mp4' : 'jpg'}';
+
+    // La MÊME clé chiffre les deux faces : AES-GCM tire un nonce aléatoire à
+    // chaque appel, deux fichiers distincts restent donc sûrs.
+    final mediaKey = await MediaSeal.newKey();
+    const sealedType = FileOptions(contentType: 'application/octet-stream');
+
+    final sealedFront = await MediaSeal.sealFile(front, mediaKey);
+    await _client.storage
+        .from('stories')
+        .uploadBinary(frontPath, sealedFront, fileOptions: sealedType);
+    final sealedBack = back == null
+        ? null
+        : await MediaSeal.sealFile(back, mediaKey);
+    if (sealedBack != null) {
+      await _client.storage
+          .from('stories')
+          .uploadBinary(backPath!, sealedBack, fileOptions: sealedType);
+    }
+
+    await _client.rpc(
+      'publish_story',
+      params: {
+        'p_story_id': storyId,
+        'p_card_type': type.dbValue,
+        'p_front_path': frontPath,
+        'p_back_path': backPath,
+        'p_front_is_video': frontIsVideo,
+        'p_back_is_video': backIsVideo,
+        'p_shareable': shareable,
+        'p_media_key': mediaKey,
+      },
+    );
+
+    // Copie locale immédiate : rouvrir MA propre story ne doit jamais
+    // dépendre du réseau. On y range le scellé, comme pour les Cards — une
+    // seule règle vaut alors partout, tout fichier en cache est chiffré.
+    final cache = ref.read(storyMediaCacheProvider);
+    final temp = await getTemporaryDirectory();
+    Future<void> keep(List<int> sealed, {required bool isFront}) async {
+      try {
+        final file = File(
+          '${temp.path}/story_seal_${storyId}_${isFront ? 'f' : 'b'}',
+        );
+        await file.writeAsBytes(sealed, flush: true);
+        await cache.storeOwn(storyId, file, front: isFront);
+        await file.delete();
+      } catch (_) {}
+    }
+
+    await keep(sealedFront, isFront: true);
+    if (sealedBack != null) await keep(sealedBack, isFront: false);
+
     _invalidate();
+    return storyId;
+  }
+
+  /// Réclame la clé de déchiffrement — **sans aucun décompte**. Une story n'a
+  /// pas de limite de vues : c'est ce que la séparation des formats a rendu
+  /// possible. L'appel enregistre la vue pour les statistiques de l'auteur.
+  ///
+  /// Lève si le contenu a été **révoqué** : c'est le point de contrôle unique.
+  Future<String> openMedia(String storyId) async {
+    final key = await _client.rpc(
+      'open_story_media',
+      params: {'p_story_id': storyId},
+    );
+    return key as String;
+  }
+
+  /// Repartage dans une conversation. **Aucun octet n'est copié** : on ajoute
+  /// des chemins vers l'unique média (des arêtes au graphe de propagation).
+  /// Le serveur refuse si la story n'est pas `shareable`.
+  Future<int> shareToConversation(String storyId, String conversationId) async {
+    final added = await _client.rpc(
+      'share_story',
+      params: {'p_story_id': storyId, 'p_conversation_id': conversationId},
+    );
+    return (added as int?) ?? 0;
   }
 
   Future<void> remove(String storyId) async {
     await _client.from('stories').delete().eq('id', storyId);
+    // Les fichiers locaux n'ont plus de raison d'être : le serveur ne les
+    // sert plus. L'identité et le graphe, eux, survivent côté serveur — c'est
+    // ce qui permettra la traçabilité après coup.
+    await ref.read(storyMediaCacheProvider).purge(storyId);
     _invalidate();
   }
 
@@ -114,6 +243,9 @@ class StoriesRepository {
         .eq('id', me);
     ref.invalidate(myProfileProvider);
   }
+
+  Future<String> mediaUrl(String path) =>
+      _client.storage.from('stories').createSignedUrl(path, 3600);
 
   void _invalidate() {
     ref.invalidate(_visibleStoriesProvider);

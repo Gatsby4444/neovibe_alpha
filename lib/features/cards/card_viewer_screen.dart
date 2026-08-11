@@ -9,6 +9,7 @@ import 'package:video_player/video_player.dart';
 import '../../core/crypto/media_seal.dart';
 
 import '../../core/models/card.dart';
+import '../../core/widgets/card_type_badge.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import 'card_media_cache.dart';
@@ -509,40 +510,6 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
               ),
             )
           : null,
-    );
-  }
-}
-
-/// Pastille du type de Card. Publique depuis la v0.9.41 : la visionneuse de
-/// stories fournit son propre en-tête et doit pouvoir la réafficher.
-class CardTypeBadge extends StatelessWidget {
-  const CardTypeBadge({super.key, required this.type, this.fontSize = 16});
-  final CardType type;
-  final double fontSize;
-
-  @override
-  Widget build(BuildContext context) {
-    final compact = fontSize < 14;
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 7 : 10,
-        vertical: compact ? 2 : 4,
-      ),
-      decoration: BoxDecoration(
-        gradient: type.gradient,
-        border: type.gradient == null
-            ? Border.all(color: type.color, width: compact ? 1.5 : 2)
-            : null,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Text(
-        type.tag,
-        style: TextStyle(
-          color: type.gradient == null ? type.color : Colors.white,
-          fontWeight: FontWeight.bold,
-          fontSize: fontSize,
-        ),
-      ),
     );
   }
 }

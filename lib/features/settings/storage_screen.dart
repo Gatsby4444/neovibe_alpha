@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/prefs.dart';
 import '../cards/card_media_cache.dart';
+import '../stories/story_media_cache.dart';
 
 /// Gestion du stockage local des cards (consigne Jay 2026-07-13, C4 option
 /// a) : occupation, espace alloué réglable, emplacement affiché, vidage —
@@ -18,6 +19,7 @@ class StorageScreen extends ConsumerStatefulWidget {
 
 class _StorageScreenState extends ConsumerState<StorageScreen> {
   ({int ownBytes, int othersBytes, String path})? _usage;
+  ({int ownBytes, int othersBytes})? _storyUsage;
 
   @override
   void initState() {
@@ -27,7 +29,13 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
 
   Future<void> _refresh() async {
     final usage = await ref.read(cardMediaCacheProvider).usage();
-    if (mounted) setState(() => _usage = usage);
+    final stories = await ref.read(storyMediaCacheProvider).usage();
+    if (mounted) {
+      setState(() {
+        _usage = usage;
+        _storyUsage = stories;
+      });
+    }
   }
 
   String _fmt(int bytes) {
@@ -118,6 +126,36 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
               style: TextStyle(fontSize: 12),
             ),
           ),
+          const Divider(),
+          const _Header('Stories'),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.auto_awesome),
+            title: Text(
+              _storyUsage == null
+                  ? 'Calcul…'
+                  : '${_fmt(_storyUsage!.ownBytes)} pour les miennes · '
+                        '${_fmt(_storyUsage!.othersBytes)} en cache',
+            ),
+            subtitle: const Text(
+              'Espace séparé de celui des Vibes : une story a sa propre règle '
+              'de rétention, son expiration. Tout y est effacé automatiquement '
+              'au bout de 24 h.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+          if (_storyUsage != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: OutlinedButton(
+                onPressed: () async {
+                  await ref.read(storyMediaCacheProvider).clear();
+                  await _refresh();
+                },
+                child: const Text('Vider le stockage des stories'),
+              ),
+            ),
+          const Divider(),
           if (usage != null)
             ListTile(
               dense: true,
