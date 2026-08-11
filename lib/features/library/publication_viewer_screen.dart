@@ -7,6 +7,7 @@ import '../../core/content/content_face.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/content_overflow_menu.dart';
 import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../cards/flippable_card.dart';
@@ -87,6 +88,9 @@ class _PublicationViewerScreenState
               tooltip: 'Retirer de ma bibliothèque',
               onPressed: _confirmDelete,
             ),
+          // Signaler / bloquer : jamais sur son propre contenu.
+          if (!mine)
+            ContentOverflowMenu(contentId: item.id, authorId: item.ownerId),
         ],
       ),
       body: Column(

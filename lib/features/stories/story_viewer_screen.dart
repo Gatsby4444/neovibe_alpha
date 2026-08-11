@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/content/content_face.dart';
 import '../../core/models/card.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/content_overflow_menu.dart';
 import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../../core/models/story.dart';
@@ -542,6 +543,13 @@ class _Header extends ConsumerWidget {
                       icon: const Icon(Icons.delete_outline),
                       tooltip: 'Retirer cette story',
                       onPressed: onDelete,
+                    ),
+                  // Signaler / bloquer : jamais sur sa propre story.
+                  if (!isMine)
+                    ContentOverflowMenu(
+                      contentId: story.id,
+                      authorId: story.ownerId,
+                      authorName: owner.chatName,
                     ),
                   IconButton(
                     color: Colors.white,

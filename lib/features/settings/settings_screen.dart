@@ -10,6 +10,7 @@ import '../cards/native_camera.dart';
 import '../cards/saved_items_screen.dart';
 import '../connections/connections_repository.dart';
 import '../library/library_repository.dart';
+import 'blocked_screen.dart';
 import '../stories/stories_repository.dart';
 import 'app_log_screen.dart';
 import 'camera_log_screen.dart';
@@ -153,6 +154,20 @@ class SettingsScreen extends ConsumerWidget {
           ),
           if (profile?.libraryVisibility == LibraryVisibility.restricted)
             const _AccessListEditor(),
+          const Divider(),
+          const _Header('Sécurité'),
+          ListTile(
+            leading: const Icon(Icons.block),
+            title: const Text('Personnes bloquées'),
+            subtitle: const Text(
+              "Coupe la visibilité des contenus dans les deux sens, et empêche "
+              "tout partage de vous relier",
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const BlockedScreen())),
+          ),
           const Divider(),
           const _Header('Développeur (mode test — sera retiré)'),
           SwitchListTile(
