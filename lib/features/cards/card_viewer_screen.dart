@@ -3,11 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:video_player/video_player.dart';
 
 import '../../core/crypto/media_open.dart';
 
 import '../../core/models/card.dart';
+import '../../core/video/sealed_video_controller.dart';
+import '../../core/video/sealed_video_view.dart';
 import '../../core/widgets/card_type_badge.dart';
 import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
@@ -655,8 +656,9 @@ class _VideoFace extends StatefulWidget {
     this.onPosition,
   });
 
-  /// Le média ouvert : une URL locale servie bloc par bloc, ou un fichier
-  /// en clair pour une Vibe héritée.
+  /// Le média ouvert : une vidéo scellée lue par le lecteur natif, ou un
+  /// fichier en clair pour une Vibe héritée. [OpenedMedia] est seul à savoir
+  /// laquelle des deux.
   final OpenedMedia media;
   final CardType type;
 
@@ -682,9 +684,10 @@ class _VideoFace extends StatefulWidget {
 }
 
 class _VideoFaceState extends State<_VideoFace> {
-  late final VideoPlayerController _controller = widget.media.videoUrl != null
-      ? VideoPlayerController.networkUrl(widget.media.videoUrl!)
-      : VideoPlayerController.file(widget.media.clearFile!);
+  // Lecteur NATIF : il déchiffre le format par blocs lui-même, sur ses propres
+  // fils. L'isolate qui dessine ne transporte plus un octet de vidéo — c'est la
+  // cause du saccadement de la v0.9.55, supprimée et non contournée.
+  late final SealedVideoController _controller = widget.media.videoController();
   var _completedFired = false;
 
   /// Voir [VideoFaceError] : un échec d'ouverture avalé se voyait comme un
@@ -718,17 +721,21 @@ class _VideoFaceState extends State<_VideoFace> {
     final value = _controller.value;
     // Seule la face REGARDÉE consomme son budget de vue : la face cachée avance
     // en silence et ne doit pas se déclarer terminée toute seule.
+    //
+    // La fin est désormais annoncée par le lecteur natif, au lieu d'être
+    // déduite d'une comparaison position/durée : cette comparaison ratait la
+    // fin quand le battement tombait après le dernier rafraîchissement.
     if (widget.active &&
         !widget.loop &&
         !_completedFired &&
-        value.isInitialized &&
-        value.duration > Duration.zero &&
-        value.position >= value.duration) {
+        value.isCompleted) {
       _completedFired = true;
       widget.onCompleted?.call();
     }
     if (widget.active) widget.onPosition?.call(value.position);
-    setState(() {}); // rafraîchit la barre de progression
+    // Pas de setState : la barre de progression écoute le contrôleur
+    // elle-même. Reconstruire toute la face à chaque battement coûterait sans
+    // rien changer à l'écran.
   }
 
   @override
@@ -783,25 +790,17 @@ class _VideoFaceState extends State<_VideoFace> {
                     child: SizedBox(
                       width: _controller.value.size.width,
                       height: _controller.value.size.height,
-                      child: VideoPlayer(_controller),
+                      child: SealedVideoView(_controller),
                     ),
                   ),
                   Positioned(
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    child: VideoProgressIndicator(
-                      _controller,
+                    child: SealedVideoProgressBar(
+                      controller: _controller,
                       allowScrubbing: widget.allowScrub,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 10,
-                      ),
-                      colors: VideoProgressColors(
-                        playedColor: widget.type.color,
-                        backgroundColor: Colors.white24,
-                        bufferedColor: Colors.white38,
-                      ),
+                      playedColor: widget.type.color,
                     ),
                   ),
                 ],

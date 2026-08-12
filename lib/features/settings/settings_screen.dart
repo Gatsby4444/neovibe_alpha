@@ -16,6 +16,7 @@ import 'app_log_screen.dart';
 import 'camera_log_screen.dart';
 import 'gl_preview_test_screen.dart';
 import 'storage_screen.dart';
+import 'video_timing_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -244,6 +245,18 @@ class SettingsScreen extends ConsumerWidget {
             onTap: () => Navigator.of(
               context,
             ).push(MaterialPageRoute(builder: (_) => const CameraLogScreen())),
+          ),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.timer_outlined),
+            title: const Text('Lecture vidéo — temps d\'ouverture'),
+            subtitle: const Text(
+              'Combien de temps entre la demande et la première image, étape '
+              'par étape. Cible : 300 ms en cache, 1 s à froid.',
+            ),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const VideoTimingScreen()),
+            ),
           ),
           ListTile(
             dense: true,

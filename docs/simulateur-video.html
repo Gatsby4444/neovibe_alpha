@@ -386,10 +386,10 @@ une image de l'interface : <b>verte</b> si elle est dessinée à l'heure,
 
     <h4>C — Architecture</h4>
     <div class="opts" id="archi">
-      <button class="opt on" data-v="http">Serveur HTTP local
+      <button class="opt" data-v="http">Serveur HTTP local
+        <small>la v0.9.55 — supprimé depuis</small></button>
+      <button class="opt on" data-v="natif">Lecture native directe
         <small>ce qui tourne aujourd'hui</small></button>
-      <button class="opt" data-v="natif">Lecture native directe
-        <small>le lecteur lit le format lui-même</small></button>
     </div>
 
     <h4>Vitesse AES du téléphone</h4>
@@ -530,8 +530,29 @@ démarre, elle, instantanément.</p>
 mais les deux se voient au même endroit, et l'utilisateur ne fait pas la
 différence. À traiter dans la foulée.</p>
 
-<h2>Recommandation</h2>
+<h2>Décision de Jay — 2026-08-12 : l'option 3</h2>
 <div class="card good">
+<p style="margin:0 0 8px"><b>Jay a tranché pour la lecture native directe</b>,
+contre la recommandation ci-dessous : « même si cela contraint de coder une
+version pour chaque OS, la priorité c'est la sécurité et le confort des
+utilisateurs ».</p>
+<p style="margin:0 0 8px"><b>Livré le jour même côté Android</b> :
+<code>SealedChunkReader.kt</code> (le format lu en accès aléatoire, AES-GCM
+matériel), <code>SealedDataSource.kt</code> (source de données ExoPlayer) et
+<code>NativePlayer.kt</code> (le lecteur sur une texture Flutter). Le serveur
+HTTP local, son jeton et l'exception <code>cleartext</code> du manifeste ont été
+<b>supprimés</b>, pas contournés.</p>
+<p style="margin:0"><b>Ce que la décision coûte, et qu'il faut tenir</b> : le
+format a maintenant deux implémentations, trois avec iOS. Seuls les
+<b>vecteurs de test croisés</b> (<code>docs/format-media-scelle.md</code> §6)
+les empêchent de diverger — une divergence est invisible au diff comme à la
+compilation. Le portage iOS devra écrire
+<code>AVAssetResourceLoaderDelegate</code> + CryptoKit et rejouer ces mêmes
+vecteurs.</p>
+</div>
+
+<h2>La recommandation qui avait été donnée (non retenue)</h2>
+<div class="card">
 <p style="margin:0 0 8px"><b>1 et 2 ensemble, tout de suite</b> — ils sont
 complémentaires et chacun traite une moitié : le natif donne le débit, l'isolate
 de fond rend l'écran intouchable. Ensemble, ils remettent la marge à deux ordres
@@ -542,9 +563,10 @@ lieu de l'accélérer. Mais elle ouvre du natif sur deux OS, et il serait
 imprudent de l'engager avant d'avoir mesuré ce que 1 + 2 donnent réellement sur
 ton appareil.</p>
 </div>
-<p><b>Aucune de ces options n'est engagée.</b> C'est une décision produit autant
-que technique — elle arbitre entre le temps de développement, la surface de code
-natif à porter sur iOS, et le niveau de garantie du chiffrement.</p>
+<p>Conservée telle quelle pour la trace. L'argument qui l'appuyait — « mesurer
+avant d'ouvrir du natif sur deux OS » — <b>reste vrai et reste non fait</b> : la
+vitesse AES du téléphone n'a jamais été mesurée sur l'appareil. Jay a tranché en
+connaissance de cause, sur un critère qui ne dépend pas de cette mesure.</p>
 
 </section>
 </main>
@@ -562,7 +584,10 @@ document.querySelectorAll("nav button").forEach(function(b){
 });
 
 // ─── état du simulateur ───────────────────────────────────────
-var S = { moteur:"dart", fil:"ui", archi:"http", cpu:1.0 };
+// L'état de départ est celui de l'app RÉELLE : depuis le 2026-08-12, c'est la
+// lecture native. Le serveur HTTP reste sélectionnable pour comparer avec ce
+// que Jay a eu sous les yeux en v0.9.55.
+var S = { moteur:"dart", fil:"ui", archi:"natif", cpu:1.0 };
 
 function group(id, key){
   document.querySelectorAll("#"+id+" .opt").forEach(function(b){

@@ -53,6 +53,19 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
                     }
                 }
             }
+            "fastStart" -> {
+                val path = call.argument<String>("path")
+                if (path == null) {
+                    result.error("BAD_ARGS", "path est requis", null)
+                    return
+                }
+                worker.execute {
+                    // Réécrit un fichier de plusieurs dizaines de Mo : jamais
+                    // sur le thread principal.
+                    val outcome = Mp4FastStart.apply(File(path))
+                    main.post { result.success(outcome.name) }
+                }
+            }
             else -> result.notImplemented()
         }
     }

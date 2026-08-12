@@ -1,10 +1,11 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
 
 import '../crypto/media_open.dart';
 import '../models/card.dart';
+import '../video/sealed_video_controller.dart';
+import '../video/sealed_video_view.dart';
 
 /// L'**apparence** d'une face de Vibe : liseré à la couleur du type (dégradé
 /// pour Oneshot et BeReal, or épais pour la One of One), coins arrondis, fond
@@ -154,8 +155,9 @@ class VibeVideoFace extends StatefulWidget {
     required this.active,
   });
 
-  /// Le média ouvert : une URL locale servie bloc par bloc, ou — pour un
-  /// contenu scellé avant le format par blocs — un fichier temporaire.
+  /// Le média ouvert : une vidéo scellée que le lecteur natif lit bloc par
+  /// bloc, ou — pour un contenu antérieur au format par blocs — un fichier
+  /// temporaire en clair. [OpenedMedia] est seul à connaître la différence.
   final OpenedMedia media;
   final CardType type;
 
@@ -168,11 +170,10 @@ class VibeVideoFace extends StatefulWidget {
 }
 
 class _VibeVideoFaceState extends State<VibeVideoFace> {
-  late final VideoPlayerController _controller = widget.media.videoUrl != null
-      // Flux local : le lecteur demande des intervalles, le serveur déchiffre
-      // à la demande. Rien n'est écrit en clair sur le disque.
-      ? VideoPlayerController.networkUrl(widget.media.videoUrl!)
-      : VideoPlayerController.file(widget.media.clearFile!);
+  // Le lecteur NATIF : il réclame des intervalles et les déchiffre lui-même,
+  // sur ses propres fils. Rien n'est écrit en clair sur le disque, et l'isolate
+  // qui dessine ne transporte plus un octet de vidéo.
+  late final SealedVideoController _controller = widget.media.videoController();
 
   /// L'échec d'ouverture, s'il y en a un. Tant qu'il était avalé, une vidéo
   /// impossible à lire tournait indéfiniment sur son indicateur de chargement
@@ -183,7 +184,6 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
   @override
   void initState() {
     super.initState();
-    _controller.addListener(_onTick);
     _controller
         .initialize()
         .then((_) {
@@ -198,10 +198,6 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
         });
   }
 
-  void _onTick() {
-    if (mounted) setState(() {}); // rafraîchit la barre de progression
-  }
-
   @override
   void didUpdateWidget(covariant VibeVideoFace oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -212,7 +208,6 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
 
   @override
   void dispose() {
-    _controller.removeListener(_onTick);
     _controller.dispose();
     super.dispose();
   }
@@ -236,25 +231,17 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
                     child: SizedBox(
                       width: _controller.value.size.width,
                       height: _controller.value.size.height,
-                      child: VideoPlayer(_controller),
+                      child: SealedVideoView(_controller),
                     ),
                   ),
                   Positioned(
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    child: VideoProgressIndicator(
-                      _controller,
+                    child: SealedVideoProgressBar(
+                      controller: _controller,
                       allowScrubbing: true,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 10,
-                      ),
-                      colors: VideoProgressColors(
-                        playedColor: widget.type.color,
-                        backgroundColor: Colors.white24,
-                        bufferedColor: Colors.white38,
-                      ),
+                      playedColor: widget.type.color,
                     ),
                   ),
                 ],

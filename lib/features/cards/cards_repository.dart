@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/crypto/chunked_seal.dart';
+import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
@@ -95,11 +96,16 @@ class CardsRepository {
     final mediaKey = await ChunkedSeal.newKey();
     const sealedType = FileOptions(contentType: 'application/octet-stream');
 
-    // Scellé PAR BLOCS et en flux : une face vidéo de 28 Mo n'est jamais
-    // montée en mémoire, et se lira sans écrire de clair sur le disque.
+    // Préparée pour la livraison puis scellée par blocs, en flux — un seul
+    // chemin pour les trois écrans qui publient (voir `FaceDelivery`).
     final temp = await getTemporaryDirectory();
     final sealedFront = File('${temp.path}/seal_card_${stamp}_f');
-    await ChunkedSeal.sealFile(front, sealedFront, mediaKey);
+    await FaceDelivery.seal(
+      front,
+      sealedFront,
+      mediaKey,
+      isVideo: frontIsVideo,
+    );
     await _client.storage
         .from('cards')
         .uploadBinary(
@@ -110,7 +116,7 @@ class CardsRepository {
     File? sealedBack;
     if (back != null) {
       sealedBack = File('${temp.path}/seal_card_${stamp}_b');
-      await ChunkedSeal.sealFile(back, sealedBack, mediaKey);
+      await FaceDelivery.seal(back, sealedBack, mediaKey, isVideo: backIsVideo);
       await _client.storage
           .from('cards')
           .uploadBinary(

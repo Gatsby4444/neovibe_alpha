@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../crypto/media_open.dart';
 import '../supabase_providers.dart';
+import '../video/video_open_trace.dart';
 import 'content_media_cache.dart';
 import 'own_keys.dart';
 
@@ -68,16 +69,14 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
       ? null
       : ref.watch(libraryKeysProvider(spec.batchOwner!).future);
 
-  File? sealed;
-  if (spec.ownerId == me) {
-    sealed = await cache.tryOwn(spec.contentId, front: spec.front);
-  }
-  sealed ??= await cache.others(
-    spec.contentId,
-    front: spec.front,
-    signedUrl: () =>
-        client.storage.from(spec.bucket).createSignedUrl(spec.path, 3600),
-  );
+  final cacheId = '${spec.contentId}_${spec.front ? 'f' : 'b'}';
+  // L'origine des temps est ICI, et pas à la création du lecteur : ce que
+  // l'utilisateur attend inclut le téléchargement et l'aller-retour de clé.
+  // Mesurer à partir du lecteur cacherait précisément ce qu'on cherche.
+  final trace = spec.isVideo ? VideoOpenTrace.start(cacheId) : null;
+
+  Future<String> signedUrl() =>
+      client.storage.from(spec.bucket).createSignedUrl(spec.path, 3600);
 
   // Ordre de recherche de la clé :
   //   1. MES propres contenus : la clé est sur l'appareil, elle y a été
@@ -86,23 +85,83 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   //   3. Un appel unitaire au serveur.
   // Pour le contenu d'AUTRUI, seul le serveur décide — toujours, à chaque
   // ouverture. La garantie n'est pas touchée.
-  var key = spec.ownerId == me ? await ownKeys.get(spec.contentId) : null;
-  key ??= batch == null ? null : (await batch)[spec.contentId];
-  key ??=
-      await client.rpc(
-            'open_content_media',
-            params: {'p_content_id': spec.contentId},
-          )
-          as String;
+  Future<String> resolveKey() async {
+    var key = spec.ownerId == me ? await ownKeys.get(spec.contentId) : null;
+    key ??= batch == null ? null : (await batch)[spec.contentId];
+    key ??=
+        await client.rpc(
+              'open_content_media',
+              params: {'p_content_id': spec.contentId},
+            )
+            as String;
+    return key;
+  }
+
+  File? sealed;
+  if (spec.ownerId == me) {
+    sealed = await cache.tryOwn(spec.contentId, front: spec.front);
+  }
+  // Déjà sur l'appareil ? C'est ce qui sépare les deux cibles de Jay (300 ms
+  // préchargé, 1 s à froid) — les confondre donnerait une moyenne creuse.
+  trace?.cached =
+      sealed != null ||
+      await cache.hasOthers(spec.contentId, front: spec.front);
+
+  // ─── Une VIDÉO d'autrui ne se télécharge plus ──────────────────────────
+  // Le lecteur natif ne réclame que les blocs qu'il traverse. Attendre le
+  // fichier entier, c'était jusqu'à une minute sur un réseau lent pour 15 s de
+  // vidéo — et c'est ce qui rendait un feed impossible.
+  if (spec.isVideo && sealed == null) {
+    final url = await signedUrl();
+    final cachePath = await cache.streamingPath(
+      spec.contentId,
+      front: spec.front,
+    );
+    trace?.mark(VideoOpenStep.scelle);
+    final key = await resolveKey();
+    trace?.mark(VideoOpenStep.cle);
+    return OpenedMedia.streaming(
+      url: url,
+      cachePath: cachePath,
+      key: key,
+      traceId: cacheId,
+      // Un contenu scellé AVANT le format par blocs : le natif ne sait pas le
+      // lire, on retombe alors sur l'ancien chemin — téléchargement complet
+      // puis déchiffrement côté Dart.
+      legacyFallback: () async {
+        final file = await cache.others(
+          spec.contentId,
+          front: spec.front,
+          signedUrl: signedUrl,
+        );
+        final media = await MediaOpen.open(
+          file,
+          key,
+          isVideo: true,
+          cacheId: cacheId,
+        );
+        return media.clearFile!;
+      },
+    );
+  }
+
+  sealed ??= await cache.others(
+    spec.contentId,
+    front: spec.front,
+    signedUrl: signedUrl,
+  );
+  trace?.mark(VideoOpenStep.scelle);
+
+  final key = await resolveKey();
+  trace?.mark(VideoOpenStep.cle);
 
   final media = await MediaOpen.open(
     sealed,
     key,
     isVideo: spec.isVideo,
-    cacheId: '${spec.contentId}_${spec.front ? 'f' : 'b'}',
+    cacheId: cacheId,
   );
-  // Le jeton du serveur local et l'éventuel fichier hérité meurent avec
-  // l'écran.
+  // L'éventuel fichier en clair d'un média hérité meurt avec l'écran.
   ref.onDispose(media.dispose);
   return media;
 });

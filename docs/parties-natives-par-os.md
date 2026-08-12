@@ -253,8 +253,9 @@ dans `CardMediaCache.videoThumb`.
 
 **Android (fait)** : `MainActivity.kt` = **`FlutterFragmentActivity`** (et NON
 `FlutterActivity`) — CameraX exige un `LifecycleOwner`, que seule la variante
-Fragment fournit. Enregistre les canaux caméra + BLE + média, initialise
-`CamLog`.
+Fragment fournit. Enregistre les canaux caméra + BLE + média + **lecteur vidéo**
+(bloc 7), initialise `CamLog`, et **libère les lecteurs dans `onDestroy`** — un
+ExoPlayer non libéré garde son décodeur matériel.
 
 **iOS (à faire)** : `AppDelegate` + `FlutterViewController` ; enregistrement des
 `FlutterMethodChannel` côté Swift ; gestion du cycle de vie (permissions caméra/
@@ -274,35 +275,72 @@ Outil de dev seulement — non prioritaire pour un portage.
 
 ---
 
-## 7. Politique réseau — autoriser la boucle locale
+## 7. Lecteur vidéo natif des médias scellés
 
-Ce n'est pas du code, mais c'est bien une **configuration par OS**, et elle est
-**bloquante** : sans elle, la lecture vidéo ne démarre pas du tout.
+**Décision de Jay, 2026-08-12** : la lecture native directe, choisie contre les
+deux correctifs Dart possibles, en assumant d'écrire ce code **deux fois** —
+« la priorité c'est la sécurité et le confort des utilisateurs ».
 
-Depuis la v0.9.54, les vidéos sont servies au lecteur par un serveur HTTP local
-(`lib/core/crypto/media_stream_server.dart`) sur `127.0.0.1`, qui déchiffre bloc
-par bloc — c'est ce qui évite d'écrire le clair sur le disque. Or **les deux OS
-refusent le HTTP en clair par défaut**, y compris vers la boucle locale.
+Ce que ce lecteur remplace : un serveur HTTP local sur `127.0.0.1` qui
+déchiffrait en Dart, sur l'isolate qui dessine l'écran. Trois pièces ont disparu
+avec lui — le socket, le jeton qui empêchait une autre application du téléphone
+de deviner l'URL, et l'**exception réseau en clair** qu'il fallait déclarer par
+OS (`network_security_config.xml` côté Android, `NSAllowsLocalNetworking` côté
+iOS). Cette section décrivait cette exception jusqu'au 2026-08-12 ; elle n'a plus
+d'objet, **et c'est le but** : la cause est supprimée, pas entourée.
 
-**Android (fait, 2026-08-12)** :
-`android/app/src/main/res/xml/network_security_config.xml`, référencé par
-`android:networkSecurityConfig` dans le manifeste. Le clair est autorisé pour
-`127.0.0.1` et `localhost` **uniquement** ; la configuration de base reste
-`cleartextTrafficPermitted="false"`. **Ne pas remplacer par
-`android:usesCleartextTraffic="true"`** : cet attribut ouvrirait le clair vers
-n'importe quel hôte, Internet compris, pour un besoin qui tient à une adresse.
+### Android (fait, 2026-08-12)
 
-**iOS (à faire)** : App Transport Security refuse pareillement le clair. Ajouter
-à `Info.plist` la clé **`NSAllowsLocalNetworking`** sous `NSAppTransportSecurity`
-— c'est l'équivalent exact et le plus étroit (elle n'autorise que les adresses
-locales, sans toucher au reste). **Ne pas utiliser `NSAllowsArbitraryLoads`**,
-qui désactive ATS partout et fait rejeter l'app à la revue App Store sans
-justification écrite.
+| Fichier | Rôle |
+|---|---|
+| `SealedChunkReader.kt` | lit le format `NVC1` en accès aléatoire, AES-GCM par `javax.crypto` (instructions AES du processeur) |
+| `SealedDataSource.kt` | l'expose à ExoPlayer comme une `androidx.media3.datasource.DataSource` |
+| `SealedChunkStore.kt` | d'où viennent les octets scellés : fichier local, ou **intervalles HTTP + cache partiel** (`RemoteChunkStore`, `HttpRangeFetcher`) |
+| `Mp4FastStart.kt` | déplace l'index MP4 (`moov`) en tête, pour décoder dès les premiers octets reçus |
+| `NativePlayer.kt` | l'ExoPlayer lui-même, rendu dans un `TextureRegistry.SurfaceProducer` ; canal `neovibe/player` + `neovibe/player/events/<id>` |
 
-⚠️ **Symptôme si c'est oublié** : la vidéo « charge indéfiniment » et rien
-n'indique pourquoi. C'est la panne du 2026-08-12 sur Android — le lecteur
-échouait en une seconde, mais l'erreur n'était affichée nulle part. L'état
-d'échec est désormais visible (`VideoFaceError` dans `core/widgets/vibe_face.dart`).
+Dépendances ajoutées : `androidx.media3:media3-exoplayer`, `-datasource`,
+`-common`, en **1.9.2** — la version qu'apporte déjà `video_player_android`.
+Deux versions de media3 dans un même APK ne se concilient pas, et la plus haute
+gagnerait en silence.
+
+### iOS (à faire)
+
+L'équivalent est **`AVAssetResourceLoaderDelegate`** : on crée un `AVURLAsset`
+sur une URL à schéma bidon, et le système demande des **intervalles d'octets**
+au délégué, qui les sert déchiffrés. Le principe est exactement celui de la
+`DataSource` Android — c'est la même architecture, écrite deux fois.
+
+- Le déchiffrement passe par **CryptoKit** (`AES.GCM.open`), accéléré
+  matériellement comme `javax.crypto`.
+- **Le streaming par intervalles est à porter avec** : `AVAssetResourceLoader`
+  demande justement des intervalles d'octets, ce qui correspond exactement à
+  `RemoteChunkStore`. Le cache partiel, lui, est de la logique de fichiers —
+  transposable presque telle quelle.
+- Le rendu passe par une texture Flutter (`FlutterTexture` +
+  `CVPixelBuffer` via `AVPlayerItemVideoOutput`), ou par un `platform view`
+  selon ce qui se révèle le plus simple à l'écriture.
+- **Le portage devra rejouer les vecteurs de test croisés** (§ ci-dessous) :
+  c'est la seule chose qui garantira que la troisième implémentation du format
+  lit bien ce que le Dart a scellé.
+
+### Le format, et ce qui empêche les implémentations de diverger
+
+Le format `NVC1` est spécifié dans **`docs/format-media-scelle.md`**, et les
+**vecteurs de test croisés** (`android/app/src/test/resources/seal-vectors/`)
+sont rejoués par les deux côtés :
+
+- Dart : `test/sealed_format_vectors_test.dart`
+- Kotlin : `android/app/src/test/kotlin/…/SealedChunkReaderTest.kt`
+
+Une divergence entre implémentations ne se voit **ni à la compilation, ni au
+diff, ni à `flutter analyze`** — seulement à l'exécution, sur l'appareil. Ces
+vecteurs sont le seul dispositif qui l'attrape. Ne jamais les régénérer pour
+faire passer un test.
+
+⚠️ **Le format hérité (bloc unique, antérieur au 2026-08-12) n'est PAS porté en
+natif** — il garde son chemin Dart et s'éteindra de lui-même (voir `RAPPELS.md`,
+décisions en attente #11).
 
 ---
 

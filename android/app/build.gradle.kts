@@ -53,6 +53,20 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
     implementation("androidx.camera:camera-video:$cameraxVersion")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+
+    // Lecteur vidéo NATIF des médias scellés (NativePlayer.kt) — décision de
+    // Jay 2026-08-12 : le lecteur lit notre format par blocs directement, sans
+    // serveur HTTP local. Version alignée sur celle que `video_player_android`
+    // apporte déjà : deux versions de media3 dans un même APK ne se concilient
+    // pas, et la plus haute gagnerait en silence.
+    val media3Version = "1.9.2"
+    implementation("androidx.media3:media3-exoplayer:$media3Version")
+    implementation("androidx.media3:media3-datasource:$media3Version")
+    implementation("androidx.media3:media3-common:$media3Version")
+
+    // Vecteurs de test croisés du format scellé (voir docs/format-media-scelle.md)
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("com.google.code.gson:gson:2.11.0")
 }
 
 flutter {

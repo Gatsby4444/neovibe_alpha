@@ -9,6 +9,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var nativeCamera: NativeCamera? = null
     private var nativeBle: NativeBle? = null
     private var nativeMedia: NativeMedia? = null
+    private var nativePlayer: NativePlayer? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -22,5 +23,18 @@ class MainActivity : FlutterFragmentActivity() {
         )
         nativeBle = NativeBle(this, flutterEngine.dartExecutor.binaryMessenger)
         nativeMedia = NativeMedia(flutterEngine.dartExecutor.binaryMessenger)
+        nativePlayer = NativePlayer(
+            applicationContext,
+            flutterEngine.renderer,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
+    }
+
+    override fun onDestroy() {
+        // Un ExoPlayer non libéré garde son décodeur matériel : le suivant
+        // ouvrirait moins vite, et le service de codecs finirait par refuser.
+        nativePlayer?.dispose()
+        nativePlayer = null
+        super.onDestroy()
     }
 }

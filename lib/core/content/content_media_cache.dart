@@ -100,6 +100,44 @@ class ContentMediaCache {
     return file;
   }
 
+  /// Où vit le cache **partiel** d'une face lue en flux.
+  ///
+  /// C'est **le même fichier** que celui d'un téléchargement complet : une fois
+  /// tous ses blocs arrivés, un cache partiel EST le fichier scellé d'origine,
+  /// octet pour octet. Deux caches aux règles différentes pour le même objet
+  /// auraient été un chemin de plus à tenir — la règle 2 de `CLAUDE.md`.
+  ///
+  /// L'entrée d'index est posée **à l'ouverture** et non à la fin du
+  /// téléchargement : sinon une vidéo regardée à moitié échapperait à la
+  /// politique de rétention et ne serait jamais purgée.
+  Future<String> streamingPath(
+    String contentId, {
+    required bool front,
+    DateTime? expiresAt,
+  }) async {
+    final file = _faceFile(await _dir('others'), contentId, front);
+    final index = await _loadIndex();
+    if (!index.containsKey(contentId)) {
+      index[contentId] = {
+        if (expiresAt != null) 'expiresAt': expiresAt.toIso8601String(),
+        'storedAt': DateTime.now().toIso8601String(),
+      };
+      await _saveIndex();
+    }
+    return file.path;
+  }
+
+  /// La face d'autrui est-elle **déjà** sur l'appareil ?
+  ///
+  /// Ne sert qu'à la mesure d'ouverture ([VideoOpenTrace]) : un contenu froid
+  /// et un contenu préchargé n'ont pas la même cible, et les mélanger donnerait
+  /// une moyenne qui ne veut rien dire. Sans effet sur le cache lui-même — pas
+  /// de marquage LRU ici, consulter n'est pas utiliser.
+  Future<bool> hasOthers(String contentId, {required bool front}) async {
+    final file = _faceFile(await _dir('others'), contentId, front);
+    return await file.exists() && (await _loadIndex()).containsKey(contentId);
+  }
+
   // ---------------------------------------------------------------------
   // Les contenus des autres
   // ---------------------------------------------------------------------

@@ -48,8 +48,8 @@ void main() {
       // ignore: avoid_print
       print(
         '\n--- débit (machine de dev, x64) ---\n'
-        'scellement : ${sealMs} ms  →  ${(mb / (sealMs / 1000)).toStringAsFixed(1)} Mo/s\n'
-        'lecture    : ${readMs} ms  →  ${(mb / (readMs / 1000)).toStringAsFixed(1)} Mo/s\n'
+        'scellement : $sealMs ms  →  ${(mb / (sealMs / 1000)).toStringAsFixed(1)} Mo/s\n'
+        'lecture    : $readMs ms  →  ${(mb / (readMs / 1000)).toStringAsFixed(1)} Mo/s\n'
         'à soutenir pour une vidéo 3,5 Mbit/s : 0,44 Mo/s\n',
       );
     } finally {

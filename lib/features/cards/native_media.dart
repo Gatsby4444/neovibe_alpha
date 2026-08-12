@@ -2,9 +2,9 @@ import 'package:flutter/services.dart';
 
 /// Accès au canal `neovibe/media` — utilitaires média hors caméra.
 ///
-/// Aujourd'hui : l'extraction d'une image de couverture d'une vidéo locale
+/// Deux capacités : l'extraction d'une image de couverture d'une vidéo locale
 /// (une vidéo ne se décode pas comme une image côté Dart, cf. « Invalid image
-/// data »). Voir `NativeMedia.kt`.
+/// data »), et la mise en tête de l'index MP4. Voir `NativeMedia.kt`.
 abstract final class NativeMedia {
   static const _channel = MethodChannel('neovibe/media');
 
@@ -27,6 +27,25 @@ abstract final class NativeMedia {
       return false;
     } on MissingPluginException {
       return false;
+    }
+  }
+
+  /// Déplace l'index d'un MP4 (`moov`) **en tête de fichier**, pour qu'un
+  /// lecteur distant puisse décoder dès les premiers octets reçus au lieu
+  /// d'aller d'abord chercher la fin.
+  ///
+  /// Renvoie le verdict natif (`MOVED`, `ALREADY_FAST`, `UNSUPPORTED`,
+  /// `FAILED`) à seule fin de journalisation : **aucun n'est bloquant**. Une
+  /// vidéo dont l'index n'a pas pu bouger reste parfaitement lisible, elle
+  /// démarre seulement moins vite. Voir `Mp4FastStart.kt`.
+  static Future<String> fastStart(String path) async {
+    try {
+      return await _channel.invokeMethod<String>('fastStart', {'path': path}) ??
+          'FAILED';
+    } on PlatformException {
+      return 'FAILED';
+    } on MissingPluginException {
+      return 'FAILED';
     }
   }
 }

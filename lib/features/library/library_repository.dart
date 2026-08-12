@@ -8,6 +8,7 @@ import '../../core/content/content_face.dart';
 import '../../core/content/content_media_cache.dart';
 import '../../core/content/own_keys.dart';
 import '../../core/crypto/chunked_seal.dart';
+import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
 import '../../core/models/library_item.dart';
 import '../../core/models/profile.dart';
@@ -85,10 +86,15 @@ class LibraryRepository {
     final mediaKey = await ChunkedSeal.newKey();
     const sealedType = FileOptions(contentType: 'application/octet-stream');
 
-    // Scellé par blocs, en flux : voir `stories_repository.publish`.
+    // Préparée pour la livraison puis scellée par blocs : voir `FaceDelivery`.
     final temp = await getTemporaryDirectory();
     final sealedFront = File('${temp.path}/seal_${itemId}_f');
-    await ChunkedSeal.sealFile(front, sealedFront, mediaKey);
+    await FaceDelivery.seal(
+      front,
+      sealedFront,
+      mediaKey,
+      isVideo: frontIsVideo,
+    );
     await _client.storage
         .from(_bucket)
         .uploadBinary(
@@ -99,7 +105,7 @@ class LibraryRepository {
     File? sealedBack;
     if (back != null) {
       sealedBack = File('${temp.path}/seal_${itemId}_b');
-      await ChunkedSeal.sealFile(back, sealedBack, mediaKey);
+      await FaceDelivery.seal(back, sealedBack, mediaKey, isVideo: backIsVideo);
       await _client.storage
           .from(_bucket)
           .uploadBinary(

@@ -30,3 +30,8 @@ android/key.properties
 
 # Config locale (cle Supabase hors repo)
 lib/core/config/env.dart
+
+# Bac a sable de dev (notes, medias de seed) : jamais commite.
+# C'etait une discipline manuelle jusqu'au 2026-08-12 ; un `git add -A`
+# aurait suffi a y faire entrer des binaires.
+docdev/
