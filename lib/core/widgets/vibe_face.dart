@@ -88,6 +88,56 @@ class VibePhotoFace extends StatelessWidget {
   }
 }
 
+/// L'état d'échec d'une face vidéo, commun aux deux lecteurs.
+///
+/// Il existe parce qu'un échec silencieux est **pire qu'une erreur** : Jay a
+/// signalé une vidéo qui « charge indéfiniment » (2026-08-12) alors que le
+/// lecteur avait échoué en une seconde — l'échec n'était simplement affiché
+/// nulle part. Le message technique est accessible d'un appui, pour que le
+/// prochain diagnostic parte d'une cause et non d'un symptôme.
+class VideoFaceError extends StatelessWidget {
+  const VideoFaceError({super.key, required this.error});
+
+  final Object error;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.videocam_off, color: Colors.white38, size: 40),
+            const SizedBox(height: 10),
+            const Text(
+              'Vidéo illisible',
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 6),
+            TextButton(
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => AlertDialog(
+                  title: const Text('Détail technique'),
+                  content: SingleChildScrollView(child: Text('$error')),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(context),
+                      child: const Text('Fermer'),
+                    ),
+                  ],
+                ),
+              ),
+              child: const Text('Détail'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Face vidéo d'une Vibe **sans limite de lecture** : story, publication.
 ///
 /// Elle boucle, sa barre est librement déplaçable, et elle ne se déclare
@@ -124,17 +174,28 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
       ? VideoPlayerController.networkUrl(widget.media.videoUrl!)
       : VideoPlayerController.file(widget.media.clearFile!);
 
+  /// L'échec d'ouverture, s'il y en a un. Tant qu'il était avalé, une vidéo
+  /// impossible à lire tournait indéfiniment sur son indicateur de chargement
+  /// (panne du 2026-08-12). **Les trois états doivent se distinguer au premier
+  /// coup d'œil** : chargement, lecture, échec.
+  Object? _error;
+
   @override
   void initState() {
     super.initState();
     _controller.addListener(_onTick);
-    _controller.initialize().then((_) {
-      if (!mounted) return;
-      _controller.setLooping(true);
-      _controller.setVolume(widget.active ? 1 : 0);
-      if (widget.active) _controller.play();
-      setState(() {});
-    });
+    _controller
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          _controller.setLooping(true);
+          _controller.setVolume(widget.active ? 1 : 0);
+          if (widget.active) _controller.play();
+          setState(() {});
+        })
+        .catchError((Object e) {
+          if (mounted) setState(() => _error = e);
+        });
   }
 
   void _onTick() {
@@ -162,7 +223,9 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
       type: widget.type,
       child: AspectRatio(
         aspectRatio: 9 / 16,
-        child: !_controller.value.isInitialized
+        child: _error != null
+            ? VideoFaceError(error: _error!)
+            : !_controller.value.isInitialized
             ? const Center(child: CircularProgressIndicator())
             : Stack(
                 fit: StackFit.expand,

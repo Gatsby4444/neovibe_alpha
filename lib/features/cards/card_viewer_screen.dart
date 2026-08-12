@@ -687,20 +687,30 @@ class _VideoFaceState extends State<_VideoFace> {
       : VideoPlayerController.file(widget.media.clearFile!);
   var _completedFired = false;
 
+  /// Voir [VideoFaceError] : un échec d'ouverture avalé se voyait comme un
+  /// chargement sans fin.
+  Object? _error;
+
   @override
   void initState() {
     super.initState();
     _controller.addListener(_onTick);
-    _controller.initialize().then((_) {
-      if (!mounted) return;
-      _controller.setLooping(widget.loop);
-      // Face cachée d'un Oneshot filmé : elle joue quand même, en silence. Les
-      // deux faces sont le MÊME instant vu de deux côtés — le retournement doit
-      // donc tomber sur la suite, pas sur un redémarrage (consigne Jay).
-      _controller.setVolume(widget.active ? 1 : 0);
-      if (widget.active || widget.playsWhenHidden) _controller.play();
-      setState(() {});
-    });
+    _controller
+        .initialize()
+        .then((_) {
+          if (!mounted) return;
+          _controller.setLooping(widget.loop);
+          // Face cachée d'un Oneshot filmé : elle joue quand même, en silence.
+          // Les deux faces sont le MÊME instant vu de deux côtés — le
+          // retournement doit tomber sur la suite, pas sur un redémarrage
+          // (consigne Jay).
+          _controller.setVolume(widget.active ? 1 : 0);
+          if (widget.active || widget.playsWhenHidden) _controller.play();
+          setState(() {});
+        })
+        .catchError((Object e) {
+          if (mounted) setState(() => _error = e);
+        });
   }
 
   void _onTick() {
@@ -760,7 +770,9 @@ class _VideoFaceState extends State<_VideoFace> {
       type: widget.type,
       child: AspectRatio(
         aspectRatio: 9 / 16,
-        child: !_controller.value.isInitialized
+        child: _error != null
+            ? VideoFaceError(error: _error!)
+            : !_controller.value.isInitialized
             ? const Center(child: CircularProgressIndicator())
             : Stack(
                 fit: StackFit.expand,

@@ -4,24 +4,42 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../content/moderation.dart';
 import 'report_sheet.dart';
 
-/// Le menu « … » d'un contenu d'autrui : signaler, bloquer.
+/// Le menu « … » de modération : signaler, bloquer.
 ///
-/// Il n'apparaît **jamais sur son propre contenu** — on ne se signale pas
-/// soi-même, et proposer l'action y serait au mieux du bruit.
+/// Il sert **deux cibles avec le même geste** :
+/// - posé sur un contenu d'autrui ([contentId] renseigné), il signale le
+///   contenu ;
+/// - posé sur le profil de quelqu'un ([contentId] nul), il signale la
+///   personne.
+///
+/// Un seul menu pour les deux, parce que c'est la même décision côté
+/// utilisateur — seule la cible enregistrée change. Le blocage, lui, vise
+/// toujours la personne.
+///
+/// Il n'apparaît **jamais sur son propre contenu ni sur son propre profil** —
+/// on ne se signale pas soi-même, et proposer l'action y serait au mieux du
+/// bruit.
 ///
 /// C'est le seul point d'entrée de la modération côté utilisateur, et il est
-/// volontairement au même endroit dans les deux visionneuses : quelqu'un qui
-/// tombe sur un contenu choquant ne doit pas avoir à chercher.
+/// volontairement au même endroit partout : quelqu'un qui tombe sur un contenu
+/// choquant ne doit pas avoir à chercher.
+///
+/// ⚠️ **Le profil est le point d'entrée de dernier recours** : une Vibe reçue
+/// en DM n'a pas de Content ID (elle ne rejoindra le socle que le jour où
+/// `cards` y migrera), elle se signale donc par le profil de son expéditeur.
+/// Ce chemin est resté inatteignable de la v0.9.53 au 2026-08-12 — le menu
+/// n'existait que sur les stories et les publications.
 class ContentOverflowMenu extends ConsumerWidget {
   const ContentOverflowMenu({
     super.key,
-    required this.contentId,
+    this.contentId,
     required this.authorId,
     this.authorName,
     this.color = Colors.white,
   });
 
-  final String contentId;
+  /// Nul quand le menu porte sur une personne et non sur un contenu.
+  final String? contentId;
   final String authorId;
   final String? authorName;
   final Color color;
@@ -34,13 +52,13 @@ class ContentOverflowMenu extends ConsumerWidget {
       icon: Icon(Icons.more_vert, color: color),
       tooltip: 'Plus',
       itemBuilder: (context) => [
-        const PopupMenuItem(
+        PopupMenuItem(
           value: 'report',
           child: ListTile(
             dense: true,
             contentPadding: EdgeInsets.zero,
-            leading: Icon(Icons.flag_outlined),
-            title: Text('Signaler'),
+            leading: const Icon(Icons.flag_outlined),
+            title: Text(contentId != null ? 'Signaler ce contenu' : 'Signaler'),
           ),
         ),
         PopupMenuItem(

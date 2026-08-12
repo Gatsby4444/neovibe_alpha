@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/widgets/content_overflow_menu.dart';
 import '../connections/connections_repository.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
@@ -34,7 +35,23 @@ class UserLibraryScreen extends ConsumerWidget {
     final inRange = proximity.nearby.containsKey(profile.id);
 
     return Scaffold(
-      appBar: AppBar(title: Text(profile.displayName)),
+      appBar: AppBar(
+        title: Text(profile.displayName),
+        // Signaler / bloquer une PERSONNE. Sans ce point d'entrée, le
+        // signalement de profil était inatteignable (v0.9.53 → 2026-08-12) : le
+        // menu n'existait que sur les stories et les publications. C'est aussi
+        // le seul recours pour une Vibe reçue en DM, qui n'a pas de Content ID.
+        actions: [
+          if (profile.id != me)
+            ContentOverflowMenu(
+              authorId: profile.id,
+              authorName: profile.displayName,
+              color:
+                  Theme.of(context).appBarTheme.foregroundColor ??
+                  Theme.of(context).colorScheme.onSurface,
+            ),
+        ],
+      ),
       body: ListView(
         children: [
           ProfileHeader(profile: profile),

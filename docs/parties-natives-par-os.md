@@ -274,7 +274,39 @@ Outil de dev seulement — non prioritaire pour un portage.
 
 ---
 
-## 7. Notifications push (à vérifier)
+## 7. Politique réseau — autoriser la boucle locale
+
+Ce n'est pas du code, mais c'est bien une **configuration par OS**, et elle est
+**bloquante** : sans elle, la lecture vidéo ne démarre pas du tout.
+
+Depuis la v0.9.54, les vidéos sont servies au lecteur par un serveur HTTP local
+(`lib/core/crypto/media_stream_server.dart`) sur `127.0.0.1`, qui déchiffre bloc
+par bloc — c'est ce qui évite d'écrire le clair sur le disque. Or **les deux OS
+refusent le HTTP en clair par défaut**, y compris vers la boucle locale.
+
+**Android (fait, 2026-08-12)** :
+`android/app/src/main/res/xml/network_security_config.xml`, référencé par
+`android:networkSecurityConfig` dans le manifeste. Le clair est autorisé pour
+`127.0.0.1` et `localhost` **uniquement** ; la configuration de base reste
+`cleartextTrafficPermitted="false"`. **Ne pas remplacer par
+`android:usesCleartextTraffic="true"`** : cet attribut ouvrirait le clair vers
+n'importe quel hôte, Internet compris, pour un besoin qui tient à une adresse.
+
+**iOS (à faire)** : App Transport Security refuse pareillement le clair. Ajouter
+à `Info.plist` la clé **`NSAllowsLocalNetworking`** sous `NSAppTransportSecurity`
+— c'est l'équivalent exact et le plus étroit (elle n'autorise que les adresses
+locales, sans toucher au reste). **Ne pas utiliser `NSAllowsArbitraryLoads`**,
+qui désactive ATS partout et fait rejeter l'app à la revue App Store sans
+justification écrite.
+
+⚠️ **Symptôme si c'est oublié** : la vidéo « charge indéfiniment » et rien
+n'indique pourquoi. C'est la panne du 2026-08-12 sur Android — le lecteur
+échouait en une seconde, mais l'erreur n'était affichée nulle part. L'état
+d'échec est désormais visible (`VideoFaceError` dans `core/widgets/vibe_face.dart`).
+
+---
+
+## 8. Notifications push (à vérifier)
 
 **Statut** : la logique de notifications existe côté Dart (`notification_service.
 dart`). **À auditer** : le transport push (FCM ?) et sa config par OS (APNs pour
