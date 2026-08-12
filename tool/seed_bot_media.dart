@@ -196,10 +196,19 @@ class _Bot {
         frontVideo: false,
         backVideo: false,
       );
-      // BeReal : photo, face unique.
+      // BeReal : deux faces obligatoires — c'est la définition du format, et
+      // la contrainte `cards_back_required` la fait respecter en base.
       await _vibe(
         recipient,
         type: 'bereal',
+        frontVideo: false,
+        backVideo: false,
+      );
+      // Standard à FACE UNIQUE (verso « passé ») : le seul type où le verso
+      // est facultatif, avec la One of One.
+      await _vibe(
+        recipient,
+        type: 'standard',
         frontVideo: false,
         backVideo: false,
         single: true,
@@ -478,7 +487,9 @@ class _Bot {
       ..set('authorization', 'Bearer $token')
       ..set('content-type', 'application/json');
     if (representation) request.headers.set('prefer', 'return=representation');
-    request.write(jsonEncode(body));
+    // `write` encoderait en latin-1 : la moindre légende accentuée ferait
+    // échouer la requête. On envoie les octets UTF-8 nous-mêmes.
+    request.add(utf8.encode(jsonEncode(body)));
     final response = await request.close();
     final text = await response.transform(utf8.decoder).join();
     if (response.statusCode >= 300) {
@@ -499,7 +510,7 @@ Future<(String, String)?> _signIn(String email, String password) async {
   request.headers
     ..set('apikey', Env.supabasePublishableKey)
     ..set('content-type', 'application/json');
-  request.write(jsonEncode({'email': email, 'password': password}));
+  request.add(utf8.encode(jsonEncode({'email': email, 'password': password})));
   final response = await request.close();
   final body = await response.transform(utf8.decoder).join();
   if (response.statusCode != 200) {
