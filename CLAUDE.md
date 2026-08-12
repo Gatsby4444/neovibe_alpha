@@ -49,6 +49,38 @@ Ce qui en découle, à appliquer avant d'écrire la moindre ligne :
    active (`set local role authenticated` + `request.jwt.claims`). Une
    hypothèse plausible qui ne corrige rien fait perdre un aller-retour de test
    à Jay **et** ajoute des changements non justifiés au diff.
+8. **Toute suppression est une opération sur un réseau — relever les DEUX sens
+   avant de couper.** *Consigne de Jay, 2026-08-12, après la panne
+   `saved_cards` — impérative.*
+
+   > « Quand tu supprimes quelque chose il faut impérativement toujours vérifier
+   > où ce que tu supprimes est appelé, et ce que ce que tu supprimes appelle.
+   > C'est comme si tu supprimais un nœud d'un réseau : tu casses le réseau, car
+   > les autres nœuds appelaient le nœud supprimé et le nœud supprimé appelait
+   > d'autres nœuds. »
+
+   Avant de supprimer quoi que ce soit — table, colonne, fonction, politique,
+   widget, provider, écran, fichier natif :
+
+   - **Sens entrant : qui m'appelle ?** Balayer **toutes** les familles d'objets,
+     pas seulement celle qu'on supprime : politiques RLS, corps de fonctions,
+     triggers, jobs cron, vues, clés étrangères, appels Dart, et le catalogue
+     natif. Un appelant oublié ne se voit **ni au diff, ni à
+     `flutter analyze`** — il n'apparaît qu'à l'exécution, chez Jay.
+   - **Sens sortant : qu'est-ce que j'appelais ?** Ce que le nœud supprimé
+     utilisait devient peut-être orphelin à son tour (fonction sans appelant,
+     table sans lecteur, bucket sans écrivain). Le supprimer dans la foulée, ou
+     le justifier — un reste mort d'aujourd'hui est la panne de demain.
+   - **Ne jamais se fier au `cascade` de PostgreSQL.** Il ne suit que les
+     dépendances **déclarées**. Le corps d'une fonction SQL (`AS $$ … $$`) est
+     stocké comme du **texte**, réanalysé à l'exécution : PostgreSQL n'y voit
+     aucune dépendance. Une fonction survit donc à la table qu'elle interroge,
+     et la politique qui l'appelle lui survit à son tour. *(C'est exactement la
+     panne du 2026-08-12 : `saved_cards` supprimée le 2026-08-11, et toute
+     lecture de `cards` échouait en 42P01.)*
+   - **Vérifier par inventaire, pas par le diff** — corollaire de la règle 3.
+     Lister les occurrences restantes du motif supprimé et les justifier **une
+     par une**.
 
 ### Deux pièges Supabase déjà payés
 
