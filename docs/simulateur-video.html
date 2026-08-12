@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeoVibe — pourquoi la vidéo saccade</title>
+<style>
+:root{
+  --bg:#0d0d12; --panel:#16161f; --panel2:#1d1d28; --line:#2c2c3a;
+  --ink:#e9e9f2; --muted:#9a9ab0; --faint:#65657d;
+  --ok:#3bd6a8; --no:#ff5f6d; --key:#ffd24a; --cpu:#c05cff; --net:#3ba9ff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{padding:28px 24px 10px;max-width:1180px;margin:0 auto}
+h1{margin:0 0 4px;font-size:26px;letter-spacing:-.3px}
+.sub{color:var(--muted);margin:0}
+nav{max-width:1180px;margin:18px auto 0;padding:0 24px;display:flex;gap:8px;flex-wrap:wrap}
+nav button{background:var(--panel);color:var(--muted);border:1px solid var(--line);
+  padding:9px 16px;border-radius:999px;cursor:pointer;font-size:14px}
+nav button.on{background:var(--ink);color:#0d0d12;border-color:var(--ink);font-weight:600}
+main{max-width:1180px;margin:0 auto;padding:22px 24px 80px}
+section{display:none} section.on{display:block}
+h2{font-size:20px;margin:34px 0 10px;letter-spacing:-.2px}
+h2:first-child{margin-top:8px}
+h3{font-size:16px;margin:24px 0 6px}
+p{margin:10px 0;color:#cfcfe0;max-width:78ch}
+.lead{font-size:16.5px;color:var(--ink)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:14px 0}
+.warn{border-left:3px solid var(--key)}
+.good{border-left:3px solid var(--ok)}
+.bad{border-left:3px solid var(--no)}
+code{background:#000;padding:1px 6px;border-radius:5px;font-size:13px;color:#ffd9a0}
+table{border-collapse:collapse;width:100%;margin:12px 0;font-size:14px;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+th{background:var(--panel2);color:var(--muted);font-weight:600;white-space:nowrap}
+ul{color:#cfcfe0;max-width:78ch} li{margin:5px 0}
+.diag{width:100%;height:auto;background:#000;border:1px solid var(--line);border-radius:12px;margin:14px 0}
+svg text{font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.num{font-variant-numeric:tabular-nums}
+.big{font-size:26px;font-weight:700;letter-spacing:-.5px}
+.mes{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;
+  border:1px solid var(--ok);color:var(--ok);vertical-align:middle;margin-left:6px}
+.est{display:inline-block;font-size:11px;padding:1px 8px;border-radius:999px;
+  border:1px solid var(--key);color:var(--key);vertical-align:middle;margin-left:6px}
+
+/* ---------- simulateur ---------- */
+.sim{display:grid;grid-template-columns:300px 1fr;gap:18px;align-items:start}
+@media(max-width:900px){.sim{grid-template-columns:1fr}}
+.ctrl{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px}
+.ctrl h4{margin:0 0 8px;font-size:12px;letter-spacing:.10em;text-transform:uppercase;color:var(--faint)}
+.ctrl h4:not(:first-child){margin-top:18px}
+.opts{display:flex;flex-direction:column;gap:6px}
+.opt{background:var(--panel2);border:1px solid var(--line);color:var(--muted);
+  padding:9px 11px;border-radius:9px;cursor:pointer;font-size:13px;text-align:left}
+.opt.on{border-color:var(--ok);color:var(--ok);background:rgba(59,214,168,.10);font-weight:600}
+.opt.dis{opacity:.32;cursor:not-allowed}
+.opt small{display:block;font-weight:400;color:var(--faint);font-size:11.5px;margin-top:2px}
+.opt.on small{color:var(--muted)}
+input[type=range]{width:100%;accent-color:var(--cpu);margin-top:6px}
+.hint{font-size:12.5px;color:var(--faint);margin:6px 0 0;line-height:1.45}
+button.go{width:100%;margin-top:16px;padding:11px;border-radius:10px;border:0;
+  background:var(--ink);color:#0d0d12;font-weight:700;cursor:pointer;font-size:14px}
+.stagewrap{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px}
+.phone{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px}
+@media(max-width:640px){.phone{grid-template-columns:1fr}}
+.gauge{background:var(--panel2);border:1px solid var(--line);border-radius:11px;padding:12px 14px}
+.gauge .lab{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint)}
+.gauge .val{font-size:22px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
+.gauge .note{font-size:11.5px;color:var(--faint);margin-top:2px}
+.tl{margin-top:6px}
+.tl .lab{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);margin-bottom:6px}
+.frames{display:flex;gap:1px;height:38px;align-items:flex-end;background:#000;
+  padding:6px;border-radius:9px;border:1px solid var(--line);overflow:hidden}
+.frames i{flex:1 1 0;min-width:0;border-radius:1px;transition:.15s}
+.f-ok{background:var(--ok);height:40%}
+.f-late{background:var(--key);height:70%}
+.f-drop{background:var(--no);height:100%}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--faint);margin-top:8px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px}
+#verdict{margin-top:16px;padding:14px 16px;border-radius:12px;border:1px solid var(--line);
+  background:#000;font-size:14.5px;line-height:1.6}
+#verdict b{color:var(--ink)}
+.v-bad{border-color:var(--no)!important} .v-bad b{color:var(--no)}
+.v-mid{border-color:var(--key)!important} .v-mid b{color:var(--key)}
+.v-ok{border-color:var(--ok)!important} .v-ok b{color:var(--ok)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Pourquoi la vidéo saccade</h1>
+  <p class="sub">Le cours, le schéma, et un simulateur pour comparer les solutions.
+  Tout est local : ce fichier ne parle ni au serveur ni à l'app.</p>
+</header>
+
+<nav>
+  <button class="on" data-tab="cours">Le cours</button>
+  <button data-tab="schema">Le schéma</button>
+  <button data-tab="sim">Le simulateur</button>
+  <button data-tab="options">Les solutions</button>
+</nav>
+
+<main>
+
+<!-- ══════════════════════════ COURS ══════════════════════════ -->
+<section id="cours" class="on">
+
+<h2>1. Ce qu'on demande à une vidéo</h2>
+
+<p class="lead">Une vidéo, ce n'est pas un fichier qu'on ouvre. C'est un fichier
+qu'on doit <b>livrer en rythme</b>, pendant qu'autre chose dessine l'écran
+60 fois par seconde.</p>
+
+<p>Une photo tolère tout : elle arrive quand elle arrive, on la met à l'écran, c'est
+fini. Une vidéo, non — si les octets n'arrivent pas assez vite, l'image se fige ;
+et si les préparer coûte du temps de calcul, c'est l'<b>interface entière</b> qui
+saccade, y compris les boutons qui n'ont rien à voir avec la vidéo.</p>
+
+<p>Les trois exigences, à tenir <b>en même temps</b> :</p>
+
+<table>
+<tr><th>Exigence</th><th>Le chiffre</th><th>Ce qui casse si on la rate</th></tr>
+<tr><td><b>Débit</b> — livrer les octets au rythme de lecture</td>
+    <td>3,5 Mbit/s ≈ <b>0,44 Mo/s</b> en continu</td>
+    <td>la vidéo se met en tampon, l'image se fige</td></tr>
+<tr><td><b>Latence</b> — livrer la première image vite</td>
+    <td>&lt; 1 s pour que ça paraisse instantané</td>
+    <td>on regarde un rond qui tourne</td></tr>
+<tr><td><b>Ne pas voler le temps de l'écran</b></td>
+    <td><b>16,7 ms</b> par image à 60 i/s</td>
+    <td>toute l'interface saccade</td></tr>
+</table>
+
+<div class="card warn">
+<p style="margin:0"><b>La troisième est celle qu'on a ratée.</b> Le débit est
+suffisant, la vidéo joue du début à la fin. Mais elle est préparée <b>sur le fil
+qui dessine l'écran</b> — donc chaque octet déchiffré est un octet volé à
+l'affichage.</p>
+</div>
+
+<h2>2. Le trajet actuel, étape par étape</h2>
+
+<p>Depuis la v0.9.54, une vidéo ne touche jamais le disque en clair. C'est un
+acquis réel, et la solution devra le conserver. Voici comment on y arrive :</p>
+
+<ol style="color:#cfcfe0;max-width:78ch">
+<li><b>Le fichier scellé</b> est en cache sur le téléphone : un en-tête de
+16 octets, puis des blocs de 256 Ko chiffrés <b>indépendamment</b> en AES-GCM.</li>
+<li><b>Un serveur HTTP local</b> démarre sur <code>127.0.0.1</code> et publie une
+URL avec un jeton aléatoire.</li>
+<li><b>Le lecteur vidéo</b> (ExoPlayer, côté Android) demande des <b>intervalles</b>
+d'octets à cette URL : <code>Range: bytes=0-</code>, puis d'autres au fur et à
+mesure.</li>
+<li><b>Le serveur déchiffre</b> les blocs qui recouvrent l'intervalle demandé, et
+renvoie le clair sur la socket.</li>
+<li><b>Le lecteur décode et affiche.</b> Le clair n'a jamais existé ailleurs
+qu'en mémoire.</li>
+</ol>
+
+<p>Chaque pièce est correcte prise séparément. Le format est couvert par 17 tests,
+le serveur par 5 autres — <b>intervalles à cheval sur deux blocs, en-têtes
+<code>Content-Range</code>, jeton révoqué : tout passe</b>. Le défaut n'est dans
+aucune pièce. Il est dans <b>l'endroit où le travail s'exécute</b>.</p>
+
+<h2>3. La cause, mesurée</h2>
+
+<p>Deux faits, et ils se multiplient l'un l'autre.</p>
+
+<h3>Fait 1 — le déchiffrement est en Dart pur, donc lent</h3>
+
+<p>Le paquet <code>cryptography</code> fait l'AES-GCM <b>en Dart</b>, sans toucher
+au matériel. Or tous les processeurs modernes savent faire l'AES <b>en
+instructions dédiées</b>, une à deux puissances de dix plus vite. On n'en profite
+pas.</p>
+
+<div class="card">
+<p style="margin:0 0 6px"><b>Mesure réelle</b><span class="mes">mesuré</span> —
+<code>test/chunked_seal_bench_test.dart</code>, 24 Mo, machine de développement
+(x64) :</p>
+<p class="big num" style="margin:6px 0 2px;color:var(--cpu)">2,7 Mo/s</p>
+<p class="hint" style="margin:0">en déchiffrement. Le scellement monte à 6,0 Mo/s.</p>
+</div>
+
+<p><b>Attention à ce chiffre</b> : il vient d'un PC de bureau. Un téléphone de
+milieu de gamme en AES logiciel est plus lent — c'est donc un <b>plafond
+optimiste</b>. Le simulateur laisse régler cette valeur, parce qu'elle n'a pas été
+mesurée sur l'appareil.</p>
+
+<h3>Fait 2 — ce travail s'exécute sur le fil qui dessine l'écran</h3>
+
+<p>C'est le vrai coupable. Dart exécute tout dans un <b>isolate</b> : un fil
+d'exécution unique. Celui de l'app est <b>le même</b> qui calcule chaque image de
+l'interface. Déchiffrer un bloc de 256 Ko à 1 Mo/s prend un quart de seconde —
+<b>un quart de seconde pendant lequel aucune image n'est dessinée</b>.</p>
+
+<p>À 60 images par seconde, une image est due toutes les 16,7 ms. Un bloc de
+256 Ko en occupe l'équivalent de <b>15</b>.</p>
+
+<h3>Fait 3 — le lecteur ne demande pas au rythme de lecture</h3>
+
+<p>C'est ce qui transforme un ralentissement en saccade franche. Un lecteur vidéo
+<b>prend de l'avance</b> : il ne demande pas 0,44 Mo par seconde de lecture, il
+tire <b>aussi vite que la source répond</b> pour remplir sa réserve — jusqu'à
+50 secondes de vidéo d'avance par défaut.</p>
+
+<p>Sur une vidéo de 61 s, cela revient à demander <b>presque tout le fichier
+d'un coup</b>. Le déchiffrement tourne donc à plein régime, sur le fil de
+l'affichage, pendant les premières secondes de la lecture — exactement le moment
+où l'utilisateur regarde.</p>
+
+<div class="card bad">
+<p style="margin:0"><b>Le résumé en une phrase.</b> Le débit suffit, mais il est
+produit au mauvais endroit et trop vite : le lecteur réclame 24 Mo aussi vite
+qu'il peut, et chaque mégaoctet est déchiffré sur le fil qui dessine l'écran.
+La vidéo joue ; l'interface, elle, ne suit plus.</p>
+</div>
+
+<h2>4. Pourquoi ça n'a pas été vu plus tôt</h2>
+
+<p>Trois raisons, et aucune n'est une excuse — ce sont des trous de méthode
+identifiables :</p>
+
+<ul>
+<li><b>Les tests mesurent la justesse, jamais le coût.</b> 22 tests vérifient que
+les octets sortants sont les bons. Aucun ne demandait <i>combien de temps</i>.
+Un format juste et inutilisable passe tous les tests.</li>
+<li><b>Le poste de travail ment.</b> Un PC de bureau absorbe sans broncher ce qui
+étrangle un téléphone. Tout ce qui est sensible au processeur doit être mesuré
+sur l'appareil, ou annoncé comme non mesuré.</li>
+<li><b>Le mot « flux » a caché le problème.</b> Servir en flux borne la
+<b>mémoire</b>, pas le <b>processeur</b>. J'ai bien vérifié qu'on ne montait plus
+28 Mo en mémoire — sans jamais me demander qui ferait le calcul, ni sur quel fil.</li>
+</ul>
+
+<h2>5. Ce qu'on ne veut pas perdre en corrigeant</h2>
+
+<p>La tentation serait de revenir au fichier en clair sur le disque : ce serait
+fluide, immédiatement. Ce serait aussi défaire ce qui a été gagné. Trois acquis
+à conserver dans toute solution :</p>
+
+<table>
+<tr><th>Acquis</th><th>Pourquoi il compte</th></tr>
+<tr><td><b>Aucun clair sur le disque</b></td>
+    <td>c'était le seul endroit de l'app où les octets n'étaient pas inertes ;
+        une autre app du téléphone pouvait les lire</td></tr>
+<tr><td><b>Mémoire bornée à 256 Ko</b></td>
+    <td>indépendante de la taille du fichier, donc de la durée de la vidéo</td></tr>
+<tr><td><b>Chiffrement <i>authentifié</i></b></td>
+    <td>AES-GCM ne fait pas que cacher : il <b>détecte</b> qu'un octet a été
+        modifié. On perd cette garantie si on change de mode pour aller plus vite.</td></tr>
+</table>
+
+</section>
+
+<!-- ══════════════════════════ SCHÉMA ══════════════════════════ -->
+<section id="schema">
+
+<h2>Le trajet d'une vidéo, aujourd'hui</h2>
+<p>En violet, ce qui s'exécute <b>sur le fil de l'interface</b> — c'est là qu'est
+le défaut. En bleu, ce qui n'y est pas.</p>
+
+<svg class="diag" viewBox="0 0 980 430" role="img" aria-label="Trajet actuel d'une vidéo">
+  <defs>
+    <marker id="a" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#9a9ab0"/>
+    </marker>
+  </defs>
+
+  <!-- cadre isolate UI -->
+  <rect x="250" y="20" width="490" height="250" rx="14" fill="rgba(192,92,255,.07)"
+        stroke="#c05cff" stroke-dasharray="5 4"/>
+  <text x="266" y="42" fill="#c05cff" font-weight="700">Isolate principal — le fil qui dessine l'écran</text>
+
+  <!-- cache -->
+  <rect x="30" y="90" width="180" height="86" rx="11" fill="#1d1d28" stroke="#2c2c3a"/>
+  <text x="46" y="116" fill="#e9e9f2" font-weight="700">Fichier scellé</text>
+  <text x="46" y="136" fill="#65657d">en cache, sur le disque</text>
+  <text x="46" y="154" fill="#65657d">blocs de 256 Ko, AES-GCM</text>
+  <text x="46" y="170" fill="#3bd6a8">inerte : illisible sans la clé</text>
+
+  <!-- serveur -->
+  <rect x="278" y="80" width="200" height="106" rx="11" fill="#1d1d28" stroke="#c05cff"/>
+  <text x="294" y="106" fill="#e9e9f2" font-weight="700">Serveur local</text>
+  <text x="294" y="126" fill="#65657d">127.0.0.1, jeton aléatoire</text>
+  <text x="294" y="144" fill="#65657d">répond aux Range</text>
+  <text x="294" y="164" fill="#c05cff">↳ appelle le déchiffrement</text>
+
+  <!-- crypto -->
+  <rect x="520" y="80" width="196" height="106" rx="11" fill="#1d1d28" stroke="#c05cff" stroke-width="2"/>
+  <text x="536" y="106" fill="#e9e9f2" font-weight="700">AES-GCM en Dart</text>
+  <text x="536" y="126" fill="#65657d">bloc par bloc</text>
+  <text x="536" y="146" fill="#c05cff" font-weight="700">2,7 Mo/s (PC)</text>
+  <text x="536" y="164" fill="#ff5f6d">bloque l'affichage</text>
+
+  <!-- interface -->
+  <rect x="278" y="208" width="438" height="48" rx="11" fill="#1d1d28" stroke="#2c2c3a"/>
+  <text x="294" y="228" fill="#e9e9f2" font-weight="700">Interface Flutter</text>
+  <text x="294" y="246" fill="#ff5f6d">attend son tour : 1 image due toutes les 16,7 ms</text>
+
+  <!-- lecteur -->
+  <rect x="782" y="90" width="168" height="86" rx="11" fill="#1d1d28" stroke="#3ba9ff"/>
+  <text x="798" y="116" fill="#e9e9f2" font-weight="700">Lecteur vidéo</text>
+  <text x="798" y="136" fill="#65657d">ExoPlayer (natif)</text>
+  <text x="798" y="154" fill="#3ba9ff">décode en matériel</text>
+  <text x="798" y="170" fill="#65657d">prend 50 s d'avance</text>
+
+  <!-- flèches -->
+  <line x1="210" y1="133" x2="272" y2="133" stroke="#9a9ab0" marker-end="url(#a)"/>
+  <line x1="478" y1="133" x2="514" y2="133" stroke="#c05cff" marker-end="url(#a)"/>
+  <line x1="716" y1="133" x2="776" y2="133" stroke="#9a9ab0" marker-end="url(#a)"/>
+  <text x="722" y="124" fill="#65657d">clair</text>
+  <path d="M866,176 L866,300 L378,300 L378,262" stroke="#3ba9ff" fill="none"
+        stroke-dasharray="4 4" marker-end="url(#a)"/>
+  <text x="600" y="294" fill="#3ba9ff">demande l'intervalle suivant, aussi vite qu'il peut</text>
+
+  <!-- bilan -->
+  <rect x="30" y="330" width="920" height="76" rx="11" fill="#000" stroke="#ff5f6d"/>
+  <text x="48" y="356" fill="#ff5f6d" font-weight="700">Le nœud du problème</text>
+  <text x="48" y="378" fill="#cfcfe0">Le déchiffrement et l'affichage se disputent le MÊME fil d'exécution. Le lecteur réclame vite,</text>
+  <text x="48" y="396" fill="#cfcfe0">le déchiffrement est lent, et l'interface passe en dernier. La vidéo joue ; l'écran saccade.</text>
+</svg>
+
+<h2>Les trois endroits où l'on peut intervenir</h2>
+<p>Le trajet a exactement trois points de levier. Le simulateur permet de les
+actionner séparément.</p>
+
+<svg class="diag" viewBox="0 0 980 300" role="img" aria-label="Les trois leviers">
+  <rect x="30" y="40" width="290" height="150" rx="12" fill="#1d1d28" stroke="#3bd6a8"/>
+  <text x="48" y="68" fill="#3bd6a8" font-weight="700">A — changer le moteur</text>
+  <text x="48" y="92" fill="#cfcfe0">AES natif au lieu d'AES en Dart</text>
+  <text x="48" y="112" fill="#65657d">le matériel sait faire l'AES</text>
+  <text x="48" y="132" fill="#65657d">en instructions dédiées</text>
+  <text x="48" y="160" fill="#3bd6a8" font-weight="700">gain : le débit, ×50 à ×100</text>
+  <text x="48" y="178" fill="#65657d">ne change rien à QUI calcule</text>
+
+  <rect x="345" y="40" width="290" height="150" rx="12" fill="#1d1d28" stroke="#3ba9ff"/>
+  <text x="363" y="68" fill="#3ba9ff" font-weight="700">B — changer de fil</text>
+  <text x="363" y="92" fill="#cfcfe0">déchiffrer hors de l'isolate UI</text>
+  <text x="363" y="112" fill="#65657d">l'interface garde son temps,</text>
+  <text x="363" y="132" fill="#65657d">quoi qu'il arrive au reste</text>
+  <text x="363" y="160" fill="#3ba9ff" font-weight="700">gain : la fluidité</text>
+  <text x="363" y="178" fill="#65657d">ne change rien au DÉBIT</text>
+
+  <rect x="660" y="40" width="290" height="150" rx="12" fill="#1d1d28" stroke="#ffd24a"/>
+  <text x="678" y="68" fill="#ffd24a" font-weight="700">C — supprimer l'intermédiaire</text>
+  <text x="678" y="92" fill="#cfcfe0">le lecteur lit le format lui-même</text>
+  <text x="678" y="112" fill="#65657d">plus de serveur HTTP,</text>
+  <text x="678" y="132" fill="#65657d">plus d'exception réseau</text>
+  <text x="678" y="160" fill="#ffd24a" font-weight="700">gain : les deux, et une pièce en moins</text>
+  <text x="678" y="178" fill="#65657d">coût : du code natif, par OS</text>
+
+  <rect x="30" y="216" width="920" height="60" rx="11" fill="#000" stroke="#2c2c3a"/>
+  <text x="48" y="240" fill="#e9e9f2" font-weight="700">A et B sont indépendants — et c'est important</text>
+  <text x="48" y="262" fill="#cfcfe0">A seul rend le calcul court, mais toujours sur le fil de l'écran. B seul libère l'écran, mais le débit reste juste. C fait les deux.</text>
+</svg>
+
+</section>
+
+<!-- ══════════════════════════ SIMULATEUR ══════════════════════════ -->
+<section id="sim">
+
+<h2>Le simulateur</h2>
+<p>Six premières secondes de lecture d'une vidéo de 61 s (24 Mo). Chaque barre est
+une image de l'interface : <b>verte</b> si elle est dessinée à l'heure,
+<b>rouge</b> si elle est perdue parce que le déchiffrement occupait le fil.</p>
+
+<div class="sim">
+  <div class="ctrl">
+    <h4>A — Moteur de déchiffrement</h4>
+    <div class="opts" id="moteur">
+      <button class="opt on" data-v="dart">AES-GCM en Dart
+        <small>ce qui tourne aujourd'hui</small></button>
+      <button class="opt" data-v="natif">AES-GCM natif
+        <small>cryptography_flutter — le matériel</small></button>
+    </div>
+
+    <h4>B — Où le calcul s'exécute</h4>
+    <div class="opts" id="fil">
+      <button class="opt on" data-v="ui">Sur l'isolate principal
+        <small>ce qui tourne aujourd'hui</small></button>
+      <button class="opt" data-v="fond">Sur un isolate de fond
+        <small>l'interface garde son temps</small></button>
+    </div>
+
+    <h4>C — Architecture</h4>
+    <div class="opts" id="archi">
+      <button class="opt on" data-v="http">Serveur HTTP local
+        <small>ce qui tourne aujourd'hui</small></button>
+      <button class="opt" data-v="natif">Lecture native directe
+        <small>le lecteur lit le format lui-même</small></button>
+    </div>
+
+    <h4>Vitesse AES du téléphone</h4>
+    <input type="range" id="cpu" min="3" max="40" value="10">
+    <p class="hint">Dart pur : <b id="cpuval">1,0</b> Mo/s.
+    Mesuré à 2,7 Mo/s sur PC de bureau ; un téléphone fait moins.
+    <b>Cette valeur n'a pas été mesurée sur l'appareil</b> — d'où le réglage.</p>
+
+    <button class="go" id="run">Rejouer</button>
+  </div>
+
+  <div class="stagewrap">
+    <div class="phone">
+      <div class="gauge">
+        <div class="lab">Fluidité de l'interface</div>
+        <div class="val" id="g-fps">—</div>
+        <div class="note" id="g-fps-n">images par seconde effectives</div>
+      </div>
+      <div class="gauge">
+        <div class="lab">Fil de l'écran occupé par la crypto</div>
+        <div class="val" id="g-busy">—</div>
+        <div class="note" id="g-busy-n">part des 6 premières secondes</div>
+      </div>
+      <div class="gauge">
+        <div class="lab">Débit de déchiffrement</div>
+        <div class="val" id="g-thr">—</div>
+        <div class="note">à soutenir : 0,44 Mo/s</div>
+      </div>
+      <div class="gauge">
+        <div class="lab">Marge sur le débit</div>
+        <div class="val" id="g-margin">—</div>
+        <div class="note" id="g-margin-n">fois ce qu'il faut</div>
+      </div>
+    </div>
+
+    <div class="tl">
+      <div class="lab">Images de l'interface — 6 secondes, 60 i/s</div>
+      <div class="frames" id="frames"></div>
+      <div class="legend">
+        <span><i class="f-ok" style="height:9px"></i>image à l'heure</span>
+        <span><i class="f-late" style="height:9px"></i>image en retard</span>
+        <span><i class="f-drop" style="height:9px"></i>image perdue</span>
+      </div>
+    </div>
+
+    <div id="verdict">Choisis une combinaison, puis « Rejouer ».</div>
+  </div>
+</div>
+
+<h2>Ce que le simulateur modélise — et ce qu'il ne modélise pas</h2>
+<div class="card warn">
+<p style="margin:0 0 8px"><b>Modélisé</b>, à partir de valeurs réelles : le débit
+mesuré du déchiffrement, la taille des blocs (256 Ko), le budget d'une image
+(16,7 ms), le débit vidéo (3,5 Mbit/s) et l'avidité du lecteur, qui tire aussi
+vite que la source répond.</p>
+<p style="margin:0"><b>Non modélisé</b> : le décodage vidéo lui-même (il est en
+matériel, il ne coûte rien au fil de l'app), le téléchargement réseau d'un premier
+visionnage, et le coût d'un passage de canal natif — petit, mais non nul. Ce
+simulateur sert à <b>comparer des ordres de grandeur entre solutions</b>, pas à
+prédire une valeur exacte.</p>
+</div>
+
+</section>
+
+<!-- ══════════════════════════ OPTIONS ══════════════════════════ -->
+<section id="options">
+
+<h2>Les solutions possibles</h2>
+<p class="lead">Quatre chemins. Ils ne s'excluent pas tous — les deux premiers se
+cumulent, et le troisième les remplace.</p>
+
+<h3>1 — AES natif <span class="est">petit changement</span></h3>
+<div class="card good">
+<p style="margin:0 0 8px">Ajouter <code>cryptography_flutter</code> (vérifié :
+version 2.3.4, compatible avec les contraintes actuelles du projet). Une ligne
+au démarrage, et le même code de chiffrement passe par le <b>moteur du système</b>
+— celui qui utilise les instructions AES du processeur.</p>
+<table style="margin:0">
+<tr><th>Pour</th><td>gain de un à deux ordres de grandeur sur le débit ; aucun
+changement de format, aucune migration ; l'iOS est couvert par le même paquet</td></tr>
+<tr><th>Contre</th><td>une dépendance de plus ; le calcul reste <b>déclenché</b>
+depuis l'isolate principal, même si le travail lourd part côté système</td></tr>
+<tr><th>Effort</th><td>très faible</td></tr>
+</table>
+</div>
+
+<h3>2 — Déchiffrer sur un isolate de fond <span class="est">petit changement</span></h3>
+<div class="card good">
+<p style="margin:0 0 8px">Déplacer le serveur local et le déchiffrement hors de
+l'isolate qui dessine. L'interface cesse d'attendre, quelle que soit la vitesse
+du chiffrement.</p>
+<table style="margin:0">
+<tr><th>Pour</th><td>traite la cause du <b>saccadement</b> précisément ; reste en
+Dart, donc identique sur les deux OS</td></tr>
+<tr><th>Contre</th><td>ne change rien au débit : avec l'AES en Dart, la marge
+reste mince sur un téléphone lent</td></tr>
+<tr><th>Effort</th><td>faible</td></tr>
+</table>
+</div>
+
+<h3>3 — Lecture native directe <span class="est">chantier</span></h3>
+<div class="card">
+<p style="margin:0 0 8px">Écrire, côté Android, une source de données pour le
+lecteur qui lit <b>directement</b> notre format par blocs et déchiffre en natif.
+Le serveur HTTP local disparaît, et avec lui le jeton, l'exception réseau en
+clair, et le passage par la pile réseau.</p>
+<table style="margin:0">
+<tr><th>Pour</th><td>la solution la plus propre : une pièce en moins, pas de
+socket, pas d'exception <code>cleartext</code>, débit natif, rien sur le fil de
+l'app. Supprime la cause au lieu de l'entourer.</td></tr>
+<tr><th>Contre</th><td>du code natif à écrire <b>par OS</b> (Kotlin, puis
+l'équivalent iOS via <code>AVAssetResourceLoader</code>) ; c'est du périmètre
+natif nouveau, à inscrire au catalogue</td></tr>
+<tr><th>Effort</th><td>moyen à élevé, et deux fois</td></tr>
+</table>
+</div>
+
+<h3>4 — Changer de mode de chiffrement <span class="est">déconseillé</span></h3>
+<div class="card bad">
+<p style="margin:0 0 8px">Passer en AES-CTR permettrait d'utiliser la brique de
+déchiffrement <b>déjà intégrée</b> au lecteur Android, sans rien écrire.</p>
+<table style="margin:0">
+<tr><th>Pour</th><td>aucun code à maintenir côté déchiffrement</td></tr>
+<tr><th>Contre</th><td><b>on perd l'authentification.</b> AES-GCM détecte qu'un
+octet a été modifié ; le CTR seul, non. Un fichier altéré serait joué sans que
+rien ne le signale. C'est troquer une garantie de sécurité contre du confort —
+et ce n'est pas au code de faire ce troc.</td></tr>
+<tr><th>Effort</th><td>moyen, et il faudrait remigrer le format une deuxième fois</td></tr>
+</table>
+</div>
+
+<h2>Un point à traiter à part : le premier visionnage</h2>
+<p>Indépendamment du saccadement, une vidéo <b>vue pour la première fois</b>
+attend encore son téléchargement <b>complet</b> avant de démarrer (c'est la ligne
+n°10 des décisions en attente de <code>RAPPELS.md</code>). Une vidéo déjà en cache
+démarre, elle, instantanément.</p>
+<p>Ce n'est pas la même panne, et le corriger ne corrigera pas le saccadement —
+mais les deux se voient au même endroit, et l'utilisateur ne fait pas la
+différence. À traiter dans la foulée.</p>
+
+<h2>Recommandation</h2>
+<div class="card good">
+<p style="margin:0 0 8px"><b>1 et 2 ensemble, tout de suite</b> — ils sont
+complémentaires et chacun traite une moitié : le natif donne le débit, l'isolate
+de fond rend l'écran intouchable. Ensemble, ils remettent la marge à deux ordres
+de grandeur, sans toucher au format ni au périmètre natif.</p>
+<p style="margin:0"><b>3 en chantier séparé, si le résultat ne suffit pas.</b>
+C'est l'architecture la plus juste — elle <i>supprime</i> le serveur local au
+lieu de l'accélérer. Mais elle ouvre du natif sur deux OS, et il serait
+imprudent de l'engager avant d'avoir mesuré ce que 1 + 2 donnent réellement sur
+ton appareil.</p>
+</div>
+<p><b>Aucune de ces options n'est engagée.</b> C'est une décision produit autant
+que technique — elle arbitre entre le temps de développement, la surface de code
+natif à porter sur iOS, et le niveau de garantie du chiffrement.</p>
+
+</section>
+</main>
+
+<script>
+// ─── navigation ───────────────────────────────────────────────
+document.querySelectorAll("nav button").forEach(function(b){
+  b.onclick = function(){
+    document.querySelectorAll("nav button").forEach(function(x){x.classList.remove("on")});
+    document.querySelectorAll("section").forEach(function(x){x.classList.remove("on")});
+    b.classList.add("on");
+    document.getElementById(b.dataset.tab).classList.add("on");
+    window.scrollTo(0,0);
+  };
+});
+
+// ─── état du simulateur ───────────────────────────────────────
+var S = { moteur:"dart", fil:"ui", archi:"http", cpu:1.0 };
+
+function group(id, key){
+  document.querySelectorAll("#"+id+" .opt").forEach(function(b){
+    b.onclick = function(){
+      if (b.classList.contains("dis")) return;
+      document.querySelectorAll("#"+id+" .opt").forEach(function(x){x.classList.remove("on")});
+      b.classList.add("on");
+      S[key] = b.dataset.v;
+      sync();
+      run();
+    };
+  });
+}
+group("moteur","moteur"); group("fil","fil"); group("archi","archi");
+
+document.getElementById("cpu").oninput = function(e){
+  S.cpu = e.target.value / 10;
+  document.getElementById("cpuval").textContent = S.cpu.toFixed(1).replace(".",",");
+  run();
+};
+
+// La lecture native directe impose ses réponses aux deux autres réglages :
+// elle n'utilise ni le moteur Dart ni l'isolate principal. On le MONTRE au lieu
+// de laisser choisir une combinaison qui n'existe pas.
+function sync(){
+  var natif = S.archi === "natif";
+  document.querySelectorAll("#moteur .opt, #fil .opt").forEach(function(b){
+    b.classList.toggle("dis", natif);
+  });
+  if (natif){
+    document.querySelectorAll("#moteur .opt").forEach(function(b){
+      b.classList.toggle("on", b.dataset.v === "natif");
+    });
+    document.querySelectorAll("#fil .opt").forEach(function(b){
+      b.classList.toggle("on", b.dataset.v === "fond");
+    });
+  }
+}
+
+// ─── le modèle ────────────────────────────────────────────────
+var CHUNK   = 256*1024;      // octets par bloc
+var FILE    = 24*1024*1024;  // vidéo de 61 s à 3,5 Mbit/s
+var NEED    = 0.44;          // Mo/s à soutenir
+var FRAME   = 16.7;          // ms par image à 60 i/s
+var WINDOW  = 6000;          // ms simulés
+var NFRAMES = Math.round(WINDOW / FRAME);
+
+function throughput(){
+  if (S.archi === "natif") return 250;            // AES matériel, ordre de grandeur
+  return S.moteur === "natif" ? 200 : S.cpu;      // Mo/s
+}
+
+function run(){
+  var thr    = throughput();                       // Mo/s
+  var onUI   = (S.archi !== "natif") && (S.fil === "ui");
+  var msPerChunk = (CHUNK/1048576) / thr * 1000;   // ms pour un bloc
+
+  // Le lecteur tire aussi vite que la source répond, jusqu'à 50 s d'avance —
+  // soit ici pratiquement tout le fichier.
+  var wanted   = Math.min(FILE, 50 * NEED * 1048576);
+  var chunks   = Math.ceil(wanted / CHUNK);
+  var totalMs  = chunks * msPerChunk;
+  var busyMs   = Math.min(totalMs, WINDOW);
+
+  // Répartition sur la fenêtre : le travail est continu tant qu'il reste des
+  // blocs à fournir.
+  var frames = [];
+  var busyRatio = onUI ? busyMs / WINDOW : 0;
+  var dropped = 0, late = 0;
+  for (var i = 0; i < NFRAMES; i++){
+    if (!onUI){ frames.push("f-ok"); continue; }
+    var t = i / NFRAMES;
+    if (t < busyRatio){
+      // Pendant le déchiffrement, une image ne passe que si un bloc se termine
+      // dans son intervalle — sinon elle est perdue.
+      if (msPerChunk <= FRAME){ frames.push("f-late"); late++; }
+      else { frames.push("f-drop"); dropped++; }
+    } else {
+      frames.push("f-ok");
+    }
+  }
+
+  var box = document.getElementById("frames");
+  box.innerHTML = "";
+  frames.forEach(function(c){
+    var el = document.createElement("i");
+    el.className = c;
+    box.appendChild(el);
+  });
+
+  var effFps = Math.round((NFRAMES - dropped - late*0.5) / (WINDOW/1000));
+  var margin = thr / NEED;
+
+  document.getElementById("g-fps").textContent   = effFps + " i/s";
+  document.getElementById("g-fps-n").textContent =
+    dropped ? (dropped + " images perdues sur " + NFRAMES) : "aucune image perdue";
+  document.getElementById("g-busy").textContent  =
+    onUI ? Math.round(busyRatio*100) + " %" : "0 %";
+  document.getElementById("g-busy-n").textContent =
+    onUI ? "le fil de l'écran est pris" : "le fil de l'écran est libre";
+  document.getElementById("g-thr").textContent   =
+    (thr >= 100 ? Math.round(thr) : thr.toFixed(1).replace(".",",")) + " Mo/s";
+  document.getElementById("g-margin").textContent = "×" + Math.round(margin);
+  document.getElementById("g-margin-n").textContent =
+    margin < 3 ? "marge mince : un téléphone lent décroche" : "marge confortable";
+
+  var v = document.getElementById("verdict");
+  var txt, cls;
+  if (onUI && dropped > NFRAMES*0.5){
+    cls = "v-bad";
+    txt = "<b>C'est l'état actuel.</b> Le lecteur réclame " +
+      Math.round(wanted/1048576) + " Mo aussi vite qu'il peut ; à " +
+      thr.toFixed(1).replace(".",",") + " Mo/s, cela occupe le fil de l'écran pendant " +
+      (totalMs/1000).toFixed(1).replace(".",",") + " s. L'interface est " +
+      "pratiquement figée pendant ce temps — la vidéo joue, mais rien d'autre ne répond.";
+  } else if (onUI && dropped > 0){
+    cls = "v-mid";
+    txt = "<b>Mieux, mais l'écran paie encore.</b> Le calcul est devenu court, " +
+      "il reste sur le fil de l'affichage : " + dropped + " images perdues. " +
+      "Le déchiffrement n'a rien à faire là — c'est le levier B.";
+  } else if (margin < 3){
+    cls = "v-mid";
+    txt = "<b>Fluide, mais la marge est mince.</b> L'interface est intouchée : " +
+      "le déchiffrement ne lui prend plus rien. En revanche le débit n'est que " +
+      "×" + Math.round(margin) + " ce qu'il faut — sur un téléphone plus lent que " +
+      "le réglage choisi, la vidéo se mettrait en tampon. Ajoute le levier A.";
+  } else {
+    cls = "v-ok";
+    txt = "<b>Fluide, avec de la marge.</b> Le fil de l'écran est libre et le débit " +
+      "est ×" + Math.round(margin) + " ce qu'il faut. " +
+      (S.archi === "natif"
+        ? "Et il n'y a plus ni serveur HTTP, ni jeton, ni exception réseau à maintenir : la pièce a disparu au lieu d'être accélérée."
+        : "Reste le premier visionnage, qui attend toujours son téléchargement complet.");
+  }
+  v.className = cls;
+  v.innerHTML = txt;
+}
+
+document.getElementById("run").onclick = run;
+sync(); run();
+</script>
+</body>
+</html>
