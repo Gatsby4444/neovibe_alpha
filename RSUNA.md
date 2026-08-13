@@ -605,7 +605,26 @@ git -C <extrait>\neovibe_alpha log --oneline -3
 git -C <extrait>\neovibe_alpha fsck --connectivity-only
 ```
 
-Repère de volume au 2026-07-26 : **1 828 entrées, 4,0 Mo** (dont ~1 600 entrées
-et ~3 Mo pour `.git` seul). Si le compte tombe à quelques centaines d'entrées ou
-si le zip fait moins d'un mégaoctet, **`.git` manque** — c'est exactement la
-signature du piège n°1.
+Repère de volume au **2026-08-13** : **3 072 entrées, 13,8 Mo** — dont **2 721
+entrées pour `.git` seul**, et ~9 Mo pour `docdev/seed-media/` (trois vidéos
+libres de droits, retéléchargeables mais sans intérêt à exclure).
+*(Repère précédent, 2026-07-26 : 1 828 entrées, 4,0 Mo.)*
+
+Si le compte tombe à quelques centaines d'entrées ou si le zip fait moins d'un
+mégaoctet, **`.git` manque** — c'est exactement la signature du piège n°1.
+
+⚠️ **Les entrées du zip utilisent des ANTISLASHS** (`neovibe_alpha\.git\config`)
+et non des barres obliques. Une sonde écrite en `*/.git/*` répond donc **faux**
+alors que tout est présent — piège rencontré le 2026-08-13. Normaliser avant de
+tester :
+
+```powershell
+$names = $zip.Entries | ForEach-Object { $_.FullName -replace '\\','/' }
+```
+
+**Contrôles à passer sur l'extrait** (tous verts le 2026-08-13) : branche
+`master` suivant `origin/master`, dernier commit du jour, `fsck` sans erreur
+(un `dangling tag` est bénin), tag de la version courante présent, et les
+**quatre** fichiers hors-dépôt : `lib/core/config/env.dart`,
+`.claude/settings.local.json`, `docdev/supabase-secrets.txt`,
+`docdev/bot-credentials.txt`.
