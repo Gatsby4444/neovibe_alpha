@@ -46,8 +46,22 @@ enum MediaAvailability {
   /// Tous les blocs sont là : l'ouverture ne doit **rien** au réseau.
   complet,
 
-  /// Déjà vu, mais incomplet. Les blocs manquants coûteront le réseau, et cette
-  /// mesure ne dit rien de la cible « préchargé ».
+  /// **Amorcé par le préchargement** : l'en-tête, le premier bloc, la clé et
+  /// l'URL signée ont été préparés d'avance, sans que l'utilisateur l'ait
+  /// demandé.
+  ///
+  /// ⚠️ Le natif ne peut pas distinguer ce cas de [partiel] — dans les deux, la
+  /// carte des blocs existe et elle est incomplète. Seul le Dart sait qu'il a
+  /// lui-même amorcé ce contenu. Sans cette distinction, le résultat du
+  /// préchargement atterrirait dans un seau **sans cible**, mélangé aux vidéos
+  /// abandonnées à mi-parcours : on ne pourrait pas juger s'il fonctionne.
+  ///
+  /// C'est le seau qui doit tenir la cible des 300 ms — tout ce qui coûte cher
+  /// y a déjà été fait.
+  amorce,
+
+  /// Déjà vu, mais incomplet, et **pas** amorcé par nous : une vidéo dont la
+  /// lecture s'est arrêtée en route. Les blocs suivants coûteront le réseau.
   partiel,
 
   /// Jamais vu : l'ouverture inclut au moins l'amorçage.
@@ -57,7 +71,8 @@ enum MediaAvailability {
 extension MediaAvailabilityLabel on MediaAvailability {
   String get label => switch (this) {
     MediaAvailability.complet => 'Complet sur l\'appareil',
-    MediaAvailability.partiel => 'Partiel (déjà vu, incomplet)',
+    MediaAvailability.amorce => 'Amorcé par le préchargement',
+    MediaAvailability.partiel => 'Partiel (vu à moitié, non amorcé)',
     MediaAvailability.froid => 'À froid (jamais vu)',
   };
 
@@ -170,6 +185,13 @@ class VideoOpenTrace {
   /// l'instrument annoncerait que le préchargement a tout ralenti — alors
   /// qu'il aurait tout accéléré.
   var prefetched = false;
+
+  /// Le **préchargeur** a préparé cette face d'avance (clé, URL, premier bloc).
+  ///
+  /// À ne pas confondre avec [prefetched], qui dit seulement que l'écran a
+  /// demandé la face avant de l'afficher — le verso d'une Vibe, par exemple.
+  /// Ici, c'est `ContentPreloader` qui est allé chercher les octets.
+  var primedByApp = false;
 
   /// Quand la face a réellement été portée à l'écran. Nul tant qu'elle ne
   /// l'a pas été.

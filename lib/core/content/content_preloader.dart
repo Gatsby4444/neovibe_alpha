@@ -56,6 +56,18 @@ class ContentPreloader {
   /// deux fois, même si plusieurs écrans le demandent.
   final _done = <String>{};
 
+  /// Les faces dont le **premier bloc** a réellement été amené sur l'appareil.
+  ///
+  /// Sert à la mesure : le natif ne peut pas distinguer « amorcé par nous » de
+  /// « vu à moitié » — dans les deux cas la carte des blocs existe et elle est
+  /// incomplète. Seul le Dart le sait, et sans cette information le résultat du
+  /// préchargement serait invisible dans les relevés.
+  final _primed = <String>{};
+
+  /// Le premier bloc de cette face a-t-il été amené d'avance ?
+  bool wasPrimed(String contentId, {required bool front}) =>
+      _primed.contains('${contentId}_${front ? 'f' : 'b'}');
+
   /// La clé préchargée de [contentId], s'il y en a une.
   ///
   /// Consommée par `contentFaceProvider` : c'est ce qui retire l'aller-retour
@@ -117,10 +129,13 @@ class ContentPreloader {
 
       // Le natif amène l'en-tête et le premier bloc, avec le MÊME code que la
       // lecture — donc dans le même fichier, au même format.
-      await _channel.invokeMethod<bool>('prime', {
+      final ok = await _channel.invokeMethod<bool>('prime', {
         'url': url,
         'cachePath': cachePath,
       });
+      // Marqué seulement si les octets sont VRAIMENT arrivés : une mesure ne
+      // doit pas s'annoncer « amorcée » sur un amorçage qui a échoué.
+      if (ok == true) _primed.add(id);
     } catch (_) {
       // Réessayable plus tard : on ne garde pas un échec en mémoire.
       _done.remove(id);
@@ -143,6 +158,7 @@ class ContentPreloader {
     _keys.clear();
     _urls.clear();
     _done.clear();
+    _primed.clear();
   }
 }
 

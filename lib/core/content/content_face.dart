@@ -76,6 +76,9 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   // l'utilisateur attend inclut le téléchargement et l'aller-retour de clé.
   // Mesurer à partir du lecteur cacherait précisément ce qu'on cherche.
   final trace = spec.isVideo ? VideoOpenTrace.start(cacheId) : null;
+  // Le natif dira « partiel » pour une face amorcée comme pour une vidéo vue à
+  // moitié : il voit la même chose. Seul le Dart sait laquelle il a préparée.
+  trace?.primedByApp = preloader.wasPrimed(spec.contentId, front: spec.front);
 
   // Préchargée ? Alors elle est déjà en main : une URL signée est un ticket
   // valable une heure, rien n'oblige à en redemander un. C'est le second

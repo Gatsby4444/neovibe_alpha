@@ -262,9 +262,17 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
     if (reply == null) return null;
     final trace = VideoOpenTrace.of(_traceId);
     if (trace != null) {
-      trace.availability =
+      var reported =
           availability ??
           MediaAvailabilityLabel.parse(reply['availability'] as String?);
+      // Le natif ne distingue pas « amorcé par le préchargement » de « vu à
+      // moitié » : dans les deux cas la carte des blocs existe et elle est
+      // incomplète. Le Dart, lui, sait ce qu'il a préparé — et confondre les
+      // deux rendrait le résultat du préchargement illisible.
+      if (reported == MediaAvailability.partiel && trace.primedByApp) {
+        reported = MediaAvailability.amorce;
+      }
+      trace.availability = reported;
       // Ce que l'ouverture du média a coûté au natif, à l'intérieur du jalon
       // « lecteur prêt ».
       trace.note('· ouverture média', (reply['openMs'] as num?)?.toInt() ?? 0);

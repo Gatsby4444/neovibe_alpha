@@ -150,6 +150,10 @@ class _Summary extends StatelessWidget {
   /// justement à défaire.
   Duration? get _target => switch (availability) {
     MediaAvailability.complet => const Duration(milliseconds: 300),
+    // Le seau qui juge le préchargement : tout ce qui coûte cher — clé, URL,
+    // premier bloc — y a déjà été fait d'avance. Il doit donc tenir la même
+    // cible qu'un contenu entièrement présent.
+    MediaAvailability.amorce => const Duration(milliseconds: 300),
     MediaAvailability.partiel => null,
     MediaAvailability.froid => const Duration(seconds: 1),
   };
@@ -280,6 +284,7 @@ class _Record extends StatelessWidget {
             children: [
               Icon(switch (record.availability) {
                 MediaAvailability.complet => Icons.sd_storage,
+                MediaAvailability.amorce => Icons.rocket_launch,
                 MediaAvailability.partiel => Icons.downloading,
                 MediaAvailability.froid => Icons.cloud_download,
               }, size: 14),
