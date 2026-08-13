@@ -16,6 +16,7 @@ import 'core/prefs.dart';
 import 'features/cards/card_capture_screen.dart';
 import 'features/cards/card_media_cache.dart';
 import 'core/content/content_media_cache.dart';
+import 'core/widgets/avatar.dart';
 import 'features/library_vibes/library_vault_cache.dart';
 import 'features/cards/native_camera.dart';
 
@@ -94,6 +95,10 @@ Future<void> main() async {
     // ses scellés sont amenés d'avance pour que le reveal soit instantané, et
     // ils restent sur l'appareil ensuite. Sans balayage, ils s'y accumuleraient.
     LibraryVaultCache().sweep();
+    // Les avatars : petits, nombreux, et gardés parce que leur chemin est
+    // versionné (voir `AvatarFileCache`). Le balayage borne simplement leur
+    // nombre.
+    AvatarFileCache().sweep();
     NativeCameraController.setSecure(
       prefs.getBool(DevSecureEnabled.prefsKey) ?? false,
     );

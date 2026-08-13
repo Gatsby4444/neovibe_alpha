@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../supabase_providers.dart';
 
@@ -22,29 +25,156 @@ String? avatarPath(String? stored) {
   return value.isEmpty ? null : value;
 }
 
-/// URL signée d'un avatar.
+// ⚠️ `avatarUrlProvider` a été SUPPRIMÉ le 2026-08-13. Il signait une URL
+// valable une heure, que `NetworkImage` allait chercher à chaque démarrage sur
+// une douzaine d'écrans. Il est remplacé par [avatarFileProvider], qui
+// télécharge une fois et garde le fichier — voir [AvatarFileCache] pour la
+// raison qui rend ce cache sûr.
+//
+// Le coffre `avatars` reste **privé** (« contrôle total de l'écosystème ») :
+// le téléchargement passe toujours par la politique `avatars_read_via_profile`,
+// qui vérifie que l'appelant a le droit de voir ce profil. Ce qui change est le
+// nombre d'allers-retours, pas la règle.
+
+/// Les avatars déjà téléchargés, sur le disque.
 ///
-/// Le bucket `avatars` est **privé** depuis le 2026-08-10 (« contrôle complet
-/// de l'écosystème ») : il n'y a plus d'URL publique, chaque affichage demande
-/// une autorisation au serveur, qui vérifie que l'appelant a le droit de voir
-/// ce profil.
+/// ### Pourquoi un cache, et pourquoi il est sûr ici
 ///
-/// Signée pour 1 h et mise en cache par le provider : on ne redemande pas une
-/// autorisation à chaque reconstruction de widget.
-final avatarUrlProvider = FutureProvider.family<String?, String>((
+/// Un avatar s'affiche sur une douzaine d'écrans, dès l'ouverture de l'app.
+/// Sans cache, chacun coûtait **un aller-retour pour signer l'URL, puis un
+/// téléchargement** — à chaque démarrage, pour une image de quelques dizaines
+/// de kilo-octets qui ne change presque jamais. C'est exactement ce que la
+/// consigne « l'affichage de MES contenus ne doit jamais attendre le réseau »
+/// proscrit, étendu ici aux avatars des autres, qui sont dans le même cas.
+///
+/// ⚠️ **Un cache d'avatar est d'ordinaire un piège** : l'image change, le nom
+/// ne change pas, et l'ancienne photo reste affichée pour toujours. Il est sûr
+/// ici **parce que le chemin est versionné** depuis le 2026-08-13
+/// (`avatar_<horodatage>.png`, voir `AvatarService.upload`). Deux images
+/// différentes ne portent jamais le même nom, donc une entrée de cache ne peut
+/// pas devenir fausse — elle devient seulement inutile, et le balayage s'en
+/// charge.
+///
+/// C'est la même idée que partout ailleurs dans ce projet : on ne garde pas un
+/// cache correct à coups de vérifications, on rend l'erreur impossible à
+/// représenter.
+class AvatarFileCache {
+  AvatarFileCache();
+
+  /// Un avatar pèse quelques dizaines de Ko : 200 suffisent largement à couvrir
+  /// un cercle d'amis et les profils croisés.
+  static const _maxEntries = 200;
+
+  Directory? _root;
+
+  Future<Directory> _dir() async {
+    _root ??= await getApplicationSupportDirectory();
+    final dir = Directory('${_root!.path}${Platform.pathSeparator}avatars');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
+  /// Le chemin de stockage (`<uid>/avatar_<n>.png`) devient un nom de fichier
+  /// plat : la barre oblique ne peut pas servir de séparateur de dossier ici.
+  Future<File> _file(String path) async => File(
+    '${(await _dir()).path}${Platform.pathSeparator}'
+    '${path.replaceAll('/', '_')}',
+  );
+
+  Future<File?> get(String path) async {
+    try {
+      final file = await _file(path);
+      return await file.exists() ? file : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Écrit en `.part` puis renomme : un téléchargement coupé ne doit pas
+  /// laisser une image tronquée que [get] rendrait ensuite comme valide.
+  Future<File?> put(String path, List<int> bytes) async {
+    try {
+      final target = await _file(path);
+      final temp = File('${target.path}.part');
+      await temp.writeAsBytes(bytes, flush: true);
+      await temp.rename(target.path);
+      return target;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> purge(String? stored) async {
+    final path = avatarPath(stored);
+    if (path == null) return;
+    try {
+      final file = await _file(path);
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+  }
+
+  /// Balayage de démarrage : les entrées les moins récemment lues d'abord.
+  Future<void> sweep() async {
+    try {
+      final files = <File>[];
+      await for (final entity in (await _dir()).list()) {
+        if (entity is! File) continue;
+        if (entity.path.endsWith('.part')) {
+          try {
+            await entity.delete();
+          } catch (_) {}
+          continue;
+        }
+        files.add(entity);
+      }
+      if (files.length <= _maxEntries) return;
+      final stats = <File, DateTime>{};
+      for (final file in files) {
+        stats[file] = (await file.stat()).modified;
+      }
+      files.sort((a, b) => stats[a]!.compareTo(stats[b]!));
+      for (final file in files.take(files.length - _maxEntries)) {
+        try {
+          await file.delete();
+        } catch (_) {}
+      }
+    } catch (_) {}
+  }
+
+  Future<void> clear() async {
+    try {
+      final dir = await _dir();
+      if (await dir.exists()) await dir.delete(recursive: true);
+    } catch (_) {}
+  }
+}
+
+final avatarFileCacheProvider = Provider((ref) => AvatarFileCache());
+
+/// Le fichier local d'un avatar : rendu depuis le disque s'il y est, sinon
+/// téléchargé une fois puis conservé.
+///
+/// Nul est un cas **normal** — profil hors de portée, avatar absent, réseau
+/// coupé — et l'appelant retombe alors sur l'initiale.
+final avatarFileProvider = FutureProvider.family<File?, String>((
   ref,
   stored,
 ) async {
   final path = avatarPath(stored);
   if (path == null) return null;
+
+  final cache = ref.watch(avatarFileCacheProvider);
+  final cached = await cache.get(path);
+  if (cached != null) return cached;
+
   try {
-    return await ref
+    final bytes = await ref
         .watch(supabaseProvider)
         .storage
         .from('avatars')
-        .createSignedUrl(path, 3600);
+        .download(path);
+    return cache.put(path, bytes);
   } catch (_) {
-    // Profil hors de portée, ou fichier absent : on retombe sur l'initiale.
     return null;
   }
 });
@@ -73,16 +203,16 @@ class Avatar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final url = stored == null
+    final file = stored == null
         ? null
-        : ref.watch(avatarUrlProvider(stored!)).value;
+        : ref.watch(avatarFileProvider(stored!)).value;
     return CircleAvatar(
       radius: radius,
       backgroundColor:
           backgroundColor ??
           Theme.of(context).colorScheme.surfaceContainerHighest,
-      backgroundImage: url == null ? null : NetworkImage(url),
-      child: url == null ? fallback : null,
+      backgroundImage: file == null ? null : FileImage(file),
+      child: file == null ? fallback : null,
     );
   }
 }
@@ -98,10 +228,10 @@ class AvatarFill extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final url = stored == null
+    final file = stored == null
         ? null
-        : ref.watch(avatarUrlProvider(stored!)).value;
-    if (url == null) return fallback;
-    return Image.network(url, fit: BoxFit.cover);
+        : ref.watch(avatarFileProvider(stored!)).value;
+    if (file == null) return fallback;
+    return Image.file(file, fit: BoxFit.cover);
   }
 }

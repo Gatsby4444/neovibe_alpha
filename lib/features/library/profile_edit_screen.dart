@@ -1,11 +1,10 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 
 import '../../core/widgets/avatar.dart';
+import '../profile/avatar_service.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
 
@@ -27,7 +26,14 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
     text: widget.profile.tagName ?? '',
   );
   late final _bio = TextEditingController(text: widget.profile.bio ?? '');
-  File? _newAvatar;
+
+  /// Les octets recadrés en attente d'enregistrement. La photo n'est déposée
+  /// qu'à la validation : renoncer à l'écran ne doit rien avoir changé.
+  Uint8List? _newAvatar;
+
+  /// L'utilisateur a demandé le retrait de sa photo.
+  var _removeAvatar = false;
+
   var _loading = false;
 
   @override
@@ -39,13 +45,13 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
   }
 
   Future<void> _pickAvatar() async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 85,
-    );
-    if (picked != null) setState(() => _newAvatar = File(picked.path));
+    final bytes = await ref.read(avatarServiceProvider).pickAndCrop(context);
+    if (bytes != null && mounted) {
+      setState(() {
+        _newAvatar = bytes;
+        _removeAvatar = false;
+      });
+    }
   }
 
   Future<void> _save() async {
@@ -60,23 +66,14 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
     final client = ref.read(supabaseProvider);
     final me = client.auth.currentUser!.id;
     try {
-      String? avatarUrl;
+      // La photo est déposée (ou retirée) par le service, qui possède toute la
+      // séquence : chemin versionné, suppression de l'ancien fichier, mise à
+      // jour du profil. L'écran ne fait que dire CE QU'IL VEUT.
+      final avatar = ref.read(avatarServiceProvider);
       if (_newAvatar != null) {
-        final path = '$me/avatar.jpg';
-        await client.storage
-            .from('avatars')
-            .upload(
-              path,
-              _newAvatar!,
-              fileOptions: const FileOptions(
-                contentType: 'image/jpeg',
-                upsert: true,
-              ),
-            );
-        // On enregistre le CHEMIN : le bucket est privé depuis le 2026-08-10,
-        // il n'y a plus d'URL publique à fabriquer — ni de cache-buster à
-        // ajouter, puisque l'URL signée est régénérée à chaque session.
-        avatarUrl = path;
+        await avatar.upload(_newAvatar!);
+      } else if (_removeAvatar) {
+        await avatar.remove();
       }
       final tagName = _tagName.text.trim();
       final bio = _bio.text.trim();
@@ -86,7 +83,6 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
             'display_name': username,
             'tag_name': tagName.isEmpty ? null : tagName,
             'bio': bio.isEmpty ? null : bio,
-            'avatar_url': ?avatarUrl,
           })
           .eq('id', me);
       ref.invalidate(myProfileProvider);
@@ -114,20 +110,51 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
           Center(
             child: GestureDetector(
               onTap: _pickAvatar,
-              // Une image tout juste choisie prime sur celle du serveur.
+              // Une image tout juste recadrée prime sur celle du serveur ;
+              // un retrait demandé prime sur les deux.
               child: _newAvatar != null
                   ? CircleAvatar(
                       radius: 48,
-                      backgroundImage: FileImage(_newAvatar!),
+                      backgroundImage: MemoryImage(_newAvatar!),
                     )
                   : Avatar(
                       radius: 48,
-                      stored: widget.profile.avatarUrl,
+                      stored: _removeAvatar ? null : widget.profile.avatarUrl,
                       fallback: const Icon(Icons.add_a_photo, size: 30),
                     ),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 8),
+          Center(
+            child: TextButton(
+              onPressed: _pickAvatar,
+              child: Text(
+                widget.profile.avatarUrl == null && _newAvatar == null
+                    ? 'Ajouter une photo'
+                    : 'Changer la photo',
+              ),
+            ),
+          ),
+          // ⚠️ Retirer sa photo était IMPOSSIBLE avant le 2026-08-13 : la mise
+          // à jour employait l'entrée conditionnelle `'avatar_url': ?value`,
+          // qui omet la colonne quand la valeur est nulle. On pouvait changer,
+          // jamais enlever — et l'écran enregistrait sans erreur, donc rien ne
+          // le disait.
+          if (!_removeAvatar &&
+              (widget.profile.avatarUrl != null || _newAvatar != null))
+            Center(
+              child: TextButton(
+                onPressed: () => setState(() {
+                  _newAvatar = null;
+                  _removeAvatar = true;
+                }),
+                child: Text(
+                  'Retirer la photo',
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            ),
+          const SizedBox(height: 12),
           TextField(
             controller: _username,
             maxLength: 50,

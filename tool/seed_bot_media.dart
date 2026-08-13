@@ -161,6 +161,11 @@ class _Bot {
   }
 
   Future<void> seed({String? recipient}) async {
+    // ─── Photo de profil ─────────────────────────────────────────────────
+    // En premier : sans avatar, tous les écrans retombent sur l'initiale et
+    // rien ne permet de juger le rendu réel de l'app.
+    await _avatar();
+
     // ─── Vibes envoyées en DM ────────────────────────────────────────────
     if (recipient != null) {
       // Standard photo, recto + verso, sauvegardable.
@@ -528,6 +533,39 @@ class _Bot {
     }
   }
 
+  /// Donne une photo de profil au bot.
+  ///
+  /// ⚠️ **En clair, et c'est normal** : un avatar n'est pas un contenu scellé.
+  /// Le coffre `avatars` est privé et sa politique
+  /// (`avatars_read_via_profile`) décide qui peut le lire — la barrière est là,
+  /// pas dans un chiffrement.
+  ///
+  /// Le chemin porte un **horodatage**, comme celui que produit
+  /// `AvatarService.upload` : c'est ce qui permet aux caches de l'app de garder
+  /// l'image sans jamais devenir faux. Rejouer le seed donne donc un nouveau
+  /// chemin, et l'avatar se rafraîchit tout seul sur l'appareil.
+  Future<void> _avatar() async {
+    final path = '$id/avatar_${DateTime.now().millisecondsSinceEpoch}.png';
+    final bytes = _png(tint, 999, true);
+    final uri = Uri.parse('${Env.supabaseUrl}/storage/v1/object/avatars/$path');
+    final request = await _http.postUrl(uri);
+    request.headers
+      ..set('apikey', Env.supabasePublishableKey)
+      ..set('authorization', 'Bearer $token')
+      ..set('content-type', 'image/png')
+      ..set('x-upsert', 'true')
+      ..contentLength = bytes.length;
+    request.add(bytes);
+    final response = await request.close();
+    await response.drain<void>();
+    if (response.statusCode >= 300) {
+      stderr.writeln('    avatar : ${response.statusCode}');
+      return;
+    }
+    await _patch('/rest/v1/profiles?id=eq.$id', {'avatar_url': path});
+    stdout.writeln('  Photo de profil');
+  }
+
   // ------------------------------------------------------------------
   // REST
   // ------------------------------------------------------------------
@@ -567,6 +605,20 @@ class _Bot {
       return null;
     }
     return text.isEmpty ? <Object?>[] : jsonDecode(text);
+  }
+
+  Future<void> _patch(String path, Map<String, Object?> body) async {
+    final request = await _http.patchUrl(Uri.parse('${Env.supabaseUrl}$path'));
+    request.headers
+      ..set('apikey', Env.supabasePublishableKey)
+      ..set('authorization', 'Bearer $token')
+      ..set('content-type', 'application/json');
+    request.add(utf8.encode(jsonEncode(body)));
+    final response = await request.close();
+    final text = await response.transform(utf8.decoder).join();
+    if (response.statusCode >= 300) {
+      stderr.writeln('    PATCH $path : ${response.statusCode} $text');
+    }
   }
 
   Future<Object?> _rpc(String name, Map<String, Object?> params) =>

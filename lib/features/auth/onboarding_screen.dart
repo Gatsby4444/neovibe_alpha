@@ -1,11 +1,10 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 
 import '../../core/supabase_providers.dart';
+import '../profile/avatar_service.dart';
 
 /// Création du profil minimal : nom affiché obligatoire, photo optionnelle
 /// (spec 4.1).
@@ -18,7 +17,10 @@ class OnboardingScreen extends ConsumerStatefulWidget {
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final _name = TextEditingController();
-  File? _avatar;
+
+  /// Les octets recadrés, en attente. Comme à l'édition de profil, la photo
+  /// n'est déposée qu'à la validation.
+  Uint8List? _avatar;
   var _loading = false;
 
   @override
@@ -28,13 +30,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   Future<void> _pickAvatar() async {
-    final picked = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 512,
-      maxHeight: 512,
-      imageQuality: 85,
-    );
-    if (picked != null) setState(() => _avatar = File(picked.path));
+    final bytes = await ref.read(avatarServiceProvider).pickAndCrop(context);
+    if (bytes != null && mounted) setState(() => _avatar = bytes);
   }
 
   Future<void> _save() async {
@@ -49,29 +46,19 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
     final client = ref.read(supabaseProvider);
     final userId = client.auth.currentUser!.id;
     try {
-      String? avatarUrl;
-      if (_avatar != null) {
-        final path = '$userId/avatar.jpg';
-        await client.storage
-            .from('avatars')
-            .upload(
-              path,
-              _avatar!,
-              fileOptions: const FileOptions(
-                contentType: 'image/jpeg',
-                upsert: true,
-              ),
-            );
-        // On enregistre le CHEMIN, pas une URL : le bucket est privé depuis le
-        // 2026-08-10, il n'existe plus d'URL publique. L'affichage demande une
-        // URL signée au moment de montrer l'image (`avatarUrlProvider`).
-        avatarUrl = path;
-      }
+      // ⚠️ La ligne de profil D'ABORD, la photo ENSUITE. `AvatarService.upload`
+      // met le profil à jour : sans la ligne, il n'aurait rien à mettre à jour
+      // et la photo serait déposée dans le coffre sans que rien ne la désigne.
       await client.from('profiles').insert({
         'id': userId,
         'display_name': name,
-        'avatar_url': ?avatarUrl,
       });
+      // Le MÊME chemin qu'à l'édition de profil — recadrage, chemin versionné,
+      // ménage de l'ancien fichier. C'est ce que le service existe pour
+      // garantir : une étape ne peut plus être oubliée d'un côté seulement.
+      if (_avatar != null) {
+        await ref.read(avatarServiceProvider).upload(_avatar!);
+      }
       ref.invalidate(myProfileProvider);
     } catch (e) {
       if (mounted) {
@@ -101,7 +88,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
                 onTap: _pickAvatar,
                 child: CircleAvatar(
                   radius: 52,
-                  backgroundImage: _avatar == null ? null : FileImage(_avatar!),
+                  backgroundImage: _avatar == null
+                      ? null
+                      : MemoryImage(_avatar!),
                   child: _avatar == null
                       ? const Icon(Icons.add_a_photo, size: 32)
                       : null,
