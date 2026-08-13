@@ -91,6 +91,25 @@ Duration? _median(List<Duration> values) {
   return sorted[sorted.length ~/ 2];
 }
 
+int? _medianInt(List<int> values) {
+  if (values.isEmpty) return null;
+  final sorted = [...values]..sort();
+  return sorted[sorted.length ~/ 2];
+}
+
+/// Les libellés de détail rencontrés, dans l'ordre où ils ont été consignés.
+///
+/// Ils ne sont pas connus d'avance : le détail dépend du chemin suivi (un
+/// contenu à moi n'appelle pas le serveur pour sa clé), et une mesure absente
+/// vaut mieux qu'une ligne à zéro qui laisserait croire qu'un travail a eu lieu.
+List<String> _detailLabels(List<VideoOpenTrace> records) {
+  final labels = <String>{};
+  for (final record in records) {
+    labels.addAll(record.detail.keys);
+  }
+  return labels.toList();
+}
+
 class _Summary extends StatelessWidget {
   const _Summary({required this.availability, required this.records});
 
@@ -184,6 +203,27 @@ class _Summary extends StatelessWidget {
                     '${step.label} : ${spent.inMilliseconds} ms',
                     style: theme.textTheme.bodySmall,
                   ),
+              // Les coûts qui ne tiennent pas sur la frise : les deux travaux
+              // menés en parallèle, et le détail interne du natif. Les lire
+              // comme des étapes successives serait un contresens — ils se
+              // recouvrent.
+              if (_detailLabels(records) case final labels
+                  when labels.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'détail (parallèle — ne s\'additionne pas)',
+                  style: theme.textTheme.labelSmall,
+                ),
+                for (final label in labels)
+                  if (_medianInt(
+                        records
+                            .map((r) => r.detail[label])
+                            .whereType<int>()
+                            .toList(),
+                      )
+                      case final ms?)
+                    Text('$label : $ms ms', style: theme.textTheme.bodySmall),
+              ],
             ],
           ],
         ),
@@ -241,6 +281,16 @@ class _Record extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
+          // Sans « + » : ces coûts se recouvrent, ils ne s'ajoutent pas aux
+          // précédents.
+          for (final entry in record.detail.entries)
+            Padding(
+              padding: const EdgeInsets.only(left: 32, top: 2),
+              child: Text(
+                '${entry.key} : ${entry.value} ms',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
         ],
       ),
     );

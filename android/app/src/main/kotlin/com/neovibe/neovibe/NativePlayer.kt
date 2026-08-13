@@ -149,6 +149,12 @@ class NativePlayer(
             // AVANT : c'est le seul instant où l'information existe, et le Dart
             // ne peut pas la deviner (voir [SealedChunkStore.availability]).
             var availability = SealedChunkStore.COMPLETE
+            // Ce que coûte l'ouverture elle-même : entrée/sortie fichier,
+            // en-tête, et — sur un média froid — l'amorçage réseau. Mesuré
+            // séparément de la construction du lecteur, sinon les deux se
+            // confondent dans le jalon « lecteur prêt » et on ne sait pas
+            // lequel des deux corriger.
+            val openStart = System.nanoTime()
             val failure = try {
                 source().use {
                     it.plainLength
@@ -158,6 +164,7 @@ class NativePlayer(
             } catch (e: Exception) {
                 e
             }
+            val openMs = (System.nanoTime() - openStart) / 1_000_000
             main.post {
                 if (failure != null) {
                     // Un média au format HÉRITÉ n'a pas la magie `NVC1` : le
@@ -174,7 +181,7 @@ class NativePlayer(
                 try {
                     val instance = Instance(sealed = source)
                     players[instance.id] = instance
-                    result.success(describe(instance.id, availability))
+                    result.success(describe(instance.id, availability, openMs))
                 } catch (e: Exception) {
                     result.error("OPEN_FAILED", e.message ?: e.javaClass.simpleName, null)
                 }
@@ -188,7 +195,7 @@ class NativePlayer(
             players[instance.id] = instance
             // Un fichier en clair est sur l'appareil par définition : rien à
             // aller chercher.
-            result.success(describe(instance.id, SealedChunkStore.COMPLETE))
+            result.success(describe(instance.id, SealedChunkStore.COMPLETE, 0))
         } catch (e: Exception) {
             result.error("OPEN_FAILED", e.message ?: e.javaClass.simpleName, null)
         }
@@ -198,11 +205,11 @@ class NativePlayer(
      * Ce que `create` rend au Dart.
      *
      * Un identifiant seul suffisait jusqu'au 2026-08-13 ; il manquait alors
-     * l'information qui rend la mesure d'ouverture lisible. Les deux partent
-     * ensemble parce qu'ils naissent au même instant — celui de la sonde.
+     * l'information qui rend la mesure d'ouverture lisible. Tout naît au même
+     * instant — celui de la sonde — et repart ensemble.
      */
-    private fun describe(id: Long, availability: String): Map<String, Any> =
-        mapOf("id" to id, "availability" to availability)
+    private fun describe(id: Long, availability: String, openMs: Long): Map<String, Any> =
+        mapOf("id" to id, "availability" to availability, "openMs" to openMs)
 
     /** Ferme tout : appelé quand l'activité s'en va, sans quoi les lecteurs fuient. */
     fun dispose() {
@@ -219,6 +226,14 @@ class NativePlayer(
         private val clear: File? = null,
         private val sealed: (() -> SealedChunkReader)? = null,
     ) : TextureRegistry.SurfaceProducer.Callback {
+
+        // ⚠️ **Première** propriété : en Kotlin elles s'initialisent dans
+        // l'ordre du texte, et celle-ci sert d'origine des temps à tout ce qui
+        // suit — à commencer par la construction de l'ExoPlayer lui-même.
+        private val createdAt = System.nanoTime()
+
+        /** Fin du bloc `init`, c'est-à-dire `prepare()` rendu. */
+        private var preparedAt = 0L
 
         private val producer: TextureRegistry.SurfaceProducer =
             textureRegistry.createSurfaceProducer()
@@ -321,6 +336,7 @@ class NativePlayer(
             exoPlayer.addListener(listener)
             exoPlayer.setMediaSource(mediaSource())
             exoPlayer.prepare()
+            preparedAt = System.nanoTime()
         }
 
         private fun mediaSource(): MediaSource {
@@ -354,6 +370,16 @@ class NativePlayer(
                     "height" to size.height,
                     "duration" to duration,
                     "rotation" to rotation,
+                    // Les deux moitiés du jalon « lecteur prêt », mesurées à
+                    // part parce qu'elles ne se corrigent pas du tout de la
+                    // même façon : « construction » est le prix d'un lecteur
+                    // NEUF (ExoPlayer, surface, et surtout l'instanciation du
+                    // décodeur matériel) — il se supprime en réutilisant ou en
+                    // préparant un lecteur d'avance. « décodage » est le temps
+                    // que met le média à livrer sa taille et sa durée — il
+                    // dépend du fichier et de l'arrivée de ses octets.
+                    "buildMs" to (preparedAt - createdAt) / 1_000_000,
+                    "decodeMs" to (System.nanoTime() - preparedAt) / 1_000_000,
                 ),
             )
         }

@@ -240,9 +240,15 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
       args,
     );
     if (reply == null) return null;
-    VideoOpenTrace.of(_traceId)?.availability =
-        availability ??
-        MediaAvailabilityLabel.parse(reply['availability'] as String?);
+    final trace = VideoOpenTrace.of(_traceId);
+    if (trace != null) {
+      trace.availability =
+          availability ??
+          MediaAvailabilityLabel.parse(reply['availability'] as String?);
+      // Ce que l'ouverture du média a coûté au natif, à l'intérieur du jalon
+      // « lecteur prêt ».
+      trace.note('· ouverture média', (reply['openMs'] as num?)?.toInt() ?? 0);
+    }
     return (reply['id'] as num).toInt();
   }
 
@@ -260,7 +266,10 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
           rotationCorrection: (map['rotation'] as num?)?.toInt() ?? 0,
           duration: Duration(milliseconds: (map['duration']! as num).toInt()),
         );
-        VideoOpenTrace.of(_traceId)?.mark(VideoOpenStep.lecteur);
+        VideoOpenTrace.of(_traceId)
+          ?..note('· construction lecteur', (map['buildMs']! as num).toInt())
+          ..note('· décodage entête', (map['decodeMs']! as num).toInt())
+          ..mark(VideoOpenStep.lecteur);
         if (_ready?.isCompleted == false) _ready!.complete();
       case 'firstFrame':
         VideoOpenTrace.of(_traceId)?.mark(VideoOpenStep.premiereImage);

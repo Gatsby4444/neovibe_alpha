@@ -132,6 +132,28 @@ class VideoOpenTrace {
   /// favorable, sous peine de flatter exactement le chiffre qu'on surveille.
   var availability = MediaAvailability.froid;
 
+  /// Coûts **non séquentiels**, en millisecondes, par libellé.
+  ///
+  /// ### Pourquoi ils ne sont pas des jalons
+  ///
+  /// [VideoOpenStep] décrit une **suite** : chaque étape commence où la
+  /// précédente finit. Deux travaux menés en parallèle n'y entrent pas — et
+  /// les y forcer produit exactement le contresens du 2026-08-13 : l'URL
+  /// signée et la clé partant ensemble, les deux jalons tombaient au même
+  /// instant, `média local` valait `max(URL, clé)` et `clé` valait 0 **par
+  /// construction**. On a cru y lire « la clé ne coûte rien » ; ce n'était pas
+  /// une mesure, c'était la forme de l'instrument.
+  ///
+  /// Ce dictionnaire recueille ce qui ne s'aligne pas sur une frise : les deux
+  /// coûts parallèles, et le détail interne du natif à l'intérieur d'un jalon.
+  final detail = <String, int>{};
+
+  /// Consigne un coût mesuré à part. Sans effet quand l'instrument est coupé.
+  void note(String label, int ms) {
+    if (!enabled) return;
+    detail[label] = ms;
+  }
+
   Duration? get total => _marks[VideoOpenStep.premiereImage];
 
   Duration? at(VideoOpenStep step) => _marks[step];

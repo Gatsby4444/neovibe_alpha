@@ -120,16 +120,28 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
     // Avec deux `await`, un échec de la seconde pendant l'attente de la
     // première remonterait en exception non observée, hors de toute pile
     // d'appel exploitable.
-    final urlFuture = signedUrl();
-    final keyFuture = resolveKey();
+    // ⚠️ Menés en parallèle, ces deux coûts ne peuvent PAS être lus sur la
+    // frise des jalons : les deux tomberaient au même instant, et « clé : 0 ms »
+    // serait une conséquence de l'instrument, pas une mesure (contresens du
+    // 2026-08-13 matin). Chacun est donc chronométré à part.
+    final since = DateTime.now();
+    int elapsed() => DateTime.now().difference(since).inMilliseconds;
+
+    final urlFuture = signedUrl().then((value) {
+      trace?.note('URL signée', elapsed());
+      return value;
+    });
+    final keyFuture = resolveKey().then((value) {
+      trace?.note('clé', elapsed());
+      return value;
+    });
     final cachePath = await cache.streamingPath(
       spec.contentId,
       front: spec.front,
     );
     final (url, key) = await (urlFuture, keyFuture).wait;
-    // Les deux jalons tombent au même instant : c'est la conséquence visible du
-    // parallélisme, et « clé : +0 ms » se lit désormais « la clé n'a rien coûté
-    // de plus que l'URL ».
+    // Le jalon marque la fin des DEUX : c'est ce que l'utilisateur attend. Qui
+    // des deux a duré se lit dans le détail ci-dessus.
     trace?.mark(VideoOpenStep.scelle);
     trace?.mark(VideoOpenStep.cle);
     return OpenedMedia.streaming(
