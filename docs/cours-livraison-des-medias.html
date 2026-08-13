@@ -77,6 +77,7 @@ svg text{font:11px -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif
   <button data-tab="trajet">Le trajet</button>
   <button data-tab="compteurs">Qui compte quoi</button>
   <button data-tab="options">Les options</button>
+  <button data-tab="apres">Ce qui reste après</button>
 </nav>
 
 <main>
@@ -553,6 +554,129 @@ appliquée non plus au stockage mais aux secrets.</p>
   <li>L'<b>URL signée expire à une heure</b> sans être renouvelée en cours de
   lecture.</li>
 </ul>
+
+</section>
+
+<!-- ══════════════════════════ APRÈS ══════════════════════════ -->
+<section id="apres">
+
+<h2>Après le préchargement — que reste-t-il ?</h2>
+
+<p class="lead">Question de Jay, 2026-08-13 : « on ne dépend maintenant que du
+temps de préparation du lecteur, c'est cela ? »</p>
+
+<p><b>Presque.</b> Le raisonnement est juste sur l'essentiel — le téléchargement
+disparaît du chemin visible — mais il manque une troisième composante, qui n'est
+ni du réseau ni du lecteur.</p>
+
+<h3>Les trois choses qui composent l'attente</h3>
+
+<p>On a tendance à n'en voir que deux : <b>aller chercher</b> et
+<b>préparer</b>. Il y en a trois.</p>
+
+<svg class="diag" viewBox="0 0 980 300" role="img" aria-label="Les trois composantes de l'attente">
+  <text x="30" y="34" fill="#9a9ab0">AVANT le préchargement — cache froid, ~850 ms</text>
+
+  <rect x="30" y="48" width="250" height="40" rx="6" fill="#3ba9ff" opacity=".85"/>
+  <text x="42" y="66" fill="#000" font-weight="700">RÉSEAU — 611 ms</text>
+  <text x="42" y="81" fill="#000">URL + clé + 1er bloc</text>
+
+  <rect x="284" y="48" width="150" height="40" rx="6" fill="#c05cff" opacity=".85"/>
+  <text x="296" y="66" fill="#000" font-weight="700">INTERFACE</text>
+  <text x="296" y="81" fill="#000">~50 ms</text>
+
+  <rect x="438" y="48" width="180" height="40" rx="6" fill="#ffd24a" opacity=".9"/>
+  <text x="450" y="66" fill="#000" font-weight="700">LECTEUR — 149 ms</text>
+  <text x="450" y="81" fill="#000">décodage de l'en-tête</text>
+
+  <text x="30" y="140" fill="#3bd6a8">APRÈS le préchargement (v0.9.64) — ~210 ms</text>
+
+  <rect x="30" y="154" width="14" height="40" rx="4" fill="#3ba9ff" opacity=".35"/>
+  <text x="52" y="172" fill="#65657d">réseau ≈ 0 — tout est déjà là</text>
+
+  <rect x="240" y="154" width="150" height="40" rx="6" fill="#c05cff" opacity=".85"/>
+  <text x="252" y="172" fill="#000" font-weight="700">INTERFACE</text>
+  <text x="252" y="187" fill="#000">~50 ms — inchangé</text>
+
+  <rect x="394" y="154" width="330" height="40" rx="6" fill="#ffd24a" opacity=".9"/>
+  <text x="406" y="172" fill="#000" font-weight="700">LECTEUR — 149 ms</text>
+  <text x="406" y="187" fill="#000">c'est désormais 70 % de l'attente</text>
+
+  <text x="30" y="238" fill="#9a9ab0">La barre jaune n'a pas bougé d'un millimètre.</text>
+  <text x="30" y="258" fill="#65657d">Elle ne rétrécit pas quand on précharge : elle devient simplement la plus visible.</text>
+  <text x="30" y="278" fill="#65657d">C'est l'option 3 qui la déplace — pas en la raccourcissant, mais en la jouant AVANT.</text>
+</svg>
+
+<h3>La composante oubliée : l'interface</h3>
+
+<p>Entre le moment où le Dart a tout en main et celui où le lecteur natif
+démarre, il se passe des choses qui ne sont ni du réseau ni du décodage : la
+transition d'écran s'anime, le widget se construit, Riverpod distribue le
+résultat. C'est la ligne <code>· attente avant natif</code> de tes relevés —
+<b>52 ms</b> en médiane sur un contenu déjà présent.</p>
+
+<p>Elle ne disparaîtra pas avec du préchargement : elle n'a rien à voir avec le
+contenu. C'est du temps d'application.</p>
+
+<h3>Le budget restant, poste par poste</h3>
+
+<table>
+<tr><th>Poste</th><th>Après préchargement</th><th>Nature</th><th>Supprimable par</th></tr>
+<tr><td>URL signée ‖ clé</td><td class="num">≈ 0 ms</td><td>réseau</td><td style="color:var(--ok)">✅ fait — préchargées</td></tr>
+<tr><td>Attente avant le natif</td><td class="num">~50 ms</td><td>interface</td><td>rien de prévu — c'est du temps d'app</td></tr>
+<tr><td>Ouverture du média</td><td class="num">≈ 0 ms</td><td>réseau</td><td style="color:var(--ok)">✅ fait — 1<sup>er</sup> bloc préchargé</td></tr>
+<tr><td>Construction du lecteur</td><td class="num">2-6 ms</td><td>négligeable</td><td>—</td></tr>
+<tr><td><b>Décodage de l'en-tête</b></td><td class="num"><b>149 ms</b></td><td>décodeur matériel</td><td style="color:var(--key)">option 3, non faite</td></tr>
+<tr><td>Première image</td><td class="num">1-2 ms</td><td>négligeable</td><td>—</td></tr>
+<tr><td><b>Total attendu</b></td><td class="num"><b>~210 ms</b></td><td></td><td>cible : 300 ms</td></tr>
+</table>
+
+<div class="card good">
+<p style="margin:0 0 6px"><b>Réponse à ta question</b></p>
+<p style="margin:0">Oui pour l'essentiel : <b>le lecteur devient le poste
+dominant</b>, ~149 ms sur ~210, soit <b>70 % de l'attente</b>. Mais il reste
+~50 ms d'interface qu'aucun préchargement ne touchera. Et à ~210 ms,
+<b>la cible de 300 ms est tenue</b> — ce qui n'était pas le cas à 412 ms.</p>
+</div>
+
+<div class="card warn">
+<p style="margin:0 0 6px"><b>Un oubli trouvé en répondant à cette question</b><span class="est">corrigé le 2026-08-13</span></p>
+<p style="margin:0">La v0.9.64 allait bien chercher l'URL signée d'avance… puis
+la <b>jetait</b>. Seule la clé était gardée. L'ouverture réelle en redemandait
+donc une au serveur : un aller-retour de 100 à 165 ms que le préchargement était
+pourtant censé avoir supprimé. Une URL signée est un ticket valable une heure —
+elle est maintenant conservée, avec dix minutes de marge avant expiration.
+<b>Sans cette correction, la ligne « URL + clé » du tableau ci-dessus serait
+restée à ~110 ms au lieu de 0.</b></p>
+</div>
+
+<h3>Pourquoi le lecteur ne peut pas aller plus vite… sur place</h3>
+
+<p>Ces 149 ms sont du travail réel : lire l'index du conteneur MP4, réveiller le
+décodeur matériel, décoder la première image. On ne les raccourcit pas en
+optimisant du code — c'est du silicium.</p>
+
+<p><b>Mais on peut les jouer plus tôt.</b> C'est toute l'idée de l'option 3 :
+garder deux ou trois lecteurs déjà préparés sur les contenus suivants. Le
+travail a toujours lieu, il a simplement lieu <b>pendant que tu regardes autre
+chose</b> — exactement comme le premier bloc aujourd'hui.</p>
+
+<div class="card bad">
+<p style="margin:0 0 6px"><b>Pourquoi ce n'est pas encore fait</b></p>
+<p style="margin:0">Un lecteur vivant retient un <b>décodeur matériel</b>, et un
+téléphone n'en a qu'un petit nombre. En garder trois est courant ; en oublier un
+ouvert dégrade tout le système, et le code porte déjà cet avertissement. Cela
+demande un pool strictement borné, avec libération garantie — une passe
+attentive, pas une fin de session.</p>
+</div>
+
+<h3>Et le feed ?</h3>
+
+<p>C'est là que ces 149 ms comptent le plus. Sur une story ouverte de temps en
+temps, elles sont imperceptibles. Sur un feed où l'on fait défiler des dizaines
+de contenus, elles se paient <b>à chaque défilement</b> — et c'est très
+exactement ce que tu décrivais le 2026-08-12 : « sur plusieurs dizaines de
+contenus cela peut devenir perturbateur ».</p>
 
 </section>
 

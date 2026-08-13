@@ -77,8 +77,12 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   // Mesurer à partir du lecteur cacherait précisément ce qu'on cherche.
   final trace = spec.isVideo ? VideoOpenTrace.start(cacheId) : null;
 
-  Future<String> signedUrl() =>
-      client.storage.from(spec.bucket).createSignedUrl(spec.path, 3600);
+  // Préchargée ? Alors elle est déjà en main : une URL signée est un ticket
+  // valable une heure, rien n'oblige à en redemander un. C'est le second
+  // aller-retour que le préchargement retire du chemin visible.
+  Future<String> signedUrl() async =>
+      preloader.urlFor(spec.contentId, front: spec.front) ??
+      await client.storage.from(spec.bucket).createSignedUrl(spec.path, 3600);
 
   // Ordre de recherche de la clé :
   //   1. MES propres contenus : la clé est sur l'appareil, elle y a été

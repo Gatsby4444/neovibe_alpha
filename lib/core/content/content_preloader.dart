@@ -43,6 +43,15 @@ class ContentPreloader {
   /// Clés récupérées d'avance, par identifiant de contenu.
   final _keys = <String, String>{};
 
+  /// URL signées récupérées d'avance, par face.
+  ///
+  /// ⚠️ **Oubli corrigé le 2026-08-13** : la v0.9.64 allait chercher cette URL
+  /// pour amorcer le cache, puis la **jetait**. L'ouverture réelle en
+  /// redemandait donc une au serveur — un aller-retour de ~100 à 165 ms que le
+  /// préchargement était pourtant censé avoir supprimé. Une URL signée est un
+  /// simple ticket valable une heure : rien n'empêche de la réutiliser.
+  final _urls = <String, _SignedUrl>{};
+
   /// Ce qui est déjà préchargé ou en cours — un contenu ne se précharge pas
   /// deux fois, même si plusieurs écrans le demandent.
   final _done = <String>{};
@@ -52,6 +61,19 @@ class ContentPreloader {
   /// Consommée par `contentFaceProvider` : c'est ce qui retire l'aller-retour
   /// de clé du chemin visible.
   String? keyFor(String contentId) => _keys[contentId];
+
+  /// L'URL signée préchargée de cette face, si elle est encore valable.
+  ///
+  /// La marge de sécurité évite de rendre une URL qui expirerait **pendant**
+  /// la lecture : une vidéo longue réclame ses derniers blocs bien après le
+  /// premier, et un ticket périmé en cours de route donnerait une erreur
+  /// incompréhensible.
+  String? urlFor(String contentId, {required bool front}) {
+    final entry = _urls['${contentId}_${front ? 'f' : 'b'}'];
+    if (entry == null) return null;
+    if (DateTime.now().isAfter(entry.usableUntil)) return null;
+    return entry.url;
+  }
 
   /// Précharge la face [spec]. Sans effet si déjà fait.
   ///
@@ -88,6 +110,7 @@ class ContentPreloader {
       final (url, key) = await (urlFuture, keyFuture).wait;
 
       _remember(spec.contentId, key);
+      _rememberUrl(id, url);
 
       // Une photo n'a pas de blocs à amorcer : sa clé suffit à la préparer.
       if (!spec.isVideo) return;
@@ -109,12 +132,32 @@ class ContentPreloader {
     if (_keys.length > _maxKeys) _keys.remove(_keys.keys.first);
   }
 
+  void _rememberUrl(String faceId, String url) {
+    _urls[faceId] = _SignedUrl(url);
+    if (_urls.length > _maxKeys) _urls.remove(_urls.keys.first);
+  }
+
   /// Oublie tout. À appeler à la déconnexion — une clé en mémoire n'a plus
   /// aucune raison d'exister une fois la session terminée.
   void clear() {
     _keys.clear();
+    _urls.clear();
     _done.clear();
   }
+}
+
+/// Une URL signée et la date au-delà de laquelle on cesse de s'y fier.
+class _SignedUrl {
+  _SignedUrl(this.url)
+    : usableUntil = DateTime.now().add(const Duration(minutes: 50));
+
+  final String url;
+
+  /// Le serveur signe pour une heure ; on s'arrête à cinquante minutes. Les
+  /// dix minutes de marge couvrent une lecture commencée juste avant
+  /// l'expiration — les derniers blocs d'une vidéo partent bien après le
+  /// premier.
+  final DateTime usableUntil;
 }
 
 final contentPreloaderProvider = Provider<ContentPreloader>(
