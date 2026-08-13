@@ -436,6 +436,25 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     _rules
       ?..phase = _phase.name
       ..log('écran fermé');
+    // Fermeture AVANT la fin de session (toutes faces épuisées) : `_endSession`
+    // n'a pas tourné, donc le compteur d'après n'a jamais été relu et la mesure
+    // reste sans verdict. Or fermer tôt est le cas courant — au relevé du
+    // 2026-08-13, deux Vibes sur sept affichaient « vues 4 → ? ».
+    //
+    // La relecture part sans être attendue : l'écran s'en va, mais la trace
+    // vit plus longtemps que lui. `_cards` a été capturé à l'initialisation,
+    // donc aucun `ref` n'est touché ici.
+    final rules = _rules;
+    if (rules != null && rules.viewCountAfter == null && _limitsApply) {
+      _cards
+          .myDelivery(widget.card.id)
+          .then((delivery) {
+            rules
+              ..viewCountAfter = delivery?.viewCount
+              ..log('compteur relu après fermeture anticipée');
+          })
+          .catchError((_) {});
+    }
     // Le clair ne survit pas à l'écran. Depuis le format par blocs il n'y en a
     // même plus sur le disque : on ferme le flux local, et le cache ne garde
     // que le scellé. C'est ce qui rend le décompte utile — sans cela, un

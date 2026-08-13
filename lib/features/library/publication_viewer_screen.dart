@@ -36,21 +36,26 @@ class _PublicationViewerScreenState
     extends ConsumerState<PublicationViewerScreen> {
   var _showFront = true;
 
+  /// ⚠️ Capturé à l'initialisation. **`ref` est interdit dans `dispose()`** :
+  /// le widget y est déjà démonté. La v0.9.64 l'appelait ici, et le journal de
+  /// Jay a relevé 19 « Using "ref" when a widget is about to or has been
+  /// unmounted » en une session.
+  late final ContentViewReporter _reporter;
+
   @override
   void initState() {
     super.initState();
+    _reporter = ref.read(contentViewReporterProvider);
     // La vue ne part qu'après 3 s d'affichage réel (consigne de Jay du
     // 2026-08-13) : ouvrir puis refermer aussitôt n'est pas un visionnage.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        ref.read(contentViewReporterProvider).watching(widget.item.id);
-      }
+      if (mounted) _reporter.watching(widget.item.id);
     });
   }
 
   @override
   void dispose() {
-    ref.read(contentViewReporterProvider).stopped(widget.item.id);
+    _reporter.stopped(widget.item.id);
     super.dispose();
   }
 

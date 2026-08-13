@@ -64,9 +64,20 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     batchOwner: null,
   );
 
+  /// ⚠️ Capturés à l'initialisation. **`ref` est interdit dans `dispose()`** —
+  /// le widget y est déjà démonté, et Riverpod lève « Using "ref" when a widget
+  /// is about to or has been unmounted ». `card_viewer_screen.dart` porte cet
+  /// avertissement depuis une panne antérieure ; la v0.9.64 l'a malgré tout
+  /// reproduit ici, et le journal de Jay a relevé **19 occurrences** en une
+  /// session de test.
+  late final ContentViewReporter _reporter;
+  late final ContentPreloader _preloader;
+
   @override
   void initState() {
     super.initState();
+    _reporter = ref.read(contentViewReporterProvider);
+    _preloader = ref.read(contentPreloaderProvider);
     // Le premier affichage n'a pas d'événement de changement de page : il faut
     // l'amorcer à la main, sinon la story d'ouverture ne serait ni comptée ni
     // suivie d'un préchargement.
@@ -78,8 +89,6 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     _reporter.stopped(_story.id);
     super.dispose();
   }
-
-  ContentViewReporter get _reporter => ref.read(contentViewReporterProvider);
 
   /// Une story vient d'arriver à l'écran : on lance son compteur de vue et on
   /// prépare la suivante.
@@ -99,8 +108,10 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     final next = _index + 1;
     if (next >= widget.ring.stories.length) return;
     final story = widget.ring.stories[next];
-    final preloader = ref.read(contentPreloaderProvider);
-    preloader.preload(_spec(story, true));
+    _preloader.preload(_spec(story, true));
+    // Le verso aussi : il s'affiche au retournement, et son coût serait alors
+    // entièrement visible. Le préparer ne coûte rien de plus à l'utilisateur.
+    if (story.hasBack) _preloader.preload(_spec(story, false));
   }
 
   void _goTo(int index) {
