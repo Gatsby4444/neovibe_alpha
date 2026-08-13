@@ -71,6 +71,10 @@ class NativePlayer(
             create(call, result)
             return
         }
+        if (call.method == "prime") {
+            prime(call, result)
+            return
+        }
 
         // Toutes les autres méthodes visent un lecteur existant.
         val id = (call.argument<Any>("id") as? Number)?.toLong()
@@ -98,6 +102,52 @@ class NativePlayer(
             }
         }
         result.success(null)
+    }
+
+    /**
+     * **Préchargement** : amène l'en-tête et le premier bloc dans le cache,
+     * sans créer de lecteur.
+     *
+     * ### Pourquoi c'est ici et non en Dart
+     *
+     * Le Dart pourrait faire lui-même une requête `Range`. Il devrait alors
+     * connaître la disposition du format `NVC1` — taille d'en-tête, taille de
+     * bloc, surcoût AES — et **une quatrième implémentation du format
+     * apparaîtrait**, celle-là uniquement pour deviner combien d'octets
+     * demander. Ici, c'est le **même** [RemoteChunkStore] que la lecture, donc
+     * la même arithmétique, par construction.
+     *
+     * Le fichier écrit est **exactement** celui que la lecture utilisera :
+     * précharger ne crée pas un second cache, il remplit le premier.
+     *
+     * Ne rend jamais d'erreur : un préchargement qui échoue n'est pas une
+     * panne, c'est une optimisation qui n'a pas eu lieu. Le contenu s'ouvrira
+     * simplement à la vitesse normale.
+     */
+    private fun prime(call: MethodCall, result: MethodChannel.Result) {
+        val url = call.argument<String>("url")
+        val cachePath = call.argument<String>("cachePath")
+        if (url == null || cachePath == null) {
+            result.success(false)
+            return
+        }
+        worker.execute {
+            val ok = try {
+                RemoteChunkStore(
+                    File(cachePath),
+                    File("$cachePath.map"),
+                    HttpRangeFetcher(url),
+                ).use { store ->
+                    store.open()
+                    // `open()` a ramené l'en-tête ET le premier bloc en une
+                    // requête, et les a écrits à leur position définitive.
+                    true
+                }
+            } catch (_: Exception) {
+                false
+            }
+            main.post { result.success(ok) }
+        }
     }
 
     private fun create(call: MethodCall, result: MethodChannel.Result) {

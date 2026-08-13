@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/content/content_face.dart';
+import '../../core/content/content_view_reporter.dart';
 import '../../core/crypto/media_open.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
@@ -34,6 +35,24 @@ class PublicationViewerScreen extends ConsumerStatefulWidget {
 class _PublicationViewerScreenState
     extends ConsumerState<PublicationViewerScreen> {
   var _showFront = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // La vue ne part qu'après 3 s d'affichage réel (consigne de Jay du
+    // 2026-08-13) : ouvrir puis refermer aussitôt n'est pas un visionnage.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        ref.read(contentViewReporterProvider).watching(widget.item.id);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    ref.read(contentViewReporterProvider).stopped(widget.item.id);
+    super.dispose();
+  }
 
   ContentFace _spec(bool front) => (
     contentId: widget.item.id,

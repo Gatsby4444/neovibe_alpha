@@ -6,6 +6,7 @@ import '../crypto/media_open.dart';
 import '../supabase_providers.dart';
 import '../video/video_open_trace.dart';
 import 'content_media_cache.dart';
+import 'content_preloader.dart';
 import 'own_keys.dart';
 
 /// Toutes les clés d'une bibliothèque, en **un** aller-retour.
@@ -65,6 +66,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   final cache = ref.watch(contentMediaCacheProvider);
   final me = ref.watch(currentUserIdProvider);
   final ownKeys = ref.watch(ownKeyStoreProvider);
+  final preloader = ref.watch(contentPreloaderProvider);
   final batch = spec.batchOwner == null
       ? null
       : ref.watch(libraryKeysProvider(spec.batchOwner!).future);
@@ -88,6 +90,10 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   Future<String> resolveKey() async {
     var key = spec.ownerId == me ? await ownKeys.get(spec.contentId) : null;
     key ??= batch == null ? null : (await batch)[spec.contentId];
+    // Préchargée ? C'est ce qui retire l'aller-retour de clé du chemin visible
+    // — ~110 ms mesurés le 2026-08-13. Possible depuis que `open_content_media`
+    // n'enregistre plus la vue : obtenir la clé n'est plus « regarder ».
+    key ??= preloader.keyFor(spec.contentId);
     key ??=
         await client.rpc(
               'open_content_media',

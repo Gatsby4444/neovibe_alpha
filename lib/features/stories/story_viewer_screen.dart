@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/content/content_face.dart';
+import '../../core/content/content_preloader.dart';
+import '../../core/content/content_view_reporter.dart';
 import '../../core/crypto/media_open.dart';
 import '../../core/models/card.dart';
 import '../../core/widgets/card_type_badge.dart';
@@ -62,11 +64,53 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     batchOwner: null,
   );
 
+  @override
+  void initState() {
+    super.initState();
+    // Le premier affichage n'a pas d'événement de changement de page : il faut
+    // l'amorcer à la main, sinon la story d'ouverture ne serait ni comptée ni
+    // suivie d'un préchargement.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onStoryShown());
+  }
+
+  @override
+  void dispose() {
+    _reporter.stopped(_story.id);
+    super.dispose();
+  }
+
+  ContentViewReporter get _reporter => ref.read(contentViewReporterProvider);
+
+  /// Une story vient d'arriver à l'écran : on lance son compteur de vue et on
+  /// prépare la suivante.
+  void _onStoryShown() {
+    if (!mounted) return;
+    // La vue ne partira qu'après 3 s d'affichage réel (consigne de Jay du
+    // 2026-08-13) : faire défiler des stories ne remplit plus le journal.
+    _reporter.watching(_story.id);
+    _preloadNext();
+  }
+
+  /// Prépare la story suivante — URL signée, clé et premier bloc.
+  ///
+  /// C'est le cas d'usage exact du préchargement : dans un anneau de stories,
+  /// la suivante est connue d'avance et sera presque certainement regardée.
+  void _preloadNext() {
+    final next = _index + 1;
+    if (next >= widget.ring.stories.length) return;
+    final story = widget.ring.stories[next];
+    final preloader = ref.read(contentPreloaderProvider);
+    preloader.preload(_spec(story, true));
+  }
+
   void _goTo(int index) {
+    // La story quittée avant le seuil n'était pas un visionnage.
+    _reporter.stopped(_story.id);
     setState(() {
       _index = index;
       _showFront = true;
     });
+    _onStoryShown();
   }
 
   void _next() {
