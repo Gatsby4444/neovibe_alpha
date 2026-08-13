@@ -10,6 +10,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var nativeBle: NativeBle? = null
     private var nativeMedia: NativeMedia? = null
     private var nativePlayer: NativePlayer? = null
+    private var nativeDiagnostics: NativeDiagnostics? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -28,6 +29,10 @@ class MainActivity : FlutterFragmentActivity() {
             flutterEngine.renderer,
             flutterEngine.dartExecutor.binaryMessenger,
         )
+        nativeDiagnostics = NativeDiagnostics(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
     }
 
     override fun onDestroy() {
@@ -35,6 +40,8 @@ class MainActivity : FlutterFragmentActivity() {
         // ouvrirait moins vite, et le service de codecs finirait par refuser.
         nativePlayer?.dispose()
         nativePlayer = null
+        nativeDiagnostics?.dispose()
+        nativeDiagnostics = null
         super.onDestroy()
     }
 }

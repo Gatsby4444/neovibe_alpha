@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../core/diagnostics/diagnostic_bundle.dart';
 import '../../core/video/video_open_trace.dart';
 
 /// Temps d'ouverture des vidéos, mesurés sur l'appareil.
@@ -23,6 +25,23 @@ class VideoTimingScreen extends StatefulWidget {
 }
 
 class _VideoTimingScreenState extends State<VideoTimingScreen> {
+  /// Copie les mesures **et l'appareil** : une médiane sans savoir sur quel
+  /// téléphone elle a été relevée ne veut pas dire grand-chose (voir
+  /// `RAPPELS.md`, avant-prod #8 — on ne teste que sur un seul appareil).
+  Future<void> _copy() async {
+    final text = await DiagnosticBundle.build(
+      video: true,
+      device: true,
+      appLog: false,
+      cameraLog: false,
+    );
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Mesures copiées')));
+  }
+
   @override
   Widget build(BuildContext context) {
     final records = VideoOpenTrace.records;
@@ -31,6 +50,11 @@ class _VideoTimingScreenState extends State<VideoTimingScreen> {
       appBar: AppBar(
         title: const Text('Lecture vidéo — temps d\'ouverture'),
         actions: [
+          IconButton(
+            tooltip: 'Copier les mesures',
+            icon: const Icon(Icons.copy_all),
+            onPressed: records.isEmpty ? null : _copy,
+          ),
           IconButton(
             tooltip: 'Vider',
             icon: const Icon(Icons.delete_outline),

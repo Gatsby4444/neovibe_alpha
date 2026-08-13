@@ -154,6 +154,9 @@ class VideoOpenTrace {
     detail[label] = ms;
   }
 
+  /// Millisecondes écoulées depuis le début de l'ouverture.
+  int get elapsedMs => DateTime.now().difference(_start).inMilliseconds;
+
   Duration? get total => _marks[VideoOpenStep.premiereImage];
 
   Duration? at(VideoOpenStep step) => _marks[step];

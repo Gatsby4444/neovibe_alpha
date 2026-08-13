@@ -235,6 +235,17 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
     Map<String, dynamic> args, {
     MediaAvailability? availability,
   }) async {
+    // ⚠️ Angle mort comblé le 2026-08-13 : entre la fin de l'ouverture côté
+    // Dart et cet appel, il y a Riverpod qui résout, le widget qui se
+    // reconstruit et le contrôleur qui se crée. Ce temps tombait dans le jalon
+    // « lecteur prêt » sans que rien ne l'y distingue du travail du natif — au
+    // relevé du 2026-08-13, il restait 86 ms inexpliquées à froid, et
+    // peut-être bien davantage sur la mesure partielle.
+    final pending = VideoOpenTrace.of(_traceId);
+    if (pending != null) {
+      final afterKey = pending.at(VideoOpenStep.cle)?.inMilliseconds ?? 0;
+      pending.note('· attente avant natif', pending.elapsedMs - afterKey);
+    }
     final reply = await _channel.invokeMapMethod<String, dynamic>(
       'create',
       args,

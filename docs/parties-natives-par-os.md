@@ -34,6 +34,7 @@
 | Transfert média proximité | *(à venir)* | Wi-Fi Direct (Wi-Fi P2P) | MultipeerConnectivity |
 | Hôte / cycle de vie | — | `MainActivity : FlutterFragmentActivity` | `AppDelegate` / `FlutterViewController` |
 | Journal caméra (dev) | (dans `neovibe/camera`) | `CamLog` (fichier disque) | fichier disque (trivial) |
+| Diagnostic appareil (dev) | `neovibe/diag` | `NativeDiagnostics` (`PackageManager` + `Build`) | `Bundle.main.infoDictionary` + `UIDevice` |
 
 ---
 
@@ -272,6 +273,30 @@ dev avant la prod** (voir `RAPPELS.md`).
 
 **iOS (à faire, si conservé en dev)** : écriture fichier équivalente (trivial).
 Outil de dev seulement — non prioritaire pour un portage.
+
+---
+
+## 6 bis. Diagnostic appareil (outil dev)
+
+**Canal** : `neovibe/diag`. Méthode unique : `deviceInfo` → `appVersion`,
+`appBuild`, `model`, `android`.
+
+**Android (fait, 2026-08-13)** : `NativeDiagnostics.kt` —
+`PackageManager.getPackageInfo` pour la version installée, `android.os.Build`
+pour le modèle et la version d'OS.
+
+**Pourquoi c'est natif** : la version de l'app vit dans `pubspec.yaml` et
+**Flutter ne l'expose pas au Dart**. La recopier dans une constante Dart
+créerait une seconde source de vérité à tenir à la main — et un numéro de
+version faux dans un rapport de diagnostic fait chercher le bug dans la
+mauvaise version. Lue dans le paquet installé, elle ne peut pas dériver.
+
+Alimente le bouton **« Tout copier pour diagnostic »**
+(`lib/core/diagnostics/diagnostic_bundle.dart`), demandé par Jay le 2026-08-13.
+
+**iOS (à faire, si conservé en dev)** : `Bundle.main.infoDictionary` pour
+`CFBundleShortVersionString` / `CFBundleVersion`, `UIDevice.current` +
+`utsname` pour le modèle. **À retirer avec la section dev avant la prod.**
 
 ---
 
