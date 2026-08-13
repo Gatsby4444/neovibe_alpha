@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import '../video/video_open_trace.dart';
 import '../../features/cards/native_camera.dart';
 import 'app_log.dart';
+import 'card_rules_trace.dart';
 
 /// Tout ce qu'il faut pour diagnostiquer, en **un seul** copier-coller.
 ///
@@ -127,6 +128,7 @@ class DiagnosticBundle {
   static Future<String> build({
     bool device = true,
     bool video = true,
+    bool rules = true,
     bool appLog = true,
     bool cameraLog = true,
   }) async {
@@ -146,6 +148,16 @@ class DiagnosticBundle {
       buffer
         ..writeln('\n===== LECTURE VIDÉO — TEMPS D\'OUVERTURE =====')
         ..writeln(videoTimings());
+    }
+
+    if (rules) {
+      buffer.writeln('\n===== RÈGLES DES VIBES =====');
+      final records = CardRulesTrace.records;
+      buffer.writeln(
+        records.isEmpty
+            ? 'Aucune ouverture.'
+            : records.map((r) => r.describe()).join('\n'),
+      );
     }
 
     if (cameraLog) {

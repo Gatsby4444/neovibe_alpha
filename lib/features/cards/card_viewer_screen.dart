@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/crypto/media_open.dart';
+import '../../core/diagnostics/card_rules_trace.dart';
 
 import '../../core/models/card.dart';
 import '../../core/video/sealed_video_controller.dart';
@@ -127,6 +128,24 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   late final _cache = ref.read(cardMediaCacheProvider);
   late final _quotaMb = ref.read(ownCardsQuotaMbProvider);
 
+  /// Journal des règles pour cette ouverture (outil dev, demande de Jay du
+  /// 2026-08-13). Il met côte à côte ce que le serveur dit, ce que cet écran a
+  /// décidé, et ce qui s'est réellement passé.
+  CardRulesTrace? _rules;
+
+  /// Début du séjour sur la face courante, pour mesurer le temps réellement
+  /// passé dessus et le comparer à la durée annoncée.
+  DateTime? _faceSince;
+
+  void _faceEnter() => _faceSince = DateTime.now();
+
+  void _faceLeave(bool front) {
+    final since = _faceSince;
+    if (since == null) return;
+    _rules?.faceSpent(front, DateTime.now().difference(since).inMilliseconds);
+    _faceSince = null;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -196,6 +215,22 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
       _phase = _Phase.loading;
       _error = '';
     });
+    final card = widget.card;
+    _rules = CardRulesTrace.start(card.id, card.type.tag)
+      ..maxViews = card.maxViews
+      ..viewDurationSeconds = card.viewDurationSeconds
+      ..saveable = card.saveable
+      ..scrubbable = card.scrubbable
+      ..encrypted = card.encrypted
+      ..limitsApply = _limitsApply
+      ..log(
+        'ouverture',
+        detail: _limitsApply
+            ? 'destinataire en conversation — les limites s\'appliquent'
+            : widget.fromLibrary
+            ? 'depuis la bibliothèque — lecture illimitée'
+            : 'auteur — aucune limite',
+      );
     final repo = _cards;
     try {
       if (!_limitsApply) {
@@ -209,6 +244,11 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
       // Destinataire : l'état de la livraison d'abord — inutile de
       // télécharger les faces d'une card épuisée ou détruite.
       _delivery = await repo.myDelivery(widget.card.id);
+      _rules
+        ?..viewCountBefore = _delivery?.viewCount
+        ..destroyed = _delivery?.destroyedAt != null
+        ..replayGranted = _delivery?.replayGrantedAt != null
+        ..remainingBefore = _delivery?.remainingViews(widget.card);
       if (!mounted) return;
       if (_delivery == null) {
         // Pas de livraison pour moi (ne devrait pas arriver en chat)
@@ -240,11 +280,20 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
       // plus lieu d'être — l'appeler consommerait deux vues.
       if (widget.card.encrypted) {
         await _unsealFaces();
+        _rules?.log(
+          'vue consommée',
+          detail: 'par la remise de la clé (open_card_media)',
+        );
       } else {
         await repo.markViewed(_delivery!.id);
+        _rules?.log(
+          'vue consommée',
+          detail: 'par mark_card_viewed (Vibe non chiffrée, format hérité)',
+        );
       }
       if (!mounted) return;
       setState(() => _phase = _Phase.viewing);
+      _faceEnter();
       _startFaceBudget(true);
     } catch (e) {
       if (!mounted) return;
@@ -267,9 +316,29 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   /// fait foi) ni en lecture illimitée.
   void _startFaceBudget(bool front) {
     _gaugeTimer?.cancel();
-    if (!_limitsApply || _faceIsVideo(front) || _faceDone(front)) return;
+    if (!_limitsApply || _faceIsVideo(front) || _faceDone(front)) {
+      _rules?.log(
+        'pas de jauge sur ${front ? 'recto' : 'verso'}',
+        detail: !_limitsApply
+            ? 'lecture illimitée'
+            : _faceIsVideo(front)
+            ? 'vidéo — sa fin de lecture fait foi'
+            : 'face déjà épuisée',
+      );
+      return;
+    }
     final duration = widget.card.viewDurationSeconds;
-    if (duration == null) return; // lecture illimitée : pas de jauge
+    if (duration == null) {
+      _rules?.log(
+        'pas de jauge sur ${front ? 'recto' : 'verso'}',
+        detail: 'durée illimitée',
+      );
+      return; // lecture illimitée : pas de jauge
+    }
+    _rules?.log(
+      'jauge ${front ? 'recto' : 'verso'} démarrée',
+      detail: '$duration s',
+    );
     final totalMs = duration * 1000;
     _elapsedMs = 0;
     _gauge = 1.0;
@@ -288,6 +357,8 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   /// couper court). Ferme la session quand toutes les faces sont épuisées.
   void _markFaceDone(bool front) {
     if (!_limitsApply || _sessionEnded || _faceDone(front)) return;
+    _faceLeave(front);
+    _rules?.log('${front ? 'recto' : 'verso'} épuisé');
     setState(() => front ? _frontDone = true : _backDone = true);
     final otherDone = front
         ? (_backDone || widget.card.backPath == null)
@@ -301,7 +372,10 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   void _onSideSettled(bool front) {
     if (front == _settledFront) return; // reposée sur la même face
     final left = _settledFront;
+    _faceLeave(left);
+    _rules?.log('retournement vers ${front ? 'recto' : 'verso'}');
     setState(() => _settledFront = front);
+    _faceEnter();
     if (!_limitsApply || _sessionEnded) return;
     _markFaceDone(left);
     if (_sessionEnded) return;
@@ -321,6 +395,11 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     _delivery = await ref
         .read(cardsRepositoryProvider)
         .myDelivery(widget.card.id);
+    // Relu APRÈS coup : c'est ce chiffre, et lui seul, qui dit si le décompte
+    // a réellement eu lieu — et une seule fois.
+    _rules
+      ?..viewCountAfter = _delivery?.viewCount
+      ..log('fin de session');
     if (!mounted) return;
     final remaining = _delivery?.remainingViews(widget.card);
     if (remaining != null && remaining <= 0) {
@@ -351,6 +430,12 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   @override
   void dispose() {
     _gaugeTimer?.cancel();
+    // La phase RETENUE au moment de quitter : c'est elle qu'il faut confronter
+    // aux règles, pas une phase intermédiaire.
+    _faceLeave(_settledFront);
+    _rules
+      ?..phase = _phase.name
+      ..log('écran fermé');
     // Le clair ne survit pas à l'écran. Depuis le format par blocs il n'y en a
     // même plus sur le disque : on ferme le flux local, et le cache ne garde
     // que le scellé. C'est ce qui rend le décompte utile — sans cela, un

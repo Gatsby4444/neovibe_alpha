@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../app_log_screen.dart';
 import '../camera_log_screen.dart';
+import '../rules_inspector_screen.dart';
 import '../settings_common.dart';
 import '../video_timing_screen.dart';
 
@@ -23,6 +24,15 @@ class DeveloperLogsScreen extends StatelessWidget {
             'Pour m\'envoyer un rapport complet, préfère « Tout copier pour '
             'diagnostic » à la racine du dossier Développeur : il rassemble '
             'ces trois sources et l\'appareil en une fois.',
+          ),
+          SettingsCategoryTile(
+            icon: Icons.rule,
+            title: 'Règles des Vibes',
+            subtitle:
+                'Pour chaque ouverture : ce que le serveur dit, ce que '
+                'l\'écran a décidé, et ce qui s\'est passé. Vérifie que '
+                '1 ouverture = 1 vue.',
+            builder: _rules,
           ),
           SettingsCategoryTile(
             icon: Icons.timer_outlined,
@@ -53,6 +63,7 @@ class DeveloperLogsScreen extends StatelessWidget {
     );
   }
 
+  static Widget _rules(BuildContext _) => const RulesInspectorScreen();
   static Widget _timing(BuildContext _) => const VideoTimingScreen();
   static Widget _camera(BuildContext _) => const CameraLogScreen();
   static Widget _app(BuildContext _) => const AppLogScreen();

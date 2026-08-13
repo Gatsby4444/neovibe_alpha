@@ -32,6 +32,7 @@ class _VideoTimingScreenState extends State<VideoTimingScreen> {
     final text = await DiagnosticBundle.build(
       video: true,
       device: true,
+      rules: false,
       appLog: false,
       cameraLog: false,
     );
