@@ -5,9 +5,9 @@ Deux parties : la **partie 1 est pour Jay** (ce qu'il fait à la main), la
 **partie 2 est pour Claude Code** (ce qu'il vérifie et reconstruit tout seul
 à la première session sur la nouvelle machine).
 
-Dernière mise à jour : **2026-08-13**, état du projet : **v0.9.67**
-(chantier livraison des médias en cours ; un relevé de mesures est attendu de
-Jay à la reprise — voir §2.4).
+Dernière mise à jour : **2026-08-14**, état du projet : **v0.9.71**
+(chantier livraison terminé pour l'essentiel ; **la refonte UI démarre** et
+**Rive vient d'être adopté** — voir §2.4).
 
 ---
 
@@ -211,12 +211,11 @@ Tu reprends un projet en cours. **Ne recommence rien, ne réorganise rien.**
    construire.
 3. `RAPPELS.md` — avant-prod, chantiers promis, décisions en attente, bugs
    connus, décisions à ne pas reproposer.
-4. Les **2 ou 3 derniers rapports** de `rapports-de-sessions/`. Le plus récent
-   à ce jour : **`2026-08-13_14-10.md`** — très long, c'est la session du
-   chantier « livraison des médias » (mesure, préchargement, réorganisation des
-   réglages, inspecteur de règles). Puis `2026-08-12_18-45.md` (lecture native
-   directe, streaming par intervalles) et `2026-08-11_17-59.md` (refonte
-   « 1 contenu = 1 format »).
+4. Les **2 ou 3 derniers rapports** de `rapports-de-sessions/`. Le plus récent :
+   **`2026-08-13_21-46.md`** — quatre bugs invisibles au diff, remise à zéro de
+   la base, photos de profil, et l'**étude Rive**. Puis `2026-08-13_14-10.md`
+   (chantier mesure et préchargement, très long) et `2026-08-12_18-45.md`
+   (lecture native directe, streaming par intervalles).
 5. **`docs/cours-livraison-des-medias.html`** — le cours écrit pour Jay le
    2026-08-13 : stockage objet, HTTP, URL signée, clé, format par blocs, qui
    compte quoi, et les options de préchargement. **À lire avant de toucher au
@@ -256,16 +255,27 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
   test de la base de dev n'y sera plus : le signaler à Jay plutôt que d'en créer
   un sans lui demander.
 
-### 2.3 État du projet à la bascule (2026-08-13, v0.9.67)
+### 2.3 État du projet à la bascule (2026-08-14, v0.9.71)
 
-- **`pubspec.yaml` en `0.9.67+157`**, dernière release **v0.9.67**, working tree
+- **`pubspec.yaml` en `0.9.71+161`**, dernière release **v0.9.71**, working tree
   propre, `master` aligné sur `origin/master`.
-- **⚠️ Dix versions ont été publiées le 2026-08-13** (v0.9.58 → v0.9.67). Toutes
-  ont un APK sur GitHub et des notes de test détaillées. **Lire les notes de
-  release** est le moyen le plus rapide de comprendre l'enchaînement.
-- **Une migration a été appliquée en base le 2026-08-13** :
-  `20260813162722_content_view_recorded_on_display`. Elle est **dans le dépôt**
-  et **déjà appliquée** sur le projet de dev — ne pas la rejouer.
+- **⚠️ Quatorze versions publiées les 2026-08-13/14** (v0.9.58 → v0.9.71).
+  Toutes ont un APK sur GitHub et des notes de test détaillées. **Lire les notes
+  de release** est le moyen le plus rapide de comprendre l'enchaînement.
+- **Deux migrations appliquées** :
+  `20260813162722_content_view_recorded_on_display` et
+  `20260813215500_story_purge_deletes_the_content_not_the_story`. Toutes deux
+  **dans le dépôt** et **déjà appliquées** — ne pas les rejouer.
+- **⚠️ LA BASE A ÉTÉ REMISE À ZÉRO le 2026-08-13** (consigne de Jay : « on
+  repart de 0 pour tout »). Tout le contenu a été supprimé et regénéré par le
+  seed ; les **coffres ont été vidés** (293 objets). **Comptes, profils,
+  amitiés, conversations et bots ont été PRÉSERVÉS.** Contenu actuel : 20
+  stories (anneaux de 4), 15 publications, 21 Vibes en DM, 6 avatars.
+- **🎨 LA REFONTE UI EST LE CHANTIER SUIVANT**, et **Rive est adopté**
+  (abonnement Cadet pris par Jay). Rien n'est commencé : ses vues sont attendues
+  dans `docs/`, et le MCP Rive reste à brancher. Tout ce qu'il faut savoir avant
+  d'y toucher est en `RAPPELS.md` #25, #26 et #27 — **les lire en entier**, en
+  particulier « sans le `.rev`, une animation est figée pour toujours ».
 
 #### Le socle de contenu (refonte du 2026-08-11, terminée)
 
@@ -449,19 +459,34 @@ la mémoire `feedback-read-the-measurement-not-the-instrument`.
 
 ### 2.4 Ce qui attend (par priorité, à confirmer avec Jay)
 
-0. **🔔 À RÉCLAMER DÈS LA REPRISE — le relevé de la v0.9.67.** Jay a terminé la
-   session du 2026-08-13 en disant « je vais tester ». Ce qu'il doit fournir :
-   **Développeur → « Tout copier pour diagnostic »**, après avoir
-   **vidé le cache** (Réglages → Vibes → Stockage → « Vider le stockage des
-   stories et publications ») puis enchaîné plusieurs stories d'un même anneau.
+0. **🎨 LA REFONTE UI — le chantier annoncé, et le suivant.** Jay fournit ses
+   vues dans `docs/`. **Ne rien entreprendre avant.** Lire `RAPPELS.md` #27
+   (dont le cadrage de Jay : l'authoring visuel lui revient, l'intégration et le
+   **système de mouvement** me reviennent), #26 (tout sur Rive) et #25 (le piège
+   de build).
 
-   **Ce que ce relevé décide** : le préchargement n'a **jamais été mesuré sur
-   du contenu froid** — c'est-à-dire précisément le cas qu'il sert. Attendu : la
-   première story de chaque anneau dans « À froid » (~800 ms), les suivantes
-   dans **🚀 Amorcé** avec `URL signée` et `clé` à 0 ms et un total autour de
-   **200 ms**. Si les suivantes n'atterrissent pas dans « Amorcé », c'est que le
-   préchargement n'a pas eu le temps de finir entre deux stories — information
-   utile en soi.
+   **Deux choses à faire en ouverture** : brancher le **MCP Rive** (Jay a
+   l'abonnement Cadet et redémarre Claude Code pour ça), et lui **reproposer le
+   système de mouvement** avant les écrans — proposition faite, non tranchée.
+
+   ⚠️ **À lui rappeler avant toute commande à un designer** : **sans le `.rev`,
+   une animation Rive est figée pour toujours.**
+
+0. bis **🔔 Le relevé de mesures vidéo, toujours pas fait** (en attente depuis la
+   v0.9.67, quatre versions). Ce qu'il faut : **Développeur → « Tout copier pour
+   diagnostic »**, après avoir **vidé le cache** (Réglages → Vibes → Stockage)
+   puis enchaîné plusieurs stories — l'enchaînement traverse désormais les
+   auteurs, ce qui donne bien plus d'occasions au préchargement.
+
+   Attendu : la première story dans « À froid » (~800 ms), **toutes les
+   suivantes dans 🚀 Amorcé** autour de **200-300 ms**, `URL signée` et `clé`
+   à ~0 ms. **Ne pas engager l'option 3 (lecteur préparé d'avance) sans ce
+   relevé** — c'est l'erreur commise et corrigée le 2026-08-13.
+
+0. ter **💡 Proposer l'APK par architecture.** `--split-per-abi` puis livrer
+   `app-arm64-v8a-release.apk` (le Xiaomi M2101K6G est arm64) : **~22 Mo au lieu
+   de 60,9** — et 29,3 Mo une fois Rive intégré. Mesuré le 2026-08-13, non
+   encore proposé à Jay.
 
 1. **L'option 3 — préparer un lecteur d'avance.** Le dernier morceau du chantier
    livraison, et le plus utile au feed : `· décodage entête` vaut **~149 ms** et
@@ -547,10 +572,15 @@ la mémoire `feedback-read-the-measurement-not-the-instrument`.
 ### 2.5 Premier message à Jay
 
 Résumer en quelques phrases : ce qui a été vérifié, ce qui manque le cas échéant
-(`env.dart`, mémoire, `docdev/`, MCP, tags), l'état du projet — puis **réclamer
-le relevé de la v0.9.67** (§2.4 point 0). C'est lui qui décide de la suite du
-chantier livraison, et Jay a terminé la session du 2026-08-13 en annonçant qu'il
-allait tester.
+(`env.dart`, mémoire, `docdev/`, MCP, tags), l'état du projet — puis se mettre à
+sa disposition sur **la refonte UI** (§2.4 point 0), qui est le chantier qu'il a
+annoncé.
+
+Y joindre trois choses, sans en faire un catalogue :
+- lui demander **ses vues** et s'il veut qu'on pose d'abord le **système de
+  mouvement** ;
+- lui rappeler que le **relevé de mesures vidéo** n'a toujours pas été fait ;
+- lui proposer l'**APK par architecture** (~22 Mo au lieu de 60,9).
 
 **Ne pas se lancer dans un chantier sans son feu vert.** Et ne pas engager
 l'option 3 (lecteur préparé d'avance) avant d'avoir ses chiffres : c'est
