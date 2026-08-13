@@ -55,6 +55,45 @@ class VibeFaceFrame extends StatelessWidget {
 ///
 /// Elle reçoit des **octets en mémoire**, pas un fichier : depuis le format
 /// par blocs, une photo déchiffrée ne touche jamais le disque.
+/// Une face **pas encore arrivée**, au cadre de son type.
+///
+/// ### Pourquoi ce widget existe — et pourquoi il n'est pas cosmétique
+///
+/// Les deux visionneuses choisissaient leur structure d'après l'état du verso :
+/// `TiltableCard` tant qu'il chargeait, `FlippableCard` une fois arrivé. À la
+/// même position de l'arbre, le widget changeait donc de **type** — et Flutter
+/// n'apparie jamais deux widgets de types différents : il démonte tout le
+/// sous-arbre et en inflate un neuf. **Le lecteur vidéo du recto était détruit
+/// et reconstruit au milieu de la lecture.**
+///
+/// Relevé chez Jay le 2026-08-13 (v0.9.67) : la vidéo du recto redémarrait, un
+/// second décodeur était instancié, et la trace de mesure — toujours ouverte —
+/// se voyait écraser son `· attente avant natif` par le temps de
+/// téléchargement du verso : **2 873 ms, 3 316 ms**, et jusqu'à **550 545 ms**
+/// sur une session où le téléphone avait été posé.
+///
+/// La configuration qui le déclenche est banale : un recto **vidéo** (qui ne
+/// télécharge rien, il se lit par blocs) et un verso **photo** (téléchargé en
+/// entier). Le recto gagne toujours la course.
+///
+/// La structure ne dépend donc plus que de [Card.hasBack], constant pendant
+/// toute la vie de l'écran. Le verso qui charge occupe sa place au lieu de la
+/// créer en arrivant.
+class VibeFaceLoading extends StatelessWidget {
+  const VibeFaceLoading({super.key, required this.type});
+
+  final CardType type;
+
+  @override
+  Widget build(BuildContext context) => VibeFaceFrame(
+    type: type,
+    child: const AspectRatio(
+      aspectRatio: 3 / 4,
+      child: Center(child: CircularProgressIndicator(color: Colors.white24)),
+    ),
+  );
+}
+
 class VibePhotoFace extends StatelessWidget {
   const VibePhotoFace({super.key, required this.bytes, required this.type});
 

@@ -148,15 +148,22 @@ class _PublicationViewerScreenState
                   item.frontIsVideo,
                   _showFront,
                 );
-                final backFile = back?.value;
-                if (backFile == null) {
+                // ⚠️ La structure ne dépend QUE de `hasBack`, constant pendant
+                // toute la vie de l'écran — jamais de l'arrivée du verso.
+                // Choisir d'après `backFile == null` faisait changer le TYPE du
+                // widget à cette position, ce qui détruisait et reconstruisait
+                // le lecteur du recto (voir [VibeFaceLoading]).
+                if (!item.hasBack) {
                   return Center(child: TiltableCard(child: frontFace));
                 }
+                final backFile = back?.value;
                 return Center(
                   child: FlippableCard(
                     onSideChanged: (f) => setState(() => _showFront = f),
                     front: frontFace,
-                    back: _face(backFile, item.backIsVideo, !_showFront),
+                    back: backFile == null
+                        ? VibeFaceLoading(type: item.cardType)
+                        : _face(backFile, item.backIsVideo, !_showFront),
                   ),
                 );
               },

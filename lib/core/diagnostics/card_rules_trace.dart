@@ -94,13 +94,25 @@ class CardRulesTrace {
       ? null
       : viewCountAfter! - viewCountBefore!;
 
+  /// L'ouverture a-t-elle été **refusée** parce que le budget était déjà
+  /// épuisé ? Aucune clé n'est alors demandée, donc aucune vue consommée.
+  bool get refusedAsExhausted => phase == 'exhausted';
+
   /// Le décompte s'est-il comporté comme annoncé ?
   ///
   /// Nul quand la question ne se pose pas (auteur, bibliothèque, ou état non
   /// relu).
+  ///
+  /// ⚠️ **Deux attentes, pas une** — corrigé le 2026-08-13 après un faux
+  /// positif chez Jay. Sur une Vibe déjà épuisée (`vues 2 → 2`,
+  /// `phase=exhausted`), l'écran refuse d'ouvrir : `open_card_media` n'est
+  /// jamais appelée et le compteur ne bouge pas. Le verdict annonçait
+  /// « ❌ DÉCOMPTE ANORMAL : 0 vue(s) » — alors que **ce zéro est précisément
+  /// la preuve que la limite tient**. Un instrument qui note en rouge le
+  /// comportement voulu fait chercher un bug là où il n'y en a pas.
   bool? get countingOk {
     if (limitsApply != true || consumed == null) return null;
-    return consumed == 1;
+    return consumed == (refusedAsExhausted ? 0 : 1);
   }
 
   static CardRulesTrace start(String cardId, String cardType) {
@@ -157,10 +169,14 @@ class CardRulesTrace {
 
     final verdict = countingOk;
     if (verdict != null) {
+      final expected = refusedAsExhausted ? 0 : 1;
       buffer.writeln(
         verdict
-            ? '  ✅ décompte conforme (1 vue par ouverture)'
-            : '  ❌ DÉCOMPTE ANORMAL : $consumed vue(s) pour une ouverture',
+            ? refusedAsExhausted
+                  ? '  ✅ budget épuisé : ouverture refusée, 0 vue consommée'
+                  : '  ✅ décompte conforme (1 vue par ouverture)'
+            : '  ❌ DÉCOMPTE ANORMAL : $consumed vue(s) pour une ouverture '
+                  '(attendu $expected)',
       );
     }
 

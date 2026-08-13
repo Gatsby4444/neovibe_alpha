@@ -191,20 +191,28 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                       story.cardType,
                       _showFront,
                     );
-                    final backFile = back?.value;
-                    if (backFile == null) {
+                    // ⚠️ La structure ne dépend QUE de `hasBack`, constant
+                    // pendant toute la vie de l'écran — jamais de l'arrivée du
+                    // verso. Choisir d'après `backFile == null` faisait changer
+                    // le TYPE du widget à cette position, ce qui détruisait et
+                    // reconstruisait le lecteur du recto (voir
+                    // [VibeFaceLoading]).
+                    if (!story.hasBack) {
                       return Center(child: TiltableCard(child: frontFace));
                     }
+                    final backFile = back?.value;
                     return Center(
                       child: FlippableCard(
                         onSideChanged: (f) => setState(() => _showFront = f),
                         front: frontFace,
-                        back: _face(
-                          backFile,
-                          story.backIsVideo,
-                          story.cardType,
-                          !_showFront,
-                        ),
+                        back: backFile == null
+                            ? VibeFaceLoading(type: story.cardType)
+                            : _face(
+                                backFile,
+                                story.backIsVideo,
+                                story.cardType,
+                                !_showFront,
+                              ),
                       ),
                     );
                   },

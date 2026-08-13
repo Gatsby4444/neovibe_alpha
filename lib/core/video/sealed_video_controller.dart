@@ -269,7 +269,12 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
       // moitié » : dans les deux cas la carte des blocs existe et elle est
       // incomplète. Le Dart, lui, sait ce qu'il a préparé — et confondre les
       // deux rendrait le résultat du préchargement illisible.
-      if (reported == MediaAvailability.partiel && trace.primedByApp) {
+      // Interrogé MAINTENANT, et pas à la création de la trace : le premier
+      // bloc met plus longtemps à arriver que la clé et l'URL, et lire la
+      // réponse trop tôt rangeait un préchargement réussi dans « Partiel »
+      // (relevé du 2026-08-13, seau « Amorcé » vide). Voir [isPrimed].
+      if (reported == MediaAvailability.partiel &&
+          (trace.isPrimed?.call() ?? false)) {
         reported = MediaAvailability.amorce;
       }
       trace.availability = reported;

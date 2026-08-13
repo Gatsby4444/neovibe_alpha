@@ -1,3 +1,5 @@
+import 'package:flutter/widgets.dart';
+
 /// Les étapes d'ouverture d'une vidéo, dans l'ordre où elles se produisent.
 ///
 /// Découper ainsi n'est pas cosmétique : chacune se corrige par un chantier
@@ -135,6 +137,41 @@ class VideoOpenTrace {
   /// prod (voir `RAPPELS.md`).
   static var enabled = true;
 
+  /// Surveille les passages en arrière-plan. Installé à la première mesure —
+  /// l'instrument n'impose rien au démarrage de l'app.
+  static AppLifecycleListener? _lifecycle;
+
+  /// Invalide **toutes** les ouvertures en cours : l'app quitte le premier
+  /// plan.
+  ///
+  /// ### Pourquoi une mesure interrompue est jetée et non corrigée
+  ///
+  /// [VideoOpenTrace] chronomètre en temps **mural** (`DateTime.now()`). Quand
+  /// l'app passe en arrière-plan, Flutter cesse de produire des frames : le
+  /// widget ne se construit pas, le lecteur ne s'ouvre pas, mais l'horloge,
+  /// elle, continue. Le relevé de Jay du 2026-08-13 (v0.9.67) en porte le cas
+  /// extrême : **551 297 ms** sur une face, dont 550 545 d'« attente avant
+  /// natif » — le journal de l'app montre 8 min 41 s sans une seule ligne,
+  /// téléphone posé.
+  ///
+  /// On ne peut pas retrancher ce temps : rien ne dit *quelle part* du travail
+  /// aurait eu lieu sans la suspension. Une mesure qui n'a pas couru d'un bout
+  /// à l'autre au premier plan **n'est pas une mesure lente, ce n'est pas une
+  /// mesure** — et une seule suffit à emporter une médiane sur six.
+  static void _suspendAll() {
+    for (final trace in _active.values) {
+      trace._foregroundThroughout = false;
+    }
+  }
+
+  static void _watchLifecycle() {
+    _lifecycle ??= AppLifecycleListener(
+      onStateChange: (state) {
+        if (state != AppLifecycleState.resumed) _suspendAll();
+      },
+    );
+  }
+
   final String id;
   final DateTime _start;
   final _marks = <VideoOpenStep, Duration>{};
@@ -146,6 +183,10 @@ class VideoOpenTrace {
   /// une mesure non classée ne doit jamais atterrir dans le seau le plus
   /// favorable, sous peine de flatter exactement le chiffre qu'on surveille.
   var availability = MediaAvailability.froid;
+
+  /// L'app est-elle restée au premier plan pendant TOUTE l'ouverture ?
+  /// Faux, la mesure est jetée à son terme — voir [_suspendAll].
+  var _foregroundThroughout = true;
 
   /// Coûts **non séquentiels**, en millisecondes, par libellé.
   ///
@@ -186,12 +227,30 @@ class VideoOpenTrace {
   /// qu'il aurait tout accéléré.
   var prefetched = false;
 
-  /// Le **préchargeur** a préparé cette face d'avance (clé, URL, premier bloc).
+  /// Le **préchargeur** a-t-il préparé cette face d'avance (clé, URL, premier
+  /// bloc) ? Interrogé **au moment où le natif rend son verdict**, pas avant.
   ///
   /// À ne pas confondre avec [prefetched], qui dit seulement que l'écran a
   /// demandé la face avant de l'afficher — le verso d'une Vibe, par exemple.
   /// Ici, c'est `ContentPreloader` qui est allé chercher les octets.
-  var primedByApp = false;
+  ///
+  /// ### Pourquoi une fonction et non un booléen
+  ///
+  /// C'était un **instantané pris trop tôt**, et il a coûté le relevé du
+  /// 2026-08-13 (v0.9.67) : le seau « Amorcé » est resté vide alors que le
+  /// préchargement fonctionnait.
+  ///
+  /// `ContentPreloader` mémorise la clé et l'URL **dès qu'elles arrivent**,
+  /// mais n'inscrit la face comme amorcée qu'une fois `prime` revenu — le
+  /// premier bloc met plus longtemps que les deux appels serveur. Ouvrir la
+  /// face dans cet intervalle donnait la signature exacte relevée chez Jay :
+  /// `URL signée : 5 ms`, `clé : 5 ms`, `· ouverture média : 0 ms` — donc un
+  /// préchargement réussi — et pourtant un classement en « Partiel », parce
+  /// que le booléen avait été lu avant que `prime` ne réponde.
+  ///
+  /// Évaluée à l'ouverture du lecteur, la question n'a plus de course à
+  /// perdre : la cause disparaît au lieu d'être gardée.
+  bool Function()? isPrimed;
 
   /// Quand la face a réellement été portée à l'écran. Nul tant qu'elle ne
   /// l'a pas été.
@@ -253,6 +312,7 @@ class VideoOpenTrace {
   static VideoOpenTrace start(String id) {
     final trace = VideoOpenTrace._(id);
     if (!enabled) return trace;
+    _watchLifecycle();
     _active[id] = trace;
     if (_active.length > _maxActive) {
       _active.remove(_active.keys.first);
@@ -276,8 +336,12 @@ class VideoOpenTrace {
     if (!enabled) return;
     _marks[step] = DateTime.now().difference(_start);
     if (step != VideoOpenStep.premiereImage) return;
-    // Terminée : elle quitte les ouvertures en cours et rejoint l'historique.
+    // Terminée : elle quitte les ouvertures en cours.
     _active.remove(id);
+    // …mais elle ne rejoint l'historique que si elle a couru d'un bout à
+    // l'autre au premier plan. Voir [_suspendAll] : sinon on enregistrerait le
+    // temps que l'utilisateur a passé ailleurs.
+    if (!_foregroundThroughout) return;
     _records.insert(0, this);
     if (_records.length > _maxRecords) _records.removeLast();
   }

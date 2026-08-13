@@ -180,7 +180,8 @@ class _Bot {
           backVideo: false,
           scrubbable: true,
         );
-        // Oneshot filmé : les DEUX faces en vidéo, le cas le plus lourd.
+        // Oneshot filmé : les DEUX faces en vidéo — la seule forme possible,
+        // et le cas le plus lourd.
         await _vibe(
           recipient,
           type: 'oneshot',
@@ -226,6 +227,13 @@ class _Bot {
     }
 
     // ─── Stories ─────────────────────────────────────────────────────────
+    // Un anneau de QUATRE, et c'est un choix de mesure : le préchargement ne
+    // s'amorce qu'en avançant *à l'intérieur* d'un anneau
+    // (`story_viewer_screen._preloadNext`). Avec deux stories par auteur, il
+    // n'avait qu'une occasion de servir par anneau — au relevé du 2026-08-13,
+    // une ouverture sur sept en a bénéficié, et le seau « Amorcé » n'a jamais
+    // pu se remplir. Quatre stories donnent trois avances, dont deux sur une
+    // face vidéo.
     await _content(
       story: true,
       frontVideo: false,
@@ -233,13 +241,30 @@ class _Bot {
       type: 'standard',
     );
     if (videos.isNotEmpty) {
+      // Le cas MIXTE, légal sur une standard : recto vidéo (rien à
+      // télécharger) et verso photo (téléchargé en entier). C'est la
+      // configuration qui a révélé la reconstruction du lecteur — elle reste
+      // au catalogue, c'est elle qu'il faut pouvoir surveiller.
       await _content(
         story: true,
         frontVideo: true,
         backVideo: false,
+        type: 'standard',
+      );
+      // Oneshot filmé : les DEUX faces en vidéo — la seule forme possible.
+      await _content(
+        story: true,
+        frontVideo: true,
+        backVideo: true,
         type: 'oneshot',
       );
     }
+    await _content(
+      story: true,
+      frontVideo: false,
+      backVideo: false,
+      type: 'bereal',
+    );
 
     // ─── Publications (permanentes) ──────────────────────────────────────
     await _content(
@@ -256,6 +281,13 @@ class _Bot {
         backVideo: true,
         type: 'standard',
         caption: 'Vidéo de $_name — seed $_seedTag',
+      );
+      await _content(
+        story: false,
+        frontVideo: true,
+        backVideo: false,
+        type: 'standard',
+        caption: 'Recto filmé, verso photo — $_name, seed $_seedTag',
       );
     }
   }
@@ -275,6 +307,7 @@ class _Bot {
     int? maxViews,
     int? viewDurationSeconds,
   }) async {
+    if (!single) _refuseImpossibleOneshot(type, frontVideo, backVideo);
     final stamp = '${_seedTag}_${_counter++}';
     final key = await ChunkedSeal.newKey();
     final frontPath = '$id/${stamp}_front.${frontVideo ? 'mp4' : 'jpg'}';
@@ -359,6 +392,7 @@ class _Bot {
     required String type,
     String? caption,
   }) async {
+    _refuseImpossibleOneshot(type, frontVideo, backVideo);
     final contentId = _uuid();
     final bucket = story ? 'stories' : 'library';
     final key = await ChunkedSeal.newKey();
@@ -402,6 +436,42 @@ class _Bot {
       '  ${story ? 'Story' : 'Publication'} $type'
       '${frontVideo || backVideo ? ' (vidéo)' : ' (photo)'}',
     );
+  }
+
+  /// Interdit de fabriquer un Oneshot **mixte**, que l'app ne peut pas produire.
+  ///
+  /// ### La règle, et où elle est écrite
+  ///
+  /// Un Oneshot déclenche les **deux caméras d'un seul coup**
+  /// (`card_capture_screen.dart:596`). Si l'appareil n'en est pas capable, il
+  /// **reste photo sur les deux faces** — filmer une face puis l'autre
+  /// laisserait un écart où l'on peut tricher, et ce ne serait plus un
+  /// Oneshot. Un Oneshot est donc **deux vidéos ou deux photos**, jamais un
+  /// mélange.
+  ///
+  /// ### Pourquoi un garde-fou dans le seed
+  ///
+  /// Le seed écrivait en base par les RPC de publication, sans passer par
+  /// l'écran de capture : rien ne rappelait la contrainte. Il a produit
+  /// **6 stories Oneshot recto vidéo / verso photo** — repérées par Jay le
+  /// 2026-08-13 comme « théoriquement impossibles en conditions réelles ».
+  ///
+  /// Et ce n'était pas une curiosité de catalogue : un recto vidéo (qui ne
+  /// télécharge rien) avec un verso photo (téléchargé en entier) est
+  /// exactement la configuration qui faisait redémarrer le lecteur au milieu
+  /// de la lecture (voir [VibeFaceLoading]). **Un jeu de test irréaliste avait
+  /// produit un vrai bug — et l'avait rendu illisible.**
+  ///
+  /// Lever ici plutôt que corriger les appels : un appel corrigé se re-casse à
+  /// la prochaine édition, une cause supprimée ne coûte plus rien
+  /// (`CLAUDE.md`, règle 1).
+  void _refuseImpossibleOneshot(String type, bool frontVideo, bool backVideo) {
+    if (type == 'oneshot' && frontVideo != backVideo) {
+      throw ArgumentError(
+        'Oneshot mixte impossible : les deux faces sont capturées d\'un seul '
+        'déclenchement, donc toutes deux vidéo ou toutes deux photo.',
+      );
+    }
   }
 
   // ------------------------------------------------------------------

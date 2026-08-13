@@ -78,7 +78,13 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   final trace = spec.isVideo ? VideoOpenTrace.start(cacheId) : null;
   // Le natif dira « partiel » pour une face amorcée comme pour une vidéo vue à
   // moitié : il voit la même chose. Seul le Dart sait laquelle il a préparée.
-  trace?.primedByApp = preloader.wasPrimed(spec.contentId, front: spec.front);
+  //
+  // ⚠️ La question est posée SOUS FORME DE FONCTION, évaluée à l'ouverture du
+  // lecteur. Y répondre ici — comme le faisait la v0.9.67 — c'était répondre
+  // avant que `prime` n'ait fini d'amener le premier bloc, et ranger dans
+  // « Partiel » un préchargement parfaitement réussi.
+  trace?.isPrimed = () =>
+      preloader.wasPrimed(spec.contentId, front: spec.front);
 
   // Préchargée ? Alors elle est déjà en main : une URL signée est un ticket
   // valable une heure, rien n'oblige à en redemander un. C'est le second
