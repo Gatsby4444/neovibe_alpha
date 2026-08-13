@@ -127,17 +127,6 @@ class ContentMediaCache {
     return file.path;
   }
 
-  /// La face d'autrui est-elle **déjà** sur l'appareil ?
-  ///
-  /// Ne sert qu'à la mesure d'ouverture ([VideoOpenTrace]) : un contenu froid
-  /// et un contenu préchargé n'ont pas la même cible, et les mélanger donnerait
-  /// une moyenne qui ne veut rien dire. Sans effet sur le cache lui-même — pas
-  /// de marquage LRU ici, consulter n'est pas utiliser.
-  Future<bool> hasOthers(String contentId, {required bool front}) async {
-    final file = _faceFile(await _dir('others'), contentId, front);
-    return await file.exists() && (await _loadIndex()).containsKey(contentId);
-  }
-
   // ---------------------------------------------------------------------
   // Les contenus des autres
   // ---------------------------------------------------------------------

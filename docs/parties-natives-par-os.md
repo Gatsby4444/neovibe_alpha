@@ -304,6 +304,23 @@ Dépendances ajoutées : `androidx.media3:media3-exoplayer`, `-datasource`,
 Deux versions de media3 dans un même APK ne se concilient pas, et la plus haute
 gagnerait en silence.
 
+#### Contrat du canal `neovibe/player`
+
+`create` rend **un dictionnaire**, et non un identifiant seul :
+
+| Clé | Type | Sens |
+|---|---|---|
+| `id` | entier | l'identifiant de texture, à donner au widget `Texture` |
+| `availability` | texte | `complete`, `partial` ou `cold` — ce que l'appareil possédait **avant** cette ouverture |
+
+⚠️ **`availability` doit venir du natif, et de lui seul** (depuis le
+2026-08-13). Le Dart avait tenté de le déduire de l'existence du fichier de
+cache : c'est faux par construction, `RemoteChunkStore` donnant au fichier sa
+taille définitive dès le premier bloc et l'index étant posé à l'ouverture. Une
+vidéo vue deux secondes passait pour « déjà sur l'appareil ». Seul le magasin
+connaît la carte des blocs. **Tout portage doit rendre ces trois valeurs**,
+sans quoi la mesure d'ouverture redevient illisible sur cette plateforme.
+
 ### iOS (à faire)
 
 L'équivalent est **`AVAssetResourceLoaderDelegate`** : on crée un `AVURLAsset`
@@ -323,6 +340,10 @@ au délégué, qui les sert déchiffrés. Le principe est exactement celui de la
 - **Le portage devra rejouer les vecteurs de test croisés** (§ ci-dessous) :
   c'est la seule chose qui garantira que la troisième implémentation du format
   lit bien ce que le Dart a scellé.
+- **`availability` est à porter aussi** (voir le contrat du canal ci-dessus) :
+  l'équivalent iOS de `RemoteChunkStore` devra distinguer « jamais vu » de
+  « vu mais incomplet », faute de quoi la mesure d'ouverture mélangera sur iOS
+  les deux populations que ce champ sert à séparer.
 
 ### Le format, et ce qui empêche les implémentations de diverger
 

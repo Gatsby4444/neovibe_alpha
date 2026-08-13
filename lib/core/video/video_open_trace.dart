@@ -23,6 +23,53 @@ enum VideoOpenStep {
   premiereImage,
 }
 
+/// Ce que l'appareil possédait **avant** l'ouverture.
+///
+/// ### Pourquoi trois états et pas un booléen
+///
+/// Jusqu'au 2026-08-13, la mesure ne connaissait que « en cache » ou « à
+/// froid », et tranchait en Dart : *le fichier de cache existe-t-il ?* La
+/// réponse était systématiquement fausse pour les vidéos partiellement vues —
+/// le cache par blocs crée le fichier à **sa taille définitive dès le premier
+/// bloc**, et pose son entrée d'index à l'ouverture. Une vidéo regardée deux
+/// secondes puis fermée comptait donc comme « déjà sur l'appareil », alors que
+/// la quasi-totalité de ses blocs restait à télécharger.
+///
+/// Résultat mesuré chez Jay le 2026-08-13 : un seau « en cache » de médiane
+/// 761 ms avec une pire mesure à **16 s** — impossible pour une lecture
+/// réellement locale, où il n'y a plus ni réseau ni déchiffrement Dart. Les
+/// deux populations étaient mélangées, et le chiffre ne pouvait rien décider.
+///
+/// [partiel] est précisément la population qui les séparait. La réponse vient
+/// désormais du natif, seul à connaître la carte des blocs.
+enum MediaAvailability {
+  /// Tous les blocs sont là : l'ouverture ne doit **rien** au réseau.
+  complet,
+
+  /// Déjà vu, mais incomplet. Les blocs manquants coûteront le réseau, et cette
+  /// mesure ne dit rien de la cible « préchargé ».
+  partiel,
+
+  /// Jamais vu : l'ouverture inclut au moins l'amorçage.
+  froid,
+}
+
+extension MediaAvailabilityLabel on MediaAvailability {
+  String get label => switch (this) {
+    MediaAvailability.complet => 'Complet sur l\'appareil',
+    MediaAvailability.partiel => 'Partiel (déjà vu, incomplet)',
+    MediaAvailability.froid => 'À froid (jamais vu)',
+  };
+
+  /// Le nom employé par le natif. Un intrus retombe sur [froid] : mieux vaut
+  /// une mesure pessimiste qu'une mesure flatteuse.
+  static MediaAvailability parse(String? value) => switch (value) {
+    'complete' => MediaAvailability.complet,
+    'partial' => MediaAvailability.partiel,
+    _ => MediaAvailability.froid,
+  };
+}
+
 extension VideoOpenStepLabel on VideoOpenStep {
   String get label => switch (this) {
     VideoOpenStep.demande => 'demande',
@@ -77,11 +124,13 @@ class VideoOpenTrace {
   final DateTime _start;
   final _marks = <VideoOpenStep, Duration>{};
 
-  /// Vrai si le média scellé était **déjà** sur l'appareil. C'est ce qui
-  /// sépare les deux cibles : un contenu froid n'est pas comparable à un
-  /// contenu préchargé, et les confondre donnerait une moyenne qui ne veut
-  /// rien dire.
-  bool cached = false;
+  /// Ce que l'appareil possédait avant l'ouverture — **renseigné par le
+  /// natif**, qui seul connaît la carte des blocs.
+  ///
+  /// Reste à [MediaAvailability.froid] tant que le natif n'a pas répondu :
+  /// une mesure non classée ne doit jamais atterrir dans le seau le plus
+  /// favorable, sous peine de flatter exactement le chiffre qu'on surveille.
+  var availability = MediaAvailability.froid;
 
   Duration? get total => _marks[VideoOpenStep.premiereImage];
 

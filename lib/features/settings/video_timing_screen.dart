@@ -9,7 +9,12 @@ import '../../core/video/video_open_trace.dart';
 ///
 /// La cible fixée par Jay le 2026-08-12 : **moins de 300 ms** sur un contenu
 /// préchargé ou déjà en cache, **moins d'une seconde** sur un contenu froid.
-/// Les deux sont distinguées ici — une moyenne des deux ne voudrait rien dire.
+///
+/// Les mesures sont réparties en **trois** seaux, pas deux (voir
+/// [MediaAvailability]). Le relevé du 2026-08-13 n'en avait que deux, et le
+/// premier mélangeait les vraies lectures locales avec des vidéos à peine
+/// entamées : médiane 761 ms, pire mesure 16 s — un chiffre qui ne pouvait
+/// rien décider. « Partiel » est la population qui les séparait.
 class VideoTimingScreen extends StatefulWidget {
   const VideoTimingScreen({super.key});
 
@@ -21,8 +26,6 @@ class _VideoTimingScreenState extends State<VideoTimingScreen> {
   @override
   Widget build(BuildContext context) {
     final records = VideoOpenTrace.records;
-    final cached = records.where((r) => r.cached).toList();
-    final cold = records.where((r) => !r.cached).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -54,18 +57,20 @@ class _VideoTimingScreenState extends State<VideoTimingScreen> {
           : ListView(
               padding: const EdgeInsets.all(12),
               children: [
-                _Summary(
-                  title: 'Déjà sur l\'appareil',
-                  target: const Duration(milliseconds: 300),
-                  records: cached,
-                ),
-                const SizedBox(height: 8),
-                _Summary(
-                  title: 'À froid (téléchargé)',
-                  target: const Duration(seconds: 1),
-                  records: cold,
-                ),
-                const Divider(height: 32),
+                // Trois seaux, pas deux : « partiel » est précisément la
+                // population qui rendait la mesure du 2026-08-13 illisible —
+                // des vidéos vues quelques secondes, comptées comme étant en
+                // cache alors que leurs blocs restaient à télécharger.
+                for (final availability in MediaAvailability.values) ...[
+                  _Summary(
+                    availability: availability,
+                    records: records
+                        .where((r) => r.availability == availability)
+                        .toList(),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                const Divider(height: 24),
                 Text(
                   'Les ${records.length} dernières ouvertures',
                   style: Theme.of(context).textTheme.titleSmall,
@@ -80,49 +85,108 @@ class _VideoTimingScreenState extends State<VideoTimingScreen> {
 
 /// Médiane plutôt que moyenne : une seule ouverture lente (réseau qui hoquette)
 /// déplacerait la moyenne et ferait croire à une régression.
-class _Summary extends StatelessWidget {
-  const _Summary({
-    required this.title,
-    required this.target,
-    required this.records,
-  });
+Duration? _median(List<Duration> values) {
+  if (values.isEmpty) return null;
+  final sorted = [...values]..sort();
+  return sorted[sorted.length ~/ 2];
+}
 
-  final String title;
-  final Duration target;
+class _Summary extends StatelessWidget {
+  const _Summary({required this.availability, required this.records});
+
+  final MediaAvailability availability;
   final List<VideoOpenTrace> records;
+
+  /// Les cibles fixées par Jay le 2026-08-12.
+  ///
+  /// [MediaAvailability.partiel] n'en a pas, volontairement : ce seau ne
+  /// correspond à **aucune promesse**. Il dit qu'une lecture a dû compléter son
+  /// cache en cours de route — ni le cas préchargé, ni un vrai démarrage à
+  /// froid. Lui donner une cible reviendrait à recréer le mélange qu'il sert
+  /// justement à défaire.
+  Duration? get _target => switch (availability) {
+    MediaAvailability.complet => const Duration(milliseconds: 300),
+    MediaAvailability.partiel => null,
+    MediaAvailability.froid => const Duration(seconds: 1),
+  };
 
   @override
   Widget build(BuildContext context) {
-    final totals = records.map((r) => r.total).whereType<Duration>().toList()
-      ..sort();
-    final median = totals.isEmpty ? null : totals[totals.length ~/ 2];
-    final ok = median != null && median <= target;
+    final theme = Theme.of(context);
+    final totals = records.map((r) => r.total).whereType<Duration>().toList();
+    final median = _median(totals);
+    final target = _target;
+    final ok = median != null && target != null && median <= target;
+    final sorted = [...totals]..sort();
 
     return Card(
       margin: EdgeInsets.zero,
-      child: ListTile(
-        leading: Icon(
-          median == null
-              ? Icons.remove
-              : ok
-              ? Icons.check_circle
-              : Icons.error_outline,
-          color: median == null
-              ? null
-              : ok
-              ? Colors.green
-              : Colors.orange,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  median == null
+                      ? Icons.remove
+                      : target == null
+                      ? Icons.info_outline
+                      : ok
+                      ? Icons.check_circle
+                      : Icons.error_outline,
+                  color: median == null || target == null
+                      ? null
+                      : ok
+                      ? Colors.green
+                      : Colors.orange,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    availability.label,
+                    style: theme.textTheme.titleSmall,
+                  ),
+                ),
+                Text(
+                  median == null ? '—' : '${median.inMilliseconds} ms',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              median == null
+                  ? 'aucune mesure'
+                  : 'sur ${totals.length}'
+                        '${target == null ? ' — pas de cible' : ' — cible ${target.inMilliseconds} ms'}'
+                        ' · meilleure ${sorted.first.inMilliseconds} ms'
+                        ' · pire ${sorted.last.inMilliseconds} ms',
+              style: theme.textTheme.bodySmall,
+            ),
+            // La médiane par ÉTAPE est ce qui décide du chantier suivant : elle
+            // dit qui retarde la première image. Le total seul ne dit que
+            // qu'elle est en retard.
+            if (median != null) ...[
+              const SizedBox(height: 8),
+              for (final step in VideoOpenStep.values.skip(1))
+                if (_median(
+                      records
+                          .map((r) => r.spentOn(step))
+                          .whereType<Duration>()
+                          .toList(),
+                    )
+                    case final spent?)
+                  Text(
+                    '${step.label} : ${spent.inMilliseconds} ms',
+                    style: theme.textTheme.bodySmall,
+                  ),
+            ],
+          ],
         ),
-        title: Text(title),
-        subtitle: Text(
-          median == null
-              ? 'aucune mesure'
-              : 'médiane ${median.inMilliseconds} ms sur ${totals.length} — '
-                    'cible ${target.inMilliseconds} ms\n'
-                    'meilleure ${totals.first.inMilliseconds} ms · '
-                    'pire ${totals.last.inMilliseconds} ms',
-        ),
-        isThreeLine: median != null,
       ),
     );
   }
@@ -143,10 +207,11 @@ class _Record extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(
-                record.cached ? Icons.sd_storage : Icons.cloud_download,
-                size: 14,
-              ),
+              Icon(switch (record.availability) {
+                MediaAvailability.complet => Icons.sd_storage,
+                MediaAvailability.partiel => Icons.downloading,
+                MediaAvailability.froid => Icons.cloud_download,
+              }, size: 14),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(

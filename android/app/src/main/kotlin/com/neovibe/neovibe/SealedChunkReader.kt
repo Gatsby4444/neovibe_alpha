@@ -76,6 +76,13 @@ class SealedChunkReader(
     val plainLength: Long
 
     /**
+     * Ce que l'appareil possédait avant cette ouverture. Simple relais du
+     * magasin : le lecteur ne sait toujours pas d'où viennent ses octets, et
+     * c'est ce qui lui permet d'ignorer le streaming.
+     */
+    val availability: String get() = store.availability
+
+    /**
      * Le dernier bloc déchiffré, gardé tel quel. Une lecture séquentielle
      * traverse un bloc en plusieurs appels : sans ce cache, chaque appel
      * redéchiffrerait 256 Ko — et, sur une source distante, pourrait le

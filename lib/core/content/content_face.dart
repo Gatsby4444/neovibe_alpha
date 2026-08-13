@@ -101,24 +101,36 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   if (spec.ownerId == me) {
     sealed = await cache.tryOwn(spec.contentId, front: spec.front);
   }
-  // Déjà sur l'appareil ? C'est ce qui sépare les deux cibles de Jay (300 ms
-  // préchargé, 1 s à froid) — les confondre donnerait une moyenne creuse.
-  trace?.cached =
-      sealed != null ||
-      await cache.hasOthers(spec.contentId, front: spec.front);
+  // Le classement de la mesure (complet / partiel / froid) n'est PAS fait ici :
+  // le Dart ne peut pas le connaître. Le cache par blocs donne au fichier sa
+  // taille définitive dès le premier bloc, si bien qu'« il existe » ne veut rien
+  // dire. C'est le natif qui répond, à l'ouverture — voir [MediaAvailability].
 
   // ─── Une VIDÉO d'autrui ne se télécharge plus ──────────────────────────
   // Le lecteur natif ne réclame que les blocs qu'il traverse. Attendre le
   // fichier entier, c'était jusqu'à une minute sur un réseau lent pour 15 s de
   // vidéo — et c'est ce qui rendait un feed impossible.
   if (spec.isVideo && sealed == null) {
-    final url = await signedUrl();
+    // ⚠️ L'URL signée et la clé sont **indépendantes**. Les attendre l'une
+    // après l'autre ajoutait un aller-retour complet à CHAQUE ouverture, en
+    // cache comme à froid — sur une cible de 300 ms où un aller-retour mobile
+    // en coûte 100 à 200. Elles partent donc ensemble.
+    //
+    // `.wait` plutôt que deux `await` successifs : il observe les DEUX futures.
+    // Avec deux `await`, un échec de la seconde pendant l'attente de la
+    // première remonterait en exception non observée, hors de toute pile
+    // d'appel exploitable.
+    final urlFuture = signedUrl();
+    final keyFuture = resolveKey();
     final cachePath = await cache.streamingPath(
       spec.contentId,
       front: spec.front,
     );
+    final (url, key) = await (urlFuture, keyFuture).wait;
+    // Les deux jalons tombent au même instant : c'est la conséquence visible du
+    // parallélisme, et « clé : +0 ms » se lit désormais « la clé n'a rien coûté
+    // de plus que l'URL ».
     trace?.mark(VideoOpenStep.scelle);
-    final key = await resolveKey();
     trace?.mark(VideoOpenStep.cle);
     return OpenedMedia.streaming(
       url: url,

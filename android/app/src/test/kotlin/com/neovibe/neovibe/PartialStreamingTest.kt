@@ -165,6 +165,79 @@ class PartialStreamingTest {
         }
     }
 
+    /**
+     * Le classement qui rend la mesure d'ouverture lisible.
+     *
+     * ### Pourquoi ce test existe
+     *
+     * Jusqu'au 2026-08-13, ce classement se faisait **côté Dart**, en regardant
+     * si le fichier de cache existait. Il ne pouvait pas être juste :
+     * [RemoteChunkStore] donne au fichier sa taille définitive dès le premier
+     * bloc. Une vidéo vue deux secondes passait donc pour « déjà sur
+     * l'appareil », et les mesures de Jay mélangeaient dans un même seau des
+     * lectures locales et des vidéos à peine entamées — médiane 761 ms, pire
+     * mesure 16 s, aucune conclusion possible.
+     *
+     * Les trois états se distinguent ici, et nulle part ailleurs : seul le
+     * magasin connaît la carte des blocs.
+     */
+    @Test
+    fun `la disponibilite distingue froid, partiel et complet`() {
+        val vector = vector("multi_blocs")
+        val bytes = File(root, vector.get("file").asString).readBytes()
+        val key = vector.get("key").asString
+        val data = temp("dispo")
+        val map = temp("dispo-carte")
+
+        // 1. Jamais vu : l'ouverture inclut l'amorçage.
+        val cold = RemoteChunkStore(data, map, FakeServer(bytes))
+        SealedChunkReader(cold, key).use { reader ->
+            assertEquals(
+                "une première ouverture doit être froide",
+                SealedChunkStore.COLD,
+                reader.availability,
+            )
+            // On ne lit que le début : les blocs suivants restent absents.
+            reader.read(0, ByteArray(4096), 0, 4096)
+        }
+
+        // 2. Déjà vu, mais incomplet. C'est LE cas que le Dart classait à tort
+        //    « déjà sur l'appareil ».
+        val partial = RemoteChunkStore(data, map, FakeServer(bytes))
+        SealedChunkReader(partial, key).use { reader ->
+            assertEquals(
+                "une vidéo à peine entamée n'est pas sur l'appareil",
+                SealedChunkStore.PARTIAL,
+                reader.availability,
+            )
+            // Cette fois on va jusqu'au bout.
+            digest(reader, 0, reader.plainLength)
+        }
+
+        // 3. Tous les blocs sont là : plus rien ne partira sur le réseau.
+        val complete = RemoteChunkStore(data, map, FakeServer(bytes))
+        SealedChunkReader(complete, key).use { reader ->
+            assertEquals(
+                "un média entièrement lu doit être complet",
+                SealedChunkStore.COMPLETE,
+                reader.availability,
+            )
+        }
+    }
+
+    @Test
+    fun `un media local est toujours complet`() {
+        val vector = vector("multi_blocs")
+        val file = File(root, vector.get("file").asString)
+        SealedChunkReader(file, vector.get("key").asString).use { reader ->
+            assertEquals(
+                "un fichier entier sur l'appareil ne doit rien au réseau",
+                SealedChunkStore.COMPLETE,
+                reader.availability,
+            )
+        }
+    }
+
     @Test
     fun `un bloc altere en transit est refuse`() {
         val vector = vector("petit")

@@ -145,8 +145,15 @@ class NativePlayer(
         // premier bloc atterrissent dans le cache partiel et ne seront pas
         // redemandés.
         worker.execute {
+            // L'ouverture de sonde renseigne aussi ce que l'appareil possédait
+            // AVANT : c'est le seul instant où l'information existe, et le Dart
+            // ne peut pas la deviner (voir [SealedChunkStore.availability]).
+            var availability = SealedChunkStore.COMPLETE
             val failure = try {
-                source().use { it.plainLength }
+                source().use {
+                    it.plainLength
+                    availability = it.availability
+                }
                 null
             } catch (e: Exception) {
                 e
@@ -167,7 +174,7 @@ class NativePlayer(
                 try {
                     val instance = Instance(sealed = source)
                     players[instance.id] = instance
-                    result.success(instance.id)
+                    result.success(describe(instance.id, availability))
                 } catch (e: Exception) {
                     result.error("OPEN_FAILED", e.message ?: e.javaClass.simpleName, null)
                 }
@@ -179,11 +186,23 @@ class NativePlayer(
         try {
             val instance = Instance(clear = file)
             players[instance.id] = instance
-            result.success(instance.id)
+            // Un fichier en clair est sur l'appareil par définition : rien à
+            // aller chercher.
+            result.success(describe(instance.id, SealedChunkStore.COMPLETE))
         } catch (e: Exception) {
             result.error("OPEN_FAILED", e.message ?: e.javaClass.simpleName, null)
         }
     }
+
+    /**
+     * Ce que `create` rend au Dart.
+     *
+     * Un identifiant seul suffisait jusqu'au 2026-08-13 ; il manquait alors
+     * l'information qui rend la mesure d'ouverture lisible. Les deux partent
+     * ensemble parce qu'ils naissent au même instant — celui de la sonde.
+     */
+    private fun describe(id: Long, availability: String): Map<String, Any> =
+        mapOf("id" to id, "availability" to availability)
 
     /** Ferme tout : appelé quand l'activité s'en va, sans quoi les lecteurs fuient. */
     fun dispose() {

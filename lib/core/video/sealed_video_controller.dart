@@ -199,14 +199,10 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
   /// média est au format hérité.
   Future<int?> _open() async {
     if (_url == null) {
-      return _channel.invokeMethod<int>('create', {'path': _path, 'key': _key});
+      return _create({'path': _path, 'key': _key});
     }
     try {
-      return await _channel.invokeMethod<int>('create', {
-        'url': _url,
-        'cachePath': _cachePath,
-        'key': _key,
-      });
+      return await _create({'url': _url, 'cachePath': _cachePath, 'key': _key});
     } on PlatformException catch (e) {
       final fallback = _legacyFallback;
       if (e.code != 'NOT_SEALED' || fallback == null) rethrow;
@@ -215,8 +211,39 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
       // télécharge en entier, comme avant — ces contenus s'éteignent d'eux-mêmes.
       final file = await fallback();
       _path = file.path;
-      return _channel.invokeMethod<int>('create', {'path': file.path});
+      // Le fichier rendu est en clair et complet, et le natif le classerait
+      // « complet » à juste titre — mais l'utilisateur vient d'attendre son
+      // téléchargement ENTIER. Le classer ainsi ferait entrer la plus lente des
+      // ouvertures dans le seau réservé aux plus rapides.
+      return _create({
+        'path': file.path,
+      }, availability: MediaAvailability.froid);
     }
+  }
+
+  /// Ouvre le lecteur natif et **classe** la mesure d'ouverture.
+  ///
+  /// L'identifiant et la disponibilité reviennent ensemble parce qu'ils
+  /// naissent au même instant : celui de la sonde qui ouvre le média. Le Dart
+  /// ne peut pas déduire la seconde — il a essayé jusqu'au 2026-08-13, et se
+  /// trompait sur toutes les vidéos partiellement vues.
+  ///
+  /// [availability] force le classement là où le natif dirait vrai sans dire
+  /// juste (le repli hérité, qui télécharge tout avant d'ouvrir un fichier
+  /// local).
+  Future<int?> _create(
+    Map<String, dynamic> args, {
+    MediaAvailability? availability,
+  }) async {
+    final reply = await _channel.invokeMapMethod<String, dynamic>(
+      'create',
+      args,
+    );
+    if (reply == null) return null;
+    VideoOpenTrace.of(_traceId)?.availability =
+        availability ??
+        MediaAvailabilityLabel.parse(reply['availability'] as String?);
+    return (reply['id'] as num).toInt();
   }
 
   void _onEvent(dynamic event) {

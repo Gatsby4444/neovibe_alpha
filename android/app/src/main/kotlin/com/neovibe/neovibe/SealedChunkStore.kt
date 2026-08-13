@@ -63,6 +63,26 @@ abstract class SealedChunkStore : Closeable {
     /** Les octets scellés du bloc [index], en entier. */
     abstract fun sealedChunk(index: Long): ByteArray
 
+    /**
+     * Ce que l'appareil possédait **avant** cette ouverture — [COMPLETE],
+     * [PARTIAL] ou [COLD].
+     *
+     * ### Pourquoi ça remonte jusqu'au Dart
+     *
+     * La mesure d'ouverture ne vaut que si elle sépare les cas : 300 ms sur un
+     * média déjà là et 1 s à froid ne sont pas la même promesse. Or **le Dart
+     * ne peut pas en juger**. Il a essayé, jusqu'au 2026-08-13, en regardant si
+     * le fichier de cache existait — mais [RemoteChunkStore] lui donne sa
+     * taille définitive dès le premier bloc (`ensureSized`), et l'index est posé
+     * à l'ouverture. Une vidéo vue deux secondes paraissait donc « déjà sur
+     * l'appareil » alors que 90 % de ses blocs manquaient encore, et les
+     * mesures des deux cas se mélangeaient dans le même seau.
+     *
+     * Seul le magasin connaît la carte des blocs. La réponse part donc d'ici,
+     * et de nulle part ailleurs.
+     */
+    open val availability: String get() = COMPLETE
+
     protected fun parseHeader(header: ByteArray): SealedLayout {
         if (header.size < SealedChunkReader.HEADER_SIZE) {
             throw IOException("en-tête NVC1 tronqué")
@@ -79,6 +99,15 @@ abstract class SealedChunkStore : Closeable {
 
     companion object {
         const val MAGIC = 0x4E564331 // 'NVC1'
+
+        /** Rien à aller chercher : tous les blocs sont sur l'appareil. */
+        const val COMPLETE = "complete"
+
+        /** Déjà vu, mais incomplet — il manque des blocs, qui coûteront le réseau. */
+        const val PARTIAL = "partial"
+
+        /** Jamais vu : l'ouverture inclut au moins l'amorçage. */
+        const val COLD = "cold"
 
         /**
          * Ce qu'on demande au serveur du premier coup : l'en-tête **et** le
@@ -155,6 +184,22 @@ class RemoteChunkStore(
     private var raf: RandomAccessFile? = null
     private var present = ByteArray(0)
 
+    /**
+     * Le cache connaissait-il déjà ce média avant cette ouverture ?
+     *
+     * C'est ce qui sépare « jamais vu » de « vu mais incomplet ». Sans lui, un
+     * premier visionnage et une reprise à mi-parcours seraient indiscernables :
+     * les deux ont des blocs manquants.
+     */
+    private var wasCached = false
+
+    override val availability: String
+        get() = when {
+            !wasCached -> COLD
+            isComplete() -> COMPLETE
+            else -> PARTIAL
+        }
+
     override fun open() {
         data.parentFile?.mkdirs()
         val file = RandomAccessFile(data, "rw").also { raf = it }
@@ -169,6 +214,7 @@ class RemoteChunkStore(
                 file.readFully(header)
                 layout = parseHeader(header)
                 present = stored.copyOfRange(1, stored.size)
+                wasCached = true
                 ensureSized(file)
                 return
             }
