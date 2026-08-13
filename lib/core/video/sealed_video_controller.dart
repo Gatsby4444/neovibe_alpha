@@ -243,8 +243,14 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
     // peut-être bien davantage sur la mesure partielle.
     final pending = VideoOpenTrace.of(_traceId);
     if (pending != null) {
-      final afterKey = pending.at(VideoOpenStep.cle)?.inMilliseconds ?? 0;
-      pending.note('· attente avant natif', pending.elapsedMs - afterKey);
+      // Sur une face PRÉCHARGÉE, ce délai est le temps que l'utilisateur a
+      // passé ailleurs : le noter comme une latence n'aurait aucun sens. Le
+      // drapeau est déjà posé — l'écran le déclare à la construction, donc
+      // avant que le contrôleur n'existe.
+      if (!pending.prefetched) {
+        final afterKey = pending.at(VideoOpenStep.cle)?.inMilliseconds ?? 0;
+        pending.note('· attente avant natif', pending.elapsedMs - afterKey);
+      }
       // Ouvrir le lecteur, c'est porter la face à l'écran : c'est d'ICI que
       // court l'attente d'une face préchargée.
       pending.displayedAt = Duration(milliseconds: pending.elapsedMs);

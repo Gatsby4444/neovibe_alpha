@@ -204,6 +204,12 @@ class VideoOpenTrace {
 
   /// Le temps passé DANS cette étape, c'est-à-dire depuis la précédente
   /// renseignée.
+  ///
+  /// ⚠️ Pour une face **préchargée**, l'étape qui contient l'affichage est
+  /// ramenée à celui-ci. Sans ça, le détail contredirait le total : au relevé
+  /// du 2026-08-13, un résumé annonçait « 771 ms » en tête et
+  /// « lecteur prêt : 3 742 ms » juste en dessous — les 3 secondes d'écart
+  /// étant le temps que l'utilisateur avait passé sur la face précédente.
   Duration? spentOn(VideoOpenStep step) {
     final end = _marks[step];
     if (end == null) return null;
@@ -211,6 +217,10 @@ class VideoOpenTrace {
     for (final s in VideoOpenStep.values) {
       if (s == step) break;
       previous = _marks[s] ?? previous;
+    }
+    final shown = displayedAt;
+    if (prefetched && shown != null && shown > previous && shown < end) {
+      previous = shown;
     }
     return end - previous;
   }
