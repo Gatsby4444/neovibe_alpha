@@ -157,10 +157,6 @@ class _VibeTile extends ConsumerStatefulWidget {
 class _VibeTileState extends ConsumerState<_VibeTile> {
   Uint8List? _placeholder;
 
-  /// Octets scellés préchargés. Illisibles sans la clé : les garder en mémoire
-  /// n'expose rien, et évite un téléchargement au moment du reveal.
-  Uint8List? _sealed;
-
   @override
   void initState() {
     super.initState();
@@ -176,14 +172,17 @@ class _VibeTileState extends ConsumerState<_VibeTile> {
       // Placeholder indisponible : la tuile reste un cadre neutre.
     }
     // Préchargement dès que le serveur ouvre, soit 5 minutes avant l'heure.
-    if (widget.vibe.prefetchable) {
-      try {
-        final sealed = await repo.prefetchSealed(widget.vibe);
-        if (mounted) setState(() => _sealed = sealed);
-      } catch (_) {
-        // Refus du serveur : on réessaiera à l'ouverture.
-      }
-    }
+    //
+    // Les octets vont désormais sur le DISQUE et non dans l'état de cette
+    // tuile : ils survivent donc à la fermeture de l'écran, au retour dans la
+    // conversation et au redémarrage de l'app. C'est ce qui rend vraie la
+    // formule de Jay — « comme si les cards étaient toujours là mais qu'elles
+    // étaient juste bloquées en local ». Tant qu'ils vivaient ici, l'illusion
+    // ne tenait que le temps où l'on restait sur la bibliothèque.
+    //
+    // Les DEUX faces, et sans `setState` : rien à réafficher, le fichier est
+    // simplement là pour l'ouverture qui suivra.
+    await repo.prefetch(widget.vibe);
   }
 
   @override
@@ -201,7 +200,6 @@ class _VibeTileState extends ConsumerState<_VibeTile> {
             builder: (_) => revealed
                 ? RevealedVibeScreen(
                     vibe: vibe,
-                    sealedBytes: _sealed,
                     // Passé pour que l'écran de reveal démarre sur EXACTEMENT
                     // ce que montrait la tuile : pas de rupture à l'ouverture.
                     placeholderBytes: _placeholder,

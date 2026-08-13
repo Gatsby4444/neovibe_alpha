@@ -16,6 +16,7 @@ import 'core/prefs.dart';
 import 'features/cards/card_capture_screen.dart';
 import 'features/cards/card_media_cache.dart';
 import 'core/content/content_media_cache.dart';
+import 'features/library_vibes/library_vault_cache.dart';
 import 'features/cards/native_camera.dart';
 
 Future<void> main() async {
@@ -89,6 +90,10 @@ Future<void> main() async {
     // sa règle est l'expiration du contenu, pas un budget de vues.
     // Deux cycles de vie, deux espaces.
     ContentMediaCache().sweep();
+    // Et le coffre des bibliothèques de conversation, troisième cycle de vie :
+    // ses scellés sont amenés d'avance pour que le reveal soit instantané, et
+    // ils restent sur l'appareil ensuite. Sans balayage, ils s'y accumuleraient.
+    LibraryVaultCache().sweep();
     NativeCameraController.setSecure(
       prefs.getBool(DevSecureEnabled.prefsKey) ?? false,
     );

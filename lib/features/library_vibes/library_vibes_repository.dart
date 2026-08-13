@@ -15,6 +15,7 @@ import '../../core/models/library_vibe.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
 import '../cards/card_media_cache.dart';
+import 'library_vault_cache.dart';
 
 /// Bibliothèques éphémères de conversation — couche d'accès.
 ///
@@ -190,16 +191,47 @@ class LibraryVibesRepository {
     return _client.storage.from(_bucket).download(path);
   }
 
-  /// Précharge les octets scellés. À appeler dès [LibraryVibe.prefetchable] :
-  /// ils arrivent avant l'heure pour que le reveal ne soit pas un temps de
-  /// chargement, et ils restent **illisibles** sans la clé.
+  /// Amène le scellé d'une face **sur l'appareil**, et rend le fichier.
   ///
-  /// Échoue tant que le serveur n'ouvre pas (politique de storage) : c'est
-  /// voulu, l'appelant réessaiera.
-  Future<Uint8List> prefetchSealed(LibraryVibe vibe, {bool back = false}) {
+  /// Sans effet s'il y est déjà — c'est ce qui rend l'appel répétable sans
+  /// précaution depuis n'importe quel écran.
+  ///
+  /// À appeler dès [LibraryVibe.prefetchable]. Les octets arrivent avant
+  /// l'heure et restent **illisibles** sans la clé, que seul le serveur rendra
+  /// au reveal.
+  ///
+  /// Lève tant que le serveur n'ouvre pas : la politique du coffre exige
+  /// `now() >= reveal_at - 5 min`. C'est voulu, et l'appelant réessaiera.
+  Future<File> cacheFace(LibraryVibe vibe, {bool back = false}) async {
     final path = back ? vibe.sealedBackPath : vibe.sealedPath;
     if (path == null) throw StateError('Cette vibe n\'a pas de verso');
-    return _client.storage.from(_bucket).download(path);
+    final cache = ref.read(libraryVaultCacheProvider);
+
+    final cached = await cache.tryFace(vibe.id, front: !back);
+    if (cached != null) return cached;
+
+    final bytes = await _client.storage.from(_bucket).download(path);
+    return cache.store(vibe.id, bytes, front: !back);
+  }
+
+  /// Précharge les **deux** faces, sans jamais lever.
+  ///
+  /// ⚠️ Le verso comptait autant que le recto et n'était pourtant pas
+  /// préchargé jusqu'au 2026-08-13 : le retournement, juste après le reveal,
+  /// déclenchait donc un téléchargement complet en pleine lecture — le seul
+  /// moment où l'utilisateur regarde vraiment.
+  ///
+  /// N'échoue jamais : un préchargement raté n'est pas une panne, c'est une
+  /// préparation qui n'a pas eu lieu, et l'ouverture retombera sur le
+  /// téléchargement direct.
+  Future<void> prefetch(LibraryVibe vibe) async {
+    if (!vibe.prefetchable) return;
+    try {
+      await cacheFace(vibe);
+      if (vibe.hasBack) await cacheFace(vibe, back: true);
+    } catch (_) {
+      // Réessayé au prochain affichage de la tuile.
+    }
   }
 
   /// Ouvre une vibe révélée : réclame la clé, puis rend un [OpenedMedia] prêt
@@ -221,20 +253,21 @@ class LibraryVibesRepository {
   /// vidéo en bibliothèque de conversation ne pouvait pas s'afficher, et
   /// personne ne l'avait relevé faute de mesure sur ce chemin.
   ///
-  /// ⚠️ Ce qui n'a PAS changé : le fichier scellé est toujours téléchargé
-  /// **en entier** avant l'ouverture. La lecture par intervalles réclamerait
-  /// une URL signée sur `library_vault` et un cache dédié — chantier distinct
-  /// (`RAPPELS.md`, décisions #24).
+  /// ### Le scellé vient du cache local, pas du réseau
+  ///
+  /// [cacheFace] l'a normalement amené dans les 5 minutes qui précèdent le
+  /// reveal. L'ouverture ne fait alors que **lire un fichier déjà là** — c'est
+  /// la conception voulue par Jay : « comme si les cards étaient toujours là
+  /// mais qu'elles étaient juste bloquées en local ».
+  ///
+  /// Le téléchargement reste le **repli** — première ouverture d'une vibe que
+  /// l'écran n'a jamais affichée, cache évincé, préchargement échoué.
   ///
   /// ⚠️ Ce qui ne changera PAS : la clé vient de `get_library_vibe_key`, qui
   /// porte sa propre règle (le reveal). Le transport se mutualise, **la
   /// politique de clé reste distincte** — règle 2 de `CLAUDE.md`.
-  ///
-  /// [sealedBytes] : les octets déjà préchargés, pour éviter un second
-  /// téléchargement. Ils sont récupérés si absents.
   Future<OpenedMedia> openRevealed(
     LibraryVibe vibe, {
-    Uint8List? sealedBytes,
     required bool isVideo,
     bool back = false,
   }) async {
@@ -243,34 +276,37 @@ class LibraryVibesRepository {
       'vibe=${vibe.id} · face=${back ? 'verso' : 'recto'}',
     );
     try {
-      final key = await _client.rpc(
-        'get_library_vibe_key',
-        params: {'p_vibe_id': vibe.id},
-      );
+      // Les deux partent ENSEMBLE : la clé vient du serveur, le scellé du
+      // disque (ou du réseau en repli). Rien ne les lie, et les enchaîner
+      // ajouterait un aller-retour à chaque ouverture — leçon du chantier
+      // livraison, 2026-08-13.
+      final cachedBefore =
+          await ref
+              .read(libraryVaultCacheProvider)
+              .tryFace(vibe.id, front: !back) !=
+          null;
+      final (key, sealedFile) = await (
+        _client.rpc('get_library_vibe_key', params: {'p_vibe_id': vibe.id}),
+        cacheFace(vibe, back: back),
+      ).wait;
+
       AppLog.instance.server(
         'Clé obtenue',
-        'vibe=${vibe.id} · préchargé=${sealedBytes != null}',
+        'vibe=${vibe.id} · scellé déjà local=$cachedBefore',
       );
 
-      final bytes = sealedBytes ?? await prefetchSealed(vibe, back: back);
-
-      // Le SCELLÉ est posé sur le disque — c'est du chiffré, illisible sans la
-      // clé — et c'est lui que le lecteur natif ouvrira. Le clair, lui, n'y
-      // apparaît jamais.
-      final dir = await getTemporaryDirectory();
-      final suffix = back ? '_back' : '';
-      final sealedFile = File('${dir.path}/vault_${vibe.id}$suffix.bin');
-      await sealedFile.writeAsBytes(bytes, flush: true);
-
+      // Le fichier ouvert est le SCELLÉ — du chiffré, illisible sans la clé.
+      // Le clair, lui, n'apparaît nulle part sur le disque.
       final media = await MediaOpen.open(
         sealedFile,
         key as String,
         isVideo: isVideo,
-        cacheId: '${vibe.id}$suffix',
+        cacheId: '${vibe.id}${back ? '_back' : ''}',
       );
       AppLog.instance.app(
         'Vibe ouverte',
-        '${bytes.length} o scellés · ${isVideo ? 'vidéo' : 'photo'}',
+        '${await sealedFile.length()} o scellés · '
+            '${isVideo ? 'vidéo' : 'photo'}',
       );
       return media;
     } catch (e) {

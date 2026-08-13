@@ -38,14 +38,18 @@ class RevealedVibeScreen extends ConsumerStatefulWidget {
   const RevealedVibeScreen({
     super.key,
     required this.vibe,
-    this.sealedBytes,
     this.placeholderBytes,
   });
 
   final LibraryVibe vibe;
 
-  /// Octets déjà préchargés par la tuile, pour éviter un second téléchargement.
-  final Uint8List? sealedBytes;
+  /// ⚠️ Il n'y a plus de paramètre `sealedBytes`, et ce n'est pas un oubli.
+  /// Les octets scellés étaient portés de la tuile jusqu'ici pour éviter un
+  /// second téléchargement ; ils vivent désormais **sur le disque**
+  /// (`LibraryVaultCache`), où le dépôt va les chercher tout seul. Faire
+  /// transiter un média par trois widgets pour économiser un appel, c'était
+  /// une conséquence de l'absence de cache — la cause a disparu, le paramètre
+  /// avec.
 
   /// Placeholder déjà en mémoire : c'est lui qui assure la continuité visuelle
   /// avec la tuile d'où l'on vient.
@@ -97,11 +101,7 @@ class _RevealedVibeScreenState extends ConsumerState<RevealedVibeScreen>
     try {
       final media = await ref
           .read(libraryVibesRepositoryProvider)
-          .openRevealed(
-            widget.vibe,
-            sealedBytes: widget.sealedBytes,
-            isVideo: widget.vibe.frontIsVideo,
-          );
+          .openRevealed(widget.vibe, isVideo: widget.vibe.frontIsVideo);
       if (!mounted) return;
       setState(() => _media = media);
       _controller.forward();

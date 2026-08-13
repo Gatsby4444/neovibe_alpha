@@ -6,6 +6,7 @@ import '../../core/prefs.dart';
 import '../cards/card_media_cache.dart';
 import '../../core/content/content_media_cache.dart';
 import '../../core/content/saved_store.dart';
+import '../library_vibes/library_vault_cache.dart';
 
 /// Gestion du stockage local des cards (consigne Jay 2026-07-13, C4 option
 /// a) : occupation, espace alloué réglable, emplacement affiché, vidage —
@@ -23,6 +24,9 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
   ({int ownBytes, int othersBytes})? _spineUsage;
   int? _savedBytes;
 
+  /// Les scellés des bibliothèques de conversation, amenés d'avance.
+  int? _vaultBytes;
+
   @override
   void initState() {
     super.initState();
@@ -33,11 +37,13 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
     final usage = await ref.read(cardMediaCacheProvider).usage();
     final stories = await ref.read(contentMediaCacheProvider).usage();
     final saved = await ref.read(savedStoreProvider).usedBytes();
+    final vault = await ref.read(libraryVaultCacheProvider).usageBytes();
     if (mounted) {
       setState(() {
         _usage = usage;
         _spineUsage = stories;
         _savedBytes = saved;
+        _vaultBytes = vault;
       });
     }
   }
@@ -173,6 +179,31 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                 child: const Text(
                   'Vider le stockage des stories et publications',
                 ),
+              ),
+            ),
+          const Divider(),
+          const _Header('Bibliothèques de conversation'),
+          ListTile(
+            dense: true,
+            leading: const Icon(Icons.lock_clock_outlined),
+            title: Text(_vaultBytes == null ? 'Calcul…' : _fmt(_vaultBytes!)),
+            subtitle: const Text(
+              'Les vibes des bibliothèques arrivent sur l\'appareil 5 minutes '
+              'avant le reveal, pour qu\'elles s\'ouvrent sans attente. Elles '
+              'y restent chiffrées : sans la clé, que le serveur ne rend qu\'à '
+              'l\'heure dite, ce ne sont que des octets inertes.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+          if (_vaultBytes != null && _vaultBytes! > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: OutlinedButton(
+                onPressed: () async {
+                  await ref.read(libraryVaultCacheProvider).clear();
+                  await _refresh();
+                },
+                child: const Text('Vider les bibliothèques locales'),
               ),
             ),
           const Divider(),
