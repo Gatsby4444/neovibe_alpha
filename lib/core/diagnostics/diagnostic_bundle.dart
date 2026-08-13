@@ -55,8 +55,10 @@ class DiagnosticBundle {
     final buffer = StringBuffer();
     for (final availability in MediaAvailability.values) {
       final group = records.where((r) => r.availability == availability);
-      final totals = group.map((r) => r.total).whereType<Duration>().toList()
-        ..sort();
+      // `perceived` : pour une face préchargée, l'attente ne commence qu'à
+      // l'affichage (voir [VideoOpenTrace.prefetched]).
+      final totals =
+          group.map((r) => r.perceived).whereType<Duration>().toList()..sort();
       if (totals.isEmpty) {
         buffer.writeln('${availability.label} : aucune mesure');
         continue;
@@ -74,8 +76,10 @@ class DiagnosticBundle {
     buffer.writeln('\n--- ouvertures, la plus récente d\'abord ---');
     for (final record in records) {
       buffer.writeln(
-        '[${record.availability.name}] ${record.id} : '
-        '${record.total?.inMilliseconds ?? '—'} ms',
+        '[${record.availability.name}]'
+        '${record.prefetched ? '[préchargée]' : ''} ${record.id} : '
+        '${record.perceived?.inMilliseconds ?? '—'} ms'
+        '${record.prefetched ? ' (ouverte ${record.total?.inMilliseconds} ms avant)' : ''}',
       );
       for (final step in VideoOpenStep.values.skip(1)) {
         final spent = record.spentOn(step);

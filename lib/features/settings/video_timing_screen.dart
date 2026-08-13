@@ -156,7 +156,13 @@ class _Summary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final totals = records.map((r) => r.total).whereType<Duration>().toList();
+    // `perceived` et non `total` : pour une face préchargée, l'attente ne
+    // commence qu'à l'affichage. Confondre les deux, c'est chronométrer le
+    // temps que l'utilisateur passe à regarder autre chose.
+    final totals = records
+        .map((r) => r.perceived)
+        .whereType<Duration>()
+        .toList();
     final median = _median(totals);
     final target = _target;
     final ok = median != null && target != null && median <= target;
@@ -284,10 +290,15 @@ class _Record extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
+              if (record.prefetched)
+                const Padding(
+                  padding: EdgeInsets.only(right: 6),
+                  child: Icon(Icons.bolt, size: 14, color: Colors.amber),
+                ),
               Text(
-                record.total == null
+                record.perceived == null
                     ? '—'
-                    : '${record.total!.inMilliseconds} ms',
+                    : '${record.perceived!.inMilliseconds} ms',
                 style: Theme.of(
                   context,
                 ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
@@ -305,6 +316,20 @@ class _Record extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
+          // Une face préchargée : dire ce que le total brut recouvre, sinon
+          // l'écart entre les deux nombres passe pour une incohérence.
+          if (record.prefetched && record.total != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 20, top: 2),
+              child: Text(
+                'préchargée — ouverte ${record.total!.inMilliseconds} ms avant '
+                'la première image, dont ${record.displayedAt?.inMilliseconds ?? 0} ms '
+                'hors attente',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic),
+              ),
+            ),
           // Sans « + » : ces coûts se recouvrent, ils ne s'ajoutent pas aux
           // précédents.
           for (final entry in record.detail.entries)

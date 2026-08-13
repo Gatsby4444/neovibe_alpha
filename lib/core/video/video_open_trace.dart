@@ -154,6 +154,47 @@ class VideoOpenTrace {
     detail[label] = ms;
   }
 
+  /// La face a été ouverte **d'avance**, sans que l'utilisateur ne l'ait
+  /// demandée : le verso d'une Vibe, préparé pendant qu'on regarde le recto.
+  ///
+  /// ### Pourquoi ce drapeau décide de tout
+  ///
+  /// Sans lui, le chronomètre part au préchargement et s'arrête quand
+  /// l'utilisateur regarde enfin — il mesure alors **le temps qu'il a passé à
+  /// réfléchir**, pas une attente. Relevé du 2026-08-13 : deux faces arrière à
+  /// **10 712 ms** et **2 154 ms** d'« attente avant natif », qui portaient la
+  /// médiane à froid de ~853 ms à 1 002 ms.
+  ///
+  /// ⚠️ **C'est bloquant pour le préchargement** (`RAPPELS` #15) : une fois
+  /// l'étape 4 en place, *tout* contenu sera préchargé. Sans ce drapeau,
+  /// l'instrument annoncerait que le préchargement a tout ralenti — alors
+  /// qu'il aurait tout accéléré.
+  var prefetched = false;
+
+  /// Quand la face a réellement été portée à l'écran. Nul tant qu'elle ne
+  /// l'a pas été.
+  Duration? displayedAt;
+
+  /// Ce que l'utilisateur a **réellement** attendu.
+  ///
+  /// Pour une face demandée à l'écran, c'est le total : il inclut à juste
+  /// titre le téléchargement et l'aller-retour de clé. Pour une face
+  /// **préchargée**, l'attente ne commence qu'à l'affichage — tout ce qui
+  /// précède s'est passé pendant que l'utilisateur regardait autre chose.
+  Duration? get perceived {
+    final end = _marks[VideoOpenStep.premiereImage];
+    if (end == null || !prefetched) return end;
+    final from = displayedAt;
+    return from == null ? end : end - from;
+  }
+
+  /// Signale que la face [id] est ouverte **d'avance**. Appelé par l'écran qui
+  /// la demande — lui seul sait ce qu'il montre.
+  static void markPrefetched(String contentId, {required bool front}) {
+    if (!enabled) return;
+    _active['${contentId}_${front ? 'f' : 'b'}']?.prefetched = true;
+  }
+
   /// Millisecondes écoulées depuis le début de l'ouverture.
   int get elapsedMs => DateTime.now().difference(_start).inMilliseconds;
 

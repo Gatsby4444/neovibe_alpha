@@ -11,6 +11,7 @@ import '../../core/widgets/vibe_face.dart';
 import '../../core/models/story.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/formats.dart';
+import '../../core/video/video_open_trace.dart';
 import '../../core/widgets/avatar.dart';
 import '../../core/widgets/gradient.dart';
 import '../cards/flippable_card.dart';
@@ -105,9 +106,15 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                 final front = ref.watch(
                   contentFaceProvider(_spec(story, true)),
                 );
+                // Demandé dès l'ouverture, affiché seulement au retournement :
+                // c'est un préchargement, et la mesure doit le savoir (voir
+                // [VideoOpenTrace.prefetched]).
                 final back = story.hasBack
                     ? ref.watch(contentFaceProvider(_spec(story, false)))
                     : null;
+                if (story.hasBack && story.backIsVideo) {
+                  VideoOpenTrace.markPrefetched(story.id, front: false);
+                }
                 return front.when(
                   loading: () => const Center(
                     child: CircularProgressIndicator(color: Colors.white24),

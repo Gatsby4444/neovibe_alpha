@@ -245,6 +245,9 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
     if (pending != null) {
       final afterKey = pending.at(VideoOpenStep.cle)?.inMilliseconds ?? 0;
       pending.note('· attente avant natif', pending.elapsedMs - afterKey);
+      // Ouvrir le lecteur, c'est porter la face à l'écran : c'est d'ICI que
+      // court l'attente d'une face préchargée.
+      pending.displayedAt = Duration(milliseconds: pending.elapsedMs);
     }
     final reply = await _channel.invokeMapMethod<String, dynamic>(
       'create',

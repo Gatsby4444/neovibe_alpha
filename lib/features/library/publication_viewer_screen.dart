@@ -5,6 +5,7 @@ import '../../core/content/content_face.dart';
 import '../../core/crypto/media_open.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/video/video_open_trace.dart';
 import '../../core/widgets/card_type_badge.dart';
 import '../../core/widgets/content_overflow_menu.dart';
 import '../../core/widgets/save_button.dart';
@@ -51,9 +52,17 @@ class _PublicationViewerScreenState
     final item = widget.item;
     final mine = item.ownerId == ref.watch(currentUserIdProvider);
     final front = ref.watch(contentFaceProvider(_spec(true)));
+    // Le verso est demandé DÈS L'OUVERTURE, alors qu'il ne s'affiche qu'au
+    // retournement : c'est un préchargement, et il faut le dire à la mesure.
+    // Sans ça, le chronomètre du verso tourne pendant que l'utilisateur
+    // regarde le recto — au relevé du 2026-08-13, une face arrière affichait
+    // 11 s d'« attente » qui n'étaient que du temps de lecture.
     final back = item.hasBack
         ? ref.watch(contentFaceProvider(_spec(false)))
         : null;
+    if (item.hasBack && item.backIsVideo) {
+      VideoOpenTrace.markPrefetched(item.id, front: false);
+    }
 
     return Scaffold(
       backgroundColor: Colors.black,
