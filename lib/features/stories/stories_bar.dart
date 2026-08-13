@@ -74,7 +74,11 @@ class StoriesBar extends ConsumerWidget {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             itemCount: list.length,
-            itemBuilder: (context, index) => _StoryDot(ring: list[index]),
+            // Chaque pastille reçoit TOUTE la liste : arrivé au bout d'un
+            // auteur, la visionneuse enchaîne sur le suivant sans repasser
+            // par ici (consigne de Jay du 2026-08-13).
+            itemBuilder: (context, index) =>
+                _StoryDot(rings: list, index: index),
           ),
         );
       },
@@ -83,8 +87,12 @@ class StoriesBar extends ConsumerWidget {
 }
 
 class _StoryDot extends StatelessWidget {
-  const _StoryDot({required this.ring});
-  final StoryRing ring;
+  const _StoryDot({required this.rings, required this.index});
+
+  final List<StoryRing> rings;
+  final int index;
+
+  StoryRing get ring => rings[index];
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +101,9 @@ class _StoryDot extends StatelessWidget {
       padding: const EdgeInsets.only(right: 12),
       child: InkWell(
         onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => StoryViewerScreen(ring: ring)),
+          MaterialPageRoute(
+            builder: (_) => StoryViewerScreen(rings: rings, initialRing: index),
+          ),
         ),
         onLongPress: () => Navigator.of(context).push(
           MaterialPageRoute(

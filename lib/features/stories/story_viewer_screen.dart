@@ -25,8 +25,13 @@ import 'stories_repository.dart';
 /// progression 2 + espace 10 + rangée d'icônes 48 + padding 8.
 const _headerHeight = 76.0;
 
-/// Visionneuse de stories d'un auteur : on avance d'une story à l'autre en
-/// tapant à droite, on recule à gauche.
+/// Visionneuse de stories : on avance d'une story à l'autre en tapant à
+/// droite, on recule à gauche.
+///
+/// Depuis le 2026-08-13, elle parcourt **tous les anneaux du bandeau** et pas
+/// seulement celui par lequel on est entré : arrivé au bout d'un auteur, le
+/// clic à droite enchaîne sur le premier contenu du suivant. **On ne ferme
+/// qu'au tout dernier contenu, ou par la croix** (consigne de Jay).
 ///
 /// ⚠️ Depuis la refonte « 1 contenu = 1 format » (2026-08-11), cet écran ne
 /// passe plus par `CardViewerScreen`. Une story n'est plus une Card : elle n'a
@@ -35,18 +40,58 @@ const _headerHeight = 76.0;
 /// par cas — c'est exactement le mélange que la refonte supprime. Le chemin
 /// média est donc ici, et il est court : scellé → clé → clair → affichage.
 class StoryViewerScreen extends ConsumerStatefulWidget {
-  const StoryViewerScreen({super.key, required this.ring});
-  final StoryRing ring;
+  const StoryViewerScreen({
+    super.key,
+    required this.rings,
+    this.initialRing = 0,
+  });
+
+  /// **Tous** les anneaux du bandeau, dans l'ordre où ils y figurent — et non
+  /// le seul anneau ouvert.
+  ///
+  /// C'est ce qui permet d'enchaîner d'un auteur au suivant sans repasser par
+  /// le bandeau (consigne de Jay du 2026-08-13). Un appelant qui n'a qu'une
+  /// story à montrer — le partage dans un fil de conversation — passe une
+  /// liste d'**un** anneau : il n'y a alors pas de suivant, et la visionneuse
+  /// se ferme au bout. Aucun cas particulier à écrire.
+  final List<StoryRing> rings;
+
+  /// L'anneau par lequel on entre.
+  final int initialRing;
 
   @override
   ConsumerState<StoryViewerScreen> createState() => _StoryViewerScreenState();
 }
 
 class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
+  late var _ringIndex = widget.initialRing;
   var _index = 0;
   var _showFront = true;
 
-  Story get _story => widget.ring.stories[_index];
+  StoryRing get _ring => widget.rings[_ringIndex];
+  Story get _story => _ring.stories[_index];
+
+  /// La position qui suit celle-ci, anneaux compris. Nulle au tout dernier
+  /// contenu — c'est le seul endroit où « suivant » n'existe pas, et donc le
+  /// seul où un clic à droite ferme l'écran.
+  ///
+  /// Un seul calcul pour DEUX usages : la navigation et le préchargement. Les
+  /// écrire séparément, c'est se garantir qu'un jour l'un précharge ce que
+  /// l'autre n'affichera pas.
+  (int, int)? get _nextPosition {
+    if (_index < _ring.stories.length - 1) return (_ringIndex, _index + 1);
+    if (_ringIndex < widget.rings.length - 1) return (_ringIndex + 1, 0);
+    return null;
+  }
+
+  /// La position qui précède, anneaux compris — symétrique de [_nextPosition].
+  (int, int)? get _previousPosition {
+    if (_index > 0) return (_ringIndex, _index - 1);
+    if (_ringIndex > 0) {
+      return (_ringIndex - 1, widget.rings[_ringIndex - 1].stories.length - 1);
+    }
+    return null;
+  }
 
   /// Une face de la story affichée, en clair.
   ///
@@ -102,44 +147,56 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
 
   /// Prépare la story suivante — URL signée, clé et premier bloc.
   ///
-  /// C'est le cas d'usage exact du préchargement : dans un anneau de stories,
-  /// la suivante est connue d'avance et sera presque certainement regardée.
+  /// C'est le cas d'usage exact du préchargement : la suivante est connue
+  /// d'avance et sera presque certainement regardée.
+  ///
+  /// ⚠️ Elle suit [_nextPosition], donc **elle franchit la frontière entre
+  /// deux auteurs**. Depuis que le clic à droite enchaîne sur l'anneau suivant,
+  /// la première story d'un auteur n'est plus une entrée à froid : s'arrêter au
+  /// bord de l'anneau laisserait sans préparation précisément le contenu que
+  /// l'utilisateur va voir.
   void _preloadNext() {
-    final next = _index + 1;
-    if (next >= widget.ring.stories.length) return;
-    final story = widget.ring.stories[next];
+    final next = _nextPosition;
+    if (next == null) return;
+    final story = widget.rings[next.$1].stories[next.$2];
     _preloader.preload(_spec(story, true));
     // Le verso aussi : il s'affiche au retournement, et son coût serait alors
     // entièrement visible. Le préparer ne coûte rien de plus à l'utilisateur.
     if (story.hasBack) _preloader.preload(_spec(story, false));
   }
 
-  void _goTo(int index) {
+  void _goTo((int, int) position) {
     // La story quittée avant le seuil n'était pas un visionnage.
     _reporter.stopped(_story.id);
     setState(() {
-      _index = index;
+      _ringIndex = position.$1;
+      _index = position.$2;
       _showFront = true;
     });
     _onStoryShown();
   }
 
+  /// Clic à droite. **On ne ferme qu'au tout dernier contenu** — au bord d'un
+  /// anneau, on passe au premier contenu de l'auteur suivant (consigne de Jay
+  /// du 2026-08-13). La croix, elle, ferme toujours.
   void _next() {
-    if (_index < widget.ring.stories.length - 1) {
-      _goTo(_index + 1);
-    } else {
-      Navigator.of(context).pop();
-    }
+    final next = _nextPosition;
+    next == null ? Navigator.of(context).pop() : _goTo(next);
   }
 
+  /// Clic à gauche, symétrique : au premier contenu d'un anneau, on revient au
+  /// DERNIER de l'auteur précédent. Sans cette symétrie, revenir sur ses pas
+  /// après un enchaînement serait impossible — on ne pourrait plus que
+  /// continuer ou fermer.
   void _previous() {
-    if (_index > 0) _goTo(_index - 1);
+    final previous = _previousPosition;
+    if (previous != null) _goTo(previous);
   }
 
   @override
   Widget build(BuildContext context) {
     final me = ref.watch(currentUserIdProvider);
-    final owner = widget.ring.owner;
+    final owner = _ring.owner;
     final isMine = owner.id == me;
     final story = _story;
     final headerBottom = MediaQuery.paddingOf(context).top + _headerHeight;
@@ -248,7 +305,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
             left: 0,
             right: 0,
             child: _Header(
-              ring: widget.ring,
+              ring: _ring,
               index: _index,
               story: story,
               isMine: isMine,

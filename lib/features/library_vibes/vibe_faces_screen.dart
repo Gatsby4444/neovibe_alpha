@@ -1,10 +1,11 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/crypto/media_open.dart';
 import '../../core/models/library_vibe.dart';
+import '../../core/widgets/vibe_face.dart';
 import '../cards/flippable_card.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
@@ -40,10 +41,18 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
   Uint8List? _back;
 
   /// Faces réelles, chargées seulement si la vibe est révélée.
-  File? _frontFile;
-  File? _backFile;
+  ///
+  /// [OpenedMedia] et non `File` depuis le 2026-08-13 : une photo arrive en
+  /// mémoire, une vidéo se lit par blocs via le lecteur natif. **Aucun clair
+  /// sur le disque** — et une face vidéo s'affiche enfin, là où `Image.file`
+  /// sur un `.mp4` ne pouvait rien rendre.
+  OpenedMedia? _frontMedia;
+  OpenedMedia? _backMedia;
 
   String? _error;
+
+  /// La face posee a l'ecran : celle qui joue avec le son.
+  var _showFront = true;
 
   /// Flou en plein écran. Bien plus élevé que sur une tuile : le rayon est en
   /// pixels logiques, il suit la taille d'affichage.
@@ -78,28 +87,31 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
     if (!vibe.revealed) return;
 
     // Révélée : on remplace les placeholders par les vraies faces.
-    final isVideo = vibe.frontIsVideo;
     try {
-      final front = await repo.openRevealed(
-        vibe,
-        extension: isVideo ? 'mp4' : 'jpg',
-      );
-      if (mounted) setState(() => _frontFile = front);
+      final front = await repo.openRevealed(vibe, isVideo: vibe.frontIsVideo);
+      if (mounted) setState(() => _frontMedia = front);
     } catch (e) {
       if (mounted) setState(() => _error = '$e');
       return;
     }
     if (vibe.hasBack) {
-      final backIsVideo = vibe.backIsVideo;
       try {
         final back = await repo.openRevealed(
           vibe,
-          extension: backIsVideo ? 'mp4' : 'jpg',
+          isVideo: vibe.backIsVideo,
           back: true,
         );
-        if (mounted) setState(() => _backFile = back);
+        if (mounted) setState(() => _backMedia = back);
       } catch (_) {}
     }
+  }
+
+  @override
+  void dispose() {
+    // Le clair d'un média HÉRITÉ (format d'avant les blocs) meurt avec l'écran.
+    _frontMedia?.dispose();
+    _backMedia?.dispose();
+    super.dispose();
   }
 
   @override
@@ -133,6 +145,7 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
                 // pas un geste qui ne mènerait nulle part.
                 : vibe.hasBack
                 ? FlippableCard(
+                    onSideChanged: (f) => setState(() => _showFront = f),
                     front: _face(front: true),
                     back: _face(front: false),
                   )
@@ -161,10 +174,23 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
   }
 
   Widget _face({required bool front}) {
-    final file = front ? _frontFile : _backFile;
-    // Face réelle si la vibe est révélée ET que le déchiffrement a abouti.
-    if (file != null) {
-      return Image.file(file, fit: BoxFit.cover);
+    final media = front ? _frontMedia : _backMedia;
+    // Face réelle si la vibe est révélée ET que l'ouverture a abouti.
+    if (media != null) {
+      final isVideo = front
+          ? widget.vibe.frontIsVideo
+          : widget.vibe.backIsVideo;
+      // Une vibe reste une Vibe : même cadre, même couleur de type. C'est
+      // l'apparence du contenu, elle ne dépend pas du contexte de diffusion.
+      return isVideo
+          ? VibeVideoFace(
+              media: media,
+              type: widget.vibe.type,
+              // La face visible est celle qu'on regarde : l'autre reste en
+              // pause et muette derrière la carte.
+              active: front == _showFront,
+            )
+          : VibePhotoFace(bytes: media.photoBytes!, type: widget.vibe.type);
     }
     final bytes = front ? _front : _back;
     if (bytes == null) {

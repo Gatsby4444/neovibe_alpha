@@ -8,6 +8,8 @@ NeoVibe est un réseau social qui cherche à **retrouver de l'authenticité et d
 
 **Corollaire à ne jamais perdre de vue** : une barrière sans contrepartie ne retient personne. Si l'accès au chat est plus difficile ici qu'ailleurs, les utilisateurs vont ailleurs. **Il faut donc donner une légitimité aux barrières sociales** en rendant l'app utile, fun et vivante — c'est la moitié du produit qui reste à construire (voir `docs/vision-produit.md`).
 
+**Ajout du 2026-08-13 — « l'Apple des réseaux sociaux »** : interface **claire et épurée mais qui reste cool**, et **contrôle total de l'écosystème** — *« ce qui se passe sur NeoVibe reste sur NeoVibe »*. C'est la raison d'être du chiffrement et de la livraison sécurisée des médias : ce ne sont pas des précautions d'ingénieur, c'est cette phrase rendue vraie. Conséquence directe : **un média déchiffré écrit en clair sur le disque est un manquement à la promesse**, pas un détail d'implémentation. Corollaire de méthode : la bonne réponse est **le défaut juste, pas l'option supplémentaire** — sans quoi « contrôle total » et « épuré » se contredisent. Détail dans `docs/vision-produit.md` §1.
+
 Grille de décision, à appliquer à toute fonctionnalité : **soit elle passe par la présence physique, soit elle augmente la valeur d'une relation existante.** Si elle ne fait ni l'un ni l'autre, c'est du remplissage — exactement le mal qu'on combat. En cas de doute, trancher en faveur de l'authenticité de la relation, même si c'est moins pratique à développer.
 
 La vision complète (mécaniques fondatrices, ce qui reste à construire, points de vigilance) est dans **`docs/vision-produit.md`** — à relire en début de session avec `RAPPELS.md` et les derniers rapports.

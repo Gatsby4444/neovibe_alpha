@@ -1162,8 +1162,13 @@ class _SharedContentTile extends ConsumerWidget {
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute(
               builder: (_) => story != null
+                  // Une story partagée dans un fil se regarde SEULE : un seul
+                  // anneau, donc pas de suivant et fermeture au bout. Enchaîner
+                  // ici mènerait vers des contenus que ce partage n'ouvrait pas.
                   ? StoryViewerScreen(
-                      ring: StoryRing(owner: story.owner!, stories: [story]),
+                      rings: [
+                        StoryRing(owner: story.owner!, stories: [story]),
+                      ],
                     )
                   : PublicationViewerScreen(item: item!),
             ),

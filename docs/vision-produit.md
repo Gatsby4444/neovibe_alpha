@@ -32,6 +32,47 @@ d'exclusivité relationnelle).
 La présence physique reste **la barrière fondatrice**. L'authenticité et la
 valeur de la relation en sont **la finalité**.
 
+### Ajout du 2026-08-13 — « l'Apple des réseaux sociaux »
+
+> Formulation de Jay : *« une voie en plus, c'est qu'on veut construire l'Apple
+> des réseaux sociaux. Cela implique une interface claire et épurée mais qui
+> reste cool, un contrôle total de l'écosystème de l'app : "ce qui se passe sur
+> NeoVibe reste sur NeoVibe". C'est pour cela qu'on veut sécuriser et chiffrer
+> les contenus de cette manière ! »*
+
+Cette voie n'ajoute pas une fonctionnalité : elle donne **la raison d'être** de
+choix techniques déjà pris, et un critère pour ceux qui restent.
+
+**Trois exigences, indissociables :**
+
+| Exigence | Ce qu'elle impose |
+|---|---|
+| **Interface claire et épurée, mais cool** | Le dépouillement n'est pas de la froideur. Une Vibe garde son cadre, sa couleur de type, son halo — l'app est sobre dans sa structure et généreuse dans son objet. Pas de densité d'information gratuite, pas d'écran fourre-tout. |
+| **Contrôle total de l'écosystème** | Ce qui entre et ce qui sort de l'app passe par des chemins connus, comptés et voulus. Un contenu appartient à **un seul contexte de diffusion**, et chaque chemin d'accès est une décision, jamais un effet de bord. |
+| **« Ce qui se passe sur NeoVibe reste sur NeoVibe »** | La promesse faite à l'utilisateur. Le chiffrement par blocs, la lecture native sans clair sur le disque, l'URL signée, la clé rendue par le serveur à chaque ouverture : ce ne sont pas des précautions d'ingénieur, **c'est cette phrase, rendue vraie**. |
+
+**Ce que ça change pour les décisions techniques** — et c'est le point utile :
+
+1. **Un média déchiffré écrit en clair sur le disque est un manquement à la
+   promesse**, pas une commodité d'implémentation. C'est ce qui rend le chantier
+   des bibliothèques de conversations prioritaire (`RAPPELS.md`, décisions #24)
+   et non cosmétique.
+2. **Compter les chemins de sortie autant que les chemins d'entrée.** Le bouton
+   « Enregistrer », le repartage, la capture d'écran : chacun est une porte vers
+   l'extérieur, et chacune doit être un choix affiché de l'auteur.
+3. **L'anti-capture garde son positionnement assumé** — « coûteux et visible,
+   pas impossible ». La phrase de Jay est une promesse de *conception*, pas une
+   promesse d'inviolabilité ; ne jamais la vendre comme la seconde.
+4. **Une dépendance externe qui verrait passer un contenu en clair est
+   disqualifiée**, quel que soit son confort.
+
+⚠️ **Tension à surveiller, signalée pour mémoire** : « contrôle total de
+l'écosystème » et « interface épurée » peuvent se contredire. Chaque garantie a
+tendance à réclamer son réglage, son écran, sa case à cocher — et l'app finit
+dense à force d'être maîtrisée. **La bonne réponse est le défaut juste**, pas
+l'option supplémentaire : ce que l'utilisateur ne règle pas doit déjà être le
+comportement voulu. C'est exactement l'esprit de la référence Apple.
+
 ---
 
 ## 2. Les mécaniques fondatrices — construites

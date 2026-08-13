@@ -1,14 +1,15 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
-import 'package:cryptography/cryptography.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/crypto/chunked_seal.dart';
+import '../../core/crypto/media_open.dart';
 import '../../core/diagnostics/app_log.dart';
+import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
 import '../../core/models/library_vibe.dart';
 import '../../core/supabase_providers.dart';
@@ -28,8 +29,10 @@ import '../cards/card_media_cache.dart';
 ///    Le flou visible à l'écran est un pur habillage, appliqué au rendu par
 ///    `MaskedPlaceholder` — il n'a aucun rôle de sécurité, et flouter une image
 ///    déjà détruite n'y réinjecte rien.
-/// 2. **Le scellé.** Le média original chiffré en AES-GCM avec une clé
-///    aléatoire, confiée au serveur qui la retient jusqu'au reveal.
+/// 2. **Le scellé.** Le média original scellé au format PAR BLOCS (`NVC1`),
+///    le même que partout ailleurs, avec une clé aléatoire confiée au serveur
+///    qui la retient jusqu'au reveal. Depuis le 2026-08-13 : le lecteur natif
+///    sait donc le lire, et **plus aucun clair n'est écrit sur le disque**.
 ///
 /// C'est le client qui fait les deux, parce qu'il possède déjà l'original —
 /// il vient de le capturer. Le serveur ne traite aucune image ; sa seule
@@ -51,8 +54,6 @@ class LibraryVibesRepository {
   static const _placeholderWidth = 20;
 
   static const _bucket = 'library_vault';
-
-  final _algorithm = AesGcm.with256bits();
 
   // ─── Écriture ───────────────────────────────────────────────────────────
 
@@ -97,14 +98,16 @@ class LibraryVibesRepository {
 
     final started = DateTime.now();
     final placeholder = await _makePlaceholder(source, isVideo: isVideo);
-    // La MÊME clé chiffre les deux faces : AES-GCM tire un nonce aléatoire à
-    // chaque appel, donc deux fichiers distincts restent sûrs.
-    final secretKey = await _algorithm.newSecretKey();
-    final sealed = await _seal(source, secretKey);
+    // La MÊME clé chiffre les deux faces : chaque bloc tire son propre nonce,
+    // donc deux fichiers distincts restent sûrs.
+    final key = await ChunkedSeal.newKey();
+    final sealed = await _sealToBytes(source, key, isVideo: isVideo);
     final placeholderBack = back == null
         ? null
         : await _makePlaceholder(back, isVideo: backIsVideo);
-    final sealedBack = back == null ? null : await _seal(back, secretKey);
+    final sealedBack = back == null
+        ? null
+        : await _sealToBytes(back, key, isVideo: backIsVideo);
 
     AppLog.instance.app(
       'Vibe préparée',
@@ -140,7 +143,7 @@ class LibraryVibesRepository {
           'p_conversation_id': conversationId,
           'p_placeholder_path': placeholderPath,
           'p_sealed_path': sealedPath,
-          'p_media_key': base64Encode(await secretKey.extractBytes()),
+          'p_media_key': key,
           'p_card_type': type.dbValue,
           'p_front_is_video': isVideo,
           'p_back_is_video': backIsVideo,
@@ -199,18 +202,40 @@ class LibraryVibesRepository {
     return _client.storage.from(_bucket).download(path);
   }
 
-  /// Ouvre une vibe révélée : réclame la clé, déchiffre, écrit le résultat dans
-  /// un fichier temporaire utilisable par un lecteur d'image ou de vidéo.
+  /// Ouvre une vibe révélée : réclame la clé, puis rend un [OpenedMedia] prêt
+  /// à l'affichage.
   ///
   /// Lève si le reveal n'a pas eu lieu — le refus vient du **serveur**, pas
   /// d'une vérification locale qu'un client modifié pourrait contourner.
   ///
+  /// ### Ce qui a changé le 2026-08-13
+  ///
+  /// Cette méthode déchiffrait en Dart et **écrivait le clair sur le disque**
+  /// (`vibe_<id>.<ext>`). Elle passe désormais par [MediaOpen], comme les trois
+  /// autres chemins média : une **photo** arrive en mémoire, une **vidéo** est
+  /// lue bloc par bloc par le lecteur natif, qui déchiffre sur ses propres
+  /// fils. **Plus rien n'est écrit en clair.**
+  ///
+  /// Effet de bord qui n'en est pas un : une vibe **vidéo** s'affiche
+  /// désormais. Les deux écrans faisaient `Image.file` sur un `.mp4` — une
+  /// vidéo en bibliothèque de conversation ne pouvait pas s'afficher, et
+  /// personne ne l'avait relevé faute de mesure sur ce chemin.
+  ///
+  /// ⚠️ Ce qui n'a PAS changé : le fichier scellé est toujours téléchargé
+  /// **en entier** avant l'ouverture. La lecture par intervalles réclamerait
+  /// une URL signée sur `library_vault` et un cache dédié — chantier distinct
+  /// (`RAPPELS.md`, décisions #24).
+  ///
+  /// ⚠️ Ce qui ne changera PAS : la clé vient de `get_library_vibe_key`, qui
+  /// porte sa propre règle (le reveal). Le transport se mutualise, **la
+  /// politique de clé reste distincte** — règle 2 de `CLAUDE.md`.
+  ///
   /// [sealedBytes] : les octets déjà préchargés, pour éviter un second
   /// téléchargement. Ils sont récupérés si absents.
-  Future<File> openRevealed(
+  Future<OpenedMedia> openRevealed(
     LibraryVibe vibe, {
     Uint8List? sealedBytes,
-    required String extension,
+    required bool isVideo,
     bool back = false,
   }) async {
     AppLog.instance.action(
@@ -228,14 +253,26 @@ class LibraryVibesRepository {
       );
 
       final bytes = sealedBytes ?? await prefetchSealed(vibe, back: back);
-      final clear = await _unseal(bytes, key as String);
 
+      // Le SCELLÉ est posé sur le disque — c'est du chiffré, illisible sans la
+      // clé — et c'est lui que le lecteur natif ouvrira. Le clair, lui, n'y
+      // apparaît jamais.
       final dir = await getTemporaryDirectory();
       final suffix = back ? '_back' : '';
-      final file = File('${dir.path}/vibe_${vibe.id}$suffix.$extension');
-      await file.writeAsBytes(clear, flush: true);
-      AppLog.instance.app('Vibe déchiffrée', '${clear.length} o · $extension');
-      return file;
+      final sealedFile = File('${dir.path}/vault_${vibe.id}$suffix.bin');
+      await sealedFile.writeAsBytes(bytes, flush: true);
+
+      final media = await MediaOpen.open(
+        sealedFile,
+        key as String,
+        isVideo: isVideo,
+        cacheId: '${vibe.id}$suffix',
+      );
+      AppLog.instance.app(
+        'Vibe ouverte',
+        '${bytes.length} o scellés · ${isVideo ? 'vidéo' : 'photo'}',
+      );
+      return media;
     } catch (e) {
       // Le refus AVANT l'heure est un fonctionnement NORMAL, pas une panne :
       // il est journalisé comme tel pour ne pas polluer la recherche de bugs.
@@ -305,29 +342,40 @@ class LibraryVibesRepository {
 
   // ─── Scellé ─────────────────────────────────────────────────────────────
 
-  /// Chiffre un média en AES-256-GCM.
+  /// Scelle un média au format **par blocs** (`NVC1`), le même que partout
+  /// ailleurs dans l'app, et rend les octets prêts à téléverser.
   ///
-  /// Le nonce et le MAC voyagent avec le chiffré (`concatenation`) : c'est la
-  /// clé, et elle seule, qui est retenue par le serveur. La clé est fournie par
-  /// l'appelant pour que les deux faces d'une même vibe la partagent.
-  Future<Uint8List> _seal(File source, SecretKey secretKey) async {
-    final box = await _algorithm.encrypt(
-      await source.readAsBytes(),
-      secretKey: secretKey,
-    );
-    return Uint8List.fromList(box.concatenation());
-  }
-
-  Future<List<int>> _unseal(Uint8List sealed, String keyBase64) async {
-    final box = SecretBox.fromConcatenation(
-      sealed,
-      nonceLength: 12,
-      macLength: 16,
-    );
-    return _algorithm.decrypt(
-      box,
-      secretKey: SecretKey(base64Decode(keyBase64)),
-    );
+  /// ### Pourquoi ce chemin a changé le 2026-08-13
+  ///
+  /// Il chiffrait en AES-GCM **d'un seul bloc** (`box.concatenation()`), un
+  /// format que le lecteur natif ne sait pas lire. Conséquence en chaîne :
+  /// pour afficher une vibe révélée il fallait tout déchiffrer en Dart, puis
+  /// **écrire le clair dans un fichier temporaire**. Or « ce qui se passe sur
+  /// NeoVibe reste sur NeoVibe » (voie produit du 2026-08-13) : un média
+  /// déchiffré posé sur le disque est un manquement à cette promesse, pas un
+  /// détail d'implémentation.
+  ///
+  /// Passer par [FaceDelivery] plutôt que d'appeler `ChunkedSeal` directement
+  /// n'est pas cosmétique : c'est lui qui applique aussi `fastStart` sur une
+  /// vidéo, et c'est le **passage obligé** dont l'existence même sert à ce
+  /// qu'une préparation ne soit pas oubliée à un endroit sur quatre.
+  Future<Uint8List> _sealToBytes(
+    File source,
+    String key, {
+    required bool isVideo,
+  }) async {
+    final dir = await getTemporaryDirectory();
+    final target = File('${dir.path}/vault_seal_${newUuid()}.bin');
+    try {
+      await FaceDelivery.seal(source, target, key, isVideo: isVideo);
+      return await target.readAsBytes();
+    } finally {
+      // Le scellé transite par le disque le temps du téléversement — mais
+      // c'est du CHIFFRÉ, et il ne survit pas à l'appel.
+      try {
+        if (target.existsSync()) await target.delete();
+      } catch (_) {}
+    }
   }
 }
 

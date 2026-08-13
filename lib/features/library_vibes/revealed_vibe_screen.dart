@@ -1,11 +1,12 @@
-import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/crypto/media_open.dart';
 import '../../core/models/library_vibe.dart';
+import '../../core/widgets/vibe_face.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
 
@@ -81,7 +82,9 @@ class _RevealedVibeScreenState extends ConsumerState<RevealedVibeScreen>
         ),
       );
 
-  File? _file;
+  /// [OpenedMedia] et non `File` depuis le 2026-08-13 : plus aucun clair n'est
+  /// ecrit sur le disque, et une face video s'affiche enfin.
+  OpenedMedia? _media;
   String? _error;
 
   @override
@@ -92,16 +95,15 @@ class _RevealedVibeScreenState extends ConsumerState<RevealedVibeScreen>
 
   Future<void> _open() async {
     try {
-      final isVideo = widget.vibe.frontIsVideo;
-      final file = await ref
+      final media = await ref
           .read(libraryVibesRepositoryProvider)
           .openRevealed(
             widget.vibe,
             sealedBytes: widget.sealedBytes,
-            extension: isVideo ? 'mp4' : 'jpg',
+            isVideo: widget.vibe.frontIsVideo,
           );
       if (!mounted) return;
-      setState(() => _file = file);
+      setState(() => _media = media);
       _controller.forward();
     } catch (e) {
       if (!mounted) return;
@@ -112,6 +114,8 @@ class _RevealedVibeScreenState extends ConsumerState<RevealedVibeScreen>
   @override
   void dispose() {
     _controller.dispose();
+    // Le clair d'un media HERITE (format d'avant les blocs) meurt avec l'ecran.
+    _media?.dispose();
     super.dispose();
   }
 
@@ -153,11 +157,11 @@ class _RevealedVibeScreenState extends ConsumerState<RevealedVibeScreen>
           MaskedPlaceholder(bytes: placeholder, sigma: _startSigma),
 
         // Sans placeholder (cas de repli), on ne laisse pas un écran noir muet.
-        if (placeholder == null && _file == null)
+        if (placeholder == null && _media == null)
           const Center(child: CircularProgressIndicator(color: Colors.white24)),
 
         // Couche 2 et 3 — l'image réelle, qui apparaît puis se dévoile.
-        if (_file != null)
+        if (_media != null)
           AnimatedBuilder(
             animation: _controller,
             builder: (context, child) => Opacity(
@@ -173,7 +177,17 @@ class _RevealedVibeScreenState extends ConsumerState<RevealedVibeScreen>
                 child: child,
               ),
             ),
-            child: Image.file(_file!, fit: BoxFit.contain),
+            // Une vibe reste une Vibe : meme cadre, meme couleur de type.
+            child: widget.vibe.frontIsVideo
+                ? VibeVideoFace(
+                    media: _media!,
+                    type: widget.vibe.type,
+                    active: true,
+                  )
+                : VibePhotoFace(
+                    bytes: _media!.photoBytes!,
+                    type: widget.vibe.type,
+                  ),
           ),
       ],
     );
