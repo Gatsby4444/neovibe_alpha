@@ -5,9 +5,9 @@ Deux parties : la **partie 1 est pour Jay** (ce qu'il fait à la main), la
 **partie 2 est pour Claude Code** (ce qu'il vérifie et reconstruit tout seul
 à la première session sur la nouvelle machine).
 
-Dernière mise à jour : **2026-08-02**, état du projet : **v0.9.41**
-(testée et **validée** par Jay ; un chantier vient d'être ouvert et attend ses
-arbitrages — voir §2.4).
+Dernière mise à jour : **2026-08-13**, état du projet : **v0.9.67**
+(chantier livraison des médias en cours ; un relevé de mesures est attendu de
+Jay à la reprise — voir §2.4).
 
 ---
 
@@ -57,7 +57,7 @@ elle vit hors du dossier projet (voir §1.5).
 | Sur la clé | À remettre où, sur la nouvelle machine |
 |---|---|
 | `neovibe_alpha.zip` | Décompresser dans `C:\Charles\` → doit donner `C:\Charles\neovibe_alpha` |
-| `memory\` (18 fichiers au 2026-08-02) | `C:\Users\<TON_PROFIL>\.claude\projects\C--Charles-neovibe-alpha\memory\` |
+| `memory\` (**28 fichiers** au 2026-08-13) | `C:\Users\<TON_PROFIL>\.claude\projects\C--Charles-neovibe-alpha\memory\` |
 | *(optionnel)* `dev\` | `C:\Charles\dev\` — évite de retélécharger 6,4 Go de toolchain |
 
 > ⚠️ **Le chemin `C:\Charles\neovibe_alpha` n'est pas cosmétique.** Claude Code
@@ -68,6 +68,15 @@ elle vit hors du dossier projet (voir §1.5).
 > base de dev. C'est le seul endroit où ils sont écrits — ils ne sont **pas**
 > dans le dépôt, exprès. Passe par la clé USB, **pas** par un service de
 > transfert en ligne.
+
+> ⚠️ **Deux fichiers de secrets vivent dans `docdev/`**, qui est **gitignoré**
+> depuis le 2026-08-12 : `docdev/supabase-secrets.txt` (clé `service_role`) et
+> `docdev/bot-credentials.txt` (mots de passe des bots de test). **Le zip les
+> emporte** (il ne suit pas `.gitignore`), un clone **non**. C'est voulu :
+> ces secrets ne doivent jamais entrer dans le dépôt. Leçon du 2026-08-12 — un
+> secret qui n'existe que dans le contexte d'une session est un secret perdu.
+> `docdev/seed-media/` contient aussi trois vidéos libres de droits pour le
+> seed ; inutile de les transférer, elles se retéléchargent.
 
 ### 1.1 Installer les outils de base
 
@@ -202,11 +211,17 @@ Tu reprends un projet en cours. **Ne recommence rien, ne réorganise rien.**
    construire.
 3. `RAPPELS.md` — avant-prod, chantiers promis, décisions en attente, bugs
    connus, décisions à ne pas reproposer.
-4. Les **2 ou 3 derniers rapports** de `rapports-de-sessions/` (le plus récent à
-   ce jour : `2026-08-02_14-36.md`, qui contient la **spécification du chantier
-   stories en deck** et les questions non tranchées ; puis `2026-08-01_19-55.md`
-   pour la nav 5 onglets, les stories et les bots de test).
-5. `git log --oneline -15` pour l'état réel du code.
+4. Les **2 ou 3 derniers rapports** de `rapports-de-sessions/`. Le plus récent
+   à ce jour : **`2026-08-13_14-10.md`** — très long, c'est la session du
+   chantier « livraison des médias » (mesure, préchargement, réorganisation des
+   réglages, inspecteur de règles). Puis `2026-08-12_18-45.md` (lecture native
+   directe, streaming par intervalles) et `2026-08-11_17-59.md` (refonte
+   « 1 contenu = 1 format »).
+5. **`docs/cours-livraison-des-medias.html`** — le cours écrit pour Jay le
+   2026-08-13 : stockage objet, HTTP, URL signée, clé, format par blocs, qui
+   compte quoi, et les options de préchargement. **À lire avant de toucher au
+   chemin des médias.**
+6. `git log --oneline -15` pour l'état réel du code.
 
 ### 2.2 Vérifications d'environnement (à faire, pas à supposer)
 
@@ -241,10 +256,69 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
   test de la base de dev n'y sera plus : le signaler à Jay plutôt que d'en créer
   un sans lui demander.
 
-### 2.3 État du projet à la bascule (2026-08-02, v0.9.41)
+### 2.3 État du projet à la bascule (2026-08-13, v0.9.67)
 
-- **`pubspec.yaml` en `0.9.41+131`**, dernière release **v0.9.41**, working tree
+- **`pubspec.yaml` en `0.9.67+157`**, dernière release **v0.9.67**, working tree
   propre, `master` aligné sur `origin/master`.
+- **⚠️ Dix versions ont été publiées le 2026-08-13** (v0.9.58 → v0.9.67). Toutes
+  ont un APK sur GitHub et des notes de test détaillées. **Lire les notes de
+  release** est le moyen le plus rapide de comprendre l'enchaînement.
+- **Une migration a été appliquée en base le 2026-08-13** :
+  `20260813162722_content_view_recorded_on_display`. Elle est **dans le dépôt**
+  et **déjà appliquée** sur le projet de dev — ne pas la rejouer.
+
+#### Le socle de contenu (refonte du 2026-08-11, terminée)
+
+« **1 contenu = 1 format** » : une story, une publication et une Vibe en DM sont
+des objets **distincts**, chacun avec son contexte de diffusion. Le repartage
+est un **chemin** vers la source, jamais une copie. Tables `contents`,
+`content_grants`, `content_views`. Détail : `docs/controle-de-la-distribution.md`
+et la mémoire `project-neovibe-content-spine`.
+
+#### La livraison des médias (chantier du 2026-08-12 → 2026-08-13)
+
+C'est **le** sujet en cours. Dans l'ordre où les pièces ont été posées :
+
+| Pièce | Version | État |
+|---|---|---|
+| Chiffrement par blocs (format `NVC1`) | v0.9.54 | livré |
+| **Lecture native directe** (ExoPlayer + `SealedDataSource`, Kotlin) | v0.9.57 | livré, validé |
+| Index MP4 en tête (`Mp4FastStart`) | v0.9.57 | livré |
+| Lecture par intervalles + cache partiel | v0.9.57 | livré, validé |
+| Instrument de mesure (4 états, détail par étape) | v0.9.58→67 | livré |
+| Réglages en dossiers + « Tout copier » | v0.9.60 | livré, validé |
+| Inspecteur de règles des Vibes | v0.9.63 | livré, validé |
+| **Préchargement** (URL + clé + 1er bloc) | v0.9.64→67 | livré, **mesure attendue** |
+
+**Chiffres de référence** (Xiaomi M2101K6G, Android 13, relevés par Jay) :
+
+- cache complet : **médiane 290 ms** pour une cible de 300 → **tenue**
+- à froid : **~850 ms** pour une cible de 1 s → tenue
+- décomposition restante : `· décodage entête` **~149 ms** (le poste dominant),
+  `· attente avant natif` ~50 ms (interface), le reste négligeable
+
+⚠️ **Ne jamais citer un chiffre de mesure sans dire de quel seau il vient.**
+Trois fois dans la journée du 2026-08-13, un instrument conçu avant le mécanisme
+qu'il jugeait a produit un chiffre juste répondant à la mauvaise question. Voir
+la mémoire `feedback-read-the-measurement-not-the-instrument`.
+
+#### Ce qui est verrouillé sur la livraison, et pourquoi
+
+- **Les Vibes en DM ne sont PAS préchargées** (décision de Jay, 2026-08-13).
+  `open_card_media` vérifie, décompte et rend la clé dans **une seule
+  transaction** : précharger la clé **brûlerait une vue**. C'est ce qui fait de
+  la limite de vues une garantie et non une convention (décision du 2026-08-10).
+  Garanti **par construction** : `ContentPreloader` ne manipule que des
+  `ContentFace`, le type du socle, par lequel une Vibe en DM ne passe pas.
+- **Les vues du socle sont enregistrées à l'affichage**, après **3 s**
+  (`record_content_view`), et non plus à la remise de la clé. Contrepartie
+  assumée : l'enregistrement dépend du client — acceptable car un contenu du
+  socle n'a **aucun budget de vues**.
+- **Le chantier « préparer un lecteur d'avance » n'est PAS mort** : il a été
+  déclaré mort à tort le 2026-08-13 sur la foi de `· construction lecteur`
+  (2-6 ms), qui ne mesure que la construction de l'objet. Le vrai coût est
+  `· décodage entête` (~149 ms) et **il se prépare d'avance**. C'est l'option 3,
+  la dernière à faire.
 - **Le volet caméra est CLOS** depuis le 2026-07-25 (Jay : « c'est fonctionnel
   et globalement propre »). **Ne pas le rouvrir de sa propre initiative.** Le
   chantier GPU/OpenGL est terminé et validé (v0.9.23) : double aperçu 2×30 i/s,
@@ -256,20 +330,44 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
   placeholder** assumé (« Bientôt ici »), qui réserve la place du chantier
   quiz/mini-jeux — **il ne peut pas partir en prod tel quel** (RAPPELS,
   avant-prod #15).
-- **Stories livrées et validées** (v0.9.38 → v0.9.41) : une story **EST une Card
-  publiée en story**, 24 h consultable sans limite, bandeau en haut du Cercle
-  (amis) et du Ping (croisés de moins de 24 h si l'auteur a activé « stories
-  publiques »). Côté serveur : table `stories`, `private.can_view_stories`,
-  `private.is_story_card`, purge au cron, et purge 24 h de `public.encounters`.
-- ⚠️ **Chantier ouvert le 2026-08-02, en attente des arbitrages de Jay : les
-  stories en deck.** Il juge le format Card (recto/verso) inadapté aux stories
-  et veut un dérivé sans retournement, en deck/éventail. **Trois questions sans
-  réponse — ne rien coder avant** : voir §2.4 et `RAPPELS.md` (Décisions en
-  attente #6).
+- **Les Réglages sont en dossiers depuis la v0.9.60** : six catégories, chacune
+  sur son écran (`lib/features/settings/sections/`), plus un dossier
+  **Développeur** avec trois sous-dossiers. ⚠️ **Conséquence pour la prod** : le
+  retrait de la section dev est devenu **une opération unique et vérifiable** —
+  supprimer le dossier et sa tuile dans `settings_screen.dart`. La liste exacte
+  de ce qui part avec est dans `RAPPELS.md` (avant-prod #4).
+- **Outils de diagnostic (dev)** : Développeur → **« Tout copier pour
+  diagnostic »** rassemble appareil + version + mesures vidéo + règles des Vibes
+  + journal caméra + journal de l'app en un seul bloc. **C'est ce qu'il faut
+  demander à Jay** plutôt que des relevés écran par écran.
+- **Stories livrées et validées** (v0.9.38 → v0.9.41), puis reversées dans le
+  socle unifié le 2026-08-11 : une story est désormais un **contenu autonome**,
+  plus « une Card publiée en story ». 24 h consultable sans limite, bandeau en
+  haut du Cercle (amis) et du Ping (croisés de moins de 24 h si l'auteur a
+  activé « stories publiques »).
+- ⚠️ **Chantier ouvert le 2026-08-02, toujours en attente des arbitrages de
+  Jay : les stories en deck.** Il juge le format Card (recto/verso) inadapté aux
+  stories et veut un dérivé sans retournement, en deck/éventail. **Trois
+  questions sans réponse — ne rien coder avant** : voir §2.4 et `RAPPELS.md`
+  (Décisions en attente #6).
+- **Blocage livré** (v0.9.53) : coupe la visibilité des contenus du socle, les
+  relais dans les deux sens et les partages contournants. ⚠️ **Ne coupe PAS**
+  encore la connexion, les conversations, les Vibes en DM, le profil ni les
+  croisements BLE — **arbitrage de Jay attendu** (`RAPPELS.md`, décisions en
+  attente #9).
 - **Cinq bots de test** en base de dev (`Lea`, `Malik`, `Chloe` amis ; `Yanis`,
-  `Sofia` croisés), un par branche de la règle d'accès aux stories. Mot de passe
-  **hors dépôt**, dans la mémoire de Claude. **À supprimer avant la prod**
-  (RAPPELS, avant-prod #14).
+  `Sofia` croisés), un par branche de la règle d'accès aux stories. **À
+  supprimer avant la prod** (RAPPELS, avant-prod #14). ⚠️ **Leurs mots de passe
+  ne sont PAS dans la mémoire de Claude** — corrigé le 2026-08-12 : ils vivent
+  dans `docdev/bot-credentials.txt`, gitignoré, emporté par le zip mais pas par
+  un clone. En cas de perte, le seul chemin est la réinitialisation par SQL
+  (voir RAPPELS avant-prod #14).
+- **Seed de contenu** : `tool/seed_bot_media.dart` — 26 Vibes (8 avec face
+  vidéo), 12 stories, 10 publications, tout scellé et téléversé **sous
+  l'identité de chaque bot**, donc à travers les vraies règles d'accès.
+  ⚠️ Les vidéos seedées n'ont pas leur index en tête (`fastStart` est natif,
+  inaccessible depuis un outil Dart pur) : elles sont **légèrement pessimistes**
+  dans les mesures face à une vidéo filmée dans l'app.
 - **Deux chantiers produit toujours ouverts** : **quiz / mini-jeux entre amis**
   puis **feed local** (ville / région / pays + comptes créateurs internationaux
   — à ne pas confondre avec le feed algorithmique global, lui hors scope).
@@ -288,7 +386,12 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
   - juger du matériel sur un **délai en dur** : attendre le FAIT, pas le
     chronomètre ;
   - faire du travail lourd (rendu, conversion) **sur le thread caméra** ;
-  - utiliser `ref` (Riverpod) dans un `dispose()` ;
+  - **utiliser `ref` (Riverpod) dans un `dispose()`** — ⚠️ **commis DEUX fois**,
+    la seconde le 2026-08-13 (v0.9.64), alors que l'avertissement était écrit en
+    toutes lettres dans `card_viewer_screen.dart`. 19 erreurs dans le journal de
+    Jay, une par fermeture d'écran. **Capturer les dépendances dans un
+    `late final` posé en `initState`.** Vérifier **par inventaire** après coup :
+    `for f in $(grep -rl "void dispose()" lib/); do awk '/void dispose\(\)/,/^  \}/' "$f" | grep -q "ref\." && echo "$f"; done` ;
   - **poser un état juste avant d'appeler une méthode qui le réinitialise** — le
     passer en argument (bug du verrou vidéo du retardateur) ;
   - **bumper la version après le build** : la poser avant, sinon l'APK est à
@@ -322,12 +425,68 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
     `email_change_token_new`) : GoTrue les lit en `string` et renvoie un
     `Database error querying schema` (HTTP 500) à la connexion, sans rapport
     apparent avec la cause.
-- **Outil de diagnostic** : Réglages → Développeur → **Journal caméra**
-  (persistant, survit aux crashes, bouton Copier). S'en servir avant de deviner.
+  - **CONCEVOIR UN INSTRUMENT AVANT LE MÉCANISME QU'IL DOIT JUGER** — la faute
+    la plus coûteuse du 2026-08-13, **commise trois fois dans la même journée** :
+    (a) un seau « en cache » rempli par « le fichier existe », alors que le cache
+    par blocs crée le fichier à sa taille définitive dès le premier bloc ;
+    (b) un chronomètre qui comptait le **temps de réflexion de l'utilisateur**
+    sur les faces préchargées (11 s attribuées à l'app) ; (c) un seau « partiel »
+    sans cible, où serait tombé tout le résultat du préchargement. **Après tout
+    changement d'architecture, rejouer la mesure comme on rejoue les décisions**
+    (règle 6 de `CLAUDE.md`) ;
+  - **conclure d'un chiffre sans demander ce que sa population peut contenir** —
+    « le préchargement est inutile », conclu à partir du seul seau qui, par
+    construction, ne contenait que du contenu **déjà téléchargé**. Biais de
+    sélection, corrigé par Jay ;
+  - **lire un zéro comme une mesure alors qu'il vient de la forme de
+    l'instrument** — deux jalons rendus simultanés produisent mécaniquement un
+    « 0 ms » qui ne mesure rien ;
+- **Outils de diagnostic** : Réglages → **Développeur** →
+  **« Tout copier pour diagnostic »** (appareil, version, mesures vidéo, règles
+  des Vibes, journal caméra, journal de l'app — en un bloc). Sous-dossier
+  **Journaux et mesures** pour le détail. S'en servir avant de deviner, et
+  **demander le bloc entier à Jay** plutôt que des relevés partiels.
 
 ### 2.4 Ce qui attend (par priorité, à confirmer avec Jay)
 
-1. **CHANTIER EN TÊTE — les stories en deck.** Décidé par Jay le 2026-08-02 au
+0. **🔔 À RÉCLAMER DÈS LA REPRISE — le relevé de la v0.9.67.** Jay a terminé la
+   session du 2026-08-13 en disant « je vais tester ». Ce qu'il doit fournir :
+   **Développeur → « Tout copier pour diagnostic »**, après avoir
+   **vidé le cache** (Réglages → Vibes → Stockage → « Vider le stockage des
+   stories et publications ») puis enchaîné plusieurs stories d'un même anneau.
+
+   **Ce que ce relevé décide** : le préchargement n'a **jamais été mesuré sur
+   du contenu froid** — c'est-à-dire précisément le cas qu'il sert. Attendu : la
+   première story de chaque anneau dans « À froid » (~800 ms), les suivantes
+   dans **🚀 Amorcé** avec `URL signée` et `clé` à 0 ms et un total autour de
+   **200 ms**. Si les suivantes n'atterrissent pas dans « Amorcé », c'est que le
+   préchargement n'a pas eu le temps de finir entre deux stories — information
+   utile en soi.
+
+1. **L'option 3 — préparer un lecteur d'avance.** Le dernier morceau du chantier
+   livraison, et le plus utile au feed : `· décodage entête` vaut **~149 ms** et
+   c'est désormais le poste dominant. ⚠️ **À faire avec soin** : un ExoPlayer
+   vivant retient un **décodeur matériel**, ressource limitée sur un téléphone.
+   Le code porte déjà cet avertissement (`MainActivity.onDestroy`). Il faut un
+   pool **strictement borné** avec libération garantie. `RAPPELS.md` #16 et #21.
+
+2. **Élargir la couverture du préchargement.** Aujourd'hui il n'est câblé que
+   sur « la story suivante d'un anneau ». Les publications ne sont pas
+   préchargées du tout. Mesuré le 2026-08-13 : le mécanisme fonctionne
+   (5 ms au lieu de 120 ms) mais ne couvre qu'une ouverture sur sept.
+   ⚠️ **Toute nouvelle source de préchargement doit appeler
+   `VideoOpenTrace.markPrefetched`**, sinon elle réintroduit un artefact de
+   mesure (`RAPPELS.md` #17).
+
+3. **Unifier les deux chemins de cache** (`card_media_cache.dart` à côté de
+   `content_media_cache.dart`). Les Vibes en DM téléchargent encore **en
+   entier**. ⚠️ **Ne PAS fusionner naïvement** : le transport (intervalles,
+   cache partiel, lecteur natif) se mutualise, mais **la politique de clé doit
+   rester distincte** — une Vibe en DM porte un budget de vues, pas un contenu
+   du socle. Fusionner les deux ferait sauter la garantie sans que rien ne le
+   signale. C'est la règle 2 de `CLAUDE.md` appliquée aux secrets.
+
+4. **CHANTIER — les stories en deck.** Décidé par Jay le 2026-08-02 au
    vu du test de la v0.9.41 : « le format card tel qu'il est actuellement n'est
    pas adapté pour les stories ». Dérivé de la Card **sans recto/verso ni
    retournement**, présenté en **deck / éventail**. Spécification complète,
@@ -344,35 +503,59 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
    Deux réserves ont été signalées à Jay et lui appartiennent : le **like ne
    passe pas la grille de décision de `CLAUDE.md`**, et la carte de gestes
    proposée a un **conflit gauche/gauche** (swipe = passer vs clic = précédent).
-2. **Trois arbitrages plus anciens, toujours ouverts** : libellé du 4e onglet
-   (« Jeux » retenu seul, le feed local voudra sans doute sa place) ; les
-   curseurs visionnages/durée **conservés** dans l'envoi direct en conversation,
-   à confirmer ; faut-il que les **bots répondent** (demande un déclencheur
-   serveur — cron ou Edge Function, chantier à part) ?
-3. **Suite de la réorganisation UI**, acceptée dans le principe et non faite :
-   sortir « Enregistrements » et « Stockage des Cards » des Réglages vers le
-   Profil, puis remonter le ♥ (demandes / recos / waves) en badge sur l'onglet
-   Profil. Ce sont les deux accès les plus contre-intuitifs qui restent.
-4. **Contrôle d'accès des stories à confirmer À L'ŒIL** : *Yanis* doit
+5. **Les tests annoncés par Jay et jamais faits** : les **règles des cards et
+   des Vibes**, et le **système de vues**. Annoncés le 2026-08-12, repoussés
+   toute la journée du 2026-08-13 par le chantier mesure. L'outil est prêt
+   depuis la v0.9.63 (**Développeur → Journaux et mesures → Règles des Vibes**)
+   et le seed a été fabriqué pour ça. Premiers verdicts relevés le 2026-08-13 :
+   **tous verts** (1 vue par ouverture), mais sur peu de cas et sans épuisement
+   de budget.
+
+6. **Arbitrages plus anciens, toujours ouverts** : la **portée du blocage**
+   (`RAPPELS` décisions #9) ; la **durée de conservation du journal de
+   propagation** (`RAPPELS` #7) ; l'**asymétrie du journal** — depuis le
+   2026-08-13 il n'existe plus qu'un seul point d'enregistrement, mais Jay n'a
+   pas tranché sur la conservation ; le libellé du 4e onglet ; faut-il que les
+   **bots répondent** (déclencheur serveur, chantier à part) ?
+
+7. **Suite de la réorganisation UI**, acceptée dans le principe et **en partie
+   faite** le 2026-08-13 (les Réglages sont passés en dossiers). Restent :
+   sortir « Enregistrements » et « Stockage des Vibes » vers le Profil, et
+   remonter le ♥ (demandes / recos / waves) en badge sur l'onglet Profil.
+
+8. **Contrôle d'accès des stories à confirmer À L'ŒIL** : *Yanis* doit
    apparaître dans le bandeau du Ping, *Sofia* **nulle part**. Vérifié en base,
    jamais constaté à l'écran.
-5. **Streaks de proximité** — chantier promis, Jay a insisté pour ne pas
+
+9. **Streaks de proximité** — chantier promis, Jay a insisté pour ne pas
    l'oublier. ⚠️ `public.encounters` étant désormais purgé à 24 h, un streak ne
    peut **pas** se calculer en relisant cette table : il faudra un compteur
    persistant séparé (RAPPELS, chantiers #1).
-6. **Quiz / mini-jeux** puis **feed local**. Conseil non tranché : faire la
-   **couche d'abstraction des accès aux données** avant eux.
-7. Le reste de `RAPPELS.md` (dont : réactiver FLAG_SECURE, retirer la section
-   Développeur et le journal caméra, **supprimer les bots de test**, masquer ou
-   livrer l'onglet Jeux — le tout avant la prod ; vidéo HD quand l'hébergement
-   le permettra ; vignettes des « Enregistrements » à câbler sur le cache local).
+
+10. **Quiz / mini-jeux** puis **feed local**. ⚠️ Conseil devenu **urgent**
+    depuis que Jay a tranché pour un VPS en prod (2026-08-13) : faire la
+    **couche d'abstraction des accès aux données** avant eux — 85 appels
+    Supabase directs dans 31 fichiers, c'est le coût de sortie réel
+    (`RAPPELS.md` avant-prod #11 et #12).
+
+11. Le reste de `RAPPELS.md` (dont : réactiver FLAG_SECURE, **retirer le
+    dossier Développeur** — devenu une opération unique, voir avant-prod #4 —,
+    **supprimer les bots de test**, masquer ou livrer l'onglet Jeux — le tout
+    avant la prod ; vidéo HD quand l'hébergement le permettra ; vignettes des
+    « Enregistrements » à câbler sur le cache local).
 
 ### 2.5 Premier message à Jay
 
 Résumer en quelques phrases : ce qui a été vérifié, ce qui manque le cas échéant
-(`env.dart`, mémoire, MCP, tags), l'état du projet, et **reposer les trois
-questions du chantier stories en deck** — c'est ce qui bloque la reprise. **Ne
-pas se lancer dans un chantier sans son feu vert.**
+(`env.dart`, mémoire, `docdev/`, MCP, tags), l'état du projet — puis **réclamer
+le relevé de la v0.9.67** (§2.4 point 0). C'est lui qui décide de la suite du
+chantier livraison, et Jay a terminé la session du 2026-08-13 en annonçant qu'il
+allait tester.
+
+**Ne pas se lancer dans un chantier sans son feu vert.** Et ne pas engager
+l'option 3 (lecteur préparé d'avance) avant d'avoir ses chiffres : c'est
+exactement l'erreur commise et corrigée le 2026-08-13, où un chantier a été
+ouvert puis abandonné sur une mesure mal lue.
 
 ---
 
