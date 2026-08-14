@@ -5,6 +5,7 @@ import '../../../core/diagnostics/diagnostic_bundle.dart';
 import '../settings_common.dart';
 import 'developer_flags_screen.dart';
 import 'developer_logs_screen.dart';
+import 'day_cycle_preview_screen.dart';
 import 'developer_tools_screen.dart';
 
 /// Le dossier **Développeur** — tout ce qui doit disparaître avant la prod.
@@ -54,6 +55,14 @@ class DeveloperScreen extends StatelessWidget {
             subtitle: 'Aperçu GPU, déclenchement BeReal',
             builder: _tools,
           ),
+          const SettingsCategoryTile(
+            icon: Icons.wb_twilight,
+            title: 'Cycle de 24 h — aperçu',
+            subtitle:
+                'Le fond du thème NeoVibe heure par heure. Curseur pour '
+                'juger les couleurs, lecture pour juger la vitesse.',
+            builder: _dayCycle,
+          ),
         ],
       ),
     );
@@ -64,6 +73,7 @@ class DeveloperScreen extends StatelessWidget {
   static Widget _flags(BuildContext _) => const DeveloperFlagsScreen();
   static Widget _logs(BuildContext _) => const DeveloperLogsScreen();
   static Widget _tools(BuildContext _) => const DeveloperToolsScreen();
+  static Widget _dayCycle(BuildContext _) => const DayCyclePreviewScreen();
 }
 
 /// Le bouton que Jay a demandé : **tout**, en une fois, prêt à être renvoyé.

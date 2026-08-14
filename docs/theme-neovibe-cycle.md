@@ -49,11 +49,20 @@ ciel du matin au soir, la v2 raconte un paysage.
 La **nuit n'est plus bleue** non plus : elle est vert-noir, dans la continuité
 de Deep Forest.
 
+**Cadence de deux heures, uniforme** — et ce n'est pas une commodité de mise en
+page. La première version plaçait Deep Ocean à 5 h et Velvet Sunset à 6 h : le
+lever se faisait donc en **une heure**, pour le plus grand écart de couleur de
+la journée. Le test des 1440 minutes l'a refusé.
+
+Mesuré : parcourir la journée entière demande **~14 h de budget** au rythme
+imperceptible, et on en a 24. La distance n'était pas le problème, **sa
+répartition** l'était. Deux ancrages décalés ont suffi.
+
 | Heure | Haut | Bas | Palette | Dossier |
 |---|---|---|---|---|
 | 00 h | `#04150F` | `#06231D` | nuit — vert-noir | — |
-| 03 h | `#071512` | `#0C342C` | Jungle sombre | — |
-| 05 h | `#1B0B3D` | `#5B22C8` | **Deep Ocean** — avant-aube | matin |
+| 02 h | `#071512` | `#0C342C` | Jungle sombre | — |
+| 04 h | `#1B0B3D` | `#5B22C8` | **Deep Ocean** — avant-aube | matin |
 | 06 h | `#A92655` | `#FD8D67` | **Velvet Sunset** — lever | matin |
 | 08 h | `#DD7A83` | `#E8BFC3` | **Blush Silk** | matin |
 | 10 h | `#292F91` | `#4CA8DD` | **Azuria** | matin |
@@ -93,6 +102,25 @@ Le dégradé est un **fond d'écran**, pas une surface. Tout ce qui porte du tex
 reste **neutre** (`NeoNeutrals`), posé en voile translucide par-dessus. Le texte
 a donc toujours son fond garanti, quelle que soit l'heure — le contraste est
 assuré **par construction**, pas par calcul.
+
+## Le test — et le piège qu'il a révélé
+
+`test/day_cycle_test.dart` vérifie les **1440 minutes** de la journée.
+
+Sa première version comparait deux minutes **consécutives** et échouait à 5 h.
+Mauvaise raison : à cette heure le fond est très sombre, et dans les tons
+sombres **un seul cran de quantification 8 bits** pèse plus lourd en ΔE que le
+déplacement réel de la palette. Le test mesurait la **résolution de l'écran**,
+pas la conception.
+
+Mesuré : à 1 minute le pire cas tombe à 5,27 h (quantification) ; dès 3 minutes
+il se déplace à 21,8 h, qui est le vrai segment le plus rapide.
+
+La bonne formulation compare donc **sur une fenêtre de session** (3 minutes) et
+exige que la dérive reste sous **0,02 ΔE** — l'écart juste perceptible *côte à
+côte*. Autrement dit : une session entière change moins que ce que l'œil
+distingue avec les deux couleurs sous les yeux en même temps, alors qu'ici il
+n'a aucune référence.
 
 ## La maquette Rive
 
