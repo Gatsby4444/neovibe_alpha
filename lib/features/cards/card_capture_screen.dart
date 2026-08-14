@@ -1150,8 +1150,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// honnête, la lumière et le cadrage changeant tout.
   String? _traceLabel;
 
-  void _traceGlass(bool full) {
-    final label = full ? 'capture · verre dépoli' : 'capture · sans flou';
+  void _traceGlass(GlassQuality quality) {
+    final label = 'capture · ${quality.label}';
     if (_traceLabel == label) return;
     _traceLabel = label;
     FrameCostTrace.start(label);
@@ -1422,8 +1422,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     // Recette du verre du rail — pilote du 2026-08-14. Se bascule depuis
     // Réglages → Développeur, et le relevé de coût change d'étiquette avec
     // elle : c'est ce qui permet de comparer deux passages sur la même scène.
-    final glassFull = ref.watch(captureGlassFullProvider);
-    _traceGlass(glassFull);
+    final glass =
+        GlassQuality.values[ref
+            .watch(captureGlassQualityProvider)
+            .clamp(0, GlassQuality.values.length - 1)];
+    _traceGlass(glass);
     final screenFlashSettings = ref.watch(screenFlashProvider);
     // La lueur du flash frontal ne s'affiche QU'EN frontale : c'est un flash de
     // façade. Le réglage survit à un aller-retour vers l'arrière.
@@ -1737,7 +1740,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                   // séparaient les boutons ont disparu, sinon le rail aurait
                   // deux réglages d'écartement en désaccord.
                   child: GlassRail(
-                    quality: glassFull ? GlassQuality.full : GlassQuality.light,
+                    quality: glass,
                     children: [
                       // FLASH — deux boutons qui ne coexistent JAMAIS
                       // (consigne Jay 2026-07-26) : la LED en caméra arrière,

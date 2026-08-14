@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/prefs.dart';
+import '../../cards/glass_controls.dart';
 import '../../cards/native_camera.dart';
 import '../settings_common.dart';
 
@@ -54,19 +55,28 @@ class DeveloperFlagsScreen extends ConsumerWidget {
           // l'utilisateur : il faut pouvoir comparer deux relevés de coût sur
           // la MÊME scène. Une fois la mesure faite, le défaut est tranché et
           // cet interrupteur disparaît avec la section Développeur.
-          SwitchListTile(
-            title: const Text('Verre dépoli sur le rail de capture'),
-            subtitle: const Text(
-              'Activé : vrai flou de l\'aperçu (BackdropFilter). Désactivé : '
-              'repli économique, sans lecture du tampon d\'affichage.\n'
-              'Pour mesurer : ouvre la capture, laisse tourner ~20 s dans '
-              'chaque position SANS changer de scène, puis Développeur → '
-              '« Tout copier pour diagnostic ».',
+          ListTile(
+            title: const Text('Verre du rail de capture'),
+            subtitle: Text(
+              'Recette du rendu. Pour mesurer : ouvre la capture, laisse '
+              'tourner ~20 s dans chaque position SANS bouger le téléphone, '
+              'puis Développeur → « Tout copier pour diagnostic ».\n'
+              'État du shader : ${LiquidGlassProgram.status}',
             ),
-            value: ref.watch(captureGlassFullProvider),
-            onChanged: (v) =>
-                ref.read(captureGlassFullProvider.notifier).set(v),
+            isThreeLine: true,
           ),
+          for (final quality in GlassQuality.values)
+            ListTile(
+              title: Text(quality.label),
+              leading: Icon(
+                ref.watch(captureGlassQualityProvider) == quality.index
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_unchecked,
+              ),
+              onTap: () => ref
+                  .read(captureGlassQualityProvider.notifier)
+                  .set(quality.index),
+            ),
           SwitchListTile(
             title: const Text('Diagnostic caméra sur l\'aperçu'),
             subtitle: const Text(

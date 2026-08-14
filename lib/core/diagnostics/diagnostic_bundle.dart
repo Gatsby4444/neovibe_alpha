@@ -1,6 +1,9 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/services.dart';
 
 import '../video/video_open_trace.dart';
+import '../../features/cards/glass_controls.dart';
 import '../../features/cards/native_camera.dart';
 import 'app_log.dart';
 import 'card_rules_trace.dart';
@@ -155,6 +158,13 @@ class DiagnosticBundle {
     if (frameCost) {
       buffer
         ..writeln('\n===== COÛT D\'AFFICHAGE — ÉCRAN DE CAPTURE =====')
+        // Sans cette ligne, « le liquid glass ne fait rien » et « le shader
+        // n'a jamais été chargé » sont indiscernables dans un rapport de test.
+        ..writeln('shader liquid glass : ${LiquidGlassProgram.status}')
+        ..writeln(
+          'ImageFilter.shader supporté : '
+          '${ImageFilter.isShaderFilterSupported}',
+        )
         ..writeln(FrameCostTrace.report());
     }
 

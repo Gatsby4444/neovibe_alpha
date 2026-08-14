@@ -119,36 +119,43 @@ final captureGridProvider = NotifierProvider<CaptureGrid, bool>(
 
 /// Recette du verre des contrôles de capture — **pilote du 2026-08-14**.
 ///
+/// Trois paliers, stockés par leur INDICE dans `GlassQuality` :
+/// 0 = liquid glass (réfraction), 1 = verre dépoli, 2 = translucide.
+///
 /// Existe pour être basculé PENDANT une session de capture, sans quitter
 /// l'écran : c'est la seule façon de comparer deux relevés de coût sur la même
 /// scène. Un aller-retour par les réglages changerait la lumière, le cadrage et
 /// donc la mesure.
 ///
-/// Défaut : le vrai flou. Si la mesure le condamne, c'est ce défaut qui change
+/// Défaut : la réfraction. Si la mesure la condamne, c'est ce défaut qui change
 /// — pas le code appelant.
-class CaptureGlassFull extends Notifier<bool> {
-  static const _key = 'capture_glass_full';
+///
+/// ⚠️ L'indice est écrit tel quel dans les préférences : **ne jamais réordonner
+/// `GlassQuality`** sans migration, un appareil déjà installé relirait l'ancien
+/// indice et rendrait autre chose que ce qui est affiché.
+class CaptureGlassQuality extends Notifier<int> {
+  static const _key = 'capture_glass_quality';
 
   @override
-  bool build() {
+  int build() {
     _load();
-    return true;
+    return 0;
   }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    state = prefs.getBool(_key) ?? true;
+    state = prefs.getInt(_key) ?? 0;
   }
 
-  Future<void> set(bool value) async {
+  Future<void> set(int value) async {
     state = value;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_key, value);
+    await prefs.setInt(_key, value);
   }
 }
 
-final captureGlassFullProvider = NotifierProvider<CaptureGlassFull, bool>(
-  CaptureGlassFull.new,
+final captureGlassQualityProvider = NotifierProvider<CaptureGlassQuality, int>(
+  CaptureGlassQuality.new,
 );
 
 /// Calibrage du FLASH FRONTAL (lueur d'écran, consigne Jay 2026-07-26) :
