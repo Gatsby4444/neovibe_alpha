@@ -33,12 +33,21 @@ final _visibleStoriesProvider = FutureProvider<List<Story>>((ref) async {
         '*, contents(shareable, saveable), profiles!stories_owner_id_fkey(*)',
       )
       .gt('expires_at', DateTime.now().toUtc().toIso8601String())
-      .order('created_at', ascending: false);
+      // Chronologique, comme la visionneuse les joue (consigne Jay
+      // 2026-08-14). L'invariant est de toute façon garanti par le
+      // constructeur de `StoryRing` : ce tri-ci ne fait qu'éviter que la
+      // requête dise le contraire de ce que l'app affiche.
+      .order('created_at', ascending: true);
   return rows.map(Story.fromJson).toList();
 });
 
-/// Regroupe les stories par auteur, plus récent d'abord. L'auteur sans profil
-/// joint est écarté : sans pseudo ni avatar, il n'y a rien à afficher.
+/// Regroupe les stories par auteur. L'auteur sans profil joint est écarté :
+/// sans pseudo ni avatar, il n'y a rien à afficher.
+///
+/// **Deux ordres différents, à ne pas confondre** :
+/// - les **anneaux** entre eux : le plus récemment actif d'abord (`latestAt`) ;
+/// - les **stories d'un anneau** : de la plus ancienne à la plus récente,
+///   garanti par le constructeur de [StoryRing].
 List<StoryRing> _ring(List<Story> stories) {
   final byOwner = <String, List<Story>>{};
   for (final story in stories) {

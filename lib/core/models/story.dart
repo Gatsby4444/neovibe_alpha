@@ -99,13 +99,40 @@ class Story {
 }
 
 /// Stories d'un même auteur, regroupées pour le bandeau horizontal.
+///
+/// ## L'ordre de lecture est une règle produit, pas un détail de requête
+///
+/// Consigne de Jay, 2026-08-14 : « il faut toujours les afficher dans l'ordre,
+/// donc on ajoute les stories les plus récentes à la fin, de sorte que
+/// l'utilisateur ait encore plus envie d'aller au bout. »
+///
+/// Les stories d'un anneau sont donc **toujours de la plus ancienne à la plus
+/// récente**, et c'est le constructeur qui le garantit — pas l'appelant, pas le
+/// `ORDER BY`. La visionneuse entre à l'indice 0 et avance : l'invariant vit
+/// donc ici, au plus près de ce qui en dépend.
+///
+/// Avant le 2026-08-14, l'ordre venait du seul `ORDER BY created_at DESC` de
+/// `stories_repository.dart`, et la visionneuse ouvrait donc sur la story la
+/// plus récente puis remontait le temps.
 class StoryRing {
-  const StoryRing({required this.owner, required this.stories});
+  StoryRing({required this.owner, required List<Story> stories})
+    // Copie avant tri : trier la liste reçue modifierait celle de l'appelant.
+    : stories = [...stories]
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
   final Profile owner;
+
+  /// Toujours de la plus **ancienne** à la plus **récente** (voir l'en-tête).
   final List<Story> stories;
 
-  DateTime get latestAt => stories.first.createdAt;
+  /// La story la plus récente de l'anneau — celle qui classe l'auteur dans le
+  /// bandeau.
+  ///
+  /// ⚠️ C'est `last`, et **plus** `first` comme avant le 2026-08-14 : la liste
+  /// ayant changé de sens, garder `first` aurait rendu ici la date la plus
+  /// ANCIENNE. Le bandeau se serait alors trié à l'envers — les auteurs les
+  /// moins actifs en tête — **sans qu'aucune erreur ne soit levée**.
+  DateTime get latestAt => stories.last.createdAt;
 }
 
 /// Un spectateur d'une de MES stories, tel que le serveur accepte de le
