@@ -102,6 +102,36 @@ Pas de recherche, pas d'annuaire, pas de découverte à distance.
 
 ## 3. Ce qui reste à construire — « meubler l'app »
 
+### ⚠️ Ajout du 2026-08-14 — on n'affronte PAS Snapchat sur la caméra
+
+Décision de Jay, prise après être retourné utiliser Snapchat :
+
+> « On ne pourra pas les concurrencer sur la caméra. Ils sont trop établis et
+> proposent trop d'options. […] On va arrêter de trop pousser la caméra. Il
+> nous faut juste quelque chose de **parfaitement fonctionnel** et on va se
+> concentrer sur le développement d'autres fonctionnalités, **qui
+> distingueront NeoVibe de Snap**. »
+
+**Ce que ça change, concrètement.** La caméra a absorbé l'essentiel de
+l'effort jusqu'ici — double flux GPU, flash frontal, retardateur, grille, HD,
+import galerie, fonds de face, éditeur. Chacun de ces chantiers était bon
+isolément ; ensemble, ils poursuivaient un concurrent sur **son** terrain,
+celui où il a dix ans d'avance et une équipe entière.
+
+**La nouvelle barre est « parfaitement fonctionnel », pas « meilleur que
+Snap ».** Une nouvelle option de prise de vue est donc à **refuser par
+défaut** et à renvoyer ici, sauf demande explicite de Jay en connaissance de
+ce virage.
+
+**Ce que ça ne change pas.** La caméra reste le **geste d'entrée** du produit
+— elle doit être irréprochable, juste cesser d'absorber l'effort. Ce n'est pas
+un abandon, c'est une réaffectation.
+
+**Où va l'effort désormais** : exactement ce que décrit la section ci-dessous.
+Les mini-jeux, les quiz et le feed local ne sont plus « ce qui reste à
+faire » — ils deviennent **le produit**. Ce sont eux qui répondent à la
+question du raisonnement qui suit ; la caméra, elle, n'y a jamais répondu.
+
 ### Le raisonnement, à ne jamais oublier
 
 > Pourquoi les utilisateurs iraient discuter sur l'app si c'est justement plus

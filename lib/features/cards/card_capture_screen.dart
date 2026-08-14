@@ -1404,13 +1404,6 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     final showCaptureTools =
         _type != CardType.oneshot && _type != CardType.bereal;
     final gridOn = ref.watch(captureGridProvider);
-    // Direction artistique des contrôles, choisie par Jay dans
-    // Réglages → Apparence (2026-08-14). Réglage de comparaison, destiné à
-    // disparaître une fois la direction tranchée.
-    final buttonStyle =
-        CameraButtonStyle.values[ref
-            .watch(captureButtonStyleProvider)
-            .clamp(0, CameraButtonStyle.values.length - 1)];
     final screenFlashSettings = ref.watch(screenFlashProvider);
     // La lueur du flash frontal ne s'affiche QU'EN frontale : c'est un flash de
     // façade. Le réglage survit à un aller-retour vers l'arrière.
@@ -1696,7 +1689,6 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                 // matière. Un `CameraRail` d'un seul enfant, parce que c'est
                 // lui qui porte la direction jusqu'au bouton.
                 child: CameraRail(
-                  style: buttonStyle,
                   children: [
                     CameraButton(
                       tooltip: 'Importer depuis la galerie',
@@ -1731,7 +1723,6 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                   // boutons ont disparu, sinon deux réglages d'espacement
                   // seraient en désaccord.
                   child: CameraRail(
-                    style: buttonStyle,
                     children: [
                       // FLASH — deux boutons qui ne coexistent JAMAIS
                       // (consigne Jay 2026-07-26) : la LED en caméra arrière,

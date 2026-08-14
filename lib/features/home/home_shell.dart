@@ -34,9 +34,21 @@ class HomeShell extends ConsumerStatefulWidget {
 }
 
 class _HomeShellState extends ConsumerState<HomeShell> {
-  static const _ping = 0;
-  static const _circle = 1;
-  static const _capture = 2;
+  // Ordre de la barre, changé le 2026-08-14 sur consigne de Jay : « déplacer
+  // la section Vibe sur la gauche du menu de navigation ». Elle était au
+  // centre depuis le passage à cinq onglets (2026-08-01).
+  //
+  // ⚠️ Ces constantes sont l'ORDRE D'AFFICHAGE : elles indexent à la fois les
+  // enfants de l'`IndexedStack` et les `destinations` de la `NavigationBar`.
+  // Les deux listes doivent rester dans cet ordre-là, sinon un onglet affiche
+  // l'écran d'un autre — sans qu'aucune erreur ne soit levée.
+  //
+  // Rien n'est stocké par indice : la préférence de démarrage est enregistrée
+  // par NOM (`StartupTab`), précisément pour survivre à ce genre de
+  // réorganisation. Aucun appareil déjà installé n'ouvrira le mauvais onglet.
+  static const _capture = 0;
+  static const _ping = 1;
+  static const _circle = 2;
   static const _play = 3;
   static const _profile = 4;
 
@@ -98,10 +110,12 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     return Scaffold(
       body: IndexedStack(
         index: _index,
+        // Même ordre que les `destinations` ci-dessous — voir le commentaire
+        // des constantes.
         children: [
+          const SizedBox.shrink(), // emplacement du bouton capture
           _lazy(_ping, const PingScreen()),
           _lazy(_circle, const CircleScreen()),
-          const SizedBox.shrink(), // emplacement du bouton capture
           _lazy(_play, const PlayScreen()),
           _lazy(_profile, const ProfileScreen()),
         ],
@@ -120,6 +134,19 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           }
         },
         destinations: const [
+          // Geste signature : le bouton de capture est une pastille pleine en
+          // dégradé, visible en permanence quel que soit l'onglet actif.
+          //
+          // À GAUCHE depuis le 2026-08-14 (consigne de Jay). Ce n'est pas un
+          // onglet où l'app se pose : il ouvre la capture par-dessus, et
+          // `selectedIndex` ne vaut donc jamais 0.
+          NavigationDestination(
+            icon: GradientDot(
+              size: 38,
+              child: Icon(Icons.photo_camera, color: Colors.white, size: 20),
+            ),
+            label: 'Vibe',
+          ),
           NavigationDestination(
             icon: Icon(Icons.radar_outlined),
             selectedIcon: GradientIcon(Icons.radar),
@@ -131,15 +158,6 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             // Material ne sait pas porter un dégradé).
             selectedIcon: GradientIcon(Icons.workspaces),
             label: 'Cercle',
-          ),
-          // Geste signature : le bouton de capture est une pastille pleine en
-          // dégradé, visible en permanence quel que soit l'onglet actif.
-          NavigationDestination(
-            icon: GradientDot(
-              size: 38,
-              child: Icon(Icons.photo_camera, color: Colors.white, size: 20),
-            ),
-            label: 'Vibe',
           ),
           NavigationDestination(
             icon: Icon(Icons.sports_esports_outlined),
