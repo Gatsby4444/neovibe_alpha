@@ -39,20 +39,28 @@ class RiveSendButton extends StatefulWidget {
     required this.label,
     required this.onPressed,
     required this.fallback,
-    this.height = 62,
+    this.busy = false,
+    this.height = 96,
   });
 
   /// Texte affiché dans le bouton. Poussé dans la propriété `label` du
   /// ViewModel — sans elle, il aurait fallu quatre `.riv`.
   final String label;
 
-  /// Null = bouton inerte (envoi en cours). L'animation reste vivante : elle
-  /// dit que l'app n'est pas figée.
+  /// Null = bouton inerte.
   final VoidCallback? onPressed;
+
+  /// Envoi en cours : le bouton **reste dans son état pressé** — celui où il
+  /// devient rond — et sert de loader (demande de Jay, 2026-08-14). C'est le
+  /// seul moment où le Dart écrit les booléens du ViewModel ; le reste du temps
+  /// ils appartiennent aux listeners.
+  final bool busy;
 
   /// Ce qui s'affiche si Rive n'est pas disponible.
   final Widget fallback;
 
+  /// Hauteur du graphique. L'artboard fait 220 × 110, donc la largeur suit à
+  /// `2 × height` — et c'est **exactement** la zone sensible au doigt.
   final double height;
 
   @override
@@ -66,6 +74,8 @@ class _RiveSendButtonState extends State<RiveSendButton> {
   rive.RiveWidgetController? _controller;
   rive.ViewModelInstance? _viewModel;
   rive.ViewModelInstanceString? _label;
+  rive.ViewModelInstanceBoolean? _pressedBg;
+  rive.ViewModelInstanceBoolean? _pressedBtn;
 
   /// Le chargement a échoué : on ne réessaie pas à chaque `build`. Un asset
   /// manquant ou un moteur natif absent ne se répare pas tout seul, et
@@ -98,11 +108,26 @@ class _RiveSendButtonState extends State<RiveSendButton> {
         _controller = controller;
         _viewModel = viewModel;
         _label = viewModel.string('label')?..value = widget.label;
+        _pressedBg = viewModel.boolean('pressedBg');
+        _pressedBtn = viewModel.boolean('pressedBtn');
       });
+      if (widget.busy) _holdPressed(true);
     } catch (e) {
       AppLog.instance.error('Rive', 'bouton d\'envoi indisponible : $e');
       if (mounted) setState(() => _failed = true);
     }
+  }
+
+  /// Maintient (ou relâche) l'état pressé depuis le Dart.
+  ///
+  /// Les mêmes booléens sont écrits par les listeners `down`/`up`/`exit` de la
+  /// state machine. Il n'y a pas de conflit, et pas par chance : pendant
+  /// [RiveSendButton.busy] le graphique passe en `RiveHitTestBehavior.none`,
+  /// donc **Rive ne reçoit plus aucun pointeur** et ne peut plus rien écrire.
+  /// La cause du conflit est supprimée, pas surveillée.
+  void _holdPressed(bool held) {
+    _pressedBg?.value = held;
+    _pressedBtn?.value = held;
   }
 
   @override
@@ -111,6 +136,7 @@ class _RiveSendButtonState extends State<RiveSendButton> {
     // Le libellé peut changer sans que le graphique soit rechargé (le même
     // bouton sert les quatre destinations).
     if (widget.label != old.label) _label?.value = widget.label;
+    if (widget.busy != old.busy) _holdPressed(widget.busy);
   }
 
   @override
@@ -118,6 +144,8 @@ class _RiveSendButtonState extends State<RiveSendButton> {
     // Ressources natives : elles ne sont pas ramassées par le GC Dart au
     // moment où l'écran disparaît. Ordre inverse de la création.
     _label?.dispose();
+    _pressedBg?.dispose();
+    _pressedBtn?.dispose();
     _viewModel?.dispose();
     _controller?.dispose();
     _file?.dispose();
@@ -131,15 +159,34 @@ class _RiveSendButtonState extends State<RiveSendButton> {
 
     return SizedBox(
       height: widget.height,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: widget.onPressed,
-        child: Opacity(
-          opacity: widget.onPressed == null ? 0.55 : 1,
-          child: rive.RiveWidget(
-            controller: controller,
-            fit: rive.Fit.contain,
-            hitTestBehavior: rive.RiveHitTestBehavior.transparent,
+      child: Center(
+        // La zone sensible épouse EXACTEMENT le graphique (artboard 220 × 110).
+        //
+        // Sans ça, le `GestureDetector` couvrait toute la largeur de la barre
+        // alors que le bouton dessiné, en `Fit.contain`, n'en occupait que le
+        // milieu : relâcher le doigt **à côté du bouton visible** déclenchait
+        // quand même l'envoi. La règle demandée par Jay — relâcher hors de la
+        // zone est un abandon — n'a de sens que si « la zone » est ce qu'on
+        // voit.
+        child: AspectRatio(
+          aspectRatio: 220 / 110,
+          child: GestureDetector(
+            // `onTap` de Flutter ne se déclenche QUE si le doigt se pose et se
+            // relève dans cette zone. Doigt maintenu sans relâcher : rien.
+            // Relâché en dehors : `onTapCancel`, donc rien non plus. C'est le
+            // comportement demandé, et il est natif — aucun garde-fou à écrire.
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onPressed,
+            child: rive.RiveWidget(
+              controller: controller,
+              fit: rive.Fit.contain,
+              // Pendant l'envoi, Rive ne reçoit plus rien : le bouton est
+              // inerte, et surtout ses listeners ne peuvent plus défaire
+              // l'état pressé que le Dart maintient.
+              hitTestBehavior: widget.busy
+                  ? rive.RiveHitTestBehavior.none
+                  : rive.RiveHitTestBehavior.transparent,
+            ),
           ),
         ),
       ),

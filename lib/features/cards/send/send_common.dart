@@ -247,35 +247,30 @@ class SendActionBar extends StatelessWidget {
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            RiveSendButton(
-              // Le graphique est dessiné en capitales : on lui donne ce qu'il
-              // attend plutôt que de recadrer le texte après coup.
-              label: label.toUpperCase(),
-              onPressed: effective,
-              fallback: FilledButton(
-                onPressed: effective,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(52),
-                ),
-                child: Text(label),
-              ),
+        // L'envoi en cours n'est plus annoncé par-dessus le bouton : **le
+        // bouton EST le loader**. Il reste dans son état pressé — celui où il
+        // devient rond — le temps de la publication (demande de Jay,
+        // 2026-08-14). Un rond de progression posé dessus doublait le message
+        // et cachait l'animation.
+        child: RiveSendButton(
+          // Le graphique est dessiné en capitales : on lui donne ce qu'il
+          // attend plutôt que de recadrer le texte après coup.
+          label: label.toUpperCase(),
+          onPressed: effective,
+          busy: loading,
+          fallback: FilledButton(
+            onPressed: effective,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
             ),
-            // L'envoi en cours se dit PAR-DESSUS le bouton : le graphique n'a
-            // pas d'état « en cours », et lui en inventer un aurait voulu dire
-            // toucher à la state machine de Jay pour un cas que Flutter sait
-            // déjà montrer.
-            if (loading)
-              const IgnorePointer(
-                child: SizedBox(
-                  height: 26,
-                  width: 26,
-                  child: CircularProgressIndicator(strokeWidth: 2.5),
-                ),
-              ),
-          ],
+            child: loading
+                ? const SizedBox(
+                    height: 22,
+                    width: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(label),
+          ),
         ),
       ),
     );
