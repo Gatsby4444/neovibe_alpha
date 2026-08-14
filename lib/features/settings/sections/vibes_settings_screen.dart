@@ -74,20 +74,33 @@ class _CardDefaultsSection extends ConsumerWidget {
     final duration = ref.watch(defaultViewDurationProvider);
     final unlimited = duration == DefaultViewDuration.unlimited;
     final durationSlider = unlimited ? 21 : duration;
+    // 1-5 ouvertures ; **6 = illimité**, comme sur l'écran d'envoi. Le cran
+    // « illimité » vit sur le curseur plutôt qu'à côté : c'est le même réglage,
+    // il n'a pas à se faire en deux gestes à deux endroits.
+    final viewsUnlimited = views == DefaultMaxViews.unlimited;
+    final viewsSlider = viewsUnlimited ? 6 : views;
 
     return Column(
       children: [
         ListTile(
           dense: true,
-          title: Text('Visionnages par défaut : $views'),
+          title: Text(
+            viewsUnlimited
+                ? 'Ouvertures par défaut : illimitées'
+                : 'Ouvertures par défaut : $views',
+          ),
           subtitle: Slider(
-            value: views.toDouble(),
+            value: viewsSlider.toDouble(),
             min: 1,
-            max: 5,
-            divisions: 4,
-            label: '$views',
-            onChanged: (v) =>
-                ref.read(defaultMaxViewsProvider.notifier).set(v.round()),
+            max: 6,
+            divisions: 5,
+            label: viewsUnlimited ? '∞' : '$views',
+            onChanged: (v) {
+              final rounded = v.round();
+              ref
+                  .read(defaultMaxViewsProvider.notifier)
+                  .set(rounded == 6 ? DefaultMaxViews.unlimited : rounded);
+            },
           ),
         ),
         ListTile(
@@ -123,10 +136,11 @@ class _Divulgation extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const SettingsNote(
     'Dans les chats, tes Vibes apparaissent comme des containers '
-    'cliquables et se voient un nombre de fois et une durée limités '
-    '(que tu choisis). Le container reste 24 h et le replay ne se fait '
-    'qu\'avec ton accord. Envoyée à une seule personne sans être publiée, '
-    'une Vibe devient une One of One : exclusive, à jamais. En '
-    'bibliothèque, la lecture est illimitée.',
+    'cliquables et s\'ouvrent un nombre de fois limité (que tu choisis). '
+    'Une ouverture, c\'est une ouverture : la retourner ne consomme rien. '
+    'Le container reste 24 h et le replay ne se fait qu\'avec ton accord. '
+    'Envoyée à une seule personne sans être publiée, une Vibe devient une '
+    'One of One : exclusive, à jamais. En bibliothèque, la lecture est '
+    'illimitée.',
   );
 }

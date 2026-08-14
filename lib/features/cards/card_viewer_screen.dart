@@ -27,9 +27,14 @@ enum _Phase { loading, error, viewing, exhausted, destroyed }
 ///   (1 vue = 1 ouverture, consigne Jay 2026-07-12). Chaque FACE a ensuite
 ///   son budget : une face photo s'écoule (jauge) uniquement pendant qu'elle
 ///   est affichée ; une face vidéo se lit en entier (barre de lecture,
-///   contrôlable seulement si le créateur l'a permis). Retourner la carte
-///   coupe court à la face qu'on quitte ; la card se ferme quand toutes les
-///   faces sont épuisées.
+///   contrôlable seulement si le créateur l'a permis).
+///
+///   ⚠️ **Retourner la carte MET LE BUDGET EN PAUSE, il ne l'épuise pas**
+///   (consigne Jay 2026-08-14). Une vue est une *ouverture* : tant que la card
+///   est ouverte, on retourne autant qu'on veut et chaque face reste
+///   visionnable tant que son propre temps n'est pas écoulé. Le temps ne coule
+///   que sur la face regardée. La card se ferme quand toutes les faces ont
+///   épuisé leur budget — ou quand l'utilisateur la ferme.
 /// - Card à face unique (verso passé) : pas de retournement, seulement le jeu
 ///   d'angle.
 /// - En bibliothèque ou pour l'émetteur : lecture illimitée, sans budgets.
@@ -94,7 +99,19 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   /// Jauge de lecture de la face photo affichée : 1 → 0.
   Timer? _gaugeTimer;
   double _gauge = 1.0;
-  int _elapsedMs = 0;
+
+  /// Temps de lecture DÉJÀ CONSOMMÉ par chaque face, en millisecondes.
+  ///
+  /// Il n'avance que pendant que la face est posée à l'écran. C'est ce champ,
+  /// et non le timer, qui porte le budget : le timer n'est qu'un robinet qu'on
+  /// ouvre en arrivant sur une face et qu'on ferme en la quittant. Sans lui,
+  /// la seule façon de « mettre en pause » aurait été de recalculer une date
+  /// de fin à chaque retournement — un état dérivé de plus, et une source
+  /// d'écart avec ce que la jauge affiche.
+  int _frontElapsedMs = 0;
+  int _backElapsedMs = 0;
+
+  int _elapsedFor(bool front) => front ? _frontElapsedMs : _backElapsedMs;
 
   /// Capturé à l'initialisation : `ref` est interdit dans `dispose()` —
   /// c'était la source des « Using "ref" when a widget is about to or has been
@@ -311,11 +328,19 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     }
   }
 
-  /// Démarre le budget de la face [front] : jauge pour une photo (si le
+  /// (Re)démarre le budget de la face [front] : jauge pour une photo (si le
   /// créateur a limité la durée), rien pour une vidéo (sa fin de lecture
   /// fait foi) ni en lecture illimitée.
+  ///
+  /// **Reprend là où la face s'était arrêtée**, jamais de zéro : c'est ce qui
+  /// fait la différence entre « mettre en pause » et « relancer », et une
+  /// remise à zéro rendrait la limite contournable en retournant la carte.
   void _startFaceBudget(bool front) {
+    // Annulé ET remis à null : un timer mort mais non nul ferait passer
+    // `_pauseFaceBudget` pour une vraie mise en pause, et journaliserait une
+    // pause qui n'a jamais eu lieu.
     _gaugeTimer?.cancel();
+    _gaugeTimer = null;
     if (!_limitsApply || _faceIsVideo(front) || _faceDone(front)) {
       _rules?.log(
         'pas de jauge sur ${front ? 'recto' : 'verso'}',
@@ -335,26 +360,48 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
       );
       return; // lecture illimitée : pas de jauge
     }
-    _rules?.log(
-      'jauge ${front ? 'recto' : 'verso'} démarrée',
-      detail: '$duration s',
-    );
     final totalMs = duration * 1000;
-    _elapsedMs = 0;
-    _gauge = 1.0;
+    var elapsed = _elapsedFor(front);
+    _rules?.log(
+      'jauge ${front ? 'recto' : 'verso'} ${elapsed == 0 ? 'démarrée' : 'reprise'}',
+      detail: elapsed == 0
+          ? '$duration s'
+          : '${(totalMs - elapsed) / 1000} s restantes sur $duration s',
+    );
+    _gauge = 1.0 - (elapsed / totalMs).clamp(0.0, 1.0);
     _gaugeTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
       if (!mounted) return;
-      _elapsedMs += 50;
-      setState(() => _gauge = 1.0 - (_elapsedMs / totalMs).clamp(0.0, 1.0));
-      if (_elapsedMs >= totalMs) {
+      elapsed += 50;
+      if (front) {
+        _frontElapsedMs = elapsed;
+      } else {
+        _backElapsedMs = elapsed;
+      }
+      setState(() => _gauge = 1.0 - (elapsed / totalMs).clamp(0.0, 1.0));
+      if (elapsed >= totalMs) {
         _gaugeTimer?.cancel();
         _markFaceDone(front);
       }
     });
   }
 
-  /// Épuise une face (temps écoulé, vidéo terminée ou carte retournée =
-  /// couper court). Ferme la session quand toutes les faces sont épuisées.
+  /// Ferme le robinet sans toucher au consommé : la face quittée garde son
+  /// budget intact pour le prochain retournement.
+  void _pauseFaceBudget(bool front) {
+    if (_gaugeTimer == null) return;
+    _gaugeTimer?.cancel();
+    _gaugeTimer = null;
+    final total = (widget.card.viewDurationSeconds ?? 0) * 1000;
+    if (total == 0 || _faceDone(front)) return;
+    _rules?.log(
+      'jauge ${front ? 'recto' : 'verso'} en pause',
+      detail: '${(total - _elapsedFor(front)) / 1000} s conservées',
+    );
+  }
+
+  /// Épuise une face — **temps écoulé ou vidéo terminée, et rien d'autre**.
+  /// Le retournement n'en fait plus partie (voir [_onSideSettled]).
+  /// Ferme la session quand toutes les faces sont épuisées.
   void _markFaceDone(bool front) {
     if (!_limitsApply || _sessionEnded || _faceDone(front)) return;
     _faceLeave(front);
@@ -366,9 +413,20 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     if (otherDone) _endSession();
   }
 
-  /// Retournement POSÉ (signal fiable de FlippableCard) : la face quittée
-  /// est coupée court ; si la face d'arrivée est déjà épuisée, la session
-  /// se termine, sinon son budget démarre.
+  /// Retournement POSÉ (signal fiable de FlippableCard) : le budget de la face
+  /// quittée est mis en **pause**, celui de la face d'arrivée reprend.
+  ///
+  /// ⚠️ C'est ici que se joue « une vue est une ouverture » (consigne Jay
+  /// 2026-08-14). Avant, ce retournement appelait `_markFaceDone(left)` : la
+  /// face quittée mourait, et deux retournements suffisaient à fermer la card
+  /// alors que l'utilisateur n'avait ouvert qu'une fois. Le décompte serveur,
+  /// lui, était déjà juste — `open_card_media` ne rend qu'une clé par
+  /// ouverture. La règle n'était donc pas fausse en base : elle était trahie
+  /// ici, dans l'affichage.
+  ///
+  /// Arriver sur une face déjà épuisée ne ferme rien : l'autre face peut
+  /// encore vivre, et c'est [_markFaceDone] — lui seul — qui décide de la fin
+  /// de session quand toutes les faces sont éteintes.
   void _onSideSettled(bool front) {
     if (front == _settledFront) return; // reposée sur la même face
     final left = _settledFront;
@@ -377,13 +435,8 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     setState(() => _settledFront = front);
     _faceEnter();
     if (!_limitsApply || _sessionEnded) return;
-    _markFaceDone(left);
-    if (_sessionEnded) return;
-    if (_faceDone(front)) {
-      _endSession();
-    } else {
-      _startFaceBudget(front);
-    }
+    _pauseFaceBudget(left);
+    if (!_faceDone(front)) _startFaceBudget(front);
   }
 
   /// Toutes les faces sont épuisées : état des vues restantes (replay) ou

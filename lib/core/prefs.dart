@@ -233,9 +233,22 @@ final startupTabProvider = NotifierProvider<StartupTabPref, StartupTab>(
   StartupTabPref.new,
 );
 
-/// Nombre de vues appliqué par défaut aux nouvelles Cards (1-5, consigne : 2).
+/// Nombre d'**ouvertures** appliqué par défaut aux nouvelles Cards.
+///
+/// 1-5 ; 0 = illimité. Consigne de Jay du 2026-08-14 : « par défaut […]
+/// visionnage à 2 […] il y a aussi possibilité de paramétrer visionnage
+/// illimité ».
+///
+/// ⚠️ Une ouverture, **pas un affichage de face** : retourner la Vibe ne
+/// consomme rien (voir `CardViewerScreen`). Le serveur le garantit déjà —
+/// `open_card_media` ne rend qu'une clé par ouverture, pour les deux faces.
 class DefaultMaxViews extends Notifier<int> {
   static const _key = 'default_max_views';
+
+  /// Envoyé en base comme `max_views = null`, que `open_card_media` traite en
+  /// `coalesce(max_views, 2147483647)`. Rien à migrer : la contrainte
+  /// `cards_max_views_check` accepte déjà `null`.
+  static const unlimited = 0;
 
   @override
   int build() {
@@ -249,7 +262,7 @@ class DefaultMaxViews extends Notifier<int> {
   }
 
   Future<void> set(int value) async {
-    state = value.clamp(1, 5);
+    state = value == unlimited ? unlimited : value.clamp(1, 5);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_key, state);
   }
@@ -260,7 +273,12 @@ final defaultMaxViewsProvider = NotifierProvider<DefaultMaxViews, int>(
 );
 
 /// Durée de lecture appliquée par défaut aux nouvelles Cards, en secondes.
-/// 1-20 s ; 0 = illimitée (au-delà de 20 s). Consigne : 10 s.
+/// 1-20 s ; 0 = illimitée (au-delà de 20 s).
+///
+/// **Défaut : illimitée** depuis le 2026-08-14 (consigne de Jay). Auparavant
+/// 10 s. Le compte à rebours était le premier réflexe du produit ; ce n'est
+/// plus le sien — la rareté vient du nombre d'ouvertures, pas du chronomètre.
+/// La limite de durée reste disponible, Vibe par Vibe.
 class DefaultViewDuration extends Notifier<int> {
   static const _key = 'default_view_duration';
   static const unlimited = 0;
@@ -268,12 +286,12 @@ class DefaultViewDuration extends Notifier<int> {
   @override
   int build() {
     _load();
-    return 10;
+    return unlimited;
   }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    state = prefs.getInt(_key) ?? 10;
+    state = prefs.getInt(_key) ?? unlimited;
   }
 
   Future<void> set(int value) async {

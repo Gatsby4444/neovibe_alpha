@@ -15,6 +15,8 @@ import 'core/notifications/notification_service.dart';
 import 'core/prefs.dart';
 import 'features/cards/card_capture_screen.dart';
 import 'features/cards/card_media_cache.dart';
+import 'package:rive/rive.dart' as rive;
+
 import 'core/content/content_media_cache.dart';
 import 'core/widgets/avatar.dart';
 import 'features/library_vibes/library_vault_cache.dart';
@@ -22,6 +24,18 @@ import 'features/cards/native_camera.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Moteur Rive : chargement de la bibliothèque native. Obligatoire avant tout
+  // `File.asset` / `RiveWidget`, et une seule fois pour toute l'app.
+  //
+  // ⚠️ Enveloppé : sur un appareil où le natif ne se charge pas, l'app doit
+  // démarrer quand même. Un bouton qui retombe sur son rendu Flutter est un
+  // désagrément ; un écran noir au lancement est une panne.
+  try {
+    await rive.RiveNative.init();
+  } catch (e) {
+    AppLog.instance.error('Rive', 'moteur natif indisponible : $e');
+  }
 
   // Toute erreur Dart part dans le MÊME journal que la couche caméra native
   // (Réglages → Développeur → Journal caméra) : Jay peut copier une trace

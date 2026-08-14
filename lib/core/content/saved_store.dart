@@ -7,6 +7,15 @@ import 'package:path_provider/path_provider.dart';
 import '../models/card.dart';
 import '../supabase_providers.dart';
 
+/// Préfixe des identifiants de sauvegardes faites **avant** que le contenu
+/// n'existe côté serveur (« Enregistrer pour moi » cliqué à l'envoi, 2026-08-14).
+///
+/// Il vit ici, avec le magasin qui doit le reconnaître, et non dans l'écran qui
+/// le produit : c'est [SavedStore.purgeRevoked] qui a besoin de savoir qu'une
+/// clé ne désigne aucun contenu serveur, et une constante posée chez celui qui
+/// s'en sert ne peut pas dériver de celui qui la fabrique.
+const localIdPrefix = 'local-';
+
 /// Une sauvegarde : une copie **locale et en clair** d'un contenu.
 ///
 /// Elle ne dépend plus de rien côté serveur. C'est le sens de la décision de
@@ -177,6 +186,27 @@ class SavedStore {
     await _save();
   }
 
+  /// Rebaptise une sauvegarde faite AVANT que le contenu n'existe côté serveur.
+  ///
+  /// « Enregistrer pour moi » est un bouton qui agit tout de suite (consigne
+  /// Jay 2026-08-14) : la copie est écrite sous un identifiant local, bien
+  /// avant l'envoi. Une fois le contenu créé, il faut lui rendre son vrai
+  /// Content ID — c'est par lui, et seulement par lui, que [purgeRevoked]
+  /// retrouve une copie révoquée par la modération. Sans ce recollage, une
+  /// sauvegarde anticipée deviendrait **injoignable** pour la révocation.
+  ///
+  /// Les fichiers ne bougent pas : l'index porte des chemins absolus, pas des
+  /// noms déduits de la clé. Renommer sur disque n'apporterait rien et
+  /// ouvrirait une fenêtre où l'index désigne un fichier qui n'existe plus.
+  Future<void> rekey(String localId, String contentId) async {
+    if (localId == contentId) return;
+    final index = await _load();
+    final meta = index.remove(localId);
+    if (meta == null) return;
+    index[contentId] = meta;
+    await _save();
+  }
+
   Future<void> remove(String contentId) async {
     final index = await _load();
     final meta = index.remove(contentId);
@@ -198,13 +228,23 @@ class SavedStore {
   /// simplement disparu. C'est toute la différence avec l'ancien
   /// `ON DELETE CASCADE` : l'auteur qui supprime son contenu ne reprend pas ce
   /// que d'autres ont gardé. Seule la modération le peut.
+  ///
+  /// ⚠️ **Les sauvegardes encore locales sont écartées de la question.** Depuis
+  /// que « Enregistrer pour moi » agit avant l'envoi (2026-08-14), l'index peut
+  /// contenir des clés `local-…` qui ne désignent aucun contenu serveur. Les
+  /// envoyer telles quelles ferait échouer le cast en `uuid[]` de la RPC — et
+  /// comme l'échec est avalé plus bas, **une seule** clé locale suffirait à
+  /// suspendre la purge de TOUTES les autres, en silence.
   Future<int> purgeRevoked() async {
     try {
       final index = await _load();
-      if (index.isEmpty) return 0;
+      final known = index.keys
+          .where((id) => !id.startsWith(localIdPrefix))
+          .toList();
+      if (known.isEmpty) return 0;
       final rows = await ref
           .read(supabaseProvider)
-          .rpc('revoked_contents', params: {'p_ids': index.keys.toList()});
+          .rpc('revoked_contents', params: {'p_ids': known});
       var n = 0;
       for (final id in (rows as List)) {
         await remove(id as String);

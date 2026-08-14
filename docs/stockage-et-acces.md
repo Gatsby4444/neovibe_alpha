@@ -37,6 +37,73 @@ un simple `alter type ... add value`.
 
 ---
 
+## Le cinquième contexte de diffusion : la **sauvegarde**
+
+> Acté par Jay le **2026-08-14**, à partir de sa propre observation : « la card
+> sauvegardée est presque un autre format, car les règles de visionnage ne
+> s'appliquent pas sur les sauvegardées ». Elle l'est complètement.
+
+Une sauvegarde n'est **pas** une Card avec ses limites désactivées. C'est un
+objet distinct, avec ses propres octets, sa propre règle d'accès et son propre
+cycle de vie — donc un contexte de diffusion à part entière, au sens de la règle
+qui ouvre ce document. La seule chose qui le distingue des quatre autres : **il
+ne vit pas sur le serveur.**
+
+| | Card (cercle) | **Sauvegarde** |
+|---|---|---|
+| Octets | scellés, bucket `cards` | **en clair, sur l'appareil** |
+| Clé | retenue par le serveur, rendue par `open_card_media` | **aucune — il n'y en a pas besoin** |
+| Règles de visionnage | `max_views`, durée, `scrubbable` : **c'est l'objet même** | **n'existent pas** |
+| Lignes serveur | `cards` + `card_media_keys` + `card_deliveries` | **aucune** |
+| Cycle de vie | TTL, épuisement, destruction | **permanent** |
+| Révocation | garantie (le serveur retient la clé) | **coopérative** (le serveur demande, l'app obéit) |
+
+Implémentation : `lib/core/content/saved_store.dart`. Le clair sur le disque y
+est **délibéré**, et c'est la seule exception de l'app — il est ce qui rend la
+sauvegarde indépendante du serveur, conformément à la décision de Jay du
+2026-08-11 (« pas d'espace serveur dédié »).
+
+### Ce que ça interdit
+
+**Ne jamais refusionner la sauvegarde et la Card.** La tentation revient
+naturellement — « créer la Card au clic sur Sauvegarder, puis la partager » —
+et elle a été examinée le 2026-08-14. Quatre raisons de s'en tenir à deux
+objets :
+
+1. **La sauvegarde cesserait d'être instantanée.** Créer une Card, c'est
+   sceller, téléverser deux faces et écrire trois lignes : plusieurs secondes en
+   4G, **impossible hors ligne**. Une copie locale est une recopie de fichier.
+2. **Des Cards orphelines.** Sauvegarder puis abandonner l'envoi laisserait une
+   ligne `cards` et des médias scellés **sans aucune `card_deliveries`** — que
+   rien ne purge aujourd'hui.
+3. **Les règles n'existent pas encore au moment du clic.** Il faudrait créer la
+   Card avec des règles provisoires puis les **modifier** — et dès que
+   `max_views` devient modifiable après création, la garantie du 2026-08-10 (le
+   décompte et la remise de la clé sont le même geste) se ramollit.
+4. **Les octets ne sont pas les mêmes.** Fusionner obligerait soit à mettre du
+   clair là où vit du contenu contrôlé, soit à faire dépendre une sauvegarde
+   d'une clé serveur — ce qui casse la promesse « gardé ».
+
+### Le seul lien entre les deux, et ce qu'il est
+
+`SavedStore.rekey` : après un envoi réussi, la copie locale **adopte le Content
+ID** du contenu envoyé. Les octets restent locaux et en clair ; seul le **nom**
+est partagé, et il ne sert qu'à une chose — permettre à la révocation de
+modération (`revoked_contents`) de retrouver la copie. **C'est un pointeur, pas
+une fusion.**
+
+Avant l'envoi, la sauvegarde porte un identifiant `local-<uuid>`
+(`localIdPrefix`). Ces clés sont **écartées** de `purgeRevoked` : le serveur ne
+les connaît pas, et les lui envoyer ferait échouer le cast en `uuid[]` — ce qui,
+l'échec étant avalé pour le hors-ligne, suspendrait en silence la purge de
+**toutes** les autres.
+
+⚠️ **Asymétrie assumée** : une Vibe sauvegardée **puis** envoyée devient
+joignable par la révocation ; sauvegardée et jamais envoyée, non. C'est
+inévitable — une prise jamais envoyée n'a aucune existence serveur à modérer.
+
+---
+
 ## Le socle de traçabilité — `contents`
 
 Depuis le 2026-08-11, tout contenu naît avec une identité **permanente** :

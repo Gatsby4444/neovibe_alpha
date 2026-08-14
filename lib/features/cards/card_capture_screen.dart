@@ -16,11 +16,13 @@ import '../../core/theme.dart';
 import '../library_vibes/library_share_screen.dart';
 import '../library_vibes/library_target.dart';
 import 'capture_tools.dart';
-import 'card_send_screen.dart';
 import 'face_background.dart';
 import 'face_editor_screen.dart';
 import 'gallery_import_screen.dart';
 import 'native_camera.dart';
+import 'send/circle_settings_screen.dart';
+import 'send/send_format_screen.dart';
+import 'send/vibe_draft.dart';
 
 /// Flux de création d'une Card.
 /// Le TYPE se choisit AVANT la première photo, dans un sélecteur horizontal
@@ -2082,6 +2084,14 @@ class _RecapStepState extends State<_RecapStep> {
   late File _front = widget.front;
   late File? _back = widget.back;
 
+  /// Identité locale de CETTE prise, tirée une seule fois.
+  ///
+  /// Le `VibeDraft` se reconstruit à chaque appui sur « Continuer » — il le
+  /// faut, les faces ont pu être retouchées entre-temps. L'identifiant, lui,
+  /// doit survivre à ces reconstructions : c'est la clé sous laquelle
+  /// « Enregistrer pour moi » a peut-être déjà écrit une copie.
+  late final String _localId = VibeDraft.newLocalId();
+
   /// Originaux conservés pour « revenir à l'image initiale » (consigne Jay).
   late final File _originalFront = widget.front;
   late final File? _originalBack = widget.back;
@@ -2199,20 +2209,29 @@ class _RecapStepState extends State<_RecapStep> {
           FilledButton(
             // push (pas pushReplacement) : le retour depuis l'écran d'envoi
             // ramène ici, dans la section Card (consigne Jay)
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => CardSendScreen(
-                  front: _front,
-                  back: _back,
-                  type: type,
-                  imported: widget.frontImported || widget.backImported,
-                  frontIsVideo: widget.frontIsVideo,
-                  backIsVideo: widget.backIsVideo,
-                  directRecipientIds: widget.directRecipientIds,
-                  directRecipientLabel: widget.directRecipientLabel,
+            onPressed: () {
+              final draft = VibeDraft(
+                front: _front,
+                back: _back,
+                type: type,
+                imported: widget.frontImported || widget.backImported,
+                frontIsVideo: widget.frontIsVideo,
+                backIsVideo: widget.backIsVideo,
+                directRecipientIds: widget.directRecipientIds,
+                directRecipientLabel: widget.directRecipientLabel,
+                localId: _localId,
+              );
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  // Envoi depuis un chat : la destination est imposée, il n'y a
+                  // pas de format à choisir. C'est le SEUL chemin qui saute
+                  // l'étape 1 (découpage du 2026-08-14).
+                  builder: (_) => draft.direct
+                      ? CircleSettingsScreen(draft: draft)
+                      : SendFormatScreen(draft: draft),
                 ),
-              ),
-            ),
+              );
+            },
             child: const Text('Continuer'),
           ),
         ],

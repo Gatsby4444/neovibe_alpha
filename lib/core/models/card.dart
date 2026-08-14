@@ -10,7 +10,7 @@ import 'package:flutter/material.dart';
 /// - **Hot supprimée** définitivement, contenu et mécanique compris.
 /// - **One of One n'est plus un type choisi** : il s'applique AUTOMATIQUEMENT
 ///   à l'envoi quand la Card part à un seul destinataire sans être publiée
-///   (voir `CardSendScreen`). Le type existe donc toujours en base et porte
+///   (voir `CircleSettingsScreen`). Le type existe donc toujours en base et porte
 ///   toujours son style or — il ne se choisit simplement plus à la capture.
 enum CardType {
   standard,
