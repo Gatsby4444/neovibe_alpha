@@ -132,6 +132,46 @@ Les mini-jeux, les quiz et le feed local ne sont plus « ce qui reste à
 faire » — ils deviennent **le produit**. Ce sont eux qui répondent à la
 question du raisonnement qui suit ; la caméra, elle, n'y a jamais répondu.
 
+### 🌟 Idée du 2026-08-15 — les gradients vivants, « la Vibe »
+
+Jay, en fin de session, après avoir vu le cycle de 24 h tourner :
+
+> « Ces gradients pourraient à terme devenir **adaptatifs à l'entourage** des
+> utilisateurs et **interactifs**, et constituer **la vibe**. Le thème de l'app
+> qui réagit aux interactions et à l'entourage des utilisateurs proches, ou
+> entre eux, de manière adaptative. Comme si l'app était **vivante** et
+> réagissait aux émotions et à la vibe autour d'elle. »
+
+**Pourquoi cette idée n'est pas de la décoration, et mérite d'être ici.**
+
+Le thème selon l'heure est agréable, mais il ne passe **pas** la grille de
+décision du produit : il ne dépend ni de la présence physique, ni de la valeur
+d'une relation. C'est de l'habillage — assumé, et c'est très bien.
+
+Rendre le fond **sensible à qui est autour** change sa nature : il devient la
+**première manifestation visible de la mécanique fondatrice**. La proximité BLE
+cesse d'être une condition d'accès invisible pour devenir quelque chose qu'on
+*voit*, en permanence, sans ouvrir le moindre écran. Le produit dirait enfin
+son idée par son apparence.
+
+C'est aussi la première réponse sérieuse à la question du §3 : *pourquoi rester
+sur une app plus difficile ?* Parce qu'elle est **vivante quand les autres sont
+inertes**, et qu'elle l'est **grâce à** la barrière, pas malgré elle.
+
+**Ce que ça exige, et qui n'est pas trivial :**
+
+1. **Un signal.** Nombre de proches, intensité des échanges, streaks actives —
+   à définir. Sans signal choisi, l'idée reste une intention.
+2. **Une lenteur.** Tout ce qu'on vient de construire repose sur un mouvement
+   imperceptible. Un fond qui réagit *vite* à une présence serait un autre
+   objet — beau peut-être, mais ce ne serait plus le même thème. Décider si la
+   réaction est instantanée (une pulsation) ou lente (une dérive sur l'heure).
+3. ⚠️ **Une question de vie privée, à traiter dès la conception.** Un fond qui
+   change quand quelqu'un approche **dit quelque chose sur qui est là**. Sur
+   une app dont l'argument est la retenue, c'est un canal de fuite involontaire
+   : un utilisateur pourrait déduire la présence de quelqu'un sans que celui-ci
+   l'ait voulu. À arbitrer **avant** d'écrire, pas après.
+
 ### Le raisonnement, à ne jamais oublier
 
 > Pourquoi les utilisateurs iraient discuter sur l'app si c'est justement plus
