@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../motion.dart';
+
 /// Un bandeau court en haut de l'écran, qui glisse, dit une chose et s'en va.
 ///
 /// Demande de Jay (2026-08-14) pour l'enregistrement d'une Vibe : « une petite
@@ -73,7 +75,7 @@ class _TopBannerViewState extends State<_TopBannerView>
     with SingleTickerProviderStateMixin {
   late final _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 260),
+    duration: NeoMotion.normal,
   )..forward();
 
   @override
@@ -93,10 +95,7 @@ class _TopBannerViewState extends State<_TopBannerView>
       TopBannerTone.done => Icons.bookmark_added_rounded,
       TopBannerTone.already => Icons.bookmark_rounded,
     };
-    final curve = CurvedAnimation(
-      parent: _controller,
-      curve: Curves.easeOutCubic,
-    );
+    final curve = CurvedAnimation(parent: _controller, curve: NeoMotion.enter);
 
     return Positioned(
       top: MediaQuery.of(context).padding.top + 8,

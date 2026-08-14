@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/motion.dart';
+
 import '../../../core/content/saved_store.dart';
 import '../../../core/models/card.dart';
 import '../../../core/theme.dart';
@@ -352,7 +354,7 @@ class VibeTypeChip extends StatelessWidget {
     // Elle se met à jour en direct : c'est elle qui annonce le basculement
     // automatique en One of One.
     return AnimatedSwitcher(
-      duration: const Duration(milliseconds: 220),
+      duration: NeoMotion.normal,
       child: Container(
         key: ValueKey(type),
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),

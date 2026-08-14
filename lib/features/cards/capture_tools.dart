@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../core/motion.dart';
+
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
 
@@ -211,12 +213,12 @@ class _ScreenFlashControlState extends State<ScreenFlashControl> {
         ClipRect(
           child: AnimatedAlign(
             alignment: Alignment.centerRight,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
+            duration: NeoMotion.normal,
+            curve: NeoMotion.enter,
             widthFactor: _open ? 1 : 0,
             child: AnimatedOpacity(
               opacity: _open ? 1 : 0,
-              duration: const Duration(milliseconds: 140),
+              duration: NeoMotion.fast,
               child: Container(
                 width: 234,
                 margin: const EdgeInsets.only(right: 8),
@@ -344,7 +346,7 @@ class LensSwitchBurst extends StatelessWidget {
             0.0,
             1.0,
           );
-          final eased = Curves.easeOutCubic.transform(t);
+          final eased = NeoMotion.enter.transform(t);
           return Center(
             child: Opacity(
               opacity: opacity,
@@ -456,12 +458,12 @@ class _CaptureTimerControlState extends State<CaptureTimerControl> {
         ClipRect(
           child: AnimatedAlign(
             alignment: Alignment.centerRight,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
+            duration: NeoMotion.normal,
+            curve: NeoMotion.enter,
             widthFactor: _open ? 1 : 0,
             child: AnimatedOpacity(
               opacity: _open ? 1 : 0,
-              duration: const Duration(milliseconds: 140),
+              duration: NeoMotion.fast,
               child: Container(
                 margin: const EdgeInsets.only(right: 8),
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -546,8 +548,8 @@ class CountdownOverlay extends StatelessWidget {
         child: TweenAnimationBuilder<double>(
           key: ValueKey(seconds),
           tween: Tween(begin: 1.35, end: 1),
-          duration: const Duration(milliseconds: 320),
-          curve: Curves.easeOutBack,
+          duration: NeoMotion.normal,
+          curve: NeoMotion.spring,
           builder: (context, scale, child) =>
               Transform.scale(scale: scale, child: child),
           child: Text(

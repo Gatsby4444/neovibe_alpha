@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
+
 /// Dégradés signature de NeoVibe.
 ///
 /// Consigne de Jay (2026-07-25) : le violet plat d'origine était terne — la
@@ -231,6 +233,15 @@ abstract final class NeoTheme {
       colorScheme: scheme,
       scaffoldBackgroundColor: background,
       canvasColor: background,
+      // Le système de mouvement, posé le 2026-08-14. Ces deux lignes pilotent
+      // la durée ET l'allure des **46** navigations de l'app, sans toucher un
+      // seul `MaterialPageRoute` — voir `NeoPageTransitionsBuilder`.
+      pageTransitionsTheme: const PageTransitionsTheme(
+        builders: {
+          TargetPlatform.android: NeoPageTransitionsBuilder(),
+          TargetPlatform.iOS: NeoPageTransitionsBuilder(),
+        },
+      ),
       // Même raison que `surfaceTint` ci-dessus, au niveau du thème.
       applyElevationOverlayColor: false,
       appBarTheme: AppBarTheme(

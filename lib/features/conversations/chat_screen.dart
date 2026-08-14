@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/motion.dart';
+
 import '../../core/widgets/avatar.dart';
 import '../../core/models/card.dart';
 import '../../core/models/connection.dart';
@@ -508,8 +510,8 @@ class _ComposerState extends State<_Composer> {
                     // n'existe que s'il y a quelque chose à envoyer.
                     AnimatedScale(
                       scale: hasText ? 1 : 0,
-                      duration: const Duration(milliseconds: 160),
-                      curve: Curves.easeOutBack,
+                      duration: NeoMotion.fast,
+                      curve: NeoMotion.spring,
                       child: Padding(
                         padding: const EdgeInsets.only(bottom: 3),
                         child: _SendButton(onPressed: widget.onSend),

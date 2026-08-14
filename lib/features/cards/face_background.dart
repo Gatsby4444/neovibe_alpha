@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../core/motion.dart';
+
 import '../../core/theme.dart';
 
 /// Fond d'une face de card : couleur unie **ou** dégradé (consigne Jay
@@ -141,14 +143,14 @@ Future<FaceBackground?> showFaceBackgroundPalette(
     barrierDismissible: true,
     barrierLabel: 'Fermer la palette',
     barrierColor: Colors.black54,
-    transitionDuration: const Duration(milliseconds: 260),
+    transitionDuration: NeoMotion.normal,
     pageBuilder: (context, animation, _) =>
         _PalettePanel(animation: animation, current: current),
     transitionBuilder: (context, animation, _, child) {
       final curved = CurvedAnimation(
         parent: animation,
-        curve: Curves.easeOutBack,
-        reverseCurve: Curves.easeIn,
+        curve: NeoMotion.spring,
+        reverseCurve: NeoMotion.exit,
       );
       return FadeTransition(
         opacity: animation,
@@ -209,7 +211,7 @@ class _PalettePanel extends StatelessWidget {
                           curve: Interval(
                             (i / items.length) * 0.5,
                             0.5 + (i / items.length) * 0.5,
-                            curve: Curves.easeOutBack,
+                            curve: NeoMotion.spring,
                           ),
                         ),
                         onTap: () => Navigator.of(context).pop(items[i]),

@@ -65,6 +65,13 @@ class _RevealedVibeScreenState extends ConsumerState<RevealedVibeScreen>
   /// rayon est en pixels logiques, il doit suivre la taille d'affichage.
   static const _startSigma = 44.0;
 
+  /// ⚠️ **Délibérément HORS du système de mouvement** (`core/motion.dart`).
+  ///
+  /// 1600 ms, contre 380 ms pour le palier le plus ample. Ce n'est pas un
+  /// oubli d'harmonisation : cette lenteur **est** la révélation. Elle
+  /// appartient au contenu, pas à l'habillage — la ramener à un palier de
+  /// l'app viderait le moment de son sens. Même chose pour les courbes de
+  /// ses deux `Interval` ci-dessous.
   late final AnimationController _controller = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 1600),

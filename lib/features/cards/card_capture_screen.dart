@@ -10,6 +10,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../core/motion.dart';
+
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
@@ -1187,7 +1189,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
           child: AnimatedOpacity(
             opacity: _switching ? 1 : 0,
             duration: Duration(milliseconds: _switching ? 0 : 200),
-            curve: Curves.easeOut,
+            curve: NeoMotion.enter,
             // Voile de bascule caméra : noir neutre, jamais teinté.
             child: const ColoredBox(color: NeoNeutrals.black),
           ),
@@ -1286,7 +1288,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                 children: [
                   Positioned.fill(
                     child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 220),
+                      duration: NeoMotion.normal,
                       transitionBuilder: (child, animation) =>
                           FadeTransition(opacity: animation, child: child),
                       child: KeyedSubtree(
@@ -1310,7 +1312,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: AnimatedSwitcher(
-                            duration: const Duration(milliseconds: 220),
+                            duration: NeoMotion.normal,
                             transitionBuilder: (child, animation) =>
                                 SlideTransition(
                                   position: Tween<Offset>(
@@ -1599,7 +1601,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                   ignoring: _typeLocked,
                   child: AnimatedOpacity(
                     opacity: _typeLocked ? 0.35 : 1,
-                    duration: const Duration(milliseconds: 150),
+                    duration: NeoMotion.fast,
                     child: SizedBox(
                       height: 46,
                       child: PageView.builder(
@@ -1628,8 +1630,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                               return GestureDetector(
                                 onTap: () => _typeController.animateToPage(
                                   index,
-                                  duration: const Duration(milliseconds: 280),
-                                  curve: Curves.easeOutCubic,
+                                  duration: NeoMotion.normal,
+                                  curve: NeoMotion.enter,
                                 ),
                                 child: Center(
                                   child: Transform.scale(
@@ -2276,12 +2278,12 @@ class _FlashControlState extends State<_FlashControl> {
         ClipRect(
           child: AnimatedAlign(
             alignment: Alignment.centerRight,
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOut,
+            duration: NeoMotion.normal,
+            curve: NeoMotion.enter,
             widthFactor: _open ? 1 : 0,
             child: AnimatedOpacity(
               opacity: _open ? 1 : 0,
-              duration: const Duration(milliseconds: 140),
+              duration: NeoMotion.fast,
               child: Container(
                 margin: const EdgeInsets.only(right: 8),
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

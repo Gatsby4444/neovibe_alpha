@@ -3,6 +3,8 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
+import '../../core/motion.dart';
+
 /// Carte Mono : face unique, PAS de retournement, mais le jeu d'angle reste
 /// (consigne Jay 2026-07-12) — le doigt incline la carte dans l'espace
 /// (rotations X/Y bornées), elle revient à plat au relâchement. Le tap ne
@@ -20,7 +22,7 @@ class _TiltableCardState extends State<TiltableCard>
     with SingleTickerProviderStateMixin {
   late final AnimationController _controller = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 340),
+    duration: NeoMotion.ample,
   )..addListener(_onTick);
 
   /// Inclinaisons courantes (radians), bornées pour rester subtiles.
@@ -32,7 +34,7 @@ class _TiltableCardState extends State<TiltableCard>
   static const _maxTilt = 0.32;
 
   void _onTick() {
-    final t = Curves.easeOutCubic.transform(_controller.value);
+    final t = NeoMotion.enter.transform(_controller.value);
     setState(() {
       _tiltX = lerpDouble(_startTiltX, 0, t)!;
       _tiltY = lerpDouble(_startTiltY, 0, t)!;
@@ -157,14 +159,12 @@ class _FlippableCardState extends State<FlippableCard>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 380),
-    )..addListener(_onTick);
+    _controller = AnimationController(vsync: this, duration: NeoMotion.ample)
+      ..addListener(_onTick);
   }
 
   void _onTick() {
-    final t = Curves.easeOutCubic.transform(_controller.value);
+    final t = NeoMotion.enter.transform(_controller.value);
     setState(() {
       _angle = lerpDouble(_startAngle, _targetAngle, t)!;
       _tilt = lerpDouble(_startTilt, 0, t)!;
