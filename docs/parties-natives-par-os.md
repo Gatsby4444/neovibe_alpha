@@ -36,6 +36,30 @@
 | Journal caméra (dev) | (dans `neovibe/camera`) | `CamLog` (fichier disque) | fichier disque (trivial) |
 | Diagnostic appareil (dev) | `neovibe/diag` | `NativeDiagnostics` (`PackageManager` + `Build`) | `Bundle.main.infoDictionary` + `UIDevice` |
 
+### Natif **fourni par un paquet**, donc rien à écrire — mais à connaître
+
+Ces blocs ne sont pas de notre code. Ils figurent ici parce que la règle de ce
+fichier est de **ne rien découvrir au dernier moment lors du portage iOS**, et
+qu'un moteur natif tiers pèse sur le portage autant qu'un fichier `.kt` à nous.
+
+| Bloc | Paquet | Android | iOS |
+|---|---|---|---|
+| **Moteur de rendu Rive** | `rive` 0.14.11 → `rive_native` 0.1.11 | `.so` par ABI (~7,3 Mo en arm64) | fourni par le paquet — **rien à écrire** |
+
+Trois points à retenir pour le jour du portage :
+
+1. **Initialisation obligatoire** : `await rive.RiveNative.init()` dans
+   `main()`, avant tout `File.asset`. Enveloppé dans un `try` — un moteur
+   indisponible ne doit pas empêcher l'app de démarrer, seulement faire retomber
+   les boutons sur leur rendu Flutter.
+2. **Coût réel : +7,3 Mo, pas +21,5.** Un appareil n'installe qu'une
+   architecture. C'est ce qui a décidé du passage à `--split-per-abi`
+   (2026-08-14) : **29,6 Mo en arm64 contre 83,1 Mo en APK gras**.
+3. ⚠️ **Dette signalée par Flutter** : `rive_native` applique l'ancien plugin
+   Kotlin (KGP). « Future versions of Flutter will fail to build if your app
+   uses plugins that apply KGP. » À surveiller — même avertissement que
+   `flutter_foreground_task`.
+
 ---
 
 ## 1. Caméra — le moteur
