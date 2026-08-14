@@ -2,6 +2,19 @@ import 'package:flutter/material.dart';
 
 /// La **vague rosée** qui balaie l'écran quand une Vibe part.
 ///
+/// ## ⚠️ EN SOMMEIL depuis le 2026-08-14 — aucun appelant
+///
+/// Jay : « pour la vague rose, on la supprime pour l'instant, on la remettra
+/// plus tard. » Les quatre `SendWave.play(context)` ont donc été retirés des
+/// écrans de paramétrage d'envoi (Cercle, Story, Publication, Bibliothèque de
+/// conversation).
+///
+/// **Ce fichier est volontairement conservé sans appelant** — ce n'est pas un
+/// reste mort qu'on aurait oublié de nettoyer. Pour la rallumer : réimporter
+/// `core/widgets/send_wave.dart` et rappeler `SendWave.play(context)` **avant**
+/// le dépilage, dans les quatre écrans ci-dessus (voir le commentaire de
+/// [SendWave.play] sur `rootOverlay`).
+///
 /// Demandée par Jay le 2026-08-14, d'après l'animation `color-splash` du
 /// fichier Rive « Apple Intelligence » qu'il m'a montrée.
 ///

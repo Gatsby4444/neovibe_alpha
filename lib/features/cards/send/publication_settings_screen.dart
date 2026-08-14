@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/content/saved_store.dart';
 import '../../../core/theme.dart';
-import '../../../core/widgets/send_wave.dart';
 import '../../library/library_repository.dart';
 import 'send_common.dart';
 import 'vibe_draft.dart';
@@ -61,9 +60,6 @@ class _PublicationSettingsScreenState
       await ref.read(savedStoreProvider).rekey(draft.localId, id);
       ref.invalidate(savedItemsProvider);
       if (!mounted) return;
-      // La vague part AVANT le depilage : elle vit dans l'Overlay racine, donc
-      // elle survit a la navigation, mais il lui faut un contexte encore monte.
-      SendWave.play(context);
       Navigator.of(context).popUntil((r) => r.isFirst);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Publiée dans ta bibliothèque ✓')),

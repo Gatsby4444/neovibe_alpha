@@ -6,7 +6,6 @@ import '../../../core/models/card.dart';
 import '../../../core/prefs.dart';
 import '../../../core/supabase_providers.dart';
 import '../../../core/theme.dart';
-import '../../../core/widgets/send_wave.dart';
 import '../../connections/connections_repository.dart';
 import '../cards_repository.dart';
 import 'send_common.dart';
@@ -142,9 +141,6 @@ class _CircleSettingsScreenState extends ConsumerState<CircleSettingsScreen> {
       await ref.read(savedStoreProvider).rekey(_draft.localId, card.id);
       ref.invalidate(savedItemsProvider);
       if (!mounted) return;
-      // La vague part AVANT le dépilage : elle vit dans l'Overlay racine, donc
-      // elle survit à la navigation, mais il lui faut un contexte encore monté.
-      SendWave.play(context);
       if (_draft.direct) {
         // Retour AU CHAT d'où la capture a été ouverte : on dépile le
         // paramétrage et l'écran de capture (chat → capture → paramétrage). Le
