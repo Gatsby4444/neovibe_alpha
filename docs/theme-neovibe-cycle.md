@@ -34,25 +34,42 @@ qui sépare un rendu « cher » d'un rendu bricolé.
 
 ## Les ancrages
 
-Tirés des palettes fournies par Jay (`docs/images/`). Les heures intermédiaires
-sont **calculées en OkLab** entre ces ancrages.
+**Version 2, du 2026-08-15.** Jay a trié lui-même les palettes en `matin`,
+`midi` et `soir` (`docs/images/`), après avoir rejeté la v1 : *« le tout premier
+gradient bleu ne me plaît pas […] ce que je veux c'est une atmosphère qui a
+l'air premium et naturelle, qui respire, il y a beaucoup de bleu, souvent
+présent. »*
 
-| Heure | Haut | Bas | Palette d'origine |
-|---|---|---|---|
-| 00 h | `#010030` | `#160078` | Deep ocean — nuit profonde |
-| 03 h | `#0B0A3A` | `#2A1A66` | nuit |
-| 05 h | `#6968A6` | `#CF9893` | **Lavender Dusk** — aube |
-| 07 h | `#3F6FA8` | `#E8BFC3` | lever (Blush Silk en bas) |
-| 09 h | `#085078` | `#9AE4CB` | **Glacium** — matin |
-| 12 h | `#292F91` | `#4CA8DD` | **Azuria** — midi, lumière bleue |
-| 15 h | `#2A5C9B` | `#8FC7E8` | après-midi |
-| 18 h | `#A92655` | `#FD8D67` | **Velvet Sunset** — coucher |
-| 20 h | `#5E1B3A` | `#C4573F` | soir chaud |
-| 22 h | `#2A0F2E` | `#5E1B3A` | nuit tombée |
-| 24 h | = 00 h | = 00 h | boucle |
+**Ce que sa répartition change, et c'est l'essentiel** : il met du **vert au
+cœur de la journée** (Jungle à midi). Ce n'est pas un détail de teinte — ça
+déplace la référence du **ciel** vers la **végétation**. C'est ça, « naturelle
+qui respire », et c'est ce qui règle le « trop de bleu » : la v1 racontait un
+ciel du matin au soir, la v2 raconte un paysage.
 
-L'arc suit la logique circadienne demandée par Jay : **bleu et vif le matin
-pour éveiller, chaud le soir pour ne pas fatiguer les yeux.**
+La **nuit n'est plus bleue** non plus : elle est vert-noir, dans la continuité
+de Deep Forest.
+
+| Heure | Haut | Bas | Palette | Dossier |
+|---|---|---|---|---|
+| 00 h | `#04150F` | `#06231D` | nuit — vert-noir | — |
+| 03 h | `#071512` | `#0C342C` | Jungle sombre | — |
+| 05 h | `#1B0B3D` | `#5B22C8` | **Deep Ocean** — avant-aube | matin |
+| 06 h | `#A92655` | `#FD8D67` | **Velvet Sunset** — lever | matin |
+| 08 h | `#DD7A83` | `#E8BFC3` | **Blush Silk** | matin |
+| 10 h | `#292F91` | `#4CA8DD` | **Azuria** | matin |
+| 12 h | `#076653` | `#E2FBCE` | **Jungle** — midi | midi |
+| 14 h | `#7AABFF` | `#FF9AEF` | **Cotton Candy** | midi |
+| 16 h | `#708F96` | `#AA895F` | **Muted Olive Sky** | soir |
+| 18 h | `#BC430D` | `#F09410` | **Desert** — coucher | soir |
+| 20 h | `#6968A6` | `#CF9893` | **Lavender Dusk** — crépuscule | soir |
+| 22 h | `#034C36` | `#003332` | **Deep Forest** — nuit tombée | soir |
+| 24 h | = 00 h | = 00 h | boucle | — |
+
+Les heures intermédiaires sont **calculées en OkLab** entre ces ancrages.
+
+Restent inutilisées pour l'instant : **Glacium** (`#085078 → #9AE4CB`) et
+**champigreen**, faute de place dans l'arc — à ressortir si Jay veut remplacer
+un ancrage.
 
 ## L'accent, et la règle de contraste
 
@@ -86,7 +103,17 @@ assuré **par construction**, pas par calcul.
 - Clés **toutes les 60 images** (une par heure), en interpolation **linéaire**.
 - Contenu : le fond dégradé, une surface neutre avec trois barres de texte, deux
   **sondes** (un disque blanc et un disque noir posés directement sur le
-  dégradé — le cas de nos boutons caméra sans fond), et un bouton d'accent.
+  dégradé — le cas de nos boutons caméra sans fond), un bouton d'accent, et
+  l'**horloge**.
+- **L'horloge** (demandée par Jay le 2026-08-15) : un cadran de 24 h,
+  **midi en haut, minuit en bas**. L'aiguille suit donc la course du soleil —
+  elle se lève à gauche (06 h), culmine au sommet (12 h), se couche à droite
+  (18 h). Traits longs aux quarts de journée (0/6/12/18 h), courts aux 3 h.
+  Une seule rotation linéaire, 180° → 540° sur les 1440 images.
+
+  ⚠️ Pas d'affichage **numérique** : le MCP Rive n'expose aucun outil de
+  création de *text run*. Un cadran était la seule option, et c'est de toute
+  façon le plus lisible en lecture continue.
 
 **Pourquoi une clé par heure et pas par ancrage** : Rive interpole en **RVB**.
 Des segments d'une heure sont assez courts pour que le chemin RVB colle au
