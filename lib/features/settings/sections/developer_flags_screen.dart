@@ -48,6 +48,25 @@ class DeveloperFlagsScreen extends ConsumerWidget {
           ),
           const Divider(),
           const SettingsHeader('Caméra'),
+          // PILOTE DU 2026-08-14 — le rail en verre de l'écran de capture.
+          //
+          // Cet interrupteur existe pour MESURER, pas pour offrir un choix à
+          // l'utilisateur : il faut pouvoir comparer deux relevés de coût sur
+          // la MÊME scène. Une fois la mesure faite, le défaut est tranché et
+          // cet interrupteur disparaît avec la section Développeur.
+          SwitchListTile(
+            title: const Text('Verre dépoli sur le rail de capture'),
+            subtitle: const Text(
+              'Activé : vrai flou de l\'aperçu (BackdropFilter). Désactivé : '
+              'repli économique, sans lecture du tampon d\'affichage.\n'
+              'Pour mesurer : ouvre la capture, laisse tourner ~20 s dans '
+              'chaque position SANS changer de scène, puis Développeur → '
+              '« Tout copier pour diagnostic ».',
+            ),
+            value: ref.watch(captureGlassFullProvider),
+            onChanged: (v) =>
+                ref.read(captureGlassFullProvider.notifier).set(v),
+          ),
           SwitchListTile(
             title: const Text('Diagnostic caméra sur l\'aperçu'),
             subtitle: const Text(

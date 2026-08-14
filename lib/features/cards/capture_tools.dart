@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
+import 'glass_controls.dart';
 
 /// Outils de PRISE de l'écran de capture (consigne Jay 2026-07-26) : flash
 /// frontal (lueur d'écran), grille de cadrage, retardateur et HD.
@@ -269,11 +270,11 @@ class _ScreenFlashControlState extends State<ScreenFlashControl> {
             ),
           ),
         ),
-        IconButton.filledTonal(
+        GlassCircleButton(
           tooltip: 'Flash frontal (lueur d\'écran)',
+          active: widget.on,
           icon: Icon(
             widget.on ? Icons.wb_incandescent : Icons.wb_incandescent_outlined,
-            color: widget.on ? NeoTheme.accentPink : null,
           ),
           onPressed: () => setState(() => _open = !_open),
         ),
@@ -505,17 +506,14 @@ class _CaptureTimerControlState extends State<CaptureTimerControl> {
             ),
           ),
         ),
-        IconButton.filledTonal(
+        GlassCircleButton(
           tooltip: 'Retardateur',
+          active: armed,
+          // Le nombre de secondes remplace l'icône quand le retardateur est
+          // armé : le style vient du bouton (voir `DefaultTextStyle` dans
+          // `GlassCircleButton`), il n'est plus écrit ici.
           icon: armed
-              ? Text(
-                  '${widget.seconds}',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: NeoTheme.accentPink,
-                  ),
-                )
+              ? Text('${widget.seconds}')
               : const Icon(Icons.timer_outlined),
           onPressed: widget.onChanged == null
               ? null
@@ -584,12 +582,10 @@ class HdButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton.filledTonal(
+    return GlassCircleButton(
       tooltip: active ? 'HD activé (photos)' : 'HD désactivé',
-      icon: Icon(
-        active ? Icons.hd : Icons.hd_outlined,
-        color: active ? NeoTheme.accentPink : null,
-      ),
+      active: active,
+      icon: Icon(active ? Icons.hd : Icons.hd_outlined),
       onPressed: onChanged == null ? null : () => onChanged!(!active),
     );
   }
@@ -605,12 +601,10 @@ class GridButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IconButton.filledTonal(
+    return GlassCircleButton(
       tooltip: active ? 'Masquer la grille' : 'Afficher la grille',
-      icon: Icon(
-        active ? Icons.grid_on : Icons.grid_off,
-        color: active ? NeoTheme.accentPink : null,
-      ),
+      active: active,
+      icon: Icon(active ? Icons.grid_on : Icons.grid_off),
       onPressed: onChanged == null ? null : () => onChanged!(!active),
     );
   }

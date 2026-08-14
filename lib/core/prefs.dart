@@ -117,6 +117,40 @@ final captureGridProvider = NotifierProvider<CaptureGrid, bool>(
   CaptureGrid.new,
 );
 
+/// Recette du verre des contrôles de capture — **pilote du 2026-08-14**.
+///
+/// Existe pour être basculé PENDANT une session de capture, sans quitter
+/// l'écran : c'est la seule façon de comparer deux relevés de coût sur la même
+/// scène. Un aller-retour par les réglages changerait la lumière, le cadrage et
+/// donc la mesure.
+///
+/// Défaut : le vrai flou. Si la mesure le condamne, c'est ce défaut qui change
+/// — pas le code appelant.
+class CaptureGlassFull extends Notifier<bool> {
+  static const _key = 'capture_glass_full';
+
+  @override
+  bool build() {
+    _load();
+    return true;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(_key) ?? true;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_key, value);
+  }
+}
+
+final captureGlassFullProvider = NotifierProvider<CaptureGlassFull, bool>(
+  CaptureGlassFull.new,
+);
+
 /// Calibrage du FLASH FRONTAL (lueur d'écran, consigne Jay 2026-07-26) :
 /// chaleur de la lumière et intensité, réglées aux deux curseurs.
 ///

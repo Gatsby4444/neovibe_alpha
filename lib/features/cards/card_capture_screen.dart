@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player/video_player.dart';
 
+import '../../core/diagnostics/frame_cost_trace.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
@@ -19,6 +20,7 @@ import 'capture_tools.dart';
 import 'face_background.dart';
 import 'face_editor_screen.dart';
 import 'gallery_import_screen.dart';
+import 'glass_controls.dart';
 import 'native_camera.dart';
 import 'send/circle_settings_screen.dart';
 import 'send/send_format_screen.dart';
@@ -1136,7 +1138,23 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     _lensBurst.dispose();
     _camera.removeListener(_onCameraChanged);
     _camera.dispose();
+    // Le relevé de coût s'arrête AVEC l'écran : ce qui se passe ailleurs dans
+    // l'app n'a rien à voir avec le rail, et le mélanger fausserait la
+    // distribution.
+    FrameCostTrace.stop();
     super.dispose();
+  }
+
+  /// Étiquette du relevé de coût en cours. Le pilote du 2026-08-14 compare
+  /// deux échantillons pris **sur la même scène** : c'est la seule comparaison
+  /// honnête, la lumière et le cadrage changeant tout.
+  String? _traceLabel;
+
+  void _traceGlass(bool full) {
+    final label = full ? 'capture · verre dépoli' : 'capture · sans flou';
+    if (_traceLabel == label) return;
+    _traceLabel = label;
+    FrameCostTrace.start(label);
   }
 
   /// Aperçu d'un flux natif (clé de préview + texture), recadré « cover »
@@ -1401,6 +1419,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     final showCaptureTools =
         _type != CardType.oneshot && _type != CardType.bereal;
     final gridOn = ref.watch(captureGridProvider);
+    // Recette du verre du rail — pilote du 2026-08-14. Se bascule depuis
+    // Réglages → Développeur, et le relevé de coût change d'étiquette avec
+    // elle : c'est ce qui permet de comparer deux passages sur la même scène.
+    final glassFull = ref.watch(captureGlassFullProvider);
+    _traceGlass(glassFull);
     final screenFlashSettings = ref.watch(screenFlashProvider);
     // La lueur du flash frontal ne s'affiche QU'EN frontale : c'est un flash de
     // façade. Le réglage survit à un aller-retour vers l'arrière.
@@ -1706,9 +1729,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                 top: 0,
                 bottom: 0,
                 child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  // Le rail de VERRE (pilote du 2026-08-14, maquette de Jay).
+                  //
+                  // Il floute l'aperçu UNE seule fois pour ses six boutons —
+                  // voir l'en-tête de `glass_controls.dart`. Les espacements
+                  // sont désormais les siens : les `SizedBox(height: 12)` qui
+                  // séparaient les boutons ont disparu, sinon le rail aurait
+                  // deux réglages d'écartement en désaccord.
+                  child: GlassRail(
+                    quality: glassFull ? GlassQuality.full : GlassQuality.light,
                     children: [
                       // FLASH — deux boutons qui ne coexistent JAMAIS
                       // (consigne Jay 2026-07-26) : la LED en caméra arrière,
@@ -1716,14 +1745,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                       if (_camera.lensBack) ...[
                         // Pas de LED sur cette caméra : pas de bouton du tout
                         // plutôt qu'un bouton menteur.
-                        if (_camera.hasFlash) ...[
+                        if (_camera.hasFlash)
                           _FlashControl(
                             mode: _camera.flashMode,
                             onChanged: _busy ? null : _setFlash,
                           ),
-                          const SizedBox(height: 12),
-                        ],
-                      ] else ...[
+                      ] else
                         ScreenFlashControl(
                           on: _screenFlash,
                           settings: screenFlashSettings,
@@ -1734,8 +1761,6 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                           onChanged: (s) =>
                               ref.read(screenFlashProvider.notifier).set(s),
                         ),
-                        const SizedBox(height: 12),
-                      ],
                       if (showCaptureTools) ...[
                         CaptureTimerControl(
                           seconds: _timerSeconds,
@@ -1746,29 +1771,24 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                                   if (value > 0) _timerRestore = value;
                                 }),
                         ),
-                        const SizedBox(height: 12),
                         GridButton(
                           active: gridOn,
                           onChanged: (value) =>
                               ref.read(captureGridProvider.notifier).set(value),
                         ),
-                        const SizedBox(height: 12),
                         HdButton(
                           active: _hd,
                           onChanged: _busy
                               ? null
                               : (value) => setState(() => _hd = value),
                         ),
-                        const SizedBox(height: 12),
                       ],
-                      if (showLensToggle) ...[
-                        IconButton.filledTonal(
+                      if (showLensToggle)
+                        GlassCircleButton(
                           tooltip: 'Changer de caméra',
                           icon: const Icon(Icons.cameraswitch),
                           onPressed: _busy || _switching ? null : _toggleLens,
                         ),
-                        const SizedBox(height: 12),
-                      ],
                       // Bouton COULEUR (ex-bouton dessin) : appui court = face
                       // entièrement remplie de cette couleur, appui long =
                       // palette.
@@ -2313,12 +2333,10 @@ class _FlashControlState extends State<_FlashControl> {
             ),
           ),
         ),
-        IconButton.filledTonal(
+        GlassCircleButton(
           tooltip: 'Flash',
-          icon: Icon(
-            _icon(widget.mode),
-            color: widget.mode == FlashMode.off ? null : NeoTheme.accentPink,
-          ),
+          active: widget.mode != FlashMode.off,
+          icon: Icon(_icon(widget.mode)),
           onPressed: enabled ? () => setState(() => _open = !_open) : null,
         ),
       ],
@@ -2341,19 +2359,16 @@ class _ColorButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'Face colorée — appui long pour la palette',
-      child: GestureDetector(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Container(
-          width: 44,
-          height: 44,
-          decoration: background.decoration.copyWith(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white70, width: 2),
-          ),
-        ),
+    // La couleur passe SOUS le verre (`underlay`) : le liseré nacré et le
+    // reflet du bouton se posent dessus, comme sur les cinq autres. Avant, ce
+    // bouton portait sa propre bordure blanche et détonnait dans le rail.
+    return GlassCircleButton(
+      tooltip: 'Face colorée — appui long pour la palette',
+      icon: const SizedBox.shrink(),
+      onPressed: onTap,
+      onLongPress: onLongPress,
+      underlay: DecoratedBox(
+        decoration: background.decoration.copyWith(shape: BoxShape.circle),
       ),
     );
   }

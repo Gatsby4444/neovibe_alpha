@@ -4,6 +4,7 @@ import '../video/video_open_trace.dart';
 import '../../features/cards/native_camera.dart';
 import 'app_log.dart';
 import 'card_rules_trace.dart';
+import 'frame_cost_trace.dart';
 
 /// Tout ce qu'il faut pour diagnostiquer, en **un seul** copier-coller.
 ///
@@ -131,6 +132,7 @@ class DiagnosticBundle {
     bool rules = true,
     bool appLog = true,
     bool cameraLog = true,
+    bool frameCost = true,
   }) async {
     final buffer = StringBuffer()
       ..writeln('===== DIAGNOSTIC NEOVIBE =====')
@@ -148,6 +150,12 @@ class DiagnosticBundle {
       buffer
         ..writeln('\n===== LECTURE VIDÉO — TEMPS D\'OUVERTURE =====')
         ..writeln(videoTimings());
+    }
+
+    if (frameCost) {
+      buffer
+        ..writeln('\n===== COÛT D\'AFFICHAGE — ÉCRAN DE CAPTURE =====')
+        ..writeln(FrameCostTrace.report());
     }
 
     if (rules) {
