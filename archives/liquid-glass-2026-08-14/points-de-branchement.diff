@@ -1,0 +1,433 @@
+diff --git a/lib/core/diagnostics/diagnostic_bundle.dart b/lib/core/diagnostics/diagnostic_bundle.dart
+index e7a7b81..45315de 100644
+--- a/lib/core/diagnostics/diagnostic_bundle.dart
++++ b/lib/core/diagnostics/diagnostic_bundle.dart
+@@ -1,9 +1,13 @@
++import 'dart:ui' show ImageFilter;
++
+ import 'package:flutter/services.dart';
+ 
+ import '../video/video_open_trace.dart';
++import '../../features/cards/glass_controls.dart';
+ import '../../features/cards/native_camera.dart';
+ import 'app_log.dart';
+ import 'card_rules_trace.dart';
++import 'frame_cost_trace.dart';
+ 
+ /// Tout ce qu'il faut pour diagnostiquer, en **un seul** copier-coller.
+ ///
+@@ -131,6 +135,7 @@ class DiagnosticBundle {
+     bool rules = true,
+     bool appLog = true,
+     bool cameraLog = true,
++    bool frameCost = true,
+   }) async {
+     final buffer = StringBuffer()
+       ..writeln('===== DIAGNOSTIC NEOVIBE =====')
+@@ -150,6 +155,19 @@ class DiagnosticBundle {
+         ..writeln(videoTimings());
+     }
+ 
++    if (frameCost) {
++      buffer
++        ..writeln('\n===== COÛT D\'AFFICHAGE — ÉCRAN DE CAPTURE =====')
++        // Sans cette ligne, « le liquid glass ne fait rien » et « le shader
++        // n'a jamais été chargé » sont indiscernables dans un rapport de test.
++        ..writeln('shader liquid glass : ${LiquidGlassProgram.status}')
++        ..writeln(
++          'ImageFilter.shader supporté : '
++          '${ImageFilter.isShaderFilterSupported}',
++        )
++        ..writeln(FrameCostTrace.report());
++    }
++
+     if (rules) {
+       buffer.writeln('\n===== RÈGLES DES VIBES =====');
+       final records = CardRulesTrace.records;
+diff --git a/lib/core/prefs.dart b/lib/core/prefs.dart
+index cb67f68..e67ebee 100644
+--- a/lib/core/prefs.dart
++++ b/lib/core/prefs.dart
+@@ -117,6 +117,47 @@ final captureGridProvider = NotifierProvider<CaptureGrid, bool>(
+   CaptureGrid.new,
+ );
+ 
++/// Recette du verre des contrôles de capture — **pilote du 2026-08-14**.
++///
++/// Trois paliers, stockés par leur INDICE dans `GlassQuality` :
++/// 0 = liquid glass (réfraction), 1 = verre dépoli, 2 = translucide.
++///
++/// Existe pour être basculé PENDANT une session de capture, sans quitter
++/// l'écran : c'est la seule façon de comparer deux relevés de coût sur la même
++/// scène. Un aller-retour par les réglages changerait la lumière, le cadrage et
++/// donc la mesure.
++///
++/// Défaut : la réfraction. Si la mesure la condamne, c'est ce défaut qui change
++/// — pas le code appelant.
++///
++/// ⚠️ L'indice est écrit tel quel dans les préférences : **ne jamais réordonner
++/// `GlassQuality`** sans migration, un appareil déjà installé relirait l'ancien
++/// indice et rendrait autre chose que ce qui est affiché.
++class CaptureGlassQuality extends Notifier<int> {
++  static const _key = 'capture_glass_quality';
++
++  @override
++  int build() {
++    _load();
++    return 0;
++  }
++
++  Future<void> _load() async {
++    final prefs = await SharedPreferences.getInstance();
++    state = prefs.getInt(_key) ?? 0;
++  }
++
++  Future<void> set(int value) async {
++    state = value;
++    final prefs = await SharedPreferences.getInstance();
++    await prefs.setInt(_key, value);
++  }
++}
++
++final captureGlassQualityProvider = NotifierProvider<CaptureGlassQuality, int>(
++  CaptureGlassQuality.new,
++);
++
+ /// Calibrage du FLASH FRONTAL (lueur d'écran, consigne Jay 2026-07-26) :
+ /// chaleur de la lumière et intensité, réglées aux deux curseurs.
+ ///
+diff --git a/lib/features/cards/capture_tools.dart b/lib/features/cards/capture_tools.dart
+index 4eafd88..c572a18 100644
+--- a/lib/features/cards/capture_tools.dart
++++ b/lib/features/cards/capture_tools.dart
+@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
+ 
+ import '../../core/prefs.dart';
+ import '../../core/theme.dart';
++import 'glass_controls.dart';
+ 
+ /// Outils de PRISE de l'écran de capture (consigne Jay 2026-07-26) : flash
+ /// frontal (lueur d'écran), grille de cadrage, retardateur et HD.
+@@ -269,11 +270,11 @@ class _ScreenFlashControlState extends State<ScreenFlashControl> {
+             ),
+           ),
+         ),
+-        IconButton.filledTonal(
++        GlassCircleButton(
+           tooltip: 'Flash frontal (lueur d\'écran)',
++          active: widget.on,
+           icon: Icon(
+             widget.on ? Icons.wb_incandescent : Icons.wb_incandescent_outlined,
+-            color: widget.on ? NeoTheme.accentPink : null,
+           ),
+           onPressed: () => setState(() => _open = !_open),
+         ),
+@@ -505,17 +506,14 @@ class _CaptureTimerControlState extends State<CaptureTimerControl> {
+             ),
+           ),
+         ),
+-        IconButton.filledTonal(
++        GlassCircleButton(
+           tooltip: 'Retardateur',
++          active: armed,
++          // Le nombre de secondes remplace l'icône quand le retardateur est
++          // armé : le style vient du bouton (voir `DefaultTextStyle` dans
++          // `GlassCircleButton`), il n'est plus écrit ici.
+           icon: armed
+-              ? Text(
+-                  '${widget.seconds}',
+-                  style: const TextStyle(
+-                    fontSize: 15,
+-                    fontWeight: FontWeight.w700,
+-                    color: NeoTheme.accentPink,
+-                  ),
+-                )
++              ? Text('${widget.seconds}')
+               : const Icon(Icons.timer_outlined),
+           onPressed: widget.onChanged == null
+               ? null
+@@ -584,12 +582,10 @@ class HdButton extends StatelessWidget {
+ 
+   @override
+   Widget build(BuildContext context) {
+-    return IconButton.filledTonal(
++    return GlassCircleButton(
+       tooltip: active ? 'HD activé (photos)' : 'HD désactivé',
+-      icon: Icon(
+-        active ? Icons.hd : Icons.hd_outlined,
+-        color: active ? NeoTheme.accentPink : null,
+-      ),
++      active: active,
++      icon: Icon(active ? Icons.hd : Icons.hd_outlined),
+       onPressed: onChanged == null ? null : () => onChanged!(!active),
+     );
+   }
+@@ -605,12 +601,10 @@ class GridButton extends StatelessWidget {
+ 
+   @override
+   Widget build(BuildContext context) {
+-    return IconButton.filledTonal(
++    return GlassCircleButton(
+       tooltip: active ? 'Masquer la grille' : 'Afficher la grille',
+-      icon: Icon(
+-        active ? Icons.grid_on : Icons.grid_off,
+-        color: active ? NeoTheme.accentPink : null,
+-      ),
++      active: active,
++      icon: Icon(active ? Icons.grid_on : Icons.grid_off),
+       onPressed: onChanged == null ? null : () => onChanged!(!active),
+     );
+   }
+diff --git a/lib/features/cards/card_capture_screen.dart b/lib/features/cards/card_capture_screen.dart
+index ad108dc..ed7b474 100644
+--- a/lib/features/cards/card_capture_screen.dart
++++ b/lib/features/cards/card_capture_screen.dart
+@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
+ import 'package:permission_handler/permission_handler.dart';
+ import 'package:video_player/video_player.dart';
+ 
++import '../../core/diagnostics/frame_cost_trace.dart';
+ import '../../core/models/card.dart';
+ import '../../core/prefs.dart';
+ import '../../core/theme.dart';
+@@ -19,6 +20,7 @@ import 'capture_tools.dart';
+ import 'face_background.dart';
+ import 'face_editor_screen.dart';
+ import 'gallery_import_screen.dart';
++import 'glass_controls.dart';
+ import 'native_camera.dart';
+ import 'send/circle_settings_screen.dart';
+ import 'send/send_format_screen.dart';
+@@ -1136,9 +1138,25 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
+     _lensBurst.dispose();
+     _camera.removeListener(_onCameraChanged);
+     _camera.dispose();
++    // Le relevé de coût s'arrête AVEC l'écran : ce qui se passe ailleurs dans
++    // l'app n'a rien à voir avec le rail, et le mélanger fausserait la
++    // distribution.
++    FrameCostTrace.stop();
+     super.dispose();
+   }
+ 
++  /// Étiquette du relevé de coût en cours. Le pilote du 2026-08-14 compare
++  /// deux échantillons pris **sur la même scène** : c'est la seule comparaison
++  /// honnête, la lumière et le cadrage changeant tout.
++  String? _traceLabel;
++
++  void _traceGlass(GlassQuality quality) {
++    final label = 'capture · ${quality.label}';
++    if (_traceLabel == label) return;
++    _traceLabel = label;
++    FrameCostTrace.start(label);
++  }
++
+   /// Aperçu d'un flux natif (clé de préview + texture), recadré « cover »
+   /// dans le cadre du parent — jamais d'étirement (fix distorsion conservé).
+   Widget _nativePreview(String key, int? textureId, {required bool mirror}) {
+@@ -1401,6 +1419,14 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
+     final showCaptureTools =
+         _type != CardType.oneshot && _type != CardType.bereal;
+     final gridOn = ref.watch(captureGridProvider);
++    // Recette du verre du rail — pilote du 2026-08-14. Se bascule depuis
++    // Réglages → Développeur, et le relevé de coût change d'étiquette avec
++    // elle : c'est ce qui permet de comparer deux passages sur la même scène.
++    final glass =
++        GlassQuality.values[ref
++            .watch(captureGlassQualityProvider)
++            .clamp(0, GlassQuality.values.length - 1)];
++    _traceGlass(glass);
+     final screenFlashSettings = ref.watch(screenFlashProvider);
+     // La lueur du flash frontal ne s'affiche QU'EN frontale : c'est un flash de
+     // façade. Le réglage survit à un aller-retour vers l'arrière.
+@@ -1706,9 +1732,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
+                 top: 0,
+                 bottom: 0,
+                 child: Center(
+-                  child: Column(
+-                    mainAxisSize: MainAxisSize.min,
+-                    crossAxisAlignment: CrossAxisAlignment.end,
++                  // Le rail de VERRE (pilote du 2026-08-14, maquette de Jay).
++                  //
++                  // Il floute l'aperçu UNE seule fois pour ses six boutons —
++                  // voir l'en-tête de `glass_controls.dart`. Les espacements
++                  // sont désormais les siens : les `SizedBox(height: 12)` qui
++                  // séparaient les boutons ont disparu, sinon le rail aurait
++                  // deux réglages d'écartement en désaccord.
++                  child: GlassRail(
++                    quality: glass,
+                     children: [
+                       // FLASH — deux boutons qui ne coexistent JAMAIS
+                       // (consigne Jay 2026-07-26) : la LED en caméra arrière,
+@@ -1716,14 +1748,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
+                       if (_camera.lensBack) ...[
+                         // Pas de LED sur cette caméra : pas de bouton du tout
+                         // plutôt qu'un bouton menteur.
+-                        if (_camera.hasFlash) ...[
++                        if (_camera.hasFlash)
+                           _FlashControl(
+                             mode: _camera.flashMode,
+                             onChanged: _busy ? null : _setFlash,
+                           ),
+-                          const SizedBox(height: 12),
+-                        ],
+-                      ] else ...[
++                      ] else
+                         ScreenFlashControl(
+                           on: _screenFlash,
+                           settings: screenFlashSettings,
+@@ -1734,8 +1764,6 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
+                           onChanged: (s) =>
+                               ref.read(screenFlashProvider.notifier).set(s),
+                         ),
+-                        const SizedBox(height: 12),
+-                      ],
+                       if (showCaptureTools) ...[
+                         CaptureTimerControl(
+                           seconds: _timerSeconds,
+@@ -1746,29 +1774,24 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
+                                   if (value > 0) _timerRestore = value;
+                                 }),
+                         ),
+-                        const SizedBox(height: 12),
+                         GridButton(
+                           active: gridOn,
+                           onChanged: (value) =>
+                               ref.read(captureGridProvider.notifier).set(value),
+                         ),
+-                        const SizedBox(height: 12),
+                         HdButton(
+                           active: _hd,
+                           onChanged: _busy
+                               ? null
+                               : (value) => setState(() => _hd = value),
+                         ),
+-                        const SizedBox(height: 12),
+                       ],
+-                      if (showLensToggle) ...[
+-                        IconButton.filledTonal(
++                      if (showLensToggle)
++                        GlassCircleButton(
+                           tooltip: 'Changer de caméra',
+                           icon: const Icon(Icons.cameraswitch),
+                           onPressed: _busy || _switching ? null : _toggleLens,
+                         ),
+-                        const SizedBox(height: 12),
+-                      ],
+                       // Bouton COULEUR (ex-bouton dessin) : appui court = face
+                       // entièrement remplie de cette couleur, appui long =
+                       // palette.
+@@ -2313,12 +2336,10 @@ class _FlashControlState extends State<_FlashControl> {
+             ),
+           ),
+         ),
+-        IconButton.filledTonal(
++        GlassCircleButton(
+           tooltip: 'Flash',
+-          icon: Icon(
+-            _icon(widget.mode),
+-            color: widget.mode == FlashMode.off ? null : NeoTheme.accentPink,
+-          ),
++          active: widget.mode != FlashMode.off,
++          icon: Icon(_icon(widget.mode)),
+           onPressed: enabled ? () => setState(() => _open = !_open) : null,
+         ),
+       ],
+@@ -2341,19 +2362,16 @@ class _ColorButton extends StatelessWidget {
+ 
+   @override
+   Widget build(BuildContext context) {
+-    return Tooltip(
+-      message: 'Face colorée — appui long pour la palette',
+-      child: GestureDetector(
+-        onTap: onTap,
+-        onLongPress: onLongPress,
+-        child: Container(
+-          width: 44,
+-          height: 44,
+-          decoration: background.decoration.copyWith(
+-            shape: BoxShape.circle,
+-            border: Border.all(color: Colors.white70, width: 2),
+-          ),
+-        ),
++    // La couleur passe SOUS le verre (`underlay`) : le liseré nacré et le
++    // reflet du bouton se posent dessus, comme sur les cinq autres. Avant, ce
++    // bouton portait sa propre bordure blanche et détonnait dans le rail.
++    return GlassCircleButton(
++      tooltip: 'Face colorée — appui long pour la palette',
++      icon: const SizedBox.shrink(),
++      onPressed: onTap,
++      onLongPress: onLongPress,
++      underlay: DecoratedBox(
++        decoration: background.decoration.copyWith(shape: BoxShape.circle),
+       ),
+     );
+   }
+diff --git a/lib/features/settings/sections/developer_flags_screen.dart b/lib/features/settings/sections/developer_flags_screen.dart
+index 0d838d3..cfb0a8d 100644
+--- a/lib/features/settings/sections/developer_flags_screen.dart
++++ b/lib/features/settings/sections/developer_flags_screen.dart
+@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
+ import 'package:flutter_riverpod/flutter_riverpod.dart';
+ 
+ import '../../../core/prefs.dart';
++import '../../cards/glass_controls.dart';
+ import '../../cards/native_camera.dart';
+ import '../settings_common.dart';
+ 
+@@ -48,6 +49,34 @@ class DeveloperFlagsScreen extends ConsumerWidget {
+           ),
+           const Divider(),
+           const SettingsHeader('Caméra'),
++          // PILOTE DU 2026-08-14 — le rail en verre de l'écran de capture.
++          //
++          // Cet interrupteur existe pour MESURER, pas pour offrir un choix à
++          // l'utilisateur : il faut pouvoir comparer deux relevés de coût sur
++          // la MÊME scène. Une fois la mesure faite, le défaut est tranché et
++          // cet interrupteur disparaît avec la section Développeur.
++          ListTile(
++            title: const Text('Verre du rail de capture'),
++            subtitle: Text(
++              'Recette du rendu. Pour mesurer : ouvre la capture, laisse '
++              'tourner ~20 s dans chaque position SANS bouger le téléphone, '
++              'puis Développeur → « Tout copier pour diagnostic ».\n'
++              'État du shader : ${LiquidGlassProgram.status}',
++            ),
++            isThreeLine: true,
++          ),
++          for (final quality in GlassQuality.values)
++            ListTile(
++              title: Text(quality.label),
++              leading: Icon(
++                ref.watch(captureGlassQualityProvider) == quality.index
++                    ? Icons.radio_button_checked
++                    : Icons.radio_button_unchecked,
++              ),
++              onTap: () => ref
++                  .read(captureGlassQualityProvider.notifier)
++                  .set(quality.index),
++            ),
+           SwitchListTile(
+             title: const Text('Diagnostic caméra sur l\'aperçu'),
+             subtitle: const Text(
+diff --git a/pubspec.yaml b/pubspec.yaml
+index 3995947..a80b062 100644
+--- a/pubspec.yaml
++++ b/pubspec.yaml
+@@ -6,7 +6,7 @@ publish_to: 'none'
+ # versionCode plus Ã©levÃ©, Android refuse de mettre Ã  jour un APK sideloadÃ© (Jay
+ # est restÃ© bloquÃ© en v0.9.2 en croyant installer la v0.9.3). Convention :
+ # 0.9.4+94 â†’ versionName 0.9.4, versionCode 94 (suffixe = version sans points).
+-version: 0.9.74+164
++version: 0.9.76+166
+ 
+ environment:
+   sdk: ^3.12.2
+@@ -53,3 +53,8 @@ flutter:
+     # Les .riv sont les binaires de SORTIE de Rive. Les .rev éditables vivent
+     # dans design/rive/, hors assets/ : ils ne doivent pas partir dans l'APK.
+     - assets/rive/
++
++  # Shaders compilés par Flutter au build. `liquid_glass.frag` porte la
++  # réfraction du rail de capture — voir `lib/features/cards/glass_controls.dart`.
++  shaders:
++    - assets/shaders/liquid_glass.frag

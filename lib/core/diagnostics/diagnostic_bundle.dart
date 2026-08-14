@@ -1,13 +1,9 @@
-import 'dart:ui' show ImageFilter;
-
 import 'package:flutter/services.dart';
 
 import '../video/video_open_trace.dart';
-import '../../features/cards/glass_controls.dart';
 import '../../features/cards/native_camera.dart';
 import 'app_log.dart';
 import 'card_rules_trace.dart';
-import 'frame_cost_trace.dart';
 
 /// Tout ce qu'il faut pour diagnostiquer, en **un seul** copier-coller.
 ///
@@ -135,7 +131,6 @@ class DiagnosticBundle {
     bool rules = true,
     bool appLog = true,
     bool cameraLog = true,
-    bool frameCost = true,
   }) async {
     final buffer = StringBuffer()
       ..writeln('===== DIAGNOSTIC NEOVIBE =====')
@@ -153,19 +148,6 @@ class DiagnosticBundle {
       buffer
         ..writeln('\n===== LECTURE VIDÉO — TEMPS D\'OUVERTURE =====')
         ..writeln(videoTimings());
-    }
-
-    if (frameCost) {
-      buffer
-        ..writeln('\n===== COÛT D\'AFFICHAGE — ÉCRAN DE CAPTURE =====')
-        // Sans cette ligne, « le liquid glass ne fait rien » et « le shader
-        // n'a jamais été chargé » sont indiscernables dans un rapport de test.
-        ..writeln('shader liquid glass : ${LiquidGlassProgram.status}')
-        ..writeln(
-          'ImageFilter.shader supporté : '
-          '${ImageFilter.isShaderFilterSupported}',
-        )
-        ..writeln(FrameCostTrace.report());
     }
 
     if (rules) {

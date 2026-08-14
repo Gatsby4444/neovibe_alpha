@@ -9,6 +9,19 @@
 # packages, and plugins designed to encourage good coding practices.
 include: package:flutter_lints/flutter.yaml
 
+analyzer:
+  exclude:
+    # `archives/` est un dépôt de PIÈCES, pas du code de l'app (demande de Jay,
+    # 2026-08-14 : « un dossier poubelle totalement séparé de l'app mais auquel
+    # on pourra se référer »). Rien n'y est compilé ni embarqué — il est hors de
+    # `lib/` et hors de `assets/`, donc inatteignable depuis `main.dart`.
+    #
+    # Sans cette exclusion, `flutter analyze` y suit des imports relatifs qui ne
+    # résolvent plus depuis ce dossier, et rend un rapport rouge sur du code
+    # volontairement mis de côté. Or « analyze propre » est la règle qui garde
+    # les vrais problèmes visibles : un bruit permanent la viderait de son sens.
+    - archives/**
+
 linter:
   # The lint rules applied to this project can be customized in the
   # section below to disable rules from the `package:flutter_lints/flutter.yaml`
