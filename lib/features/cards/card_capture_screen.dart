@@ -20,6 +20,7 @@ import '../library_vibes/library_target.dart';
 import 'capture_tools.dart';
 import 'face_background.dart';
 import 'face_editor_screen.dart';
+import 'camera_controls.dart';
 import 'gallery_import_screen.dart';
 import 'native_camera.dart';
 import 'send/circle_settings_screen.dart';
@@ -1403,6 +1404,13 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     final showCaptureTools =
         _type != CardType.oneshot && _type != CardType.bereal;
     final gridOn = ref.watch(captureGridProvider);
+    // Direction artistique des contrôles, choisie par Jay dans
+    // Réglages → Apparence (2026-08-14). Réglage de comparaison, destiné à
+    // disparaître une fois la direction tranchée.
+    final buttonStyle =
+        CameraButtonStyle.values[ref
+            .watch(captureButtonStyleProvider)
+            .clamp(0, CameraButtonStyle.values.length - 1)];
     final screenFlashSettings = ref.watch(screenFlashProvider);
     // La lueur du flash frontal ne s'affiche QU'EN frontale : c'est un flash de
     // façade. Le réglage survit à un aller-retour vers l'arrière.
@@ -1683,10 +1691,19 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                 key: const ValueKey('gallery'),
                 bottom: 42,
                 left: 28,
-                child: IconButton.filledTonal(
-                  tooltip: 'Importer depuis la galerie',
-                  icon: const Icon(Icons.photo_library_outlined),
-                  onPressed: _busy ? null : _importFromGallery,
+                // Même direction artistique que le rail : c'est un contrôle de
+                // l'écran caméra, il n'a pas de raison d'avoir sa propre
+                // matière. Un `CameraRail` d'un seul enfant, parce que c'est
+                // lui qui porte la direction jusqu'au bouton.
+                child: CameraRail(
+                  style: buttonStyle,
+                  children: [
+                    CameraButton(
+                      tooltip: 'Importer depuis la galerie',
+                      icon: const Icon(Icons.photo_library_outlined),
+                      onPressed: _busy ? null : _importFromGallery,
+                    ),
+                  ],
                 ),
               ),
             // Colonne d'outils à droite (consigne Jay 2026-07-26), de haut en
@@ -1708,9 +1725,13 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                 top: 0,
                 bottom: 0,
                 child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  // Le rail de la caméra, dans la direction artistique
+                  // choisie par Jay (Réglages → Apparence). L'écartement lui
+                  // appartient : les `SizedBox(height: 12)` qui séparaient les
+                  // boutons ont disparu, sinon deux réglages d'espacement
+                  // seraient en désaccord.
+                  child: CameraRail(
+                    style: buttonStyle,
                     children: [
                       // FLASH — deux boutons qui ne coexistent JAMAIS
                       // (consigne Jay 2026-07-26) : la LED en caméra arrière,
@@ -1718,14 +1739,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                       if (_camera.lensBack) ...[
                         // Pas de LED sur cette caméra : pas de bouton du tout
                         // plutôt qu'un bouton menteur.
-                        if (_camera.hasFlash) ...[
+                        if (_camera.hasFlash)
                           _FlashControl(
                             mode: _camera.flashMode,
                             onChanged: _busy ? null : _setFlash,
                           ),
-                          const SizedBox(height: 12),
-                        ],
-                      ] else ...[
+                      ] else
                         ScreenFlashControl(
                           on: _screenFlash,
                           settings: screenFlashSettings,
@@ -1736,8 +1755,6 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                           onChanged: (s) =>
                               ref.read(screenFlashProvider.notifier).set(s),
                         ),
-                        const SizedBox(height: 12),
-                      ],
                       if (showCaptureTools) ...[
                         CaptureTimerControl(
                           seconds: _timerSeconds,
@@ -1748,29 +1765,24 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                                   if (value > 0) _timerRestore = value;
                                 }),
                         ),
-                        const SizedBox(height: 12),
                         GridButton(
                           active: gridOn,
                           onChanged: (value) =>
                               ref.read(captureGridProvider.notifier).set(value),
                         ),
-                        const SizedBox(height: 12),
                         HdButton(
                           active: _hd,
                           onChanged: _busy
                               ? null
                               : (value) => setState(() => _hd = value),
                         ),
-                        const SizedBox(height: 12),
                       ],
-                      if (showLensToggle) ...[
-                        IconButton.filledTonal(
+                      if (showLensToggle)
+                        CameraButton(
                           tooltip: 'Changer de caméra',
                           icon: const Icon(Icons.cameraswitch),
                           onPressed: _busy || _switching ? null : _toggleLens,
                         ),
-                        const SizedBox(height: 12),
-                      ],
                       // Bouton COULEUR (ex-bouton dessin) : appui court = face
                       // entièrement remplie de cette couleur, appui long =
                       // palette.
@@ -2315,12 +2327,10 @@ class _FlashControlState extends State<_FlashControl> {
             ),
           ),
         ),
-        IconButton.filledTonal(
+        CameraButton(
           tooltip: 'Flash',
-          icon: Icon(
-            _icon(widget.mode),
-            color: widget.mode == FlashMode.off ? null : NeoTheme.accentPink,
-          ),
+          active: widget.mode != FlashMode.off,
+          icon: Icon(_icon(widget.mode)),
           onPressed: enabled ? () => setState(() => _open = !_open) : null,
         ),
       ],
@@ -2343,19 +2353,16 @@ class _ColorButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Tooltip(
-      message: 'Face colorée — appui long pour la palette',
-      child: GestureDetector(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Container(
-          width: 44,
-          height: 44,
-          decoration: background.decoration.copyWith(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white70, width: 2),
-          ),
-        ),
+    // La couleur passe SOUS le bouton (`underlay`) : elle prend donc la
+    // matière de la direction choisie au lieu de porter sa propre bordure
+    // blanche, qui détonnait dans le rail.
+    return CameraButton(
+      tooltip: 'Face colorée — appui long pour la palette',
+      icon: const SizedBox.shrink(),
+      onPressed: onTap,
+      onLongPress: onLongPress,
+      underlay: DecoratedBox(
+        decoration: background.decoration.copyWith(shape: BoxShape.circle),
       ),
     );
   }
