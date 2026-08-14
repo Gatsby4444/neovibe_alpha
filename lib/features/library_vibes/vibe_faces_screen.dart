@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/crypto/media_open.dart';
 import '../../core/models/library_vibe.dart';
+import '../../core/theme.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../cards/flippable_card.dart';
 import 'library_vibes_repository.dart';
@@ -195,7 +196,8 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
     final bytes = front ? _front : _back;
     if (bytes == null) {
       return const ColoredBox(
-        color: Color(0xFF1E1B29),
+        // Visionneuse : sombre dans les deux thèmes, mais gris neutre.
+        color: NeoNeutrals.gray900,
         child: Center(child: CircularProgressIndicator(color: Colors.white24)),
       );
     }

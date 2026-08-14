@@ -6,6 +6,7 @@ import '../../core/content/content_preloader.dart';
 import '../../core/content/content_view_reporter.dart';
 import '../../core/crypto/media_open.dart';
 import '../../core/models/card.dart';
+import '../../core/theme.dart';
 import '../../core/widgets/card_type_badge.dart';
 import '../../core/widgets/content_overflow_menu.dart';
 import '../../core/widgets/save_button.dart';
@@ -367,7 +368,6 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     final storyId = _story.id;
     final conversations = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: const Color(0xFF16161C),
       builder: (context) => _ConversationPicker(),
     );
     if (conversations == null || !mounted) return;
@@ -396,7 +396,6 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
   void _showStats() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: const Color(0xFF16161C),
       builder: (context) => _StoryStatsSheet(storyId: _story.id),
     );
   }
@@ -606,7 +605,9 @@ class _Header extends ConsumerWidget {
                             child: AvatarFill(
                               stored: owner.avatarUrl,
                               fallback: Container(
-                                color: const Color(0xFF2A2A36),
+                                // La visionneuse reste sombre dans les deux
+                                // thèmes : gris fixe, mais neutre.
+                                color: NeoNeutrals.gray700,
                                 alignment: Alignment.center,
                                 child: Text(
                                   owner.chatName.characters.first.toUpperCase(),

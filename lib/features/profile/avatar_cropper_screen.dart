@@ -4,6 +4,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../core/theme.dart';
+
 /// Recadrage **carré** d'une photo de profil : on déplace et on zoome, le
 /// cadre ne bouge pas.
 ///
@@ -307,7 +309,8 @@ class _CropPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     canvas.drawRect(
       Offset.zero & size,
-      Paint()..color = const Color(0xFF101014),
+      // Écran de recadrage : sombre dans les deux thèmes, mais gris neutre.
+      Paint()..color = NeoNeutrals.gray900,
     );
     canvas.drawImageRect(
       image,

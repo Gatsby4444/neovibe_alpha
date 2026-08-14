@@ -3,6 +3,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../core/theme.dart';
+
 /// Fond d'une face de card : couleur unie **ou** dégradé (consigne Jay
 /// 2026-07-26, en remplacement du seul fond noir de la « face tableau »).
 ///
@@ -176,7 +178,10 @@ class _PalettePanel extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.only(right: 76, left: 24),
         child: Material(
-          color: const Color(0xFF15131C),
+          // Panneau d'habillage, pas une entrée de palette : il vit dans ce
+          // fichier mais suit la règle des gris neutres. L'éditeur reste
+          // sombre dans les deux thèmes, d'où la valeur fixe.
+          color: NeoNeutrals.gray900,
           borderRadius: BorderRadius.circular(20),
           child: Padding(
             padding: const EdgeInsets.all(14),

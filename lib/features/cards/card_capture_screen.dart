@@ -1188,7 +1188,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
             opacity: _switching ? 1 : 0,
             duration: Duration(milliseconds: _switching ? 0 : 200),
             curve: Curves.easeOut,
-            child: const ColoredBox(color: Color(0xFF0E0E12)),
+            // Voile de bascule caméra : noir neutre, jamais teinté.
+            child: const ColoredBox(color: NeoNeutrals.black),
           ),
         ),
         // Au-DESSUS du voile : c'est pendant la transition qu'il faut montrer

@@ -75,7 +75,7 @@ enum CardType {
   Color displayColor(BuildContext context) =>
       this == CardType.standard &&
           Theme.of(context).brightness == Brightness.light
-      ? const Color(0xFF3B3748)
+      ? const Color(0xFF3B3B3B)
       : color;
 
   /// Dégradé signature (Oneshot et BeReal) — null = couleur unie.

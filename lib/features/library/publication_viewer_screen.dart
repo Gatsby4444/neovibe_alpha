@@ -191,7 +191,6 @@ class _PublicationViewerScreenState
   Future<void> _share() async {
     final conversationId = await showModalBottomSheet<String>(
       context: context,
-      backgroundColor: const Color(0xFF16161C),
       builder: (_) => const _ConversationPicker(),
     );
     if (conversationId == null || !mounted) return;

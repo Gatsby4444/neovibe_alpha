@@ -134,27 +134,28 @@ class _SavedTile extends ConsumerWidget {
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(10),
+          // Vignettes d'habillage : fond et icône suivent le thème. En dur,
+          // c'était un gris violacé et une icône `white38`, invisible en
+          // thème clair.
           child: item.frontIsVideo
-              ? const ColoredBox(
-                  color: Color(0xFF1C1C24),
+              ? ColoredBox(
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   child: Center(
-                    child: Icon(
-                      Icons.videocam,
-                      color: Colors.white38,
-                      size: 26,
-                    ),
+                    child: Icon(Icons.videocam, color: context.faint, size: 26),
                   ),
                 )
               : Image.file(
                   File(item.frontPath),
                   fit: BoxFit.cover,
                   cacheWidth: 400,
-                  errorBuilder: (_, _, _) => const ColoredBox(
-                    color: Color(0xFF1C1C24),
+                  errorBuilder: (_, _, _) => ColoredBox(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                     child: Center(
                       child: Icon(
                         Icons.broken_image,
-                        color: Colors.white38,
+                        color: context.faint,
                         size: 26,
                       ),
                     ),

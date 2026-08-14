@@ -223,11 +223,17 @@ class _VibeTileState extends ConsumerState<_VibeTile> {
                         : MaskedPlaceholder(bytes: _placeholder!, sigma: 7)),
             ),
             if (!revealed)
+              // Le cadenas se pose sur DEUX fonds différents : une photo
+              // floutée, ou — quand il n'y a pas encore d'aperçu — une surface
+              // du thème, donc claire en thème clair. Le blanc seul y
+              // disparaissait. L'ombre lui donne son propre fond et le rend
+              // lisible sur les deux, sans avoir à savoir lequel est dessous.
               const Center(
                 child: Icon(
                   Icons.lock_outline,
-                  color: Colors.white70,
+                  color: Colors.white,
                   size: 22,
+                  shadows: [Shadow(color: Colors.black87, blurRadius: 8)],
                 ),
               ),
           ],

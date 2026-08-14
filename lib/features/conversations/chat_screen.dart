@@ -431,15 +431,16 @@ class _ComposerState extends State<_Composer> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     final hasText = widget.controller.text.trim().isNotEmpty;
-    final fieldColor = isDark
-        ? Colors.white.withValues(alpha: 0.06)
-        : Colors.white;
-    final borderColor = isDark
-        ? Colors.white.withValues(alpha: 0.16)
-        : const Color(0xFFD3D1DB);
-    final iconColor = isDark ? Colors.white70 : const Color(0xFF6E6A7A);
+    // Champ de saisie : tout vient du thème depuis le 2026-08-14.
+    //
+    // Avant, le champ était BLANC en thème clair — donc invisible sur la page,
+    // désormais blanche elle aussi —, et sa bordure `#D3D1DB` ne donnait que
+    // 1,4:1 sur ce fond. C'est le « noir sur noir » signalé par Jay, à
+    // l'envers. `outline` est calibrée pour tenir 3:1 dans les deux thèmes.
+    final fieldColor = theme.colorScheme.surfaceContainerHighest;
+    final borderColor = theme.colorScheme.outline;
+    final iconColor = theme.colorScheme.onSurfaceVariant;
 
     return SafeArea(
       top: false,
@@ -707,7 +708,6 @@ class _MessageBubble extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
     // Annonce d'ajout à la bibliothèque : ligne système discrète et centrée,
     // jamais une bulle — elle n'appartient à personne dans le fil, elle
     // signale un événement (consigne Jay 2026-08-10 : l'annonce est NOMMÉE).
@@ -785,11 +785,13 @@ class _MessageBubble extends ConsumerWidget {
                 : DecoratedBox(
                     decoration: BoxDecoration(
                       gradient: isMine ? NeoGradients.brandButton : null,
+                      // Bulle reçue : gris neutre du thème. Les deux valeurs
+                      // écrites ici étaient des gris tirés vers le violet.
                       color: isMine
                           ? null
-                          : (isDark
-                                ? const Color(0xFF26242F)
-                                : const Color(0xFFE9E7EF)),
+                          : Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
                       borderRadius: BorderRadius.only(
                         topLeft: _radius,
                         topRight: _radius,
@@ -1183,23 +1185,32 @@ class _SharedContentTile extends ConsumerWidget {
                     width: 46,
                     height: 46 / kMiniCardRatio,
                     child: face.when(
-                      loading: () => const ColoredBox(color: Color(0xFF1C1C24)),
-                      error: (_, _) => const ColoredBox(
-                        color: Color(0xFF1C1C24),
+                      // Vignette d'habillage : fond et icônes suivent le thème.
+                      loading: () => ColoredBox(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                      ),
+                      error: (_, _) => ColoredBox(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
                         child: Icon(
                           Icons.error_outline,
                           size: 16,
-                          color: Colors.white38,
+                          color: context.faint,
                         ),
                       ),
                       data: (media) =>
                           (story?.frontIsVideo ?? item!.frontIsVideo)
-                          ? const ColoredBox(
-                              color: Color(0xFF1C1C24),
+                          ? ColoredBox(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.surfaceContainerHighest,
                               child: Icon(
                                 Icons.videocam,
                                 size: 16,
-                                color: Colors.white54,
+                                color: context.muted,
                               ),
                             )
                           : Image.memory(

@@ -8,8 +8,12 @@ import 'package:flutter/material.dart';
 /// accents de l'app.
 ///
 /// Les couleurs des **types de Cards** (`lib/core/models/card.dart` : or du
-/// One of One, rouge Hot, bleu Oneshot…) ne sont PAS concernées : elles
-/// restent la signature du contenu, le dégradé est la signature de l'app.
+/// One of One, bleu Oneshot…) ne sont PAS concernées : elles restent la
+/// signature du contenu, le dégradé est la signature de l'app.
+///
+/// ⚠️ La refonte du 2026-08-14 a neutralisé les **fonds**, pas les boutons.
+/// Consigne de Jay : « en conservant les boutons colorés déjà présents ». Ce
+/// bloc est donc inchangé — c'est la seule couleur qui reste dans l'habillage.
 abstract final class NeoGradients {
   /// Dégradé complet, 5 arrêts — pour les grandes surfaces : anneaux d'avatar,
   /// bandeaux, écran d'accueil, éléments décoratifs.
@@ -43,6 +47,71 @@ abstract final class NeoGradients {
   );
 }
 
+/// Échelle de gris **strictement neutre** — `R == G == B` sur chaque valeur.
+///
+/// Consigne de Jay, 2026-08-14 : « on refait un thème clair et un thème sombre
+/// propre, au niveau des couleurs surtout : du noir, du blanc et du gris […]
+/// tu me retires ton violet terne. On veut quelque chose de tranché et épuré. »
+///
+/// Ce que ça remplace : les fonds étaient des gris **tirés vers le violet**
+/// (`#0B0A10`, `#15131C`, `#1E1B29` en sombre ; `#FBFAFD`, `#EFEDF4` en clair).
+/// L'intention d'alors était de rester dans la famille chromatique du dégradé ;
+/// le résultat lu à l'écran était un violet sale. Tout est repassé en neutre.
+///
+/// **La contrainte à ne pas perdre** : `R == G == B`. Une seule valeur qui
+/// dérive et la teinte revient par la bande, sans qu'aucun test ne la voie.
+/// Toute couleur d'habillage se prend ici — ne pas réécrire d'hexadécimal dans
+/// un écran (c'est ce qui avait dispersé le violet dans sept fichiers).
+abstract final class NeoNeutrals {
+  // --- Sombre ---------------------------------------------------------
+  /// Fond d'écran. Noir pur : « tranché », et gratuit en autonomie sur OLED.
+  static const black = Color(0xFF000000);
+
+  /// Surfaces posées sur le fond : cartes, feuilles modales, barre de nav.
+  static const gray900 = Color(0xFF121212);
+
+  /// Champs de saisie, puces, pistes de curseur.
+  static const gray800 = Color(0xFF1F1F1F);
+
+  /// Séparateurs et bordures décoratives sur fond sombre.
+  static const gray700 = Color(0xFF2E2E2E);
+
+  /// Texte et icônes secondaires sur fond sombre (10,9:1 sur noir).
+  static const gray400 = Color(0xFFB0B0B0);
+
+  // --- Clair ----------------------------------------------------------
+  /// Fond d'écran. Blanc pur.
+  static const white = Color(0xFFFFFFFF);
+
+  /// Surfaces posées sur le fond : cartes, feuilles modales, barre de nav.
+  static const gray50 = Color(0xFFF5F5F5);
+
+  /// Champs de saisie, puces, pistes de curseur.
+  static const gray100 = Color(0xFFEBEBEB);
+
+  /// Séparateurs et bordures décoratives sur fond clair.
+  static const gray200 = Color(0xFFD6D6D6);
+
+  /// Texte et icônes secondaires sur fond clair (7,0:1 sur blanc).
+  static const gray600 = Color(0xFF5C5C5C);
+
+  // --- Bordures des éléments interactifs ------------------------------
+  //
+  // Séparées des séparateurs décoratifs, et volontairement plus soutenues.
+  //
+  // Pourquoi : un champ rempli ne se distingue quasiment pas de la page
+  // (`#1F1F1F` sur noir = 1,26:1 ; `#F5F5F5` sur blanc = 1,19:1). Le remplissage
+  // seul ne peut donc PAS porter la limite du champ — c'est précisément le
+  // « noir sur noir » signalé par Jay. La bordure la porte, et elle est
+  // dimensionnée pour passer le seuil WCAG 1.4.11 des composants non textuels
+  // (3:1) : `#6B6B6B` donne 4,2:1 sur noir, `#8A8A8A` donne 3,4:1 sur blanc.
+  //
+  // Énoncé positivement : **un champ a toujours un bord visible**, quel que
+  // soit son remplissage. On ne dépend plus de l'écart entre deux gris.
+  static const outlineDark = Color(0xFF6B6B6B);
+  static const outlineLight = Color(0xFF8A8A8A);
+}
+
 /// Nuances de texte et d'icône secondaires, **conscientes du thème**.
 ///
 /// Avant le 2026-08-10, l'app écrivait `Colors.white54` / `white38` / `white24`
@@ -64,13 +133,22 @@ extension NeoTextColors on BuildContext {
       Theme.of(this).colorScheme.onSurface.withValues(alpha: 0.24);
 }
 
-/// Thème NeoVibe : caméra-first, accents en dégradé de marque.
+/// Thème NeoVibe : caméra-first, fonds neutres, accents en dégradé de marque.
 ///
 /// Deux déclinaisons depuis le 2026-08-10 (demande de Jay) : [dark], le défaut
 /// historique, et [light]. Le dégradé de marque et les couleurs de types de
 /// Cards sont IDENTIQUES dans les deux — seuls les fonds et les textes
 /// changent. Les écrans caméra et la visionneuse de Cards restent noirs quel
 /// que soit le thème : c'est le contenu qui doit porter la lumière.
+///
+/// ## Répartition des rôles, depuis le 2026-08-14
+///
+/// - **Le noir, le blanc et le gris portent l'écran** — fonds, surfaces,
+///   champs, textes, bordures. Tout vient de [NeoNeutrals].
+/// - **La couleur ne signale plus qu'une chose : ce qui est actif.** Bouton
+///   d'action (dégradé), champ au focus, interrupteur enclenché, onglet
+///   courant, curseur (rose). Choix de Jay le 2026-08-14, contre l'option
+///   « tout en neutre ».
 abstract final class NeoTheme {
   /// Rose central du dégradé — sert de graine au schéma de couleurs.
   static const seed = Color(0xFFD62976);
@@ -81,16 +159,15 @@ abstract final class NeoTheme {
   static const accentOrange = Color(0xFFF9773C);
   static const accentViolet = Color(0xFF7B2FF7);
 
-  /// Fonds sombres — noir légèrement violacé plutôt que gris neutre.
-  static const bg = Color(0xFF0B0A10);
-  static const surface1 = Color(0xFF15131C);
-  static const surface2 = Color(0xFF1E1B29);
+  /// Fonds sombres — noir et gris **neutres** (voir [NeoNeutrals]).
+  static const bg = NeoNeutrals.black;
+  static const surface1 = NeoNeutrals.gray900;
+  static const surface2 = NeoNeutrals.gray800;
 
-  /// Fonds clairs — blanc très légèrement violacé, pour rester dans la même
-  /// famille chromatique que le sombre au lieu d'un gris neutre étranger.
-  static const bgLight = Color(0xFFFBFAFD);
-  static const surface1Light = Color(0xFFFFFFFF);
-  static const surface2Light = Color(0xFFEFEDF4);
+  /// Fonds clairs — blanc et gris **neutres**.
+  static const bgLight = NeoNeutrals.white;
+  static const surface1Light = NeoNeutrals.gray50;
+  static const surface2Light = NeoNeutrals.gray100;
 
   static const _radius = 14.0;
 
@@ -103,18 +180,49 @@ abstract final class NeoTheme {
     final background = isDark ? bg : bgLight;
     final container = isDark ? surface1 : surface1Light;
     final field = isDark ? surface2 : surface2Light;
-    final onBackground = isDark ? Colors.white : const Color(0xFF14121A);
-    final muted = isDark ? Colors.white70 : const Color(0xFF5B5766);
+    final onBackground = isDark ? NeoNeutrals.white : NeoNeutrals.black;
+    final muted = isDark ? NeoNeutrals.gray400 : NeoNeutrals.gray600;
+    final divider = isDark ? NeoNeutrals.gray700 : NeoNeutrals.gray200;
+    final outline = isDark ? NeoNeutrals.outlineDark : NeoNeutrals.outlineLight;
 
+    // `fromSeed` fabrique TOUTES les nuances de surface en les teintant de la
+    // graine — c'est sa raison d'être. On ne garde donc de lui que les rôles
+    // colorés (erreur, conteneurs d'accent) et on réécrit **tous** les rôles
+    // neutres à la main. Sans ça, `surfaceContainer`, `surfaceDim` et
+    // consorts continuent d'arriver rosés dans les widgets Material qui les
+    // consultent (Card, NavigationBar, Menu, DropdownMenu…), et le violet
+    // revient par une porte qu'aucun `grep` d'hexadécimal ne montre.
     final base = ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
     final scheme = base.copyWith(
       primary: accentPink,
-      onPrimary: Colors.white,
+      onPrimary: NeoNeutrals.white,
       secondary: accentOrange,
       tertiary: accentViolet,
+
+      // Fonds et surfaces — neutres.
       surface: background,
       onSurface: onBackground,
+      surfaceContainerLowest: background,
+      surfaceContainerLow: container,
+      surfaceContainer: container,
+      surfaceContainerHigh: field,
       surfaceContainerHighest: field,
+      surfaceDim: background,
+      surfaceBright: field,
+      onSurfaceVariant: muted,
+      outline: outline,
+      outlineVariant: divider,
+
+      // Inversion (snackbars, infobulles) — neutre elle aussi.
+      inverseSurface: isDark ? NeoNeutrals.white : NeoNeutrals.black,
+      onInverseSurface: isDark ? NeoNeutrals.black : NeoNeutrals.white,
+
+      // Le voile d'élévation de Material 3 : il repeint chaque surface élevée
+      // d'un film de `primary`. Transparent, sinon toutes les feuilles et les
+      // menus repartent en rosé après qu'on a neutralisé les gris.
+      surfaceTint: Colors.transparent,
+      shadow: NeoNeutrals.black,
+      scrim: NeoNeutrals.black,
     );
 
     return ThemeData(
@@ -122,14 +230,22 @@ abstract final class NeoTheme {
       brightness: brightness,
       colorScheme: scheme,
       scaffoldBackgroundColor: background,
+      canvasColor: background,
+      // Même raison que `surfaceTint` ci-dessus, au niveau du thème.
+      applyElevationOverlayColor: false,
       appBarTheme: AppBarTheme(
         backgroundColor: background,
         foregroundColor: onBackground,
+        surfaceTintColor: Colors.transparent,
+        // Sans ça, l'AppBar change de gris dès qu'on fait défiler dessous.
+        scrolledUnderElevation: 0,
         elevation: 0,
         centerTitle: false,
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: container,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
         // L'indicateur ne peut pas porter de dégradé : c'est l'icône
         // sélectionnée qui le fait (voir `GradientIcon` dans home_shell).
         indicatorColor: accentPink.withValues(alpha: 0.18),
@@ -142,20 +258,42 @@ abstract final class NeoTheme {
             color: states.contains(WidgetState.selected) ? accentPink : muted,
           ),
         ),
+        iconTheme: WidgetStateProperty.resolveWith(
+          (states) => IconThemeData(
+            color: states.contains(WidgetState.selected) ? accentPink : muted,
+          ),
+        ),
       ),
       snackBarTheme: const SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
       ),
+
+      // --- Champs de saisie ---------------------------------------------
+      // Remplissage ET bordure. Le remplissage situe le champ, la bordure le
+      // délimite ; c'est la bordure qui garantit qu'il ne disparaît jamais
+      // dans la page — voir le commentaire de `NeoNeutrals.outlineDark`.
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: field,
+        hintStyle: TextStyle(color: muted),
+        labelStyle: TextStyle(color: muted),
+        prefixIconColor: muted,
+        suffixIconColor: muted,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
-          borderSide: BorderSide.none,
+          borderSide: BorderSide(color: outline),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(_radius),
+          borderSide: BorderSide(color: outline),
+        ),
+        disabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(_radius),
+          borderSide: BorderSide(color: divider),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
-          borderSide: const BorderSide(color: accentPink, width: 1.5),
+          borderSide: const BorderSide(color: accentPink, width: 1.8),
         ),
       ),
 
@@ -164,59 +302,113 @@ abstract final class NeoTheme {
       // TOUS les `FilledButton`/`OutlinedButton` de l'app sans toucher aux
       // 60+ appels existants.
       filledButtonTheme: FilledButtonThemeData(style: _filledStyle()),
-      outlinedButtonTheme: OutlinedButtonThemeData(style: _outlinedStyle()),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: _outlinedStyle(onBackground, muted),
+      ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(foregroundColor: accentPink),
+      ),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(foregroundColor: onBackground),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         // Les FAB portent le dégradé via `GradientFab` (widget dédié) : le
         // thème ne sert qu'aux FAB restés standards.
         backgroundColor: accentPink,
-        foregroundColor: Colors.white,
+        foregroundColor: NeoNeutrals.white,
       ),
 
       // --- Contrôles ----------------------------------------------------
+      // Le rose ne dit plus qu'une chose : « ceci est actif ». Au repos, tout
+      // est neutre. (Choix de Jay, 2026-08-14.)
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? Colors.white : null,
+          (s) => s.contains(WidgetState.selected)
+              ? NeoNeutrals.white
+              : (isDark ? NeoNeutrals.gray400 : NeoNeutrals.white),
         ),
         trackColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? accentPink : null,
+          (s) => s.contains(WidgetState.selected) ? accentPink : field,
+        ),
+        trackOutlineColor: WidgetStateProperty.resolveWith(
+          (s) => s.contains(WidgetState.selected) ? accentPink : outline,
         ),
       ),
       checkboxTheme: CheckboxThemeData(
         fillColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? accentPink : null,
+          (s) => s.contains(WidgetState.selected)
+              ? accentPink
+              : Colors.transparent,
         ),
+        checkColor: const WidgetStatePropertyAll(NeoNeutrals.white),
+        side: BorderSide(color: outline, width: 1.5),
       ),
       radioTheme: RadioThemeData(
         fillColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? accentPink : muted,
+          (s) => s.contains(WidgetState.selected) ? accentPink : outline,
         ),
       ),
-      sliderTheme: const SliderThemeData(
+      sliderTheme: SliderThemeData(
         activeTrackColor: accentPink,
+        inactiveTrackColor: field,
         thumbColor: accentPink,
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
         color: accentPink,
         linearTrackColor: field,
       ),
-      dividerTheme: DividerThemeData(
-        color: onBackground.withValues(alpha: isDark ? .08 : .12),
-      ),
+      dividerTheme: DividerThemeData(color: divider, space: 1, thickness: 1),
       chipTheme: ChipThemeData(
         backgroundColor: field,
         selectedColor: accentPink.withValues(alpha: .25),
-        side: BorderSide.none,
+        side: BorderSide(color: outline),
+        labelStyle: TextStyle(color: onBackground),
       ),
-      dialogTheme: DialogThemeData(backgroundColor: container),
-      bottomSheetTheme: BottomSheetThemeData(backgroundColor: container),
-      listTileTheme: ListTileThemeData(iconColor: muted),
+      cardTheme: CardThemeData(
+        color: container,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(_radius),
+          side: BorderSide(color: divider),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: container,
+        surfaceTintColor: Colors.transparent,
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: container,
+        surfaceTintColor: Colors.transparent,
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: container,
+        surfaceTintColor: Colors.transparent,
+      ),
+      menuTheme: MenuThemeData(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(container),
+          surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        ),
+      ),
+      listTileTheme: ListTileThemeData(
+        iconColor: muted,
+        textColor: onBackground,
+      ),
+      tooltipTheme: TooltipThemeData(
+        decoration: BoxDecoration(
+          color: isDark ? NeoNeutrals.gray800 : NeoNeutrals.black,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        textStyle: const TextStyle(color: NeoNeutrals.white, fontSize: 12),
+      ),
     );
   }
 
   /// Bouton plein : fond transparent + dégradé peint par `backgroundBuilder`.
+  ///
+  /// Le texte reste blanc dans les deux thèmes : il ne se pose jamais sur la
+  /// page, toujours sur le dégradé.
   static ButtonStyle _filledStyle() {
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(_radius),
@@ -225,7 +417,7 @@ abstract final class NeoTheme {
       minimumSize: const Size.fromHeight(52),
       shape: shape,
       backgroundColor: Colors.transparent,
-      foregroundColor: Colors.white,
+      foregroundColor: NeoNeutrals.white,
       disabledBackgroundColor: Colors.transparent,
       disabledForegroundColor: Colors.white38,
       elevation: 0,
@@ -248,7 +440,13 @@ abstract final class NeoTheme {
 
   /// Bouton contour : la bordure est un dégradé (fin liseré peint sous le
   /// contenu, puis masqué au centre par la couleur de fond).
-  static ButtonStyle _outlinedStyle() {
+  ///
+  /// ⚠️ Le texte suit le thème, il n'est PAS blanc en dur. Il se pose sur le
+  /// fond de l'écran (le centre du bouton est repeint à
+  /// `scaffoldBackgroundColor`) : en blanc fixe, il était **invisible en thème
+  /// clair**. Bug corrigé le 2026-08-14 — il datait de l'ajout du thème clair
+  /// le 2026-08-10 et n'a jamais levé la moindre erreur.
+  static ButtonStyle _outlinedStyle(Color foreground, Color disabled) {
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(_radius),
     );
@@ -256,14 +454,14 @@ abstract final class NeoTheme {
       minimumSize: const Size.fromHeight(52),
       shape: shape,
       side: BorderSide.none,
-      foregroundColor: Colors.white,
-      disabledForegroundColor: Colors.white38,
+      foregroundColor: foreground,
+      disabledForegroundColor: disabled,
     ).copyWith(
       backgroundBuilder: (context, states, child) {
-        final disabled = states.contains(WidgetState.disabled);
+        final isDisabled = states.contains(WidgetState.disabled);
         return Container(
           decoration: BoxDecoration(
-            gradient: disabled
+            gradient: isDisabled
                 ? NeoGradients.brandMuted
                 : NeoGradients.brandButton,
             borderRadius: BorderRadius.circular(_radius),

@@ -43,7 +43,9 @@ const _palette = [
 ];
 
 const _backgrounds = [
-  Color(0xFF0E0E12),
+  // Le pendant du blanc juste dessous : noir pur. Il était légèrement violacé,
+  // ce qui n'avait aucune raison d'être dans une paire noir/blanc.
+  Colors.black,
   Colors.white,
   Color(0xFF1B5E20),
   Color(0xFF0D47A1),

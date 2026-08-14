@@ -120,7 +120,12 @@ class _StoryDot extends StatelessWidget {
                 child: AvatarFill(
                   stored: ring.owner.avatarUrl,
                   fallback: Container(
-                    color: const Color(0xFF2A2A36),
+                    // Habillage de l'app : la pastille suit le thème. En dur,
+                    // elle restait sombre en thème clair et l'initiale, qui
+                    // hérite de `onSurface`, s'y écrivait en noir.
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
                     alignment: Alignment.center,
                     child: Text(name.characters.first.toUpperCase()),
                   ),

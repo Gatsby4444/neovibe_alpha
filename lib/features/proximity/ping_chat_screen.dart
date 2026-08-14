@@ -148,8 +148,22 @@ class _PingChatScreenState extends ConsumerState<PingChatScreen> {
                             : blocked
                             ? 'Attends une réponse (3 messages max)'
                             : 'Message…',
-                        border: OutlineInputBorder(
+                        // Champ en pilule : le rayon 24 lui est propre, mais
+                        // les couleurs viennent du thème. Écrites en `border`
+                        // seul, elles étaient noires — et de toute façon
+                        // ignorées, `enabledBorder` du thème l'emportant.
+                        enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),
+                          borderSide: BorderSide(
+                            color: Theme.of(context).colorScheme.outline,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(24),
+                          borderSide: const BorderSide(
+                            color: NeoTheme.accentPink,
+                            width: 1.8,
+                          ),
                         ),
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 16,
@@ -197,7 +211,7 @@ class _Bubble extends StatelessWidget {
         decoration: BoxDecoration(
           color: message.mine
               ? Theme.of(context).colorScheme.primaryContainer
-              : const Color(0xFF23232B),
+              : Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Column(

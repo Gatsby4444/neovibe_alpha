@@ -23,7 +23,8 @@ Future<void> showReportSheet(
   final result = await showModalBottomSheet<({ReportReason r, String d})>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: const Color(0xFF16161C),
+    // Fond laissé au thème (`bottomSheetTheme`) : la valeur écrite ici était
+    // un gris violacé fixe, qui restait sombre en thème clair.
     builder: (_) => _ReportSheet(isContent: contentId != null),
   );
   if (result == null || !context.mounted) return;
@@ -146,9 +147,10 @@ class _ReportSheetState extends State<_ReportSheet> {
                 controller: _details,
                 maxLines: 3,
                 maxLength: 500,
+                // Bordure laissée au thème : un `OutlineInputBorder()` nu a un
+                // côté NOIR par défaut, invisible sur un champ sombre.
                 decoration: const InputDecoration(
                   hintText: 'Préciser (facultatif)',
-                  border: OutlineInputBorder(),
                 ),
               ),
             ),

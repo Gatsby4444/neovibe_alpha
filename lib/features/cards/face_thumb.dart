@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme.dart';
+
 /// Vignette d'une face de card (grilles : bibliothèque, enregistrements,
 /// profil).
 ///
@@ -25,7 +27,11 @@ class FaceThumb extends StatelessWidget {
   Widget build(BuildContext context) {
     if (isVideo(path)) return const _Placeholder(icon: Icons.videocam);
     final resolved = url;
-    if (resolved == null) return const ColoredBox(color: Color(0xFF1C1C24));
+    if (resolved == null) {
+      return ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      );
+    }
     return Image.network(
       resolved,
       fit: BoxFit.cover,
@@ -41,9 +47,11 @@ class _Placeholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Vignette d'habillage (listes, grilles) : elle suit le thème. L'icône
+    // passe de `white38` — invisible sur fond clair — à la nuance `faint`.
     return ColoredBox(
-      color: const Color(0xFF1C1C24),
-      child: Center(child: Icon(icon, color: Colors.white38, size: 28)),
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Center(child: Icon(icon, color: context.faint, size: 28)),
     );
   }
 }

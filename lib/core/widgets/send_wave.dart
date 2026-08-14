@@ -15,9 +15,12 @@ import 'package:flutter/material.dart';
 /// | Forme | ellipse 328 × 328, origine centrée | ovale, rayon proportionnel à l'écran |
 /// | Dégradé | linéaire `#28ffffff` → `#fff55ac9` | identique |
 /// | Flou (`Feather`) | force 20 | `MaskFilter.blur` proportionnel |
-/// | Échelle | 0 → 300 % sur 18 images (300 ms) | identique |
-/// | Opacité | 100 % jusqu'à l'image 7, puis 0 à l'image 26 | 117 ms → 433 ms |
-/// | Durée totale | 30 images à 60 i/s | 500 ms |
+/// | Échelle | 0 → 300 % sur 18 images (300 ms) | 420 ms, puis dérive à 340 % |
+/// | Opacité | 100 % jusqu'à l'image 7, puis 0 à l'image 26 | 360 ms → 1200 ms |
+/// | Durée totale | 30 images à 60 i/s | **1200 ms** |
+///
+/// Les trois dernières lignes ont divergé le 2026-08-14 : Jay trouvait la
+/// vague trop brève. Les proportions de Rive sont conservées, le temps non.
 ///
 /// ## Pourquoi en Flutter et pas en Rive
 ///
@@ -81,11 +84,17 @@ class _SendWaveView extends StatefulWidget {
 
 class _SendWaveViewState extends State<_SendWaveView>
     with SingleTickerProviderStateMixin {
-  // 30 images à 60 i/s dans Rive.
+  // Rive donnait 30 images à 60 i/s, soit 500 ms. Jay, 2026-08-14 : « la vague
+  // est trop brève ». Portée à 1200 ms.
+  //
+  // Ce n'est PAS un simple ralenti : étirer les 500 ms d'origine aurait aussi
+  // ralenti la détente initiale, et une vague qui s'ouvre mollement ne se lit
+  // plus comme un envoi. Les deux temps sont donc découplés ci-dessous —
+  // l'expansion reste vive, c'est la disparition qui prend le temps.
   late final _controller =
       AnimationController(
           vsync: this,
-          duration: const Duration(milliseconds: 500),
+          duration: const Duration(milliseconds: 1200),
         )
         ..addStatusListener((s) {
           // Retrait différé d'une image : ce rappel arrive pendant la phase de
@@ -105,17 +114,28 @@ class _SendWaveViewState extends State<_SendWaveView>
     super.dispose();
   }
 
-  /// Échelle : 0 → 300 % sur les 18 premières images (0 → 0,6 du temps), en
-  /// sortie douce comme les interpolateurs cubiques du fichier d'origine.
+  /// Échelle : 0 → 300 % sur les 35 % premiers (420 ms), en sortie douce comme
+  /// les interpolateurs cubiques du fichier d'origine — puis une dérive lente
+  /// jusqu'à 340 % sur le reste.
+  ///
+  /// La dérive est le détail qui compte : sans elle, la vague se fige à pleine
+  /// taille et ne fait plus que s'effacer, ce qui se lit comme une image
+  /// oubliée à l'écran plutôt que comme un mouvement qui se termine.
   double _scale(double t) {
-    final p = (t / 0.6).clamp(0.0, 1.0);
-    return 3.0 * Curves.easeOutCubic.transform(p);
+    const grow = 0.35;
+    if (t <= grow) {
+      return 3.0 * Curves.easeOutCubic.transform(t / grow);
+    }
+    final p = ((t - grow) / (1 - grow)).clamp(0.0, 1.0);
+    return 3.0 + 0.4 * Curves.easeOutSine.transform(p);
   }
 
-  /// Opacité : pleine jusqu'à l'image 7 (0,233), nulle à l'image 26 (0,867).
+  /// Opacité : pleine sur les 30 premiers % (360 ms), puis fondu jusqu'à zéro
+  /// sur les 840 ms restantes. C'est ici que se joue la durée ressentie.
   double _opacity(double t) {
-    if (t <= 7 / 30) return 1;
-    final p = ((t - 7 / 30) / (26 / 30 - 7 / 30)).clamp(0.0, 1.0);
+    const hold = 0.30;
+    if (t <= hold) return 1;
+    final p = ((t - hold) / (1 - hold)).clamp(0.0, 1.0);
     return 1 - Curves.easeInCubic.transform(p);
   }
 
