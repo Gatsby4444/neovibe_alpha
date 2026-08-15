@@ -414,6 +414,42 @@ décisions en attente #11).
 
 ---
 
+## 7 bis. Gestes de bord — ce qu'iOS attend et que nous avons désactivé
+
+**Relevé le 2026-08-16, sans rapport avec un chantier en cours : à traiter avant
+le portage.**
+
+`NeoTheme` impose `NeoPageTransitionsBuilder` **aussi sur iOS**
+(`core/theme.dart`, `pageTransitionsTheme`). Or c'est le constructeur de
+transition qui fournit le **glissement de retour interactif** depuis le bord
+gauche — celui que tout utilisateur d'iPhone considère comme acquis, au point
+de ne plus viser les boutons.
+
+**En l'état, le portage iOS n'aurait pas ce geste.** Aucune erreur ne le
+signalera : une transition personnalisée qui ne le fournit pas est parfaitement
+valide, elle est juste étrangère à la plateforme.
+
+Deux façons de le régler, à trancher au moment du portage :
+
+1. rendre `NeoPageTransitionsBuilder` interactif sur iOS (il faut alors gérer
+   soi-même le suivi du doigt et l'annulation) ;
+2. n'appliquer notre transition qu'à Android et laisser
+   `CupertinoPageTransitionsBuilder` sur iOS — au prix de deux grammaires de
+   mouvement, ce que le système de mouvement cherche précisément à éviter.
+
+### Le bord DROIT, lui, est libre sur iOS
+
+Android réserve **les deux** bords pour son geste « retour » ; iOS ne réserve
+que le **gauche**. Le glissement de sortie de l'écran de capture (bord droit,
+depuis le 2026-08-16) n'a donc pas d'équivalent système à contourner sur iOS —
+il n'y a rien à écrire côté natif pour lui.
+
+⚠️ **Côté Android**, si l'on voulait un jour que ce geste passe AVANT celui du
+système sur un appareil en navigation par gestes, il faudrait déclarer une zone
+d'exclusion (`View.setSystemGestureExclusionRects`) — que Flutter n'expose pas,
+donc un canal de plus. **Non fait, et volontairement** : le geste système fait
+déjà exactement la même chose (revenir en arrière).
+
 ## 8. Notifications push (à vérifier)
 
 **Statut** : la logique de notifications existe côté Dart (`notification_service.
