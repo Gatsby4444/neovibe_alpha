@@ -182,10 +182,22 @@ final screenFlashProvider = NotifierProvider<ScreenFlash, ScreenFlashSettings>(
 /// Stocké par NOM et jamais par index : la barre de navigation va encore bouger
 /// pendant la réorganisation, un index mémorisé désignerait ensuite le mauvais
 /// onglet sur les appareils déjà installés.
+/// ⚠️ **L'ordre de déclaration EST l'ordre affiché** dans les réglages
+/// (`_StartupTabSection` parcourt `StartupTab.values`). Il doit donc suivre
+/// celui de la barre de navigation — sinon les boutons du réglage ne sont pas
+/// dans le même ordre que les onglets qu'ils désignent.
+///
+/// Corrigé le 2026-08-15 : la section Vibe était passée à gauche de la barre le
+/// 2026-08-14, mais cet enum était resté dans l'ordre d'avant. Rien ne l'a
+/// signalé — ni `flutter analyze`, ni aucun test ; seul l'œil de Jay.
+///
+/// **Aucune migration nécessaire**, et c'est le point : la valeur est stockée
+/// par NOM. Réordonner la déclaration ne change donc rien pour les appareils
+/// déjà installés — ce serait faux si elle était stockée par indice.
 enum StartupTab {
+  card,
   ping,
   circle,
-  card,
   play,
   profile;
 

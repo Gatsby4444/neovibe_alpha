@@ -40,10 +40,6 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
   double _manualHour = 12;
   var _playing = false;
 
-  /// Le chemin de couleur à l'essai. Les deux sont livrés le temps que Jay
-  /// tranche à l'œil ; l'écran est là pour ça, pas pour offrir un réglage.
-  var _hue = HuePath.arc;
-
   double get _hour => _playing ? _run.value * 24 : _manualHour;
 
   @override
@@ -77,7 +73,7 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
 
   @override
   Widget build(BuildContext context) {
-    final p = DayCycle.at(_hour, hue: _hue);
+    final p = DayCycle.at(_hour);
     final ratio = contrastRatio(p.accent, Colors.white);
 
     return Scaffold(
@@ -255,28 +251,7 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
       children: [
         Row(
           children: [
-            // Le chemin entre deux palettes. Les ancrages ne bougent pas d'un
-            // iota d'un mode à l'autre : seul l'ENTRE-DEUX change, et c'est
-            // exactement là que se logent les creux ternes.
-            Expanded(
-              child: SegmentedButton<HuePath>(
-                showSelectedIcon: false,
-                style: SegmentedButton.styleFrom(
-                  foregroundColor: Colors.white70,
-                  selectedForegroundColor: Colors.black,
-                  selectedBackgroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white24),
-                  textStyle: const TextStyle(fontSize: 12),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                ),
-                segments: [
-                  for (final h in HuePath.values)
-                    ButtonSegment(value: h, label: Text(h.label)),
-                ],
-                selected: {_hue},
-                onSelectionChanged: (s) => setState(() => _hue = s.first),
-              ),
-            ),
+            const Spacer(),
             // Le curseur montre les COULEURS ; seul le défilement montre la
             // VITESSE. Les deux sont nécessaires pour juger.
             TextButton.icon(

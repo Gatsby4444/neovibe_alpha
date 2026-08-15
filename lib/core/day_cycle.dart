@@ -60,6 +60,10 @@ class _Lab {
   double get hue => math.atan2(b, a);
 
   /// Interpolation **par la corde** : la ligne droite dans le plan (a, b).
+  ///
+  /// ⚠️ **Réservée à la VERTICALE du dégradé** (la bande médiane). Elle ne doit
+  /// plus servir à traverser le temps : elle coupe à travers le gris, c'est le
+  /// défaut corrigé le 2026-08-15 — voir [lerpArc].
   static _Lab lerp(_Lab x, _Lab y, double t) =>
       _Lab(x.l + (y.l - x.l) * t, x.a + (y.a - x.a) * t, x.b + (y.b - x.b) * t);
 
@@ -73,6 +77,14 @@ class _Lab {
   ///
   /// Ces creux sont une bonne moitié des « gradients ternes » relevés par Jay,
   /// et ils ne sont dans **aucune** palette — ils naissent du chemin.
+  ///
+  /// **Adopté définitivement par Jay le 2026-08-15** après comparaison à l'œil
+  /// dans l'aperçu (*« l'arc me va nickel »*). La corde a été retirée du
+  /// chemin temporel ; il n'en reste que l'usage vertical.
+  ///
+  /// Propriété que cela garantit, et que `day_cycle_test.dart` surveille :
+  /// **le milieu d'un segment n'est jamais plus terne que sa borne la plus
+  /// terne** (pire ratio mesuré 0,83, contre 0,37 avec la corde).
   ///
   /// ⚠️ Le garde-fou du quasi-gris n'est pas cosmétique : sous une chroma de
   /// ~0,012 la teinte n'est plus qu'un bruit d'arrondi, et la faire tourner
@@ -106,22 +118,6 @@ class _Lab {
 
   static _Lab fromHueChroma(double hue, double chroma, double lightness) =>
       _Lab(lightness, chroma * math.cos(hue), chroma * math.sin(hue));
-}
-
-/// Le chemin suivi par la couleur entre deux ancrages.
-///
-/// Les deux sont livrés le temps que Jay tranche à l'œil (écran d'aperçu →
-/// « Chemin »). **Une fois son choix fait, l'autre doit disparaître** — garder
-/// une variante non retenue, c'est garder du code que personne ne relit.
-enum HuePath {
-  /// La ligne droite dans le plan (a, b). Coupe à travers le gris.
-  chord('Corde'),
-
-  /// La teinte tourne sur l'arc court. Garde la couleur franche.
-  arc('Arc');
-
-  const HuePath(this.label);
-  final String label;
 }
 
 double _srgbToLinear(double c) =>
@@ -361,9 +357,7 @@ abstract final class DayCycle {
 
   /// La palette à l'heure [hours] (0–24, les valeurs hors bornes sont
   /// ramenées dans la journée : 25 h vaut 1 h).
-  ///
-  /// [hue] choisit le chemin suivi **dans le temps**, d'un ancrage au suivant.
-  static DayPalette at(double hours, {HuePath hue = HuePath.arc}) {
+  static DayPalette at(double hours) {
     final t = hours % 24;
     var i = 0;
     while (i < anchors.length - 2 && anchors[i + 1].hour <= t) {
@@ -374,9 +368,8 @@ abstract final class DayCycle {
     final span = b.hour - a.hour;
     final k = span <= 0 ? 0.0 : ((t - a.hour) / span).clamp(0.0, 1.0);
 
-    final lerp = hue == HuePath.arc ? _Lab.lerpArc : _Lab.lerp;
-    final top = lerp(_toLab(a.top), _toLab(b.top), k);
-    final bottom = lerp(_toLab(a.bottom), _toLab(b.bottom), k);
+    final top = _Lab.lerpArc(_toLab(a.top), _toLab(b.top), k);
+    final bottom = _Lab.lerpArc(_toLab(a.bottom), _toLab(b.bottom), k);
 
     // La bande médiane : le milieu perceptuel, bombé en chroma et en clarté.
     //

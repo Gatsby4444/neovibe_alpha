@@ -49,12 +49,22 @@ milieu du segment est plus terne que ses **deux** extrémités.
 Ces creux sont une bonne moitié des « gradients ternes » relevés par Jay, et ils
 ne sont dans **aucune palette** — ils naissent du chemin.
 
-`HuePath.arc` fait tourner la teinte sur l'**arc court** et interpole la chroma
+L'**arc** fait tourner la teinte sur le chemin court et interpole la chroma
 séparément : **+18 % de chroma sur la journée, aucune palette touchée**. Aux
-heures d'ancrage la couleur est exactement celle du tableau (vérifié par test).
+heures d'ancrage la couleur est exactement celle du tableau.
 
-Les deux chemins sont livrés (aperçu → segments « Corde » / « Arc ») le temps
-que Jay tranche à l'œil. **Une fois son choix fait, l'autre doit disparaître.**
+✅ **Adopté définitivement par Jay le 2026-08-15**, après comparaison à l'œil
+dans l'aperçu — *« l'arc me va nickel »*. La corde a été **retirée du chemin
+temporel** ; il n'en reste que l'usage vertical.
+
+**La propriété que cela garantit**, et que `day_cycle_test.dart` surveille
+désormais : *le milieu d'un segment n'est jamais plus terne que sa borne la plus
+terne.* Pire ratio mesuré **0,83 avec l'arc, contre 0,37 avec la corde** ; 11
+segments sur 12 sont à 1,00 ou mieux.
+
+⚠️ Ce test existe parce que le retour en arrière serait **invisible** : une
+lettre changée dans `DayCycle.at`, aucune erreur, aucun avertissement — et un
+défaut qu'on ne verrait qu'en ouvrant l'app à la bonne heure.
 
 ⚠️ **L'arc va sur le TEMPS, jamais sur la verticale du dégradé.** Le haut et le
 bas d'un même dégradé passent, à certaines heures, par 180° d'écart : l'arc
@@ -119,9 +129,22 @@ resserrer.
 | v2 (corde) | 0,0771 |
 | v3, corde seule | 0,0878 (+14 %) |
 | v2 + arc seul | 0,0904 (+17 %) |
-| **v3 + arc** | **0,1031 (+34 %)** |
+| **v3 + arc — livré** | **0,1031 (+34 %)** |
 
 Les deux leviers pèsent autant et se cumulent.
+
+**Les quatre creux que l'arc a supprimés** (milieu de segment plus terne que ses
+deux bornes, avec la corde) :
+
+| Heure | Trajet | Corde | Arc |
+|---|---|---|---|
+| 07 h 00 | Desert → Deep Ocean | 0,086 | **0,178** |
+| 12 h 20 | Blush Silk → Azuria | 0,069 | **0,120** |
+| 13 h 50 | Azuria → Jungle | 0,076 | **0,099** |
+| 22 h 45 | Lavender Dusk → Deep Forest | **0,024** | **0,064** |
+
+Celui de 22 h 45 tombait à une heure de **pic d'audience**, à 0,024 — soit
+pratiquement du gris pur.
 
 Restent inutilisées : **Glacium** (`#085078 → #9AE4CB`) et **champigreen**.
 Glacium a été testée en remplacement de Muted Olive Sky (la plus terne du

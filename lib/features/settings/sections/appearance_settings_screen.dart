@@ -36,10 +36,18 @@ class AppearanceSettingsScreen extends ConsumerWidget {
   }
 }
 
-/// Onglet sur lequel l'app s'ouvre (consigne Jay 2026-08-01). L'onglet Card
-/// n'est pas proposé : c'est un bouton de capture, pas une destination.
+/// Onglet sur lequel l'app s'ouvre (consigne Jay 2026-08-01).
+///
 /// Le changement ne prend effet qu'au lancement suivant — l'app ne saute pas
 /// d'onglet pendant qu'on règle.
+///
+/// ⚠️ **L'ordre des puces vient de `StartupTab.values`**, donc de l'ordre de
+/// déclaration de l'enum. Il doit suivre celui de la barre de navigation, et
+/// c'est à `prefs.dart` que ça se règle — pas ici.
+///
+/// *(Le commentaire précédent affirmait que l'onglet Vibe « n'est pas
+/// proposé ». C'était faux : il l'est, et `HomeShell` le traite à part en
+/// ouvrant la capture par-dessus le Cercle. Corrigé le 2026-08-15.)*
 class _StartupTabSection extends ConsumerWidget {
   const _StartupTabSection();
 
