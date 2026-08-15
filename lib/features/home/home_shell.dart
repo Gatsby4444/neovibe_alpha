@@ -405,24 +405,49 @@ class _HomeShellState extends ConsumerState<HomeShell>
     );
   }
 
-  /// Y a-t-il une section dans ce sens ? (`+1` = vers la droite.)
+  /// Y a-t-il quelque chose dans ce sens ? (`+1` = index croissant.)
+  ///
+  /// La capture compte : arriver dessus **ouvre l'écran caméra**. C'est donc le
+  /// critère du RELÂCHEMENT, pas celui du mouvement — voir [_dragFollows].
   bool _hasSection(int direction) {
     final target = _index + direction;
     return target >= _capture && target <= _profile;
   }
 
-  /// Le doigt déplace le contenu. En bout de course, il résiste.
+  /// Le contenu doit-il suivre le doigt dans ce sens ?
+  ///
+  /// **Non aux deux extrémités**, et pour deux raisons différentes (consigne de
+  /// Jay, 2026-08-16) :
+  ///
+  /// - **À droite du Profil, il n'y a rien.** Un élastique y ferait bouger
+  ///   l'écran pour annoncer… qu'il ne se passera rien. Ne rien bouger le dit
+  ///   mieux, et c'est ce que fait iOS au dernier onglet.
+  /// - **À gauche du Ping, il y a la caméra** — mais elle s'ouvre PAR-DESSUS,
+  ///   avec sa propre transition en fondu. Décaler l'écran d'accueil juste
+  ///   avant *« gâche le travail de l'animation d'ouverture »* : deux
+  ///   mouvements se disputeraient le même geste, l'un annonçant un
+  ///   déplacement latéral qui n'aura pas lieu.
+  ///
+  /// ⚠️ **Le glissement qui ouvre la caméra reste actif** : seul le décalage
+  /// visuel disparaît. Le geste se conclut alors à la vitesse seule, puisqu'il
+  /// n'y a plus de distance parcourue à mesurer.
+  bool _dragFollows(int direction) {
+    final target = _index + direction;
+    return target >= _ping && target <= _profile;
+  }
+
+  /// Le doigt déplace le contenu — **là où il y a une section à rejoindre**.
   void _onSectionDrag(DragUpdateDetails details) {
     if (_switch.isAnimating) return;
     final width = MediaQuery.sizeOf(context).width;
     if (width <= 0) return;
 
-    var next = _drag + details.delta.dx / width;
-    // Élastique : sans section de l'autre côté, le geste tire quatre fois
-    // moins. Le mouvement n'est pas bloqué — il est **rendu**, ce qui dit
-    // qu'il n'y a rien là plutôt que de laisser croire à un écran figé.
-    if (!_hasSection(next > 0 ? -1 : 1)) {
-      next = _drag + details.delta.dx / width * 0.25;
+    final next = _drag + details.delta.dx / width;
+    // Un décalage vers 0 est toujours permis : sinon un geste amorcé dans le
+    // bon sens puis ramené en arrière resterait coincé à mi-course.
+    if (!_dragFollows(next > 0 ? -1 : 1)) {
+      if (_drag != 0) setState(() => _drag = 0);
+      return;
     }
 
     setState(() => _drag = next.clamp(-_travel, _travel));

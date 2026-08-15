@@ -357,11 +357,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
 
   /// Largeur de la bande sensible, au bord droit.
   ///
-  /// 24 px : la même que la zone de geste système d'Android. Sur un appareil
-  /// en navigation par gestes, le système prend la main avant nous et fait le
-  /// même retour — les deux ne se disputent donc rien, et le verrou ci-dessus
-  /// couvre le cas limite où les deux aboutiraient.
-  static const _exitEdge = 24.0;
+  /// **30 px depuis le 2026-08-16** (réglage de Jay au test). Un peu plus large
+  /// que la zone de geste système d'Android (~24 px) : sur un appareil en
+  /// navigation par gestes, le système prend la main avant nous et fait le même
+  /// retour — les deux ne se disputent donc rien, et le verrou ci-dessus couvre
+  /// le cas limite où les deux aboutiraient.
+  static const _exitEdge = 30.0;
 
   /// Vrai si le geste courant est parti de la bande.
   var _fromRightEdge = false;
