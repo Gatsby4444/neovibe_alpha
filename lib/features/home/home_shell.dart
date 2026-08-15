@@ -92,6 +92,55 @@ class _HomeShellState extends ConsumerState<HomeShell>
 
   static const _tabCount = 5;
 
+  /// La bascule d'une section à l'autre.
+  ///
+  /// ## Pourquoi une SÉQUENCE et pas un fondu croisé
+  ///
+  /// Un fondu croisé exigerait que les deux sections soient peintes en même
+  /// temps. Or l'`IndexedStack` n'en peint qu'une — et c'est ce qui permet à
+  /// l'onglet Ping de ne monter son écouteur BLE qu'une fois visité. Un
+  /// `PageView`, qui donnerait le suivi du doigt gratuitement, construit ses
+  /// voisins : le Ping tournerait dès qu'on est sur le Cercle.
+  ///
+  /// La section sortante s'efface donc **puis** l'entrante arrive, comme la
+  /// transition de page de l'app. Ce n'est pas un pis-aller : le fond du thème
+  /// NeoVibe ne bouge pas, donc l'écran n'est jamais vide — c'est exactement la
+  /// dissociation fond/contenu que Jay a validée le 2026-08-15.
+  late final _switch = AnimationController(
+    vsync: this,
+    duration: NeoMotion.ample,
+  )..addListener(_onSwitchTick);
+
+  /// L'index réellement AFFICHÉ. Il rattrape [_index] au milieu de la bascule,
+  /// quand le contenu est à son opacité la plus basse.
+  late int _shownIndex = _index;
+
+  /// +1 si l'on va vers la droite (index croissant), -1 sinon.
+  var _direction = 1;
+
+  /// Position du doigt pendant le glissement, en **fraction de largeur**.
+  ///
+  /// Le contenu suit le doigt : sans ça, on ne saurait pas qu'un geste est en
+  /// cours avant de l'avoir terminé, et un swipe raté n'aurait aucun retour.
+  var _drag = 0.0;
+
+  /// Part de la bascule consacrée à la sortie — le reste à l'entrée.
+  /// Même découpage que `NeoPageTransitionsBuilder` : une seule grammaire de
+  /// mouvement dans l'app.
+  static const _handover = 0.45;
+
+  /// Amplitude du déplacement, en fraction de largeur.
+  static const _travel = 0.10;
+
+  void _onSwitchTick() {
+    // Le contenu change quand il est le moins visible.
+    if (_switch.value >= _handover && _shownIndex != _index) {
+      setState(() => _shownIndex = _index);
+    } else {
+      setState(() {});
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -116,6 +165,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
   void dispose() {
     routeObserver.unsubscribe(this);
     _barEntrance.dispose();
+    _switch.dispose();
     super.dispose();
   }
 
@@ -176,18 +226,22 @@ class _HomeShellState extends ConsumerState<HomeShell>
       // `HorizontalDragGestureRecognizer` ne se déclare que si le mouvement est
       // à dominante horizontale. Les listes verticales ne sont pas touchées.
       body: GestureDetector(
+        onHorizontalDragUpdate: _onSectionDrag,
         onHorizontalDragEnd: _onSectionSwipe,
-        child: IndexedStack(
-          index: _index,
-          // Même ordre que les `destinations` ci-dessous — voir le commentaire
-          // des constantes.
-          children: [
-            const SizedBox.shrink(), // emplacement du bouton capture
-            _lazy(_ping, const PingScreen()),
-            _lazy(_circle, const CircleScreen()),
-            _lazy(_play, const PlayScreen()),
-            _lazy(_profile, const ProfileScreen()),
-          ],
+        onHorizontalDragCancel: _releaseDrag,
+        child: _sectionLayer(
+          IndexedStack(
+            index: _shownIndex,
+            // Même ordre que les `destinations` ci-dessous — voir le
+            // commentaire des constantes.
+            children: [
+              const SizedBox.shrink(), // emplacement du bouton capture
+              _lazy(_ping, const PingScreen()),
+              _lazy(_circle, const CircleScreen()),
+              _lazy(_play, const PlayScreen()),
+              _lazy(_profile, const ProfileScreen()),
+            ],
+          ),
         ),
       ),
       // La barre revient APRÈS le contenu quand on ferme un écran poussé
@@ -210,10 +264,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
           if (i == _capture) {
             _openCapture();
           } else {
-            setState(() {
-              _index = i;
-              _visited.add(i);
-            });
+            _goToSection(i, i > _index ? 1 : -1);
           }
         },
         // La VAGUE (demande de Jay, 2026-08-15) : chaque icône entre un cran
@@ -311,6 +362,78 @@ class _HomeShellState extends ConsumerState<HomeShell>
     );
   }
 
+  /// Le contenu de la section, déplacé et estompé.
+  ///
+  /// Deux sources se combinent ici, et une seule est active à la fois : le
+  /// **doigt** (`_drag`) pendant le geste, la **bascule** (`_switch`) ensuite.
+  Widget _sectionLayer(Widget child) {
+    final double shift;
+    final double fade;
+
+    if (_switch.isAnimating) {
+      final t = _switch.value;
+      if (t < _handover) {
+        // Sortie : le contenu part du côté OPPOSÉ au sens de lecture.
+        final k = const Interval(
+          0,
+          _handover,
+          curve: NeoMotion.exit,
+        ).transform(t);
+        shift = -_direction * _travel * k;
+        fade = 1 - k;
+      } else {
+        // Entrée : il revient du côté d'où l'on vient.
+        final k = const Interval(
+          _handover,
+          1,
+          curve: NeoMotion.enter,
+        ).transform(t);
+        shift = _direction * _travel * (1 - k);
+        fade = k;
+      }
+    } else {
+      shift = _drag;
+      // Le contenu pâlit à mesure qu'il s'éloigne : c'est ce qui dit que le
+      // geste MÈNE quelque part, avant même de l'avoir relâché.
+      fade = (1 - _drag.abs() / _travel * 0.35).clamp(0.55, 1.0);
+    }
+
+    if (shift == 0 && fade == 1) return child;
+    return Opacity(
+      opacity: fade,
+      child: FractionalTranslation(translation: Offset(shift, 0), child: child),
+    );
+  }
+
+  /// Y a-t-il une section dans ce sens ? (`+1` = vers la droite.)
+  bool _hasSection(int direction) {
+    final target = _index + direction;
+    return target >= _capture && target <= _profile;
+  }
+
+  /// Le doigt déplace le contenu. En bout de course, il résiste.
+  void _onSectionDrag(DragUpdateDetails details) {
+    if (_switch.isAnimating) return;
+    final width = MediaQuery.sizeOf(context).width;
+    if (width <= 0) return;
+
+    var next = _drag + details.delta.dx / width;
+    // Élastique : sans section de l'autre côté, le geste tire quatre fois
+    // moins. Le mouvement n'est pas bloqué — il est **rendu**, ce qui dit
+    // qu'il n'y a rien là plutôt que de laisser croire à un écran figé.
+    if (!_hasSection(next > 0 ? -1 : 1)) {
+      next = _drag + details.delta.dx / width * 0.25;
+    }
+
+    setState(() => _drag = next.clamp(-_travel, _travel));
+  }
+
+  /// Le doigt s'en va sans conclure : le contenu revient à sa place.
+  void _releaseDrag() {
+    if (_drag == 0) return;
+    setState(() => _drag = 0);
+  }
+
   /// Vitesse minimale, en pixels par seconde, pour qu'un glissement compte
   /// comme un changement de section.
   ///
@@ -327,22 +450,50 @@ class _HomeShellState extends ConsumerState<HomeShell>
   /// `SizedBox.shrink()` à l'indice 0.
   void _onSectionSwipe(DragEndDetails details) {
     final v = details.primaryVelocity ?? 0;
-    if (v.abs() < _swipeVelocity) return;
 
-    // Glisser vers la GAUCHE (vitesse négative) fait avancer : le contenu
-    // suit le doigt, comme une page qu'on pousse hors de l'écran.
-    final target = v < 0 ? _index + 1 : _index - 1;
-    if (target < _capture || target > _profile) return;
+    // Deux façons de conclure : **vite**, ou **loin**. Exiger les deux rendrait
+    // le geste posé impossible ; n'exiger que la vitesse rendrait impossible
+    // celui qu'on fait lentement, en regardant l'écran.
+    final far = _drag.abs() >= _travel * 0.6;
+    final fast = v.abs() >= _swipeVelocity;
+    final direction = fast ? (v < 0 ? 1 : -1) : (_drag < 0 ? 1 : -1);
+
+    if ((!fast && !far) || !_hasSection(direction)) {
+      _releaseDrag();
+      return;
+    }
 
     _userMoved = true;
+    final target = _index + direction;
     if (target == _capture) {
+      // La capture n'est pas une section : elle s'ouvre PAR-DESSUS. Le contenu
+      // doit donc reprendre sa place, sinon on le retrouverait décalé au
+      // retour — l'écran d'accueil, lui, n'a pas bougé.
+      _releaseDrag();
       _openCapture();
       return;
     }
+    _goToSection(target, direction);
+  }
+
+  /// Change de section **avec la bascule**, quelle que soit l'origine du geste
+  /// — glissement ou appui sur la barre.
+  ///
+  /// ⚠️ Les deux passent par ici volontairement : une bascule animée au doigt
+  /// et un changement sec au clic seraient deux comportements pour une même
+  /// action, et c'est exactement ce qui fait « pas fini ».
+  void _goToSection(int target, int direction) {
+    if (target == _index) return;
+    // Le doigt a déjà emmené le contenu une partie du chemin : la bascule
+    // reprend là où il s'est arrêté au lieu de repartir de zéro.
+    final from = (_drag.abs() / _travel * _handover).clamp(0.0, _handover);
     setState(() {
+      _direction = direction;
       _index = target;
       _visited.add(target);
+      _drag = 0;
     });
+    _switch.forward(from: from);
   }
 
   /// Un onglet n'est construit qu'après sa première ouverture ; ensuite
