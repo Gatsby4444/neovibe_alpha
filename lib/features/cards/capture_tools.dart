@@ -217,6 +217,17 @@ class _ScreenFlashControlState extends State<ScreenFlashControl> {
             duration: NeoMotion.normal,
             curve: NeoMotion.enter,
             widthFactor: _open ? 1 : 0,
+            // ⚠️ `heightFactor` AUTANT que `widthFactor` — corrigé le
+            // 2026-08-15. Replier la seule largeur laissait le panneau
+            // **occuper toute sa hauteur** : la ligne du flash frontal (des
+            // curseurs, ~130 px) était donc trois fois plus haute que celle du
+            // flash arrière (une rangée d'icônes), et la colonne centrée du
+            // rail ne tombait pas au même endroit selon la caméra.
+            //
+            // C'est ce que Jay décrivait par « la disposition des boutons de la
+            // vue frontale est différente ». Le défaut ne se voyait PAS sur le
+            // panneau lui-même — il était invisible et poussait ses voisins.
+            heightFactor: _open ? 1 : 0,
             child: AnimatedOpacity(
               opacity: _open ? 1 : 0,
               duration: NeoMotion.fast,
@@ -462,6 +473,17 @@ class _CaptureTimerControlState extends State<CaptureTimerControl> {
             duration: NeoMotion.normal,
             curve: NeoMotion.enter,
             widthFactor: _open ? 1 : 0,
+            // ⚠️ `heightFactor` AUTANT que `widthFactor` — corrigé le
+            // 2026-08-15. Replier la seule largeur laissait le panneau
+            // **occuper toute sa hauteur** : la ligne du flash frontal (des
+            // curseurs, ~130 px) était donc trois fois plus haute que celle du
+            // flash arrière (une rangée d'icônes), et la colonne centrée du
+            // rail ne tombait pas au même endroit selon la caméra.
+            //
+            // C'est ce que Jay décrivait par « la disposition des boutons de la
+            // vue frontale est différente ». Le défaut ne se voyait PAS sur le
+            // panneau lui-même — il était invisible et poussait ses voisins.
+            heightFactor: _open ? 1 : 0,
             child: AnimatedOpacity(
               opacity: _open ? 1 : 0,
               duration: NeoMotion.fast,

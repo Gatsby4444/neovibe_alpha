@@ -237,7 +237,17 @@ class NeoStagger extends StatelessWidget {
   final double rise;
 
   /// Le décalage d'un cran à l'autre d'une **vague** — voir [wave].
-  static const waveStep = 0.06;
+  ///
+  /// **0,105 depuis le 2026-08-15**, soit ~40 ms sur les 380 ms du palier
+  /// [NeoMotion.ample]. Jay au test de la v0.9.87 : *« ce n'est pas vraiment
+  /// perceptible l'apparition progressive, monte à 40 ms entre chacune »*.
+  ///
+  /// ⚠️ On ne peut pas monter beaucoup plus haut **sans allonger la
+  /// navigation** : cinq icônes à 40 ms consomment déjà 160 ms des 380, et il
+  /// faut laisser à la dernière le temps d'entrer. C'est la contrainte à
+  /// ressortir si Jay en redemande — la réponse serait alors de détacher la
+  /// barre de l'animation de route, pas d'augmenter encore le pas.
+  static const waveStep = 0.105;
 
   /// Un élément d'une vague : le même mouvement, retardé d'un cran par rang.
   ///
@@ -253,7 +263,9 @@ class NeoStagger extends StatelessWidget {
     Key? key,
     required int index,
     required Widget child,
-    double delay = 0.45,
+    // Plus tôt qu'un décalage simple (0,45) : la vague doit tenir ENTIÈRE dans
+    // la transition, et son dernier cran part déjà à 0,28 + 4 × 0,105 = 0,70.
+    double delay = 0.28,
     double rise = 14,
   }) => NeoStagger(
     key: key,
@@ -308,4 +320,38 @@ class NeoStagger extends StatelessWidget {
       },
     );
   }
+}
+
+/// Ouverture en **fondu pur** : aucun glissement, ni pour la page qui arrive ni
+/// pour celle qui part.
+///
+/// ## Pourquoi une route à part, et pas un réglage du thème
+///
+/// La transition de l'app ([NeoPageTransitionsBuilder]) glisse de 6 % : c'est
+/// juste pour une navigation *dans* une hiérarchie — on va « vers la droite ».
+///
+/// L'écran de capture n'est pas une page de plus dans une hiérarchie : c'est un
+/// **mode**, qui prend l'appareil photo et l'écran entier. Jay au test de la
+/// v0.9.87 : *« il y a un mouvement saccadé non désiré à l'ouverture, comme si
+/// l'interface actuelle se décalait vers la gauche et que l'interface caméra
+/// apparaissait en venant de la droite. Je veux que tu supprimes cela, et
+/// remplaces par un fondu progressif. Propre et fluide, sans parasites. »*
+///
+/// Le glissement n'était pas un bug — c'était la transition générale appliquée
+/// à un écran qui n'en relève pas. Un mode n'arrive pas *d'un côté*.
+///
+/// ⚠️ **Ne pas généraliser** : appliqué partout, on perdrait le sens de la
+/// direction, et revenir en arrière ressemblerait à avancer.
+class NeoFadeRoute<T> extends PageRouteBuilder<T> {
+  NeoFadeRoute({required WidgetBuilder builder, super.settings})
+    : super(
+        transitionDuration: NeoMotion.ample,
+        reverseTransitionDuration: NeoMotion.ample,
+        pageBuilder: (context, _, _) => builder(context),
+        transitionsBuilder: (context, animation, secondary, child) =>
+            FadeTransition(
+              opacity: CurveTween(curve: NeoMotion.enter).animate(animation),
+              child: child,
+            ),
+      );
 }

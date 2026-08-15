@@ -164,7 +164,23 @@ class _CameraButtonState extends State<CameraButton>
               if (widget.underlay != null)
                 Padding(
                   padding: const EdgeInsets.all(6),
-                  child: ClipOval(child: widget.underlay),
+                  // Contour blanc fin (demande de Jay, 2026-08-15) : « dans le
+                  // noir, le bouton s'il est noir est difficilement visible ».
+                  //
+                  // C'est le même raisonnement que l'ombre portée des icônes,
+                  // appliqué à un contrôle dont la couleur EST le contenu : on
+                  // ne peut pas l'assombrir pour le détacher, puisque c'est
+                  // elle qu'on montre. Il lui faut donc une bordure.
+                  child: Container(
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 1.5),
+                      boxShadow: const [
+                        BoxShadow(color: Color(0x99000000), blurRadius: 6),
+                      ],
+                    ),
+                    child: ClipOval(child: widget.underlay),
+                  ),
                 ),
               Center(
                 child: IconTheme.merge(
@@ -291,13 +307,20 @@ class CameraShutterEntrance extends StatelessWidget {
 class _Entry extends StatelessWidget {
   const _Entry({required this.index, required this.child});
 
-  /// Part de la séquence écoulée avant que le rail ne commence.
-  static const _railStart = 0.45;
+  /// Part de la séquence écoulée avant que le rail ne commence — après le
+  /// déclencheur, qui est ce qu'on est venu chercher.
+  static const _railStart = 0.42;
 
-  /// 45 ms entre deux contrôles sur les 760 ms de la séquence — au-delà, la
-  /// colonne met plus d'un tiers de seconde à se former et l'attente devient
-  /// perceptible.
-  static const _step = 0.06;
+  /// ~63 ms entre deux contrôles sur les 900 ms de la séquence.
+  ///
+  /// Monté le 2026-08-15 sur demande de Jay (*« augmente aussi un peu
+  /// l'intervalle »*) : à 45 ms la construction se lisait à peine.
+  ///
+  /// ⚠️ Le plafond n'est pas esthétique mais arithmétique : six contrôles à
+  /// 0,07 partent de 0,42 à 0,77 de la séquence, et il faut laisser au dernier
+  /// de quoi entrer. Au-delà, c'est la DURÉE de la séquence qu'il faut monter,
+  /// pas le pas.
+  static const _step = 0.07;
 
   final int index;
   final Widget child;

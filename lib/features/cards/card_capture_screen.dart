@@ -240,7 +240,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// Deux fois le palier ample : ce n'est pas une nouvelle durée du système de
   /// mouvement, c'est une **composition** de deux phases (le fondu de
   /// l'interface, puis les contrôles) dont chacune dure un palier.
-  static const _entranceDuration = Duration(milliseconds: 760);
+  /// **900 ms depuis le 2026-08-15** (Jay : *« augmente aussi un peu
+  /// l'intervalle d'apparition des boutons »*, et *« on doit avoir
+  /// l'impression que l'interface caméra se construit sous nos yeux »*).
+  /// Allonger la séquence était nécessaire : à 760 ms, un pas plus grand entre
+  /// les contrôles ne laissait plus aux derniers le temps d'entrer.
+  static const _entranceDuration = Duration(milliseconds: 900);
 
   /// Filet de sécurité : si l'aperçu n'arrive jamais (caméra en erreur,
   /// permission refusée), l'interface doit apparaître quand même.
@@ -1440,7 +1445,20 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
 
     // Dès que l'aperçu a sa première image, la séquence d'entrée part. Le
     // `post-frame` évite de lancer une animation pendant un `build`.
-    if (_previewReady && _entrance.status == AnimationStatus.dismissed) {
+    // ⚠️ `flashKnown` AUTANT que `_previewReady`, et c'est le correctif du
+    // bouton flash qui « arrivait séparément après » (Jay, 2026-08-15).
+    //
+    // Séquence relevée dans `native_camera.dart` : l'événement `previewInfo`
+    // notifie les écouteurs PENDANT la configuration de session, donc bien
+    // avant qu'`open()` n'ait interrogé le natif sur la présence d'une LED.
+    // Démarrer sur le seul `_previewReady` construisait donc le rail à cinq
+    // boutons, et le sixième s'ajoutait après coup, hors animation.
+    //
+    // `hasFlash` seul ne pouvait pas servir de verrou : il vaut `false` avant
+    // d'être connu ET `false` quand la réponse est non.
+    if (_previewReady &&
+        _camera.flashKnown &&
+        _entrance.status == AnimationStatus.dismissed) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _entrance.forward();
       });
@@ -2352,6 +2370,17 @@ class _FlashControlState extends State<_FlashControl> {
             duration: NeoMotion.normal,
             curve: NeoMotion.enter,
             widthFactor: _open ? 1 : 0,
+            // ⚠️ `heightFactor` AUTANT que `widthFactor` — corrigé le
+            // 2026-08-15. Replier la seule largeur laissait le panneau
+            // **occuper toute sa hauteur** : la ligne du flash frontal (des
+            // curseurs, ~130 px) était donc trois fois plus haute que celle du
+            // flash arrière (une rangée d'icônes), et la colonne centrée du
+            // rail ne tombait pas au même endroit selon la caméra.
+            //
+            // C'est ce que Jay décrivait par « la disposition des boutons de la
+            // vue frontale est différente ». Le défaut ne se voyait PAS sur le
+            // panneau lui-même — il était invisible et poussait ses voisins.
+            heightFactor: _open ? 1 : 0,
             child: AnimatedOpacity(
               opacity: _open ? 1 : 0,
               duration: NeoMotion.fast,

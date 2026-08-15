@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/day_cycle.dart';
 import '../../../core/theme.dart';
@@ -49,6 +51,88 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
   /// Vrai tant qu'on est sur l'ordre livré dans l'app.
   var _pristine = true;
 
+  /// L'ordre d'essai **survit à la fermeture de l'app** (demande de Jay,
+  /// 2026-08-15) : seul « Réinitialiser » le rend à celui du code.
+  ///
+  /// Stocké par **noms de palettes**, jamais par indices : un ordre enregistré
+  /// par position désignerait les mauvaises couleurs à la première retouche de
+  /// `DayCycle.anchors`. C'est la même raison que `StartupTab`.
+  static const _orderKey = 'day_cycle_preview_order';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOrder();
+  }
+
+  Future<void> _loadOrder() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getStringList(_orderKey);
+    if (saved == null || !mounted) return;
+
+    // ⚠️ Reconstruction TOLÉRANTE : on repart des palettes du code et on les
+    // trie selon l'ordre enregistré. Une palette renommée ou ajoutée depuis
+    // n'est donc pas perdue — elle retombe à la fin — et une palette
+    // enregistrée qui n'existe plus est simplement ignorée.
+    //
+    // Sans ça, le premier changement de palette laisserait Jay sur un aperçu
+    // vide ou incomplet, sans rien pour le lui dire.
+    final byLabel = {for (final a in DayCycle.palettes) a.label: a};
+    final rebuilt = <DayAnchor>[
+      for (final label in saved) ?byLabel.remove(label),
+      // Ce qui n'était pas dans l'ordre enregistré retombe à la fin.
+      ...byLabel.values,
+    ];
+
+    if (rebuilt.length != DayCycle.palettes.length) return;
+    setState(() {
+      _order = rebuilt;
+      _pristine = false;
+      _schedule = DayCycle.autoSchedule(_order);
+    });
+  }
+
+  Future<void> _saveOrder() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_pristine) {
+      await prefs.remove(_orderKey);
+    } else {
+      await prefs.setStringList(_orderKey, [for (final a in _order) a.label]);
+    }
+  }
+
+  /// L'ordre au presse-papier, prêt à être collé dans une conversation.
+  ///
+  /// Jay : *« ajoute un bouton pour copier l'ordre de sorte que je t'envoie
+  /// l'ordre choisi à implémenter »*. On copie donc **les heures calculées et
+  /// les hexadécimaux**, pas seulement les noms : c'est ce qu'il faut pour
+  /// réécrire `DayCycle.anchors` sans rien redeviner.
+  String _orderAsText() {
+    String hex(Color c) => _hex(c);
+    final b = StringBuffer()
+      ..writeln('Ordre du cycle de 24 h — ${_order.length} palettes')
+      ..writeln(
+        'Heures calculées par DayCycle.autoSchedule '
+        '(au prorata de la distance de couleur).',
+      )
+      ..writeln(
+        'Dérive max sur 3 min : '
+        '${DayCycle.worstSessionDrift(_schedule).toStringAsFixed(4)} '
+        '(seuil ${DayCycle.justNoticeable})',
+      )
+      ..writeln();
+    for (var i = 0; i < _order.length; i++) {
+      final a = _order[i];
+      b.writeln(
+        'DayAnchor(${_schedule[i].hour.toStringAsFixed(2)}, '
+        'Color(0xFF${hex(a.top).substring(1)}), '
+        'Color(0xFF${hex(a.bottom).substring(1)}), '
+        "'${a.label}'),",
+      );
+    }
+    return b.toString();
+  }
+
   double get _hour => _playing ? _run.value * 24 : _manualHour;
 
   void _reorder(int from, int to) {
@@ -59,6 +143,7 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
       _pristine = false;
       _schedule = DayCycle.autoSchedule(_order);
     });
+    _saveOrder();
   }
 
   void _resetOrder() {
@@ -67,6 +152,7 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
       _pristine = true;
       _schedule = DayCycle.anchors;
     });
+    _saveOrder();
   }
 
   @override
@@ -311,6 +397,21 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
                               fontWeight: FontWeight.w600,
                             ),
                           ),
+                        ),
+                        IconButton(
+                          tooltip: 'Copier l\'ordre',
+                          icon: const Icon(Icons.copy_all_outlined),
+                          onPressed: () async {
+                            await Clipboard.setData(
+                              ClipboardData(text: _orderAsText()),
+                            );
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Ordre copié — heures comprises'),
+                              ),
+                            );
+                          },
                         ),
                         if (!_pristine)
                           TextButton(

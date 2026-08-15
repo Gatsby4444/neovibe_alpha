@@ -40,6 +40,10 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
     final memberships = ref.watch(categoryMembersProvider).value ?? {};
     return Scaffold(
       appBar: AppBar(
+        // Titre centré : c'est un TITRE DE SECTION, pas un fil d'Ariane
+        // (consigne de Jay, 2026-08-15). Les écrans poussés gardent le titre
+        // aligné à gauche — le thème n'est pas touché.
+        centerTitle: true,
         title: const Text('Cercle'),
         actions: [
           IconButton(

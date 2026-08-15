@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app.dart';
+import 'core/motion.dart';
 import 'core/config/env.dart';
 import 'core/diagnostics/app_log.dart';
 import 'core/diagnostics/app_log_observers.dart';
@@ -69,9 +70,7 @@ Future<void> main() async {
   NotificationService.instance.onNotificationTap = (payload) {
     if (payload == 'bereal') {
       navigatorKey.currentState?.push(
-        MaterialPageRoute(
-          builder: (_) => const CardCaptureScreen(bereal: true),
-        ),
+        NeoFadeRoute(builder: (_) => const CardCaptureScreen(bereal: true)),
       );
     }
   };

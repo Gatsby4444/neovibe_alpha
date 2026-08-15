@@ -149,101 +149,104 @@ class _HomeShellState extends ConsumerState<HomeShell> {
         ),
       ),
       // La barre revient APRÈS le contenu quand on ferme un écran poussé
-      // par-dessus, et part AVANT lui quand on en ouvre un (consigne de Jay,
-      // 2026-08-15). C'est le seul élément de structure permanent de l'app —
-      // donc le seul endroit où ce décalage se joue en un point.
-      bottomNavigationBar: NeoStagger(
-        child: NavigationBar(
-          selectedIndex: _index,
-          onDestinationSelected: (i) {
-            _userMoved = true;
-            if (i == _capture) {
-              _openCapture();
-            } else {
-              setState(() {
-                _index = i;
-                _visited.add(i);
-              });
-            }
-          },
-          // La VAGUE (demande de Jay, 2026-08-15) : chaque icône entre un cran
-          // après sa voisine de gauche.
+      // par-dessus (consigne de Jay, 2026-08-15). Le décalage n'est plus porté
+      // par la barre entière mais par CHAQUE icône : c'est ce qui permet la
+      // vague, et ce qui évite qu'une enveloppe globale n'écrase l'échelonnement
+      // en multipliant deux opacités.
+      bottomNavigationBar: NavigationBar(
+        // Libelles retires (consigne de Jay, 2026-08-15) : « les icones
+        // suffisent, pas besoin de preciser dans la barre de navigation ».
+        //
+        // Effet de bord bienvenu : le desaccord signale a la version
+        // precedente disparait par construction. Une `NavigationBar` ne laisse
+        // animer que l'icone, jamais son libelle — plus de libelle, plus
+        // d'ecart possible entre les deux.
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysHide,
+        selectedIndex: _index,
+        onDestinationSelected: (i) {
+          _userMoved = true;
+          if (i == _capture) {
+            _openCapture();
+          } else {
+            setState(() {
+              _index = i;
+              _visited.add(i);
+            });
+          }
+        },
+        // La VAGUE (demande de Jay, 2026-08-15) : chaque icône entre un cran
+        // après sa voisine de gauche.
+        //
+        // ⚠️ Seules les **icônes** ondulent, pas les libellés : une
+        // `NavigationBar` construit elle-même la colonne icône + libellé, et
+        // n'expose que le widget de l'icône. Les libellés arrivent donc avec
+        // la barre. Le pas est petit exprès (~23 ms) pour que l'écart entre
+        // un libellé et son icône reste sous le seuil où il se lirait comme
+        // un défaut plutôt que comme un mouvement.
+        destinations: [
+          // Geste signature : le bouton de capture est une pastille pleine en
+          // dégradé, visible en permanence quel que soit l'onglet actif.
           //
-          // ⚠️ Seules les **icônes** ondulent, pas les libellés : une
-          // `NavigationBar` construit elle-même la colonne icône + libellé, et
-          // n'expose que le widget de l'icône. Les libellés arrivent donc avec
-          // la barre. Le pas est petit exprès (~23 ms) pour que l'écart entre
-          // un libellé et son icône reste sous le seuil où il se lirait comme
-          // un défaut plutôt que comme un mouvement.
-          destinations: [
-            // Geste signature : le bouton de capture est une pastille pleine en
-            // dégradé, visible en permanence quel que soit l'onglet actif.
-            //
-            // À GAUCHE depuis le 2026-08-14 (consigne de Jay). Ce n'est pas un
-            // onglet où l'app se pose : il ouvre la capture par-dessus, et
-            // `selectedIndex` ne vaut donc jamais 0.
-            NavigationDestination(
-              icon: NeoStagger.wave(
-                index: 0,
-                child: const GradientDot(
-                  size: 38,
-                  child: Icon(
-                    Icons.photo_camera,
-                    color: Colors.white,
-                    size: 20,
-                  ),
-                ),
+          // À GAUCHE depuis le 2026-08-14 (consigne de Jay). Ce n'est pas un
+          // onglet où l'app se pose : il ouvre la capture par-dessus, et
+          // `selectedIndex` ne vaut donc jamais 0.
+          NavigationDestination(
+            icon: NeoStagger.wave(
+              index: 0,
+              child: const GradientDot(
+                size: 38,
+                child: Icon(Icons.photo_camera, color: Colors.white, size: 20),
               ),
-              label: 'Vibe',
             ),
-            NavigationDestination(
-              icon: NeoStagger.wave(
-                index: 1,
-                child: const Icon(Icons.radar_outlined),
-              ),
-              selectedIcon: NeoStagger.wave(
-                index: 1,
-                child: const GradientIcon(Icons.radar),
-              ),
-              label: 'Ping',
+            label: 'Vibe',
+          ),
+          NavigationDestination(
+            icon: NeoStagger.wave(
+              index: 1,
+              child: const Icon(Icons.radar_outlined),
             ),
-            NavigationDestination(
-              icon: NeoStagger.wave(
-                index: 2,
-                child: const Icon(Icons.workspaces_outline),
-              ),
-              // Onglet actif : icône en dégradé de marque (l'indicateur de
-              // Material ne sait pas porter un dégradé).
-              selectedIcon: NeoStagger.wave(
-                index: 2,
-                child: const GradientIcon(Icons.workspaces),
-              ),
-              label: 'Cercle',
+            selectedIcon: NeoStagger.wave(
+              index: 1,
+              child: const GradientIcon(Icons.radar),
             ),
-            NavigationDestination(
-              icon: NeoStagger.wave(
-                index: 3,
-                child: const Icon(Icons.sports_esports_outlined),
-              ),
-              selectedIcon: NeoStagger.wave(
-                index: 3,
-                child: const GradientIcon(Icons.sports_esports),
-              ),
-              label: 'Jeux',
+            label: 'Ping',
+          ),
+          NavigationDestination(
+            icon: NeoStagger.wave(
+              index: 2,
+              child: const Icon(Icons.workspaces_outline),
             ),
-            NavigationDestination(
-              icon: NeoStagger.wave(
-                index: 4,
-                child: const Icon(Icons.person_outline),
-              ),
-              selectedIcon: NeoStagger.wave(
-                index: 4,
-                child: const GradientIcon(Icons.person),
-              ),
-              label: 'Profil',
+            // Onglet actif : icône en dégradé de marque (l'indicateur de
+            // Material ne sait pas porter un dégradé).
+            selectedIcon: NeoStagger.wave(
+              index: 2,
+              child: const GradientIcon(Icons.workspaces),
             ),
-          ],
-        ),
+            label: 'Cercle',
+          ),
+          NavigationDestination(
+            icon: NeoStagger.wave(
+              index: 3,
+              child: const Icon(Icons.sports_esports_outlined),
+            ),
+            selectedIcon: NeoStagger.wave(
+              index: 3,
+              child: const GradientIcon(Icons.sports_esports),
+            ),
+            label: 'Jeux',
+          ),
+          NavigationDestination(
+            icon: NeoStagger.wave(
+              index: 4,
+              child: const Icon(Icons.person_outline),
+            ),
+            selectedIcon: NeoStagger.wave(
+              index: 4,
+              child: const GradientIcon(Icons.person),
+            ),
+            label: 'Profil',
+          ),
+        ],
       ),
     );
   }
@@ -292,6 +295,6 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   void _openCapture() {
     Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => const CardCaptureScreen()));
+    ).push(NeoFadeRoute(builder: (_) => const CardCaptureScreen()));
   }
 }

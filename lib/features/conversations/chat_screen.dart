@@ -144,7 +144,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         .toList();
     if (recipients.isEmpty) return;
     Navigator.of(context).push(
-      MaterialPageRoute(
+      // Fondu pur : la capture est un MODE, pas une page de plus dans la
+      // hiérarchie — voir `NeoFadeRoute`.
+      NeoFadeRoute(
         builder: (_) => CardCaptureScreen(
           directRecipientIds: recipients,
           directRecipientLabel: conversation.displayName(me),
@@ -158,7 +160,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// La capture bascule alors en mode sans aperçu.
   void _addToLibrary(Conversation conversation, String me) {
     Navigator.of(context).push(
-      MaterialPageRoute(
+      NeoFadeRoute(
         builder: (_) => CardCaptureScreen(
           libraryTarget: LibraryTarget(
             conversationId: conversation.id,

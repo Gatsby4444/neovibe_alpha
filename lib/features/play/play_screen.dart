@@ -18,7 +18,13 @@ class PlayScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Jeux')),
+      appBar: AppBar(
+        // Titre centré : c'est un TITRE DE SECTION, pas un fil d'Ariane
+        // (consigne de Jay, 2026-08-15). Les écrans poussés gardent le titre
+        // aligné à gauche — le thème n'est pas touché.
+        centerTitle: true,
+        title: const Text('Jeux'),
+      ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),

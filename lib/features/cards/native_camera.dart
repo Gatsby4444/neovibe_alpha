@@ -231,12 +231,26 @@ class NativeCameraController extends ChangeNotifier {
   /// des appareils — le bouton est alors grisé plutôt que menteur.
   var hasFlash = false;
 
+  /// [hasFlash] a-t-il été **renseigné par le natif**, ou vaut-il encore sa
+  /// valeur d'attente ?
+  ///
+  /// Les deux sont `false` au départ et rien ne les distinguait — d'où le
+  /// défaut relevé par Jay le 2026-08-15 : le rail de l'écran de capture se
+  /// construisait sans le bouton flash, puis celui-ci **s'ajoutait après coup**
+  /// quand la réponse arrivait, en dehors de l'animation d'entrée.
+  ///
+  /// ⚠️ Un booléen qui vaut `false` avant d'être connu **et** `false` quand la
+  /// réponse est non ne peut pas servir à décider quand l'interface est prête.
+  /// Il faut un second état, pas une valeur par défaut mieux choisie.
+  var flashKnown = false;
+
   Future<void> setFlash(FlashMode mode) async {
     final res = await _channel.invokeMapMethod<String, dynamic>('setFlash', {
       'mode': mode.name,
     });
     flashMode = mode;
     hasFlash = res?['hasFlash'] as bool? ?? false;
+    flashKnown = true;
     notifyListeners();
   }
 
@@ -246,7 +260,9 @@ class NativeCameraController extends ChangeNotifier {
     try {
       final res = await _channel.invokeMapMethod<String, dynamic>('hasFlash');
       final value = res?['hasFlash'] as bool? ?? false;
-      if (value != hasFlash) {
+      final wasUnknown = !flashKnown;
+      flashKnown = true;
+      if (value != hasFlash || wasUnknown) {
         hasFlash = value;
         if (notify) notifyListeners();
       }
