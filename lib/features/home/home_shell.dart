@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/motion.dart';
 import '../../core/prefs.dart';
 import '../../core/widgets/gradient.dart';
 import '../cards/card_capture_screen.dart';
@@ -120,56 +121,62 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           _lazy(_profile, const ProfileScreen()),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) {
-          _userMoved = true;
-          if (i == _capture) {
-            _openCapture();
-          } else {
-            setState(() {
-              _index = i;
-              _visited.add(i);
-            });
-          }
-        },
-        destinations: const [
-          // Geste signature : le bouton de capture est une pastille pleine en
-          // dégradé, visible en permanence quel que soit l'onglet actif.
-          //
-          // À GAUCHE depuis le 2026-08-14 (consigne de Jay). Ce n'est pas un
-          // onglet où l'app se pose : il ouvre la capture par-dessus, et
-          // `selectedIndex` ne vaut donc jamais 0.
-          NavigationDestination(
-            icon: GradientDot(
-              size: 38,
-              child: Icon(Icons.photo_camera, color: Colors.white, size: 20),
+      // La barre revient APRÈS le contenu quand on ferme un écran poussé
+      // par-dessus, et part AVANT lui quand on en ouvre un (consigne de Jay,
+      // 2026-08-15). C'est le seul élément de structure permanent de l'app —
+      // donc le seul endroit où ce décalage se joue en un point.
+      bottomNavigationBar: NeoStagger(
+        child: NavigationBar(
+          selectedIndex: _index,
+          onDestinationSelected: (i) {
+            _userMoved = true;
+            if (i == _capture) {
+              _openCapture();
+            } else {
+              setState(() {
+                _index = i;
+                _visited.add(i);
+              });
+            }
+          },
+          destinations: const [
+            // Geste signature : le bouton de capture est une pastille pleine en
+            // dégradé, visible en permanence quel que soit l'onglet actif.
+            //
+            // À GAUCHE depuis le 2026-08-14 (consigne de Jay). Ce n'est pas un
+            // onglet où l'app se pose : il ouvre la capture par-dessus, et
+            // `selectedIndex` ne vaut donc jamais 0.
+            NavigationDestination(
+              icon: GradientDot(
+                size: 38,
+                child: Icon(Icons.photo_camera, color: Colors.white, size: 20),
+              ),
+              label: 'Vibe',
             ),
-            label: 'Vibe',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.radar_outlined),
-            selectedIcon: GradientIcon(Icons.radar),
-            label: 'Ping',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.workspaces_outline),
-            // Onglet actif : icône en dégradé de marque (l'indicateur de
-            // Material ne sait pas porter un dégradé).
-            selectedIcon: GradientIcon(Icons.workspaces),
-            label: 'Cercle',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.sports_esports_outlined),
-            selectedIcon: GradientIcon(Icons.sports_esports),
-            label: 'Jeux',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: GradientIcon(Icons.person),
-            label: 'Profil',
-          ),
-        ],
+            NavigationDestination(
+              icon: Icon(Icons.radar_outlined),
+              selectedIcon: GradientIcon(Icons.radar),
+              label: 'Ping',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.workspaces_outline),
+              // Onglet actif : icône en dégradé de marque (l'indicateur de
+              // Material ne sait pas porter un dégradé).
+              selectedIcon: GradientIcon(Icons.workspaces),
+              label: 'Cercle',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.sports_esports_outlined),
+              selectedIcon: GradientIcon(Icons.sports_esports),
+              label: 'Jeux',
+            ),
+            NavigationDestination(
+              icon: Icon(Icons.person_outline),
+              selectedIcon: GradientIcon(Icons.person),
+              label: 'Profil',
+            ),
+          ],
+        ),
       ),
     );
   }

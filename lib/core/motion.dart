@@ -88,12 +88,46 @@ abstract final class NeoMotion {
 ///
 /// ## Ce que la transition fait
 ///
-/// Un glissement **court** (6 % de la largeur) plus un fondu, et la page qui
-/// part recule d'un peu moins. Volontairement sobre : une transition de page se
-/// voit des dizaines de fois par session, c'est le pire endroit où être
+/// Un glissement **court** (6 % de la largeur) plus un **relais de fondu** : la
+/// page qui part s'efface pendant la première moitié, celle qui arrive
+/// apparaît pendant la seconde. Volontairement sobre : une transition de page
+/// se voit des dizaines de fois par session, c'est le pire endroit où être
 /// démonstratif.
+///
+/// ## 🐛 Le défaut corrigé le 2026-08-15, et ce qu'il apprend
+///
+/// La première version ne faisait **que** le fondu d'entrée : la page qui part
+/// glissait de 3 % mais **restait à pleine opacité** jusqu'au bout. Puis
+/// Flutter cessait simplement de la peindre — une `MaterialPageRoute` est
+/// `opaque`, donc la route du dessous est retirée de l'arbre à `t = 1`.
+///
+/// Tant que les pages étaient **opaques**, rien ne se voyait : la nouvelle
+/// recouvrait l'ancienne. Le thème NeoVibe a rendu les `Scaffold`
+/// transparents — et a donc **retiré ce qui cachait la couture**, sans rien
+/// casser lui-même. Symptôme rapporté par Jay : *« l'écran suivant apparaît
+/// d'un coup, puis le précédent disparaît d'un coup »*. Les deux « d'un coup »
+/// sont ce même défaut, vu dans les deux sens.
+///
+/// **Leçon générale** : un fond opaque est un *masque*. Tout ce qu'on règle
+/// derrière lui est réglé à l'aveugle, et le jour où on le retire, ce n'est pas
+/// une régression qui apparaît — c'est un défaut qui devient visible.
+///
+/// Second point, plus discret : le fondu suivait `easeOutCubic` sur **toute**
+/// la durée, donc 70 % du changement se produisait dans le premier tiers. D'où
+/// *« l'animation est en fait un tout petit bout de la transition »*. Les
+/// intervalles ci-dessous règlent ça aussi.
 class NeoPageTransitionsBuilder extends PageTransitionsBuilder {
   const NeoPageTransitionsBuilder();
+
+  /// Le relais : la page qui part a disparu à 45 % du chemin, celle qui arrive
+  /// commence à 25 %. Ils se croisent donc sur 20 % — assez pour qu'il n'y ait
+  /// jamais de trou, trop peu pour qu'on lise une double exposition.
+  ///
+  /// ⚠️ Ne pas supprimer le recouvrement en croyant « nettoyer » : sans lui,
+  /// l'écran serait vide pendant un instant, et sur le dégradé du thème
+  /// NeoVibe ce vide se verrait parfaitement.
+  static const _outEnd = 0.45;
+  static const _inStart = 0.25;
 
   @override
   Duration get transitionDuration => NeoMotion.ample;
@@ -117,14 +151,130 @@ class NeoPageTransitionsBuilder extends PageTransitionsBuilder {
       begin: Offset.zero,
       end: const Offset(-0.03, 0),
     ).chain(CurveTween(curve: NeoMotion.enter)).animate(secondaryAnimation);
-    final fade = CurveTween(curve: NeoMotion.enter).animate(animation);
+
+    final fadeIn = CurveTween(
+      curve: const Interval(_inStart, 1, curve: NeoMotion.enter),
+    ).animate(animation);
+
+    // Le fondu de SORTIE, celui qui manquait. Piloté par `secondaryAnimation`,
+    // donc il vaut aussi bien pour la page recouverte (push) que pour la page
+    // révélée (pop) : au retour, elle réapparaît pendant la seconde moitié au
+    // lieu de surgir à pleine opacité.
+    final fadeOut = Tween(begin: 1.0, end: 0.0)
+        .chain(
+          CurveTween(curve: const Interval(0, _outEnd, curve: NeoMotion.exit)),
+        )
+        .animate(secondaryAnimation);
 
     return SlideTransition(
       position: outgoing,
-      child: SlideTransition(
-        position: incoming,
-        child: FadeTransition(opacity: fade, child: child),
+      child: FadeTransition(
+        opacity: fadeOut,
+        child: SlideTransition(
+          position: incoming,
+          child: FadeTransition(opacity: fadeIn, child: child),
+        ),
       ),
+    );
+  }
+}
+
+/// Fait entrer un élément **après** le reste de sa page, et sortir **avant**.
+///
+/// ## Pourquoi ça existe
+///
+/// Demande de Jay, 2026-08-15 : *« la fluidité, le premium […] si on revient
+/// sur l'écran principal, la barre du bas apparaît via une animation séparée
+/// 200-300 ms plus tard. »*
+///
+/// Une page qui apparaît d'un bloc se lit comme une **image** qu'on remplace.
+/// Les mêmes éléments décalés de quelques dixièmes se lisent comme un
+/// **espace** qui se recompose — c'est toute la différence, et elle ne coûte
+/// que du décalage.
+///
+/// ## Ce qu'il faut savoir avant de s'en servir
+///
+/// 1. **Il se multiplie avec le fondu de la page**, il ne le remplace pas. Un
+///    élément enveloppé ici est donc *deux fois* plus lent à apparaître que le
+///    reste — c'est l'effet voulu, mais c'est pourquoi il doit rester **rare**.
+///    Partout, il donnerait une app qui traîne.
+/// 2. **Réservé à la structure** : barre de navigation, en-tête. Pas au
+///    contenu — décaler ce qu'on est venu lire, c'est faire attendre.
+/// 3. Hors d'une route (test, aperçu), il est **neutre** : pas d'animation,
+///    pas d'erreur.
+class NeoStagger extends StatelessWidget {
+  const NeoStagger({
+    super.key,
+    required this.child,
+    this.delay = 0.45,
+    this.lead = 0.22,
+    this.rise = 14,
+  });
+
+  final Widget child;
+
+  /// Part de la transition écoulée avant que l'élément ne commence à entrer,
+  /// quand c'est **lui** la page qui arrive.
+  final double delay;
+
+  /// Symétrique, pour l'autre sens : l'élément a **fini** de partir à cette
+  /// fraction, quand sa page se fait recouvrir.
+  ///
+  /// ⚠️ **Doit rester inférieur au `_outEnd` de [NeoPageTransitionsBuilder]**
+  /// (0,45), et c'est la seule chose à vérifier en y touchant. C'est lui qui
+  /// porte l'effet au **retour** : la page réapparaît quand son recouvrement
+  /// repasse sous 0,45, l'élément seulement sous 0,22 — donc **après**.
+  ///
+  /// 🐛 Ma première version dérivait cette valeur de [delay] (`1 - delay`,
+  /// soit 0,55). Elle était donc **supérieure** à 0,45, et la barre
+  /// réapparaissait *avant* le contenu — l'inverse exact de ce qui était
+  /// demandé. Deux réglages opposés ne se déduisent pas l'un de l'autre par
+  /// symétrie : ils se nomment.
+  final double lead;
+
+  /// De combien l'élément monte en arrivant, en pixels. Un bas de page vient
+  /// donc du bas — la direction dit d'où l'élément appartient.
+  final double rise;
+
+  @override
+  Widget build(BuildContext context) {
+    final route = ModalRoute.of(context);
+    final enter = route?.animation;
+    final cover = route?.secondaryAnimation;
+    if (enter == null || cover == null) return child;
+
+    return AnimatedBuilder(
+      animation: Listenable.merge([enter, cover]),
+      child: child,
+      builder: (context, inner) {
+        // Entre en retard…
+        final arriving = Interval(
+          delay,
+          1,
+          curve: NeoMotion.enter,
+        ).transform(enter.value.clamp(0.0, 1.0));
+
+        // …et sort en avance, sinon l'élément partirait en même temps que le
+        // reste et le décalage ne se verrait qu'à l'aller.
+        final leaving = Interval(
+          0,
+          lead,
+          curve: NeoMotion.exit,
+        ).transform(cover.value.clamp(0.0, 1.0));
+
+        final t = (arriving * (1 - leaving)).clamp(0.0, 1.0);
+        return Opacity(
+          opacity: t,
+          // `Transform.translate` et non un `SlideTransition` : on veut des
+          // pixels, pas une fraction de la taille de l'élément — une barre de
+          // navigation et un en-tête n'ont pas la même hauteur, et devraient
+          // pourtant parcourir la même distance.
+          child: Transform.translate(
+            offset: Offset(0, (1 - t) * rise),
+            child: inner,
+          ),
+        );
+      },
     );
   }
 }
