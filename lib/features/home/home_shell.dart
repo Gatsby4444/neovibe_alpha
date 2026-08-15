@@ -109,17 +109,44 @@ class _HomeShellState extends ConsumerState<HomeShell> {
     listenForConnectionRequestPopups(ref, context);
 
     return Scaffold(
-      body: IndexedStack(
-        index: _index,
-        // Même ordre que les `destinations` ci-dessous — voir le commentaire
-        // des constantes.
-        children: [
-          const SizedBox.shrink(), // emplacement du bouton capture
-          _lazy(_ping, const PingScreen()),
-          _lazy(_circle, const CircleScreen()),
-          _lazy(_play, const PlayScreen()),
-          _lazy(_profile, const ProfileScreen()),
-        ],
+      // Navigation au SWIPE entre sections (test demandé par Jay, 2026-08-15).
+      //
+      // ### Pourquoi un simple `GestureDetector` suffit à donner la priorité
+      // ### aux swipes internes, sans définir aucune « zone »
+      //
+      // Jay demandait de bien délimiter les zones pour qu'un swipe de mini-card
+      // reste prioritaire. **Il n'y a rien à délimiter** : l'arène de gestes de
+      // Flutter tranche déjà dans le bon sens. Les candidats sont ajoutés du
+      // plus interne vers le plus externe, et le balayage retient le PREMIER —
+      // donc l'enfant. Un `PageView`, un `ListView` horizontal ou un
+      // `GestureDetector` de carte gagnent tous contre ce détecteur-ci, y
+      // compris arrivés en bout de course (un `Scrollable` ne rend pas la main).
+      //
+      // Une zone codée en dur, elle, aurait été fausse le jour où un écran
+      // change de mise en page — et fausse en silence.
+      //
+      // Inventaire des concurrents relevé le 2026-08-15 : le bandeau de stories
+      // du Cercle (`circle_screen.dart`, liste horizontale) et le deck de
+      // mini-cards (`library_deck_screen.dart`, `PageView`) — ce dernier vit
+      // dans une route poussée, donc hors de ce détecteur de toute façon.
+      //
+      // ⚠️ Un glissement VERTICAL n'entre pas en concurrence : un
+      // `HorizontalDragGestureRecognizer` ne se déclare que si le mouvement est
+      // à dominante horizontale. Les listes verticales ne sont pas touchées.
+      body: GestureDetector(
+        onHorizontalDragEnd: _onSectionSwipe,
+        child: IndexedStack(
+          index: _index,
+          // Même ordre que les `destinations` ci-dessous — voir le commentaire
+          // des constantes.
+          children: [
+            const SizedBox.shrink(), // emplacement du bouton capture
+            _lazy(_ping, const PingScreen()),
+            _lazy(_circle, const CircleScreen()),
+            _lazy(_play, const PlayScreen()),
+            _lazy(_profile, const ProfileScreen()),
+          ],
+        ),
       ),
       // La barre revient APRÈS le contenu quand on ferme un écran poussé
       // par-dessus, et part AVANT lui quand on en ouvre un (consigne de Jay,
@@ -139,7 +166,16 @@ class _HomeShellState extends ConsumerState<HomeShell> {
               });
             }
           },
-          destinations: const [
+          // La VAGUE (demande de Jay, 2026-08-15) : chaque icône entre un cran
+          // après sa voisine de gauche.
+          //
+          // ⚠️ Seules les **icônes** ondulent, pas les libellés : une
+          // `NavigationBar` construit elle-même la colonne icône + libellé, et
+          // n'expose que le widget de l'icône. Les libellés arrivent donc avec
+          // la barre. Le pas est petit exprès (~23 ms) pour que l'écart entre
+          // un libellé et son icône reste sous le seuil où il se lirait comme
+          // un défaut plutôt que comme un mouvement.
+          destinations: [
             // Geste signature : le bouton de capture est une pastille pleine en
             // dégradé, visible en permanence quel que soit l'onglet actif.
             //
@@ -147,38 +183,103 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             // onglet où l'app se pose : il ouvre la capture par-dessus, et
             // `selectedIndex` ne vaut donc jamais 0.
             NavigationDestination(
-              icon: GradientDot(
-                size: 38,
-                child: Icon(Icons.photo_camera, color: Colors.white, size: 20),
+              icon: NeoStagger.wave(
+                index: 0,
+                child: const GradientDot(
+                  size: 38,
+                  child: Icon(
+                    Icons.photo_camera,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
               ),
               label: 'Vibe',
             ),
             NavigationDestination(
-              icon: Icon(Icons.radar_outlined),
-              selectedIcon: GradientIcon(Icons.radar),
+              icon: NeoStagger.wave(
+                index: 1,
+                child: const Icon(Icons.radar_outlined),
+              ),
+              selectedIcon: NeoStagger.wave(
+                index: 1,
+                child: const GradientIcon(Icons.radar),
+              ),
               label: 'Ping',
             ),
             NavigationDestination(
-              icon: Icon(Icons.workspaces_outline),
+              icon: NeoStagger.wave(
+                index: 2,
+                child: const Icon(Icons.workspaces_outline),
+              ),
               // Onglet actif : icône en dégradé de marque (l'indicateur de
               // Material ne sait pas porter un dégradé).
-              selectedIcon: GradientIcon(Icons.workspaces),
+              selectedIcon: NeoStagger.wave(
+                index: 2,
+                child: const GradientIcon(Icons.workspaces),
+              ),
               label: 'Cercle',
             ),
             NavigationDestination(
-              icon: Icon(Icons.sports_esports_outlined),
-              selectedIcon: GradientIcon(Icons.sports_esports),
+              icon: NeoStagger.wave(
+                index: 3,
+                child: const Icon(Icons.sports_esports_outlined),
+              ),
+              selectedIcon: NeoStagger.wave(
+                index: 3,
+                child: const GradientIcon(Icons.sports_esports),
+              ),
               label: 'Jeux',
             ),
             NavigationDestination(
-              icon: Icon(Icons.person_outline),
-              selectedIcon: GradientIcon(Icons.person),
+              icon: NeoStagger.wave(
+                index: 4,
+                child: const Icon(Icons.person_outline),
+              ),
+              selectedIcon: NeoStagger.wave(
+                index: 4,
+                child: const GradientIcon(Icons.person),
+              ),
               label: 'Profil',
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// Vitesse minimale, en pixels par seconde, pour qu'un glissement compte
+  /// comme un changement de section.
+  ///
+  /// Assez haut pour qu'un doigt qui hésite sur une grille ne fasse pas
+  /// changer d'onglet, assez bas pour ne pas exiger un geste sec.
+  static const _swipeVelocity = 300.0;
+
+  /// Glissement horizontal : on passe à la section voisine.
+  ///
+  /// ⚠️ **La section Vibe n'est pas une destination** : arriver dessus ouvre la
+  /// capture par-dessus l'onglet courant, exactement comme le bouton de la
+  /// barre. On ne déplace donc PAS `_index` dans ce cas — sinon fermer la
+  /// capture laisserait l'app sur un écran vide, qui est la raison d'être du
+  /// `SizedBox.shrink()` à l'indice 0.
+  void _onSectionSwipe(DragEndDetails details) {
+    final v = details.primaryVelocity ?? 0;
+    if (v.abs() < _swipeVelocity) return;
+
+    // Glisser vers la GAUCHE (vitesse négative) fait avancer : le contenu
+    // suit le doigt, comme une page qu'on pousse hors de l'écran.
+    final target = v < 0 ? _index + 1 : _index - 1;
+    if (target < _capture || target > _profile) return;
+
+    _userMoved = true;
+    if (target == _capture) {
+      _openCapture();
+      return;
+    }
+    setState(() {
+      _index = target;
+      _visited.add(target);
+    });
   }
 
   /// Un onglet n'est construit qu'après sa première ouverture ; ensuite

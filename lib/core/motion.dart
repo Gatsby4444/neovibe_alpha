@@ -236,6 +236,35 @@ class NeoStagger extends StatelessWidget {
   /// donc du bas — la direction dit d'où l'élément appartient.
   final double rise;
 
+  /// Le décalage d'un cran à l'autre d'une **vague** — voir [wave].
+  static const waveStep = 0.06;
+
+  /// Un élément d'une vague : le même mouvement, retardé d'un cran par rang.
+  ///
+  /// Demande de Jay, 2026-08-15 : *« l'animation d'apparition qui démarre pour
+  /// chaque bouton de la navbar avec un léger décalage »*.
+  ///
+  /// ⚠️ Le pas est **petit exprès**. Une vague se lit à partir d'environ 40 ms
+  /// entre voisins ; au-delà de ~100 ms elle cesse d'être un mouvement d'
+  /// ensemble et devient cinq apparitions qu'on attend l'une après l'autre.
+  /// Sur les 380 ms du palier [NeoMotion.ample], 0,06 ≈ **23 ms par cran** —
+  /// et cinq boutons tiennent donc dans 90 ms.
+  factory NeoStagger.wave({
+    Key? key,
+    required int index,
+    required Widget child,
+    double delay = 0.45,
+    double rise = 14,
+  }) => NeoStagger(
+    key: key,
+    delay: delay + index * waveStep,
+    // Le départ, lui, n'est PAS décalé : à la sortie, une vague inversée
+    // donnerait l'impression que la barre s'effiloche. On part ensemble.
+    lead: 0.22,
+    rise: rise,
+    child: child,
+  );
+
   @override
   Widget build(BuildContext context) {
     final route = ModalRoute.of(context);
@@ -249,7 +278,9 @@ class NeoStagger extends StatelessWidget {
       builder: (context, inner) {
         // Entre en retard…
         final arriving = Interval(
-          delay,
+          // Borné : une vague de beaucoup d'éléments pousserait sinon le
+          // dernier au-delà de 1, et `Interval` lèverait une assertion.
+          delay.clamp(0.0, 0.9),
           1,
           curve: NeoMotion.enter,
         ).transform(enter.value.clamp(0.0, 1.0));

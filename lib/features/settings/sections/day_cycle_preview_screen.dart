@@ -39,7 +39,35 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
   double _manualHour = 12;
   var _playing = false;
 
+  /// L'ordre des palettes à l'essai. Les heures n'en font PAS partie : elles
+  /// sont recalculées par [DayCycle.autoSchedule] à chaque changement.
+  late List<DayAnchor> _order = List.of(DayCycle.palettes);
+
+  /// Le calendrier qui en découle — c'est lui qu'on affiche.
+  late List<DayAnchor> _schedule = DayCycle.anchors;
+
+  /// Vrai tant qu'on est sur l'ordre livré dans l'app.
+  var _pristine = true;
+
   double get _hour => _playing ? _run.value * 24 : _manualHour;
+
+  void _reorder(int from, int to) {
+    setState(() {
+      // `onReorderItem` (et non l'ancien `onReorder`) livre un index déjà
+      // ajusté au retrait de l'élément : rien à corriger ici.
+      _order.insert(to, _order.removeAt(from));
+      _pristine = false;
+      _schedule = DayCycle.autoSchedule(_order);
+    });
+  }
+
+  void _resetOrder() {
+    setState(() {
+      _order = List.of(DayCycle.palettes);
+      _pristine = true;
+      _schedule = DayCycle.anchors;
+    });
+  }
 
   @override
   void dispose() {
@@ -72,7 +100,7 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
 
   @override
   Widget build(BuildContext context) {
-    final p = DayCycle.at(_hour);
+    final p = DayCycle.at(_hour, schedule: _schedule);
     final ratio = contrastRatio(p.accent, Colors.white);
 
     return Scaffold(
@@ -238,6 +266,144 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
     ],
   );
 
+  /// La feuille de réordonnancement — demande de Jay, 2026-08-15.
+  ///
+  /// ### Ce que l'utilisateur pose, et ce que le moteur en déduit
+  ///
+  /// Jay pose **l'ordre**, jamais les heures. Celles-ci sont recalculées par
+  /// [DayCycle.autoSchedule] au prorata de la distance de couleur de chaque
+  /// segment — ce qui donne une vitesse perçue uniforme, donc un arrangement
+  /// qui tient quel que soit l'ordre choisi.
+  ///
+  /// C'est ce partage qui rend la fonctionnalité sûre : régler des heures à la
+  /// main rouvrirait la porte à un segment trop rapide (le défaut que le test
+  /// des 1440 minutes avait attrapé deux fois), et il n'y aurait personne pour
+  /// le voir sur un ordre composé par l'utilisateur.
+  ///
+  /// Le verdict est affiché quand même, parce qu'une garantie qu'on n'affiche
+  /// pas est une garantie qu'on ne sait pas vérifier.
+  void _openOrderSheet() {
+    _run.stop();
+    setState(() => _playing = false);
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: NeoNeutrals.gray900,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setSheet) {
+          final drift = DayCycle.worstSessionDrift(_schedule);
+          final ok = drift < DayCycle.justNoticeable;
+          return SafeArea(
+            child: SizedBox(
+              height: MediaQuery.of(context).size.height * 0.75,
+              child: Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 12, 8),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Ordre des dégradés',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        if (!_pristine)
+                          TextButton(
+                            onPressed: () {
+                              _resetOrder();
+                              setSheet(() {});
+                            },
+                            child: const Text('Réinitialiser'),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                    child: Row(
+                      children: [
+                        Icon(
+                          ok ? Icons.check_circle_outline : Icons.warning_amber,
+                          size: 18,
+                          color: ok ? Colors.white70 : NeoTheme.accentPink,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            ok
+                                ? 'Imperceptible : ${drift.toStringAsFixed(4)} '
+                                      'de dérive sur 3 min (seuil '
+                                      '${DayCycle.justNoticeable}).'
+                                : 'Visible : ${drift.toStringAsFixed(4)} de '
+                                      'dérive sur 3 min, au-dessus du seuil '
+                                      '${DayCycle.justNoticeable}.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: ok ? Colors.white70 : NeoTheme.accentPink,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: ReorderableListView.builder(
+                      padding: const EdgeInsets.only(bottom: 16),
+                      itemCount: _order.length,
+                      // `onReorderItem` et non `onReorder` : la variante
+                      // dépréciée livrait un index calculé AVANT le retrait de
+                      // l'élément, qu'il fallait corriger soi-même. Celle-ci
+                      // l'a déjà fait — et c'est exactement le décalage d'un
+                      // cran qui se serait vu à chaque déplacement vers le bas.
+                      onReorderItem: (from, to) {
+                        _reorder(from, to);
+                        setSheet(() {});
+                      },
+                      itemBuilder: (context, i) {
+                        final a = _order[i];
+                        // L'heure vient du calendrier recalculé, pas de la
+                        // palette : c'est elle qui change quand on réordonne.
+                        final at = _schedule[i].hour;
+                        final next = _schedule[i + 1].hour;
+                        return ListTile(
+                          key: ValueKey(a.label),
+                          leading: Container(
+                            width: 34,
+                            height: 46,
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [a.top, a.bottom],
+                              ),
+                            ),
+                          ),
+                          title: Text(a.label),
+                          subtitle: Text(
+                            '${_clock(at)} → ${_clock(next)}  ·  '
+                            '${(next - at).toStringAsFixed(1)} h',
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          trailing: const Icon(Icons.drag_handle),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _controls(DayPalette p, double ratio) => Container(
     margin: const EdgeInsets.all(16),
     padding: const EdgeInsets.fromLTRB(16, 10, 16, 14),
@@ -250,6 +416,16 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
       children: [
         Row(
           children: [
+            TextButton.icon(
+              onPressed: _openOrderSheet,
+              icon: const Icon(Icons.reorder, color: Colors.white, size: 20),
+              label: Text(
+                _pristine ? 'Ordre' : 'Ordre modifié',
+                style: TextStyle(
+                  color: _pristine ? Colors.white : NeoTheme.accentPink,
+                ),
+              ),
+            ),
             const Spacer(),
             // Le curseur montre les COULEURS ; seul le défilement montre la
             // VITESSE. Les deux sont nécessaires pour juger.

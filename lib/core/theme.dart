@@ -282,12 +282,19 @@ abstract final class NeoTheme {
         centerTitle: false,
       ),
       navigationBarTheme: NavigationBarThemeData(
-        // Un voile, pas un aplat : sur le dégradé, une barre opaque couperait
-        // le bas de l'écran d'un bandeau gris. Assez dense pour que les icônes
-        // restent lisibles à midi, quand le dégradé est pâle.
-        backgroundColor: overGradient
-            ? NeoNeutrals.black.withValues(alpha: 0.55)
-            : container,
+        // **Aucun fond** — décision de Jay, 2026-08-15 : « on supprime le fond
+        // de la navbar et on laisse juste les boutons apparents ».
+        //
+        // Volontairement dans les TROIS thèmes, et pas seulement sur le
+        // dégradé : c'est une décision sur la barre, pas sur un thème. La
+        // faire dépendre du thème donnerait deux barres différentes à
+        // maintenir, et le jour où l'une bougerait l'autre serait oubliée.
+        //
+        // ⚠️ Sans danger de collision avec le contenu : `bottomNavigationBar`
+        // réserve sa place dans le `Scaffold`, le corps ne s'étend pas
+        // dessous (il faudrait `extendBody: true`). On voit donc le fond de
+        // l'app, jamais du texte qui défile derrière les icônes.
+        backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         // L'indicateur ne peut pas porter de dégradé : c'est l'icône

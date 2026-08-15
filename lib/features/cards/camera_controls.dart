@@ -205,57 +205,125 @@ class _CameraButtonState extends State<CameraButton>
   }
 }
 
+/// Porte l'animation d'**entrée de l'écran de capture** jusqu'aux contrôles.
+///
+/// ## 🐛 Le défaut que ça corrige (2026-08-15)
+///
+/// Le décalage des contrôles existait déjà depuis la v0.9.80 — mais chaque
+/// contrôle démarrait son propre minuteur **au moment où il était construit**,
+/// c'est-à-dire à l'ouverture de l'écran, **pendant que l'aperçu est encore
+/// noir**. La vague était donc entièrement consommée avant que l'image
+/// n'arrive : quand la caméra s'ouvrait enfin, tout était déjà en place.
+///
+/// D'où le constat de Jay : *« toute l'interface s'affiche d'un coup sans
+/// transition ni fondu »*. L'animation existait ; **elle jouait devant un
+/// écran noir**.
+///
+/// **Leçon** : une animation d'entrée ne se déclenche pas à la construction du
+/// widget, mais au moment où **ce qu'elle accompagne devient visible**. Les
+/// deux coïncident presque toujours — et c'est précisément pourquoi le cas où
+/// ils divergent passe inaperçu.
+///
+/// La séquence est maintenant pilotée d'un seul endroit
+/// (`card_capture_screen.dart`), déclenchée sur `_previewReady`.
+class CameraEntrance extends InheritedWidget {
+  const CameraEntrance({
+    super.key,
+    required this.animation,
+    required super.child,
+  });
+
+  final Animation<double> animation;
+
+  /// `null` hors de l'écran de capture — les contrôles s'affichent alors sans
+  /// animation plutôt que de rester invisibles.
+  static Animation<double>? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<CameraEntrance>()?.animation;
+
+  @override
+  bool updateShouldNotify(CameraEntrance oldWidget) =>
+      oldWidget.animation != animation;
+}
+
+/// Le déclencheur central — il entre **avant** les options latérales.
+///
+/// Consigne de Jay : *« une animation qui affiche l'apparition du bouton
+/// central de prise puis progressivement les boutons d'options latéraux »*.
+/// C'est aussi l'ordre juste : le déclencheur est ce qu'on est venu chercher,
+/// les options sont ce qu'on consultera peut-être.
+class CameraShutterEntrance extends StatelessWidget {
+  const CameraShutterEntrance({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final entrance = CameraEntrance.maybeOf(context);
+    if (entrance == null) return child;
+
+    return AnimatedBuilder(
+      animation: entrance,
+      // ⚠️ `child` passé ici et JAMAIS reconstruit dans le builder : le
+      // déclencheur porte un `RawGestureDetector` dont les reconnaisseurs sont
+      // détruits si le sous-arbre est rebâti. C'est exactement la panne du
+      // 2026-07-14 (relâcher n'arrêtait plus la vidéo), et elle ne lève
+      // aucune erreur.
+      child: child,
+      builder: (context, inner) {
+        final t = const Interval(
+          0.20,
+          0.65,
+          curve: NeoMotion.spring,
+        ).transform(entrance.value);
+        return Opacity(
+          // Le ressort dépasse 1 : l'opacité, elle, ne le peut pas.
+          opacity: t.clamp(0.0, 1.0),
+          child: Transform.scale(scale: 0.86 + 0.14 * t, child: inner),
+        );
+      },
+    );
+  }
+}
+
 /// Entrée décalée : chaque contrôle arrive après le précédent.
 ///
-/// Le rail apparaît en même temps que l'aperçu ; sans décalage, six icônes
-/// surgissent d'un bloc et l'œil ne sait pas où se poser.
-class _Entry extends StatefulWidget {
+/// Le rail entre **après** le déclencheur, et ses icônes une par une.
+class _Entry extends StatelessWidget {
   const _Entry({required this.index, required this.child});
+
+  /// Part de la séquence écoulée avant que le rail ne commence.
+  static const _railStart = 0.45;
+
+  /// 45 ms entre deux contrôles sur les 760 ms de la séquence — au-delà, la
+  /// colonne met plus d'un tiers de seconde à se former et l'attente devient
+  /// perceptible.
+  static const _step = 0.06;
 
   final int index;
   final Widget child;
 
   @override
-  State<_Entry> createState() => _EntryState();
-}
-
-class _EntryState extends State<_Entry> with SingleTickerProviderStateMixin {
-  late final _controller = AnimationController(
-    vsync: this,
-    duration: NeoMotion.ample,
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    // 45 ms entre deux contrôles : au-delà, la colonne met plus d'un tiers de
-    // seconde à se former et l'attente devient perceptible.
-    Future<void>.delayed(Duration(milliseconds: 45 * widget.index), () {
-      if (mounted) _controller.forward();
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    final entrance = CameraEntrance.maybeOf(context);
+    if (entrance == null) return child;
+
     return AnimatedBuilder(
-      animation: _controller,
-      builder: (context, child) {
-        final t = NeoMotion.enter.transform(_controller.value);
+      animation: entrance,
+      child: child,
+      builder: (context, inner) {
+        final t = Interval(
+          (_railStart + index * _step).clamp(0.0, 0.9),
+          1,
+          curve: NeoMotion.enter,
+        ).transform(entrance.value);
         return Opacity(
           opacity: t,
           child: Transform.translate(
             offset: Offset(0, 10 * (1 - t)),
-            child: child,
+            child: inner,
           ),
         );
       },
-      child: widget.child,
     );
   }
 }

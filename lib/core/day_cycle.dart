@@ -331,6 +331,92 @@ abstract final class DayCycle {
     DayAnchor(24.0, Color(0xFF034C36), Color(0xFF003332), 'Deep Forest'),
   ];
 
+  /// Les **12 palettes distinctes**, sans l'ancrage de bouclage à 24 h.
+  ///
+  /// C'est ce qu'on réordonne : le dernier ancrage de [anchors] n'est pas une
+  /// palette, c'est une répétition de la première pour fermer la boucle.
+  static List<DayAnchor> get palettes => anchors.sublist(0, anchors.length - 1);
+
+  /// Répartit les heures d'un ordre de palettes **proportionnellement à la
+  /// distance de couleur** de chaque segment.
+  ///
+  /// ### Ce que ça garantit, et pourquoi ça règle un problème ouvert
+  ///
+  /// Répartir au prorata de la distance donne une **vitesse perçue uniforme** :
+  /// un grand écart reçoit beaucoup d'heures, un petit écart peu. Aucun segment
+  /// ne peut donc être « le plus rapide » — ils le sont tous autant.
+  ///
+  /// Conséquence directe : **n'importe quel ordre passe le test des 1440
+  /// minutes**, sans arbitrage à la main. La journée demande ~3,8 ΔE de
+  /// parcours total ; étalés sur 24 h cela fait 0,16 ΔE/h, soit 0,008 sur une
+  /// session de 3 minutes — pour un seuil de 0,02. Il reste un facteur 2,5.
+  ///
+  /// C'était le point resté ouvert de `RAPPELS.md` #29 ② : *« le test ne
+  /// protège plus un arrangement fait par l'utilisateur »*. Il le protège de
+  /// nouveau, parce que ce n'est plus l'utilisateur qui pose les heures — il
+  /// pose l'**ordre**, et le moteur en déduit la cadence.
+  ///
+  /// ⚠️ Seules les distances **relatives** comptent (c'est une proportion) :
+  /// inutile de chercher une métrique exacte au ΔE près. On prend le pire des
+  /// deux bords ; la bande médiane en est dérivée et suit le même facteur.
+  static List<DayAnchor> autoSchedule(List<DayAnchor> order) {
+    if (order.length < 2) return anchors;
+
+    double gap(DayAnchor a, DayAnchor b) => math.max(
+      perceptualDistance(a.top, b.top),
+      perceptualDistance(a.bottom, b.bottom),
+    );
+
+    // Le segment de bouclage (dernier → premier) compte comme les autres :
+    // minuit n'est pas un bord, c'est un point de passage.
+    final gaps = <double>[
+      for (var i = 0; i < order.length; i++)
+        gap(order[i], order[(i + 1) % order.length]),
+    ];
+    final total = gaps.reduce((a, b) => a + b);
+    if (total <= 0) return anchors;
+
+    final out = <DayAnchor>[];
+    var hour = 0.0;
+    for (var i = 0; i < order.length; i++) {
+      final a = order[i];
+      out.add(DayAnchor(hour, a.top, a.bottom, a.label));
+      hour += 24 * gaps[i] / total;
+    }
+    // Fermeture : la première palette réapparaît à 24 h, sinon `at` n'aurait
+    // pas de segment pour la fin de journée.
+    out.add(
+      DayAnchor(24, order.first.top, order.first.bottom, order.first.label),
+    );
+    return out;
+  }
+
+  /// La pire dérive sur une session de 3 minutes, pour un calendrier donné.
+  ///
+  /// Le même énoncé que `test/day_cycle_test.dart`, rendu disponible à
+  /// l'exécution : l'écran d'aperçu peut ainsi dire à Jay si l'ordre qu'il
+  /// vient de composer tient — sans quoi « on peut tout réordonner » serait une
+  /// promesse qu'on ne sait pas vérifier.
+  static double worstSessionDrift(List<DayAnchor> schedule) {
+    var worst = 0.0;
+    for (var m = 0; m < 1440; m++) {
+      final a = at(m / 60, schedule: schedule);
+      final b = at((m + 3) / 60, schedule: schedule);
+      final d = math.max(
+        perceptualDistance(a.top, b.top),
+        math.max(
+          perceptualDistance(a.middle, b.middle),
+          perceptualDistance(a.bottom, b.bottom),
+        ),
+      );
+      if (d > worst) worst = d;
+    }
+    return worst;
+  }
+
+  /// Le seuil du juste-perceptible, côte à côte, en OkLab.
+  static const justNoticeable = 0.02;
+
   /// Renflement de l'arrêt du milieu.
   ///
   /// Sans lui, un troisième arrêt posé au milieu **ne changerait
@@ -357,14 +443,19 @@ abstract final class DayCycle {
 
   /// La palette à l'heure [hours] (0–24, les valeurs hors bornes sont
   /// ramenées dans la journée : 25 h vaut 1 h).
-  static DayPalette at(double hours) {
+  ///
+  /// [schedule] permet d'essayer un **autre ordre** que celui de l'app — c'est
+  /// ce dont se sert l'écran d'aperçu. Il reste `null` partout ailleurs : le
+  /// thème ne se règle pas depuis un appelant, il se règle dans [anchors].
+  static DayPalette at(double hours, {List<DayAnchor>? schedule}) {
+    final table = schedule ?? anchors;
     final t = hours % 24;
     var i = 0;
-    while (i < anchors.length - 2 && anchors[i + 1].hour <= t) {
+    while (i < table.length - 2 && table[i + 1].hour <= t) {
       i++;
     }
-    final a = anchors[i];
-    final b = anchors[i + 1];
+    final a = table[i];
+    final b = table[i + 1];
     final span = b.hour - a.hour;
     final k = span <= 0 ? 0.0 : ((t - a.hour) / span).clamp(0.0, 1.0);
 
