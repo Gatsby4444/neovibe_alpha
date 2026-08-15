@@ -138,10 +138,14 @@ extension NeoTextColors on BuildContext {
 
 /// Thème NeoVibe : caméra-first, fonds neutres, accents en dégradé de marque.
 ///
-/// Deux déclinaisons depuis le 2026-08-10 (demande de Jay) : [dark], le défaut
-/// historique, et [light]. Le dégradé de marque et les couleurs de types de
-/// Cards sont IDENTIQUES dans les deux — seuls les fonds et les textes
-/// changent. Les écrans caméra et la visionneuse de Cards restent noirs quel
+/// **Trois** déclinaisons depuis le 2026-08-15 : [dark], le défaut historique,
+/// [light], et [neovibe] — le seul qui suive l'heure. Le dégradé de marque et
+/// les couleurs de types de Cards sont IDENTIQUES dans les trois ; seuls les
+/// fonds et les textes changent.
+///
+/// *(Ce paragraphe annonçait « deux déclinaisons » jusqu'au 2026-08-16 : le
+/// troisième thème avait été ajouté sans que sa propre documentation soit
+/// relue. Corrigé au balayage de véracité des commentaires.)* Les écrans caméra et la visionneuse de Cards restent noirs quel
 /// que soit le thème : c'est le contenu qui doit porter la lumière.
 ///
 /// ## Répartition des rôles, depuis le 2026-08-14
@@ -263,7 +267,7 @@ abstract final class NeoTheme {
       scaffoldBackgroundColor: overGradient ? Colors.transparent : background,
       canvasColor: overGradient ? Colors.transparent : background,
       // Le système de mouvement, posé le 2026-08-14. Ces deux lignes pilotent
-      // la durée ET l'allure des **46** navigations de l'app, sans toucher un
+      // la durée ET l'allure de TOUTES les navigations de l'app, sans toucher un
       // seul `MaterialPageRoute` — voir `NeoPageTransitionsBuilder`.
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {

@@ -88,8 +88,15 @@ class CardRulesTrace {
   /// **La valeur attendue est 1** — une ouverture consomme une vue, et une
   /// seule. `0` signale que le décompte n'a pas eu lieu (la limite ne serait
   /// alors pas une garantie) ; `2` qu'il a eu lieu deux fois (le cas que
-  /// `card_viewer_screen.dart:241` évite explicitement en ne rappelant pas
-  /// `markViewed` sur une Vibe chiffrée).
+  /// `CardViewerScreen` évite explicitement : sur une Vibe **chiffrée**, le
+  /// décompte EST la remise de la clé (`open_card_media`), donc `markViewed`
+  /// n'est pas rappelé).
+  ///
+  /// ⚠️ Ce renvoi désignait une **ligne** (`card_viewer_screen.dart:241`) —
+  /// elle avait bougé depuis, et pointait sur une affectation sans rapport.
+  /// Corrigé le 2026-08-16 : on nomme le symbole, pas la ligne. Un numéro de
+  /// ligne se périme au premier ajout au-dessus de lui, **sans que rien ne le
+  /// signale**.
   int? get consumed => viewCountBefore == null || viewCountAfter == null
       ? null
       : viewCountAfter! - viewCountBefore!;

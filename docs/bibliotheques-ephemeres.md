@@ -40,7 +40,7 @@ La section « Card » de l'app s'appelle donc **« Vibe »**.
 ### 1. Ajouter une vibe
 
 Point d'entrée : le **bouton « plus »** de la barre de saisie du chat
-(`chat_screen.dart:406`, aujourd'hui placeholder « Action à définir »).
+(`chat_screen.dart`, `_addToLibrary`).
 
 Il ouvre **la caméra commune de l'app** — pas de second système de prise. Deux
 différences de configuration dans ce mode :
@@ -73,7 +73,7 @@ auteur compris.
 ### 3. Consulter la bibliothèque
 
 Point d'entrée : le **bouton en haut à droite** du chat
-(`chat_screen.dart:223`, aujourd'hui placeholder « Action à définir »).
+(`chat_screen.dart`, aujourd'hui encore un placeholder « Action à définir »).
 
 Avant 18h30, les vibes du jour y apparaissent **masquées**. Après, révélées et
 consultables.
@@ -165,8 +165,9 @@ personnes étaient ensemble. À réévaluer si l'usage montre une pression socia
 Une vibe ajoutée à une bibliothèque partagée **n'est jamais une One of One**,
 même en DM.
 
-Motif : la règle livrée en v0.9.42 (`card_send_screen.dart:115`) transforme en
-One of One toute Card partant à un seul destinataire sans publication. Un DM
+Motif : la règle livrée en v0.9.42 transforme en One of One toute Card partant
+à un seul destinataire sans publication — elle vit aujourd'hui dans
+`features/cards/send/circle_settings_screen.dart` (`_isOneOfOne`). Un DM
 remplit exactement cette condition — la vibe serait devenue exclusive, or et
 **non sauvegardable**, ce qui annulerait les drapeaux « sauvegardable » et
 « souvenir ». La bibliothèque est donc un **troisième chemin**, distinct de
@@ -458,3 +459,17 @@ mécanisme.
 - La lecture par défaut de la **Oneshot en bibliothèque** ci-dessus.
 - Le **drapeau « éphémère »** (disparition 24 h après le reveal) appliqué à une
   Oneshot : redondant avec sa mécanique propre. À clarifier en même temps.
+
+---
+
+## ⚠️ Note de tenue (2026-08-16)
+
+Trois renvois de ce document désignaient des **numéros de ligne**, et les trois
+étaient périmés : le code avait bougé, un fichier avait même été remplacé par un
+dossier (`card_send_screen.dart` → `features/cards/send/`). Ils désignent
+désormais des **symboles**.
+
+Un numéro de ligne se périme au premier ajout au-dessus de lui, **sans que rien
+ne le signale** — ni l'analyse, ni les tests, ni la compilation. Dans un
+document de spécification, c'est pire qu'une absence de renvoi : on va y lire
+quelque chose qui n'a plus de rapport, et on en tire une conclusion.

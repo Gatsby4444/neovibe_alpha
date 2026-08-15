@@ -94,13 +94,17 @@ abstract final class NeoMotion {
 
 /// Transition de page de l'app, branchée sur [NeoMotion].
 ///
-/// ## Le point important : **une seule ligne pilote 46 navigations**
+/// ## Le point important : **une seule ligne pilote toutes les navigations**
 ///
 /// `MaterialRouteTransitionMixin.transitionDuration` lit la durée du
 /// `PageTransitionsBuilder` du thème (vérifié dans le SDK,
 /// `material/page.dart:91`). Poser ce constructeur dans `NeoTheme` change donc
 /// **toutes** les navigations de l'app sans toucher un seul appel à
-/// `MaterialPageRoute` — 46 sites répartis dans 23 fichiers.
+/// `MaterialPageRoute` — **45 sites dans 23 fichiers, relevé le 2026-08-16**.
+///
+/// ⚠️ Le chiffre porte sa date exprès. Un compte écrit au présent devient faux
+/// au premier écran ajouté, **sans que rien ne le signale** ; daté, il reste
+/// vrai pour toujours et se re-mesure en une commande.
 ///
 /// C'est ce qui rend ce chantier tenable : le mouvement est une propriété de
 /// l'app, pas une décision reprise à chaque `Navigator.push`.
