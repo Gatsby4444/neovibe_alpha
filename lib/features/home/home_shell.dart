@@ -69,9 +69,23 @@ class _HomeShellState extends ConsumerState<HomeShell>
   var _index = _circle;
 
   /// Onglets déjà ouverts au moins une fois. L'`IndexedStack` ne construit que
-  /// ceux-là : le Ping tient un écouteur BLE vivant tant qu'il est monté, il
-  /// n'y a aucune raison de le faire tourner tant que Jay n'y est pas allé.
-  /// Une fois visité, un onglet reste monté et garde son état.
+  /// ceux-là ; une fois visité, un onglet reste monté et garde son état.
+  ///
+  /// ⚠️ **Correction du 2026-08-16.** Ce commentaire affirmait que « le Ping
+  /// tient un écouteur BLE vivant tant qu'il est monté ». **C'est faux**, et
+  /// ça n'avait jamais été vérifié : `ProximityService.build()` ne démarre
+  /// rien, le matériel ne part que sur `enable()` — l'interrupteur explicite de
+  /// l'écran Ping — et il tourne alors en **service de premier plan**, donc
+  /// indépendamment de l'interface, app fermée comprise. Monter `PingScreen`
+  /// n'ajoute qu'un écouteur sur un magasin **local**.
+  ///
+  /// Ce que le montage paresseux économise réellement : les **chargements
+  /// réseau** du Cercle et du Profil, qui partiraient au lancement pour des
+  /// onglets que l'utilisateur n'ouvrira peut-être pas.
+  ///
+  /// C'est une différence de nature : le premier motif interdisait le carrousel
+  /// à doigt suivi, le second n'est qu'un coût à arbitrer. **Une contrainte
+  /// écrite et jamais revérifiée finit par décider à notre place.**
   final _visited = <int>{_circle};
 
   /// Vrai dès que l'utilisateur a touché la barre lui-même : la préférence de
@@ -97,10 +111,13 @@ class _HomeShellState extends ConsumerState<HomeShell>
   /// ## Pourquoi une SÉQUENCE et pas un fondu croisé
   ///
   /// Un fondu croisé exigerait que les deux sections soient peintes en même
-  /// temps. Or l'`IndexedStack` n'en peint qu'une — et c'est ce qui permet à
-  /// l'onglet Ping de ne monter son écouteur BLE qu'une fois visité. Un
-  /// `PageView`, qui donnerait le suivi du doigt gratuitement, construit ses
-  /// voisins : le Ping tournerait dès qu'on est sur le Cercle.
+  /// temps. Or l'`IndexedStack` n'en peint qu'une.
+  ///
+  /// ⚠️ **Le motif invoqué ici était faux** (corrigé le 2026-08-16, voir
+  /// `_visited`) : ce n'est PAS le BLE qui l'imposait. Ce qu'un `PageView`
+  /// coûterait vraiment, c'est de construire ses voisins — donc les
+  /// chargements réseau du Cercle et du Profil au lancement — et de perdre
+  /// l'état des onglets quittés, sauf à les rendre tous persistants.
   ///
   /// La section sortante s'efface donc **puis** l'entrante arrive, comme la
   /// transition de page de l'app. Ce n'est pas un pis-aller : le fond du thème
