@@ -3,34 +3,87 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 /// Préférences locales à l'appareil (UI uniquement — rien de social ici).
 
-/// Thème clair ou sombre (demande de Jay 2026-08-10).
+/// Les **trois thèmes** de NeoVibe (décision de Jay, 2026-08-14).
 ///
-/// Le **sombre reste le défaut** : NeoVibe est une app caméra-first, et les
-/// écrans de prise comme la visionneuse de Cards restent noirs quoi qu'il
-/// arrive — c'est le contenu qui doit porter la lumière, pas l'habillage.
-/// Le clair vaut pour tout le reste de l'app.
-class LightTheme extends Notifier<bool> {
-  static const _key = 'light_theme';
+/// Ils sont **mutuellement exclusifs**, et c'est ce découpage qui règle la
+/// contradiction signalée alors : l'horaire n'est pas un second axe qui se bat
+/// avec un interrupteur clair/sombre, c'est une **propriété du seul thème
+/// NeoVibe**. Choisir clair ou sombre suffit donc à désactiver le dynamique.
+///
+/// ⚠️ **Stocké par NOM, jamais par indice** — même raison que [StartupTab] :
+/// l'ordre de déclaration sert l'affichage et peut donc bouger.
+enum NeoThemeChoice {
+  /// Le dégradé qui suit l'heure. La signature de l'app.
+  neovibe('NeoVibe'),
+
+  /// Blanc, fixe.
+  light('Clair'),
+
+  /// Noir, fixe.
+  dark('Sombre');
+
+  const NeoThemeChoice(this.label);
+
+  final String label;
+
+  static NeoThemeChoice fromKey(String? value) => switch (value) {
+    'neovibe' => NeoThemeChoice.neovibe,
+    'light' => NeoThemeChoice.light,
+    'dark' => NeoThemeChoice.dark,
+    _ => NeoThemeChoice.neovibe,
+  };
+}
+
+/// Le thème choisi, avec **reprise de l'ancien réglage booléen**.
+///
+/// Jusqu'au 2026-08-15 le réglage était un `bool light_theme` (deux thèmes).
+/// Le supprimer sans plus rendrait son choix à tout appareil déjà installé —
+/// quelqu'un qui avait mis le clair se réveillerait sur autre chose sans avoir
+/// rien touché. La migration se fait donc à la **première lecture** : l'ancienne
+/// clé est lue si la nouvelle est absente, puis n'est plus jamais écrite.
+///
+/// ⚠️ L'ancienne clé n'est **pas effacée** : si on devait revenir en arrière,
+/// l'effacer aurait déjà détruit l'information. Elle ne coûte qu'un booléen.
+class ThemeChoicePref extends Notifier<NeoThemeChoice> {
+  static const _key = 'theme_choice';
+  static const _legacyKey = 'light_theme';
 
   @override
-  bool build() {
+  NeoThemeChoice build() {
     _load();
-    return false;
+    // Valeur d'attente, le temps de la lecture asynchrone. Le sombre plutôt
+    // que le NeoVibe : passer du sombre au dégradé se voit à peine, l'inverse
+    // ferait un éclair clair au lancement de ceux qui ont choisi le sombre.
+    return NeoThemeChoice.dark;
   }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    state = prefs.getBool(_key) ?? false;
+    final stored = prefs.getString(_key);
+    if (stored != null) {
+      state = NeoThemeChoice.fromKey(stored);
+      return;
+    }
+    // Reprise de l'ancien booléen. Absent = installation neuve → NeoVibe,
+    // le thème signature.
+    final legacy = prefs.getBool(_legacyKey);
+    state = switch (legacy) {
+      true => NeoThemeChoice.light,
+      false => NeoThemeChoice.dark,
+      null => NeoThemeChoice.neovibe,
+    };
   }
 
-  Future<void> set(bool value) async {
+  Future<void> set(NeoThemeChoice value) async {
     state = value;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_key, value);
+    await prefs.setString(_key, value.name);
   }
 }
 
-final lightThemeProvider = NotifierProvider<LightTheme, bool>(LightTheme.new);
+final themeChoiceProvider = NotifierProvider<ThemeChoicePref, NeoThemeChoice>(
+  ThemeChoicePref.new,
+);
 
 /// Sens du retournement des Cards au swipe (consigne Jay : le sens naturel
 /// varie selon les personnes, donc paramétrable). false = sens par défaut.

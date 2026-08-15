@@ -10,22 +10,47 @@ class AppearanceSettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final light = ref.watch(lightThemeProvider);
+    final choice = ref.watch(themeChoiceProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Apparence et démarrage')),
       body: ListView(
         children: [
           const SettingsHeader('Thème'),
-          SwitchListTile(
-            secondary: Icon(light ? Icons.light_mode : Icons.dark_mode),
-            title: const Text('Thème clair'),
-            subtitle: const Text(
-              'La caméra et la visionneuse de Vibes restent sombres : c\'est '
-              'le contenu qui porte la lumière.',
+          // Trois thèmes MUTUELLEMENT EXCLUSIFS (décision de Jay 2026-08-14).
+          // C'est ce découpage qui évite qu'un réglage horaire se batte avec un
+          // interrupteur clair/sombre : l'heure est une propriété du seul thème
+          // NeoVibe, donc choisir clair ou sombre suffit à l'éteindre.
+          RadioGroup<NeoThemeChoice>(
+            groupValue: choice,
+            onChanged: (v) => v == null
+                ? null
+                : ref.read(themeChoiceProvider.notifier).set(v),
+            child: Column(
+              children: [
+                for (final t in NeoThemeChoice.values)
+                  RadioListTile<NeoThemeChoice>(
+                    value: t,
+                    secondary: Icon(switch (t) {
+                      NeoThemeChoice.neovibe => Icons.gradient,
+                      NeoThemeChoice.light => Icons.light_mode,
+                      NeoThemeChoice.dark => Icons.dark_mode,
+                    }),
+                    title: Text(t.label),
+                    subtitle: Text(switch (t) {
+                      NeoThemeChoice.neovibe =>
+                        'Un dégradé qui suit l\'heure, du matin à la nuit. '
+                            'Le changement est trop lent pour se voir.',
+                      NeoThemeChoice.light => 'Blanc, fixe.',
+                      NeoThemeChoice.dark => 'Noir, fixe.',
+                    }),
+                  ),
+              ],
             ),
-            value: light,
-            onChanged: (v) => ref.read(lightThemeProvider.notifier).set(v),
+          ),
+          const SettingsNote(
+            'La caméra et la visionneuse de Vibes restent sombres quel que soit '
+            'le thème : c\'est le contenu qui porte la lumière.',
           ),
           const Divider(),
           const SettingsHeader('Démarrage'),

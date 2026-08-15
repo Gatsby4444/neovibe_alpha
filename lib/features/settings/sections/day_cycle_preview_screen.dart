@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/day_cycle.dart';
-import '../../../core/motion.dart';
 import '../../../core/theme.dart';
 
 /// Aperçu du **cycle de 24 h** : le curseur parcourt la journée, le fond suit.
@@ -313,35 +312,4 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
       ],
     ),
   );
-}
-
-/// Le fond du thème NeoVibe, à l'heure courante.
-///
-/// Isolé ici pour l'instant : il ne sera branché sur les vrais écrans qu'une
-/// fois la palette validée par Jay. **Rien dans l'app ne l'utilise encore.**
-class DayCycleBackground extends StatelessWidget {
-  const DayCycleBackground({super.key, required this.hour, this.child});
-
-  final double hour;
-  final Widget? child;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = DayCycle.at(hour);
-    return AnimatedContainer(
-      // Le fond ne s'anime pas « vers » une nouvelle couleur : il EST la
-      // couleur de l'instant. Cette durée ne sert qu'aux rebuilds ponctuels
-      // (retour d'arrière-plan), pour qu'ils ne sautent pas.
-      duration: NeoMotion.ample,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [p.top, p.middle, p.bottom],
-          stops: const [0, DayCycle.middleStop, 1],
-        ),
-      ),
-      child: child,
-    );
-  }
 }

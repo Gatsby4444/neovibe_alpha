@@ -4,10 +4,40 @@ Source de vérité des couleurs du **thème NeoVibe** (celui qui évolue avec
 l'heure). Les thèmes **clair** et **sombre** ne sont pas concernés : ils restent
 fixes et gardent la contrainte `R == G == B` de `NeoNeutrals`.
 
-⚠️ **Le moteur est implémenté** (`lib/core/day_cycle.dart`, testé par
-`test/day_cycle_test.dart`) **mais n'est branché sur aucun écran de l'app** :
-seul l'aperçu développeur l'utilise. Ce document reste la source commune du
-moteur et de la maquette Rive — sans lui, les deux dériveraient l'un de l'autre.
+✅ **Branché sur l'app depuis le 2026-08-15 (v0.9.85)** — Réglages → Apparence
+et démarrage → **NeoVibe**. Ce document reste la source commune du moteur et de
+la maquette Rive : sans lui, les deux dériveraient l'un de l'autre.
+
+## Comment le thème se branche — un seul point
+
+Le dégradé est posé **une fois**, dans `MaterialApp.builder` (`app.dart`), et
+`NeoTheme.neovibe()` met `scaffoldBackgroundColor` à **transparent**. Les
+**60 `Scaffold`** de l'app le laissent donc traverser sans qu'aucun n'ait été
+modifié — et aucun futur écran n'aura à s'en soucier.
+
+⚠️ **`builder` et non un `Stack` autour de `home`** : les routes poussées
+par-dessus (visionneuses, capture, réglages) sont des surfaces **sœurs** de
+`home`, pas ses enfants. Un `Stack` autour de `home` aurait laissé toutes les
+navigations sur fond noir — et le défaut ne se serait vu qu'à la deuxième page.
+
+**Les écrans de contenu ne sont pas concernés, par construction** : la caméra,
+les visionneuses, les éditeurs et le recadrage d'avatar (**14 écrans**) posent
+déjà `backgroundColor: Colors.black` explicitement. Le dégradé n'atteint donc
+que l'habillage — Cercle, Ping, Profil, Réglages, conversations.
+
+**Ce qui suit l'heure, et ce qui ne la suit pas** : seul le **fond**. Les
+boutons gardent le dégradé de marque — consigne de Jay du 2026-08-14, « en
+conservant les boutons colorés déjà présents ». `DayPalette.accent` existe et
+est testé, mais n'est **pas** branché : deux couleurs d'action se disputant
+l'écran seraient un recul.
+
+Le thème NeoVibe est **sombre toute la journée**, et ce n'est pas un oubli : à
+midi le dégradé est pâle, des surfaces claires par-dessus donneraient du blanc
+sur blanc. Un voile sombre lit sur les deux.
+
+Rafraîchissement : **une fois par minute** (`day_cycle_clock.dart`). Plus
+souvent redessinerait l'écran pour rendre les mêmes octets — en une minute la
+couleur bouge moins qu'un cran de quantification 8 bits.
 
 ## Le principe
 

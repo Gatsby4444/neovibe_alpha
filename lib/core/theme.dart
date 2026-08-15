@@ -177,7 +177,32 @@ abstract final class NeoTheme {
 
   static ThemeData light() => _build(Brightness.light);
 
-  static ThemeData _build(Brightness brightness) {
+  /// Le thème **NeoVibe** : les mêmes surfaces neutres, mais posées sur le
+  /// dégradé du cycle de 24 h au lieu d'un fond plein.
+  ///
+  /// ### Ce qui change, et ce qui ne change surtout pas
+  ///
+  /// Il n'y a **aucune couleur nouvelle ici**. Le dégradé est un *fond
+  /// d'écran* : tout ce qui porte du texte reste `NeoNeutrals`, en voile
+  /// par-dessus. Le contraste est donc garanti **par construction**, à
+  /// n'importe quelle heure — et non par un calcul qu'il faudrait refaire à
+  /// chaque retouche de palette.
+  ///
+  /// C'est aussi pourquoi ce thème est **sombre** et le reste toute la
+  /// journée : à midi le dégradé est pâle, et des surfaces claires par-dessus
+  /// donneraient du blanc sur blanc. Un voile sombre lit sur les deux.
+  ///
+  /// ⚠️ **Les boutons ne suivent PAS l'heure.** Le cycle produit bien un accent
+  /// horaire (`DayPalette.accent`), mais l'app garde le dégradé de marque —
+  /// consigne de Jay du 2026-08-14 : « en conservant les boutons colorés déjà
+  /// présents ». Deux couleurs d'action qui se disputeraient l'écran seraient
+  /// un recul, pas une nouveauté.
+  static ThemeData neovibe() => _build(Brightness.dark, overGradient: true);
+
+  /// [overGradient] : le fond appartient au dégradé posé derrière l'app, pas
+  /// au thème. Tout ce qui serait un aplat opaque devient transparent, sinon
+  /// il masquerait exactement ce qu'on veut voir.
+  static ThemeData _build(Brightness brightness, {bool overGradient = false}) {
     final isDark = brightness == Brightness.dark;
     final background = isDark ? bg : bgLight;
     final container = isDark ? surface1 : surface1Light;
@@ -231,8 +256,11 @@ abstract final class NeoTheme {
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,
-      scaffoldBackgroundColor: background,
-      canvasColor: background,
+      // Sur le dégradé, le Scaffold ne peint plus rien : c'est ce qui met le
+      // fond du cycle derrière les **60 Scaffold** de l'app sans en toucher un
+      // seul. Le branchement tient en cette ligne et en `MaterialApp.builder`.
+      scaffoldBackgroundColor: overGradient ? Colors.transparent : background,
+      canvasColor: overGradient ? Colors.transparent : background,
       // Le système de mouvement, posé le 2026-08-14. Ces deux lignes pilotent
       // la durée ET l'allure des **46** navigations de l'app, sans toucher un
       // seul `MaterialPageRoute` — voir `NeoPageTransitionsBuilder`.
@@ -245,7 +273,7 @@ abstract final class NeoTheme {
       // Même raison que `surfaceTint` ci-dessus, au niveau du thème.
       applyElevationOverlayColor: false,
       appBarTheme: AppBarTheme(
-        backgroundColor: background,
+        backgroundColor: overGradient ? Colors.transparent : background,
         foregroundColor: onBackground,
         surfaceTintColor: Colors.transparent,
         // Sans ça, l'AppBar change de gris dès qu'on fait défiler dessous.
@@ -254,7 +282,12 @@ abstract final class NeoTheme {
         centerTitle: false,
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: container,
+        // Un voile, pas un aplat : sur le dégradé, une barre opaque couperait
+        // le bas de l'écran d'un bandeau gris. Assez dense pour que les icônes
+        // restent lisibles à midi, quand le dégradé est pâle.
+        backgroundColor: overGradient
+            ? NeoNeutrals.black.withValues(alpha: 0.55)
+            : container,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         // L'indicateur ne peut pas porter de dégradé : c'est l'icône

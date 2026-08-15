@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/content/saved_store.dart';
+import 'core/day_cycle_background.dart';
+import 'core/day_cycle_clock.dart';
 import 'core/diagnostics/app_log_observers.dart';
 import 'core/prefs.dart';
 import 'core/supabase_providers.dart';
@@ -20,8 +22,11 @@ class NeoVibeApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Thème piloté par le réglage de Jay (2026-08-10), pas par le système :
-    // le sombre reste le défaut et l'utilisateur choisit explicitement.
-    final light = ref.watch(lightThemeProvider);
+    // l'utilisateur choisit explicitement parmi TROIS thèmes exclusifs
+    // (décision du 2026-08-14). Seul le thème NeoVibe suit l'heure.
+    final choice = ref.watch(themeChoiceProvider);
+    final isNeovibe = choice == NeoThemeChoice.neovibe;
+
     return MaterialApp(
       title: 'NeoVibe',
       debugShowCheckedModeBanner: false,
@@ -29,11 +34,45 @@ class NeoVibeApp extends ConsumerWidget {
       // Trace le parcours d'écran en écran : sans lui, une erreur du journal
       // n'a pas de contexte (on voit le symptôme, pas d'où venait l'utilisateur).
       navigatorObservers: [AppLogNavigatorObserver()],
-      theme: NeoTheme.light(),
-      darkTheme: NeoTheme.dark(),
-      themeMode: light ? ThemeMode.light : ThemeMode.dark,
+      theme: isNeovibe ? NeoTheme.neovibe() : NeoTheme.light(),
+      darkTheme: isNeovibe ? NeoTheme.neovibe() : NeoTheme.dark(),
+      themeMode: choice == NeoThemeChoice.light
+          ? ThemeMode.light
+          : ThemeMode.dark,
+      // Le dégradé du cycle, posé UNE fois sous toute l'app.
+      //
+      // C'est ici que le thème NeoVibe se branche, et nulle part ailleurs : les
+      // Scaffold sont transparents (voir `NeoTheme.neovibe`), donc ce fond est
+      // celui de tous les écrans à la fois. Aucun des 60 Scaffold n'a été
+      // touché — et aucun futur écran n'aura à s'en soucier.
+      //
+      // ⚠️ `builder` et non un `Stack` autour de `home` : les routes poussées
+      // par-dessus (visionneuses, capture, réglages) sont des surfaces sœurs de
+      // `home`, pas ses enfants. Un Stack autour de `home` seul laisserait donc
+      // toutes les navigations sur un fond noir — et le défaut ne se verrait
+      // qu'à la deuxième page.
+      builder: isNeovibe ? _gradientBuilder : null,
       home: const RootGate(),
     );
+  }
+
+  static Widget _gradientBuilder(BuildContext context, Widget? child) =>
+      _DayCycleScope(child: child ?? const SizedBox.shrink());
+}
+
+/// Le fond dégradé vivant, sous l'app entière.
+class _DayCycleScope extends ConsumerWidget {
+  const _DayCycleScope({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Repli sur midi tant que la première heure n'est pas arrivée : c'est
+    // l'affaire d'une image, et un fond noir le temps du premier build se
+    // verrait comme un clignotement au lancement.
+    final hour = ref.watch(currentHourProvider).value ?? 12.0;
+    return DayCycleBackground(hour: hour, child: child);
   }
 }
 
