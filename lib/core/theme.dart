@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'motion.dart';
 
@@ -275,6 +276,25 @@ abstract final class NeoTheme {
       appBarTheme: AppBarTheme(
         backgroundColor: overGradient ? Colors.transparent : background,
         foregroundColor: onBackground,
+        // Depuis que l'app est en **bord à bord permanent** (2026-08-15), elle
+        // dessine derrière les barres système : c'est donc à elle de dire de
+        // quelle couleur doivent être leurs icônes.
+        //
+        // ⚠️ Sans ça, le thème clair afficherait des icônes claires sur du
+        // blanc — invisibles. Le défaut ne se serait vu que dans un seul des
+        // trois thèmes, donc pas au premier test.
+        systemOverlayStyle: SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+          // iOS lit `statusBarBrightness`, qui désigne le FOND et non les
+          // icônes : les deux sont donc opposés, ce n'est pas une faute.
+          statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+          systemNavigationBarColor: Colors.transparent,
+          systemNavigationBarDividerColor: Colors.transparent,
+          systemNavigationBarIconBrightness: isDark
+              ? Brightness.light
+              : Brightness.dark,
+        ),
         surfaceTintColor: Colors.transparent,
         // Sans ça, l'AppBar change de gris dès qu'on fait défiler dessous.
         scrolledUnderElevation: 0,

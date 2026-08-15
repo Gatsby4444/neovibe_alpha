@@ -259,11 +259,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   @override
   void initState() {
     super.initState();
-    // **Bord à bord** : l'app dessine DERRIÈRE la barre d'état et la barre de
-    // navigation. Indispensable au flash frontal — Jay (2026-07-26, seconde
-    // passe) : « toute la surface de l'écran, pas seulement la surface de
-    // l'app ». Restauré à la fermeture de l'écran.
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    // Le bord à bord n'est PLUS basculé ici : il est posé une fois pour toutes
+    // au démarrage (`main.dart`). Le basculer changeait la taille utile de la
+    // fenêtre en pleine transition, donc remettait tout l'arbre en page —
+    // `HomeShell` compris, encore monté derrière. C'était l'à-coup signalé par
+    // Jay.
+    //
+    // Seul le STYLE des barres reste réglé ici : il ne touche pas aux
+    // dimensions, donc il ne remet rien en page. Sur l'écran caméra, les
+    // barres doivent disparaître dans le noir.
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
@@ -1216,12 +1220,6 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
 
   @override
   void dispose() {
-    // Le reste de l'app n'est pas écrit pour le bord à bord : on rend la main
-    // aux barres système en quittant la capture.
-    SystemChrome.setEnabledSystemUIMode(
-      SystemUiMode.manual,
-      overlays: SystemUiOverlay.values,
-    );
     _berealTimer?.cancel();
     _recordTimer?.cancel();
     _countdownTimer?.cancel();

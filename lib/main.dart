@@ -60,6 +60,33 @@ Future<void> main() async {
   // Portrait uniquement : un seul sens de prise, un seul format de card (9:16)
   await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
+  // **Bord à bord, une fois pour toutes** (2026-08-15).
+  //
+  // ### Pourquoi ici, et plus dans l'écran de capture
+  //
+  // Seul l'écran de capture en avait besoin (le flash frontal doit couvrir la
+  // surface physique entière), et il basculait donc le mode à l'ouverture puis
+  // le restaurait à la fermeture. Or **changer ce mode change la taille utile
+  // de la fenêtre** : l'arbre entier se remet en page, `HomeShell` compris,
+  // qui est encore monté derrière pendant la transition.
+  //
+  // C'est l'à-coup que Jay a signalé trois fois — et la seule chose qui
+  // restait après avoir sorti le travail lourd de l'animation (v0.9.90).
+  //
+  // Ne plus jamais basculer supprime la cause. Un garde-fou (« basculer plus
+  // tard ») aurait laissé la remise en page, juste ailleurs.
+  //
+  // ⚠️ **L'inventaire qui autorise ce choix**, fait avant de le prendre :
+  // tous les écrans de l'app ont soit une `AppBar` (qui applique elle-même la
+  // marge du haut), soit une `SafeArea`. Les deux seuls fichiers sans ni l'un
+  // ni l'autre sont `app.dart` (un indicateur centré) et `home_shell.dart` —
+  // dont la `NavigationBar` embarque sa propre `SafeArea` (vérifié dans le
+  // SDK, `material/navigation_bar.dart:291`).
+  //
+  // Le commentaire qui affirmait « le reste de l'app n'est pas écrit pour le
+  // bord à bord » était donc faux : il n'avait jamais été vérifié.
+  await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+
   await Supabase.initialize(
     url: Env.supabaseUrl,
     publishableKey: Env.supabasePublishableKey,
