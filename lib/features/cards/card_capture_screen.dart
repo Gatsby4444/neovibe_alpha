@@ -259,11 +259,6 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   @override
   void initState() {
     super.initState();
-    // L'entrée démarre quand l'IMAGE arrive, pas quand le widget est
-    // construit — voir `CameraEntrance` pour le défaut que ça corrige.
-    Future<void>.delayed(_entranceFallback, () {
-      if (mounted) _entrance.forward();
-    });
     // **Bord à bord** : l'app dessine DERRIÈRE la barre d'état et la barre de
     // navigation. Indispensable au flash frontal — Jay (2026-07-26, seconde
     // passe) : « toute la surface de l'écran, pas seulement la surface de
@@ -277,7 +272,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       ),
     );
     _camera.addListener(_onCameraChanged);
-    _init();
+    _startWhenSettled();
     if (widget.bereal) {
       _berealTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!mounted) return;
@@ -299,7 +294,76 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     if (mounted) setState(() {});
   }
 
+  /// N'ouvre la caméra **qu'une fois la transition d'entrée terminée**.
+  ///
+  /// ## Le diagnostic (2026-08-15), sur le code et non au jugé
+  ///
+  /// Jay : *« il y a une espèce de lag/bug qui nuit à la transition »*.
+  /// Voici ce que l'app faisait pendant les 380 ms du fondu, tout en même
+  /// temps et pour l'essentiel **sur le fil de la plateforme** — celui-là même
+  /// qui doit rester libre pour composer les images :
+  ///
+  /// 1. deux demandes de permission (caméra, micro), deux allers-retours ;
+  /// 2. `NativeCameraController.capabilities()` — qui passe par
+  ///    `withProvider`, donc **initialise toute la pile CameraX**, et interroge
+  ///    en plus `concurrentCameraIds` côté Camera2 ;
+  /// 3. `open()` — le bind CameraX, l'opération la plus lourde de l'écran ;
+  /// 4. et, à chaque notification de la caméra, un `setState` qui reconstruit
+  ///    l'arbre entier de cet écran — plusieurs fois pendant l'animation.
+  ///
+  /// Une animation ne peut pas être fluide pendant ça. **Ce n'était pas un
+  /// bug de la transition : c'était du travail lourd programmé dessus.**
+  ///
+  /// ⚠️ Contrepartie assumée : la caméra commence à s'ouvrir ~380 ms plus tard.
+  /// Le point (2) a été retiré du chemin critique en échange, et il coûtait
+  /// davantage — voir `_loadCapabilities`.
+  Future<void> _startWhenSettled() async {
+    final animation = ModalRoute.of(context)?.animation;
+    if (animation != null && !animation.isCompleted) {
+      final settled = Completer<void>();
+      void onStatus(AnimationStatus status) {
+        if (status == AnimationStatus.completed ||
+            status == AnimationStatus.dismissed) {
+          if (!settled.isCompleted) settled.complete();
+        }
+      }
+
+      animation.addStatusListener(onStatus);
+      // Garde-fou : une transition interrompue ne doit jamais laisser l'écran
+      // sans caméra. Le délai vaut deux fois la durée nominale.
+      await Future.any([
+        settled.future,
+        Future<void>.delayed(NeoMotion.ample * 2),
+      ]);
+      animation.removeStatusListener(onStatus);
+    }
+    if (mounted) await _init();
+  }
+
+  /// Le sondage de capacités, **hors du chemin critique**.
+  ///
+  /// Il ne sert qu'au HUD de diagnostic (Réglages → Développeur), éteint par
+  /// défaut. Il était pourtant **attendu avant l'ouverture de la caméra** — or
+  /// il force l'initialisation complète de CameraX côté natif. Il retardait
+  /// donc l'aperçu pour tout le monde, au profit d'un affichage que presque
+  /// personne n'active.
+  ///
+  /// ⚠️ Ne pas le remettre dans `_init` : c'est exactement le motif « un outil
+  /// de diagnostic qui coûte à ceux qui ne s'en servent pas ».
+  Future<void> _loadCapabilities() async {
+    final caps = await NativeCameraController.capabilities();
+    if (mounted) setState(() => _caps = caps);
+  }
+
   Future<void> _init() async {
+    // Le filet de sécurité de la séquence d'entrée part D'ICI, et non de
+    // `initState` : depuis que l'ouverture attend la fin de la transition, un
+    // compte à rebours lancé à la construction se serait déclenché avant même
+    // que la caméra n'ait commencé — et les contrôles seraient apparus sur du
+    // noir, ce que cette séquence existe précisément pour éviter.
+    Future<void>.delayed(_entranceFallback, () {
+      if (mounted) _entrance.forward();
+    });
     final status = await Permission.camera.request();
     if (!status.isGranted) {
       setState(() => _error = 'Permission caméra refusée');
@@ -307,8 +371,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     }
     // Micro pour le son des vidéos ; refusé = vidéos muettes, pas bloquant.
     _micGranted = (await Permission.microphone.request()).isGranted;
-    _caps = await NativeCameraController.capabilities();
     await _openWithRetry();
+    // Après l'ouverture, et sans être attendu : l'aperçu ne dépend pas de lui.
+    unawaited(_loadCapabilities());
   }
 
   /// Ouvre la caméra arrière avec UN réessai : une init CameraX peut échouer
