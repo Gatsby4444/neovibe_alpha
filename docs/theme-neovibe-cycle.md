@@ -4,9 +4,10 @@ Source de vérité des couleurs du **thème NeoVibe** (celui qui évolue avec
 l'heure). Les thèmes **clair** et **sombre** ne sont pas concernés : ils restent
 fixes et gardent la contrainte `R == G == B` de `NeoNeutrals`.
 
-⚠️ **Rien n'est encore implémenté côté Flutter.** Ce document existe pour que la
-maquette Rive et le futur moteur partagent les mêmes nombres — sans lui, les
-deux dériveraient l'un de l'autre.
+⚠️ **Le moteur est implémenté** (`lib/core/day_cycle.dart`, testé par
+`test/day_cycle_test.dart`) **mais n'est branché sur aucun écran de l'app** :
+seul l'aperçu développeur l'utilise. Ce document reste la source commune du
+moteur et de la maquette Rive — sans lui, les deux dériveraient l'un de l'autre.
 
 ## Le principe
 
@@ -32,53 +33,99 @@ par un **gris-brun mort**. En OkLab le chemin reste saturé.
 C'est le seul endroit du chantier où il ne faut pas faire d'économie : c'est ce
 qui sépare un rendu « cher » d'un rendu bricolé.
 
+### La corde et l'arc — relevé du 2026-08-15
+
+OkLab ne suffit pas à lui seul. Une interpolation linéaire dans le plan (a, b)
+est une **corde** : elle coupe à travers le centre de la roue, c'est-à-dire à
+travers le **gris**. Quand deux palettes voisines ont des teintes opposées, le
+milieu du segment est plus terne que ses **deux** extrémités.
+
+| Moment | Avant | Après | Vu au milieu |
+|---|---|---|---|
+| 12 h 30 | Jungle 0,075 | Cotton Candy 0,146 | **0,043** |
+| 15 h | Cotton Candy 0,146 | Muted Olive 0,053 | **0,045** |
+| 19 h 30 | Desert 0,164 | Lavender Dusk 0,081 | **0,074** |
+
+Ces creux sont une bonne moitié des « gradients ternes » relevés par Jay, et ils
+ne sont dans **aucune palette** — ils naissent du chemin.
+
+`HuePath.arc` fait tourner la teinte sur l'**arc court** et interpole la chroma
+séparément : **+18 % de chroma sur la journée, aucune palette touchée**. Aux
+heures d'ancrage la couleur est exactement celle du tableau (vérifié par test).
+
+Les deux chemins sont livrés (aperçu → segments « Corde » / « Arc ») le temps
+que Jay tranche à l'œil. **Une fois son choix fait, l'autre doit disparaître.**
+
+⚠️ **L'arc va sur le TEMPS, jamais sur la verticale du dégradé.** Le haut et le
+bas d'un même dégradé passent, à certaines heures, par 180° d'écart : l'arc
+court bascule alors de côté et la bande médiane saute à travers la roue —
+mesuré **ΔE 0,29 sur 3 min**, quinze fois le seuil, contre 0,017 pour la corde.
+
 ## Les ancrages
 
-**Version 2, du 2026-08-15.** Jay a trié lui-même les palettes en `matin`,
-`midi` et `soir` (`docs/images/`), après avoir rejeté la v1 : *« le tout premier
-gradient bleu ne me plaît pas […] ce que je veux c'est une atmosphère qui a
-l'air premium et naturelle, qui respire, il y a beaucoup de bleu, souvent
-présent. »*
+**Version 3, du 2026-08-15.** Réorganisée selon l'**audience réelle** de chaque
+heure, et non selon le réalisme du ciel — demande de Jay : *« certains gradients
+sont ternes, et les plus colorés sont parfois mis la nuit pendant que personne
+ne regarde. »*
 
-**Ce que sa répartition change, et c'est l'essentiel** : il met du **vert au
-cœur de la journée** (Jungle à midi). Ce n'est pas un détail de teinte — ça
-déplace la référence du **ciel** vers la **végétation**. C'est ça, « naturelle
-qui respire », et c'est ce qui règle le « trop de bleu » : la v1 racontait un
-ciel du matin au soir, la v2 raconte un paysage.
+**Ce que la v2 avait de faux, mesuré** : une anti-corrélation quasi parfaite
+entre chroma et audience. Les deux palettes les plus colorées (Deep Ocean 0,159,
+Velvet Sunset 0,157) étaient à 4 h et 6 h ; le pic du soir (19 h–22 h) tombait
+sur les trois plus ternes — Lavender Dusk 0,081, Deep Forest 0,063, Nuit 0,032.
 
-La **nuit n'est plus bleue** non plus : elle est vert-noir, dans la continuité
-de Deep Forest.
+**Les deux décisions de Jay** : ① tout est décalé d'environ 2 h ; ② **Desert
+quitte le soir pour la nuit**, juste après le vert sombre et avant Deep Ocean —
+*« c'est un peu sombre pour l'après-midi et ne s'insère pas bien là où c'est
+actuellement entre les autres palettes. »*
 
-**Cadence de deux heures, uniforme** — et ce n'est pas une commodité de mise en
-page. La première version plaçait Deep Ocean à 5 h et Velvet Sunset à 6 h : le
-lever se faisait donc en **une heure**, pour le plus grand écart de couleur de
-la journée. Le test des 1440 minutes l'a refusé.
+⚠️ **Contrepartie assumée, à ne pas oublier** : Desert est la seule palette à la
+fois riche (0,164), chaude et mi-sombre — donc la seule qui cochait tout pour le
+pic du soir. En la mettant à 6 h, plus rien dans le jeu ne tient ce rôle et le
+pic plafonne autour de 0,06–0,12. C'est un arbitrage de **cohérence d'arc**
+contre un arbitrage d'**audience** ; Jay a tranché pour le premier.
 
-Mesuré : parcourir la journée entière demande **~14 h de budget** au rythme
-imperceptible, et on en a 24. La distance n'était pas le problème, **sa
-répartition** l'était. Deux ancrages décalés ont suffi.
+**La cadence n'est plus uniforme**, et c'est le sujet de cette version : chaque
+segment reçoit la durée que sa distance de couleur exige, et le reste du budget
+va là où il y a du monde. Mesuré : le minimum imposé par le seuil
+d'imperceptibilité est de **~11 h sur 24** — il reste **13 h** à répartir.
 
 | Heure | Haut | Bas | Palette | Dossier |
 |---|---|---|---|---|
-| 00 h | `#04150F` | `#06231D` | nuit — vert-noir | — |
-| 02 h | `#071512` | `#0C342C` | Jungle sombre | — |
-| 04 h | `#1B0B3D` | `#5B22C8` | **Deep Ocean** — avant-aube | matin |
-| 06 h | `#A92655` | `#FD8D67` | **Velvet Sunset** — lever | matin |
-| 08 h | `#DD7A83` | `#E8BFC3` | **Blush Silk** | matin |
-| 10 h | `#292F91` | `#4CA8DD` | **Azuria** | matin |
-| 12 h | `#076653` | `#E2FBCE` | **Jungle** — midi | midi |
-| 14 h | `#7AABFF` | `#FF9AEF` | **Cotton Candy** | midi |
-| 16 h | `#708F96` | `#AA895F` | **Muted Olive Sky** | soir |
-| 18 h | `#BC430D` | `#F09410` | **Desert** — coucher | soir |
-| 20 h | `#6968A6` | `#CF9893` | **Lavender Dusk** — crépuscule | soir |
-| 22 h | `#034C36` | `#003332` | **Deep Forest** — nuit tombée | soir |
-| 24 h | = 00 h | = 00 h | boucle | — |
+| 00 h 00 | `#034C36` | `#003332` | **Deep Forest** — nuit | soir |
+| 01 h 30 | `#04150F` | `#06231D` | nuit — vert-noir | — |
+| 03 h 30 | `#071512` | `#0C342C` | Jungle sombre | — |
+| 06 h 00 | `#BC430D` | `#F09410` | **Desert** | soir |
+| 08 h 00 | `#1B0B3D` | `#5B22C8` | **Deep Ocean** | matin |
+| 10 h 00 | `#A92655` | `#FD8D67` | **Velvet Sunset** | matin |
+| 11 h 30 | `#DD7A83` | `#E8BFC3` | **Blush Silk** | matin |
+| 13 h 00 | `#292F91` | `#4CA8DD` | **Azuria** — lumière bleue | matin |
+| 14 h 30 | `#076653` | `#E2FBCE` | **Jungle** | midi |
+| 16 h 00 | `#708F96` | `#AA895F` | **Muted Olive Sky** | soir |
+| 18 h 00 | `#7AABFF` | `#FF9AEF` | **Cotton Candy** | midi |
+| 21 h 30 | `#6968A6` | `#CF9893` | **Lavender Dusk** | soir |
+| 24 h 00 | = 00 h | = 00 h | boucle | — |
 
 Les heures intermédiaires sont **calculées en OkLab** entre ces ancrages.
 
-Restent inutilisées pour l'instant : **Glacium** (`#085078 → #9AE4CB`) et
-**champigreen**, faute de place dans l'arc — à ressortir si Jay veut remplacer
-un ancrage.
+⚠️ **Le saut `Jungle sombre → Desert` (vert quasi noir → orange) est le plus
+grand de l'arc.** Posé sur 1 h 30 il **faisait échouer** le test des 1440
+minutes (0,0202 pour un seuil de 0,0200). Il lui faut 2 h 30 — ne pas le
+resserrer.
+
+**Bilan mesuré** — chroma moyenne *réellement vue*, pondérée par l'audience :
+
+| | |
+|---|---|
+| v2 (corde) | 0,0771 |
+| v3, corde seule | 0,0878 (+14 %) |
+| v2 + arc seul | 0,0904 (+17 %) |
+| **v3 + arc** | **0,1031 (+34 %)** |
+
+Les deux leviers pèsent autant et se cumulent.
+
+Restent inutilisées : **Glacium** (`#085078 → #9AE4CB`) et **champigreen**.
+Glacium a été testée en remplacement de Muted Olive Sky (la plus terne du
+jour) : **gain net +0,002, nul** — ça ne vaut pas de changer une palette.
 
 ## L'accent, et la règle de contraste
 
@@ -147,6 +194,15 @@ n'a aucune référence.
 Des segments d'une heure sont assez courts pour que le chemin RVB colle au
 chemin OkLab. Conséquence : **ce qui est validé dans Rive est ce que l'app
 produira.**
+
+⚠️ **À refaire avant de rouvrir la maquette (2026-08-15).** Elle a été construite
+sur la v2, dont tous les ancrages tombaient sur des heures rondes. La v3 en pose
+trois sur des **demi-heures** (01 h 30, 03 h 30, 21 h 30) : une grille de clés
+horaire les **manquerait** et couperait l'angle exactement là où la couleur
+change de direction. Il faut donc des clés **toutes les 30 images** (une par
+demi-heure), ou des clés posées sur les ancrages eux-mêmes. Sans ça, la maquette
+et l'app diront deux choses différentes — et c'est précisément ce que ce
+document sert à empêcher.
 
 **Pourquoi l'interpolation est linéaire** : toute accélération créerait un
 rythme horaire, et un rythme se remarque. Le soleil n'accélère pas.

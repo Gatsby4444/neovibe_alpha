@@ -40,6 +40,10 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
   double _manualHour = 12;
   var _playing = false;
 
+  /// Le chemin de couleur à l'essai. Les deux sont livrés le temps que Jay
+  /// tranche à l'œil ; l'écran est là pour ça, pas pour offrir un réglage.
+  var _hue = HuePath.arc;
+
   double get _hour => _playing ? _run.value * 24 : _manualHour;
 
   @override
@@ -73,7 +77,7 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
 
   @override
   Widget build(BuildContext context) {
-    final p = DayCycle.at(_hour);
+    final p = DayCycle.at(_hour, hue: _hue);
     final ratio = contrastRatio(p.accent, Colors.white);
 
     return Scaffold(
@@ -95,6 +99,7 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
             child: Column(
               children: [
                 _header(p),
+                const SizedBox(height: 2),
                 const Spacer(),
                 _samples(p, ratio),
                 const Spacer(),
@@ -110,22 +115,42 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
   Widget _header(DayPalette p) => Padding(
     padding: const EdgeInsets.fromLTRB(8, 4, 16, 0),
     child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.of(context).pop(),
         ),
         const Spacer(),
-        Text(
-          _clock(_hour),
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 34,
-            fontWeight: FontWeight.w200,
-            letterSpacing: 2,
-            fontFeatures: [FontFeature.tabularFigures()],
-            shadows: [Shadow(color: Color(0x8C000000), blurRadius: 8)],
-          ),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Text(
+              _clock(_hour),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 34,
+                fontWeight: FontWeight.w200,
+                letterSpacing: 2,
+                fontFeatures: [FontFeature.tabularFigures()],
+                shadows: [Shadow(color: Color(0x8C000000), blurRadius: 8)],
+              ),
+            ),
+            // L'indicateur en direct, demandé par Jay : il nomme ce qui est
+            // affiché à l'instant même — donc les DEUX palettes en jeu au
+            // milieu d'un segment, pas seulement la plus proche.
+            Text(
+              p.description,
+              textAlign: TextAlign.end,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.2,
+                shadows: [Shadow(color: Color(0xB3000000), blurRadius: 6)],
+              ),
+            ),
+          ],
         ),
       ],
     ),
@@ -230,14 +255,26 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
       children: [
         Row(
           children: [
+            // Le chemin entre deux palettes. Les ancrages ne bougent pas d'un
+            // iota d'un mode à l'autre : seul l'ENTRE-DEUX change, et c'est
+            // exactement là que se logent les creux ternes.
             Expanded(
-              child: Text(
-                p.label,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
+              child: SegmentedButton<HuePath>(
+                showSelectedIcon: false,
+                style: SegmentedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  selectedForegroundColor: Colors.black,
+                  selectedBackgroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white24),
+                  textStyle: const TextStyle(fontSize: 12),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                 ),
+                segments: [
+                  for (final h in HuePath.values)
+                    ButtonSegment(value: h, label: Text(h.label)),
+                ],
+                selected: {_hue},
+                onSelectionChanged: (s) => setState(() => _hue = s.first),
               ),
             ),
             // Le curseur montre les COULEURS ; seul le défilement montre la
@@ -249,7 +286,7 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
                 color: Colors.white,
               ),
               label: Text(
-                _playing ? 'Pause' : 'Jouer 24 h en $_dayInSeconds s',
+                _playing ? 'Pause' : 'Jouer $_dayInSeconds s',
                 style: const TextStyle(color: Colors.white),
               ),
             ),

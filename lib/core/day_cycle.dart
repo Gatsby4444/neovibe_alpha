@@ -59,11 +59,69 @@ class _Lab {
   /// Teinte, en radians.
   double get hue => math.atan2(b, a);
 
+  /// Interpolation **par la corde** : la ligne droite dans le plan (a, b).
   static _Lab lerp(_Lab x, _Lab y, double t) =>
       _Lab(x.l + (y.l - x.l) * t, x.a + (y.a - x.a) * t, x.b + (y.b - x.b) * t);
 
+  /// Interpolation **par l'arc** : la teinte tourne, la chroma se lerpe.
+  ///
+  /// C'est le correctif du 2026-08-15. La corde ci-dessus est une ligne droite
+  /// dans le plan (a, b) — donc elle **coupe à travers le centre de la roue**,
+  /// c'est-à-dire à travers le gris. Quand deux palettes voisines ont des
+  /// teintes opposées, le milieu du segment est plus terne que ses DEUX
+  /// extrémités : mesuré 0,043 entre Jungle (0,075) et Cotton Candy (0,146).
+  ///
+  /// Ces creux sont une bonne moitié des « gradients ternes » relevés par Jay,
+  /// et ils ne sont dans **aucune** palette — ils naissent du chemin.
+  ///
+  /// ⚠️ Le garde-fou du quasi-gris n'est pas cosmétique : sous une chroma de
+  /// ~0,012 la teinte n'est plus qu'un bruit d'arrondi, et la faire tourner
+  /// ferait pivoter une couleur qui n'en a pas.
+  static _Lab lerpArc(_Lab x, _Lab y, double t) {
+    final l = x.l + (y.l - x.l) * t;
+    final c = x.chroma + (y.chroma - x.chroma) * t;
+
+    // L'arc COURT : sans ce repliement on ferait le tour par le long côté.
+    var dh = y.hue - x.hue;
+    while (dh > math.pi) {
+      dh -= 2 * math.pi;
+    }
+    while (dh < -math.pi) {
+      dh += 2 * math.pi;
+    }
+
+    final double hue;
+    if (x.chroma < _greyChroma) {
+      hue = y.hue;
+    } else if (y.chroma < _greyChroma) {
+      hue = x.hue;
+    } else {
+      hue = x.hue + dh * t;
+    }
+    return fromHueChroma(hue, c, l);
+  }
+
+  /// En dessous, une couleur n'a plus de teinte exploitable.
+  static const _greyChroma = 0.012;
+
   static _Lab fromHueChroma(double hue, double chroma, double lightness) =>
       _Lab(lightness, chroma * math.cos(hue), chroma * math.sin(hue));
+}
+
+/// Le chemin suivi par la couleur entre deux ancrages.
+///
+/// Les deux sont livrés le temps que Jay tranche à l'œil (écran d'aperçu →
+/// « Chemin »). **Une fois son choix fait, l'autre doit disparaître** — garder
+/// une variante non retenue, c'est garder du code que personne ne relit.
+enum HuePath {
+  /// La ligne droite dans le plan (a, b). Coupe à travers le gris.
+  chord('Corde'),
+
+  /// La teinte tourne sur l'arc court. Garde la couleur franche.
+  arc('Arc');
+
+  const HuePath(this.label);
+  final String label;
 }
 
 double _srgbToLinear(double c) =>
@@ -143,6 +201,12 @@ double perceptualDistance(Color a, Color b) {
   return math.sqrt(dl * dl + da * da + db * db);
 }
 
+/// **Chroma** perceptuelle d'une couleur : sa distance à l'axe des gris.
+///
+/// C'est la mesure de « à quel point c'est coloré », indépendamment de la
+/// clarté — donc l'énoncé chiffré de « ce gradient est terne ».
+double chromaOf(Color c) => _toLab(c).chroma;
+
 /// Un ancrage : la couleur du fond à une heure donnée.
 class DayAnchor {
   const DayAnchor(this.hour, this.top, this.bottom, this.label);
@@ -165,7 +229,9 @@ class DayPalette {
     required this.middle,
     required this.bottom,
     required this.accent,
-    required this.label,
+    required this.from,
+    required this.to,
+    required this.blend,
   });
 
   final double hour;
@@ -178,52 +244,95 @@ class DayPalette {
   /// Couleur d'action, garantie lisible sous du texte blanc.
   final Color accent;
 
-  /// L'ancrage dont on est le plus proche — pour l'écran d'aperçu.
-  final String label;
+  /// L'ancrage d'où l'on vient et celui vers lequel on va.
+  final String from;
+  final String to;
+
+  /// Avancement entre les deux, 0 = exactement [from], 1 = exactement [to].
+  final double blend;
+
+  /// Ce qui est affiché **à l'instant même**, nommé sans mentir.
+  ///
+  /// Demandé par Jay le 2026-08-15 : *« ajoute un indicateur du thème actuel
+  /// en direct de ce qui est affiché, que je sache de quoi je parle
+  /// exactement »*.
+  ///
+  /// ⚠️ La version précédente n'affichait que l'ancrage **le plus proche**.
+  /// C'était trompeur au milieu d'un segment : au moment exact où la couleur
+  /// n'est celle d'aucune palette, l'écran en nommait une. Or c'est précisément
+  /// là que se trouvent les creux ternes — donc l'endroit où un nom juste
+  /// compte le plus.
+  String get description {
+    if (blend <= 0.03) return from;
+    if (blend >= 0.97) return to;
+    return '$from → $to · ${(blend * 100).round()} %';
+  }
 }
 
 /// Le cycle.
 abstract final class DayCycle {
   /// Les ancrages, triés par heure.
   ///
-  /// **Version 2, 2026-08-15.** Jay a trié lui-même les palettes en
-  /// `matin` / `midi` / `soir` (`docs/images/`) après avoir rejeté la v1 :
-  /// *« il y a beaucoup de bleu, souvent présent »*.
+  /// **Version 3, 2026-08-15.** Réorganisée selon l'**audience réelle** de
+  /// chaque heure, et non selon le réalisme du ciel — demande de Jay :
+  /// *« certains gradients sont ternes, et les plus colorés sont parfois mis
+  /// la nuit pendant que personne ne regarde »*.
   ///
-  /// Ce que sa répartition change n'est pas une teinte, c'est une **référence**
-  /// : en plaçant Jungle à midi, il déplace le sujet du **ciel** vers la
-  /// **végétation**. La v1 racontait un ciel du matin au soir ; celle-ci
-  /// raconte un paysage. C'est ça, « naturelle, qui respire ».
+  /// ### Ce que la v2 avait de faux, mesuré
+  ///
+  /// Une **anti-corrélation quasi parfaite** entre chroma et audience : les
+  /// deux palettes les plus colorées (Deep Ocean 0,159 · Velvet Sunset 0,157)
+  /// étaient à 4 h et 6 h, quand plus personne ne regarde ; et le pic du soir
+  /// (19 h–22 h) tombait sur les trois plus ternes — Lavender Dusk 0,081,
+  /// Deep Forest 0,063, Nuit 0,032.
+  ///
+  /// ### Les deux décisions de Jay portées ici
+  ///
+  /// 1. **Tout est décalé d'environ 2 h** — le cluster coloré passe de 3 h-6 h
+  ///    (audience 0,04) à 6 h-10 h (audience 0,15 à 0,6).
+  /// 2. **Desert quitte le soir pour la nuit**, juste après le vert sombre et
+  ///    avant Deep Ocean : *« c'est un peu sombre pour l'après-midi et ne
+  ///    s'insère pas bien là où c'est actuellement »*.
+  ///
+  /// ⚠️ **Contrepartie assumée, mesurée, à ne pas oublier** : Desert est la
+  /// palette la plus colorée de l'arc (0,164) **et** la seule qui soit à la
+  /// fois riche, chaude et mi-sombre — donc la seule qui cochait tout pour le
+  /// pic du soir. En la mettant à 6 h, plus rien dans le jeu ne tient ce rôle,
+  /// et le pic plafonne autour de 0,06-0,12. C'est un arbitrage de cohérence
+  /// d'arc contre un arbitrage d'audience ; Jay a tranché pour le premier.
+  ///
+  /// Bilan : chroma moyenne **réellement vue** 0,0771 → **0,1031** (+34 %),
+  /// avec l'arc de teinte.
   ///
   /// ⚠️ **C'est le seul endroit à éditer pour changer les couleurs.** Le moteur
   /// ne bouge pas quand la palette bouge — et le test des 1440 minutes dit
   /// immédiatement si un nouvel ancrage casse la lisibilité.
   static const anchors = <DayAnchor>[
-    // ⚠️ Cadence de DEUX heures, uniforme, et ce n'est pas une commodité.
+    // ⚠️ La cadence n'est plus uniforme, et c'est le sujet même de cette
+    // version : chaque segment reçoit la durée que sa distance de couleur
+    // exige, et le reste du budget va là où il y a du monde.
     //
-    // La v2 plaçait Deep Ocean à 5 h et Velvet Sunset à 6 h : le lever se
-    // faisait donc en UNE heure, pour le plus grand écart de couleur de toute
-    // la journée. Le test des 1440 minutes l'a refusé (ΔE 0,0091 par minute,
-    // plus du double du seuil) — c'est-à-dire un changement qu'on VOIT, alors
-    // que toute la conception vise l'inverse.
+    // Mesuré : le minimum imposé par le seuil d'imperceptibilité est de ~11 h
+    // sur 24 — il reste donc 13 h à répartir librement. La nuit morte
+    // (1 h-6 h) absorbe les segments longs et ternes ; les heures d'usage
+    // reçoivent les palettes franches.
     //
-    // Mesuré : parcourir la journée entière demande ~14 h de « budget » au
-    // rythme imperceptible, et on en a 24. La distance n'était pas le
-    // problème, sa répartition l'était. Deux ancrages décalés (3 h → 2 h et
-    // 5 h → 4 h) suffisent à ce que chaque segment tienne dans le sien.
-    DayAnchor(0, Color(0xFF04150F), Color(0xFF06231D), 'Nuit'),
-    DayAnchor(2, Color(0xFF071512), Color(0xFF0C342C), 'Jungle sombre'),
-    DayAnchor(4, Color(0xFF1B0B3D), Color(0xFF5B22C8), 'Deep Ocean'),
-    DayAnchor(6, Color(0xFFA92655), Color(0xFFFD8D67), 'Velvet Sunset'),
-    DayAnchor(8, Color(0xFFDD7A83), Color(0xFFE8BFC3), 'Blush Silk'),
-    DayAnchor(10, Color(0xFF292F91), Color(0xFF4CA8DD), 'Azuria'),
-    DayAnchor(12, Color(0xFF076653), Color(0xFFE2FBCE), 'Jungle'),
-    DayAnchor(14, Color(0xFF7AABFF), Color(0xFFFF9AEF), 'Cotton Candy'),
-    DayAnchor(16, Color(0xFF708F96), Color(0xFFAA895F), 'Muted Olive Sky'),
-    DayAnchor(18, Color(0xFFBC430D), Color(0xFFF09410), 'Desert'),
-    DayAnchor(20, Color(0xFF6968A6), Color(0xFFCF9893), 'Lavender Dusk'),
-    DayAnchor(22, Color(0xFF034C36), Color(0xFF003332), 'Deep Forest'),
-    DayAnchor(24, Color(0xFF04150F), Color(0xFF06231D), 'Nuit'),
+    // ⚠️ Le saut `Jungle sombre → Desert` (vert quasi noir → orange) est le
+    // plus grand de l'arc : à 1 h 30 il FAISAIT ÉCHOUER le test (0,0202 pour
+    // un seuil de 0,0200). Il lui faut 2 h 30. Ne pas le resserrer.
+    DayAnchor(0.0, Color(0xFF034C36), Color(0xFF003332), 'Deep Forest'),
+    DayAnchor(1.5, Color(0xFF04150F), Color(0xFF06231D), 'Nuit'),
+    DayAnchor(3.5, Color(0xFF071512), Color(0xFF0C342C), 'Jungle sombre'),
+    DayAnchor(6.0, Color(0xFFBC430D), Color(0xFFF09410), 'Desert'),
+    DayAnchor(8.0, Color(0xFF1B0B3D), Color(0xFF5B22C8), 'Deep Ocean'),
+    DayAnchor(10.0, Color(0xFFA92655), Color(0xFFFD8D67), 'Velvet Sunset'),
+    DayAnchor(11.5, Color(0xFFDD7A83), Color(0xFFE8BFC3), 'Blush Silk'),
+    DayAnchor(13.0, Color(0xFF292F91), Color(0xFF4CA8DD), 'Azuria'),
+    DayAnchor(14.5, Color(0xFF076653), Color(0xFFE2FBCE), 'Jungle'),
+    DayAnchor(16.0, Color(0xFF708F96), Color(0xFFAA895F), 'Muted Olive Sky'),
+    DayAnchor(18.0, Color(0xFF7AABFF), Color(0xFFFF9AEF), 'Cotton Candy'),
+    DayAnchor(21.5, Color(0xFF6968A6), Color(0xFFCF9893), 'Lavender Dusk'),
+    DayAnchor(24.0, Color(0xFF034C36), Color(0xFF003332), 'Deep Forest'),
   ];
 
   /// Renflement de l'arrêt du milieu.
@@ -252,7 +361,9 @@ abstract final class DayCycle {
 
   /// La palette à l'heure [hours] (0–24, les valeurs hors bornes sont
   /// ramenées dans la journée : 25 h vaut 1 h).
-  static DayPalette at(double hours) {
+  ///
+  /// [hue] choisit le chemin suivi **dans le temps**, d'un ancrage au suivant.
+  static DayPalette at(double hours, {HuePath hue = HuePath.arc}) {
     final t = hours % 24;
     var i = 0;
     while (i < anchors.length - 2 && anchors[i + 1].hour <= t) {
@@ -263,10 +374,23 @@ abstract final class DayCycle {
     final span = b.hour - a.hour;
     final k = span <= 0 ? 0.0 : ((t - a.hour) / span).clamp(0.0, 1.0);
 
-    final top = _Lab.lerp(_toLab(a.top), _toLab(b.top), k);
-    final bottom = _Lab.lerp(_toLab(a.bottom), _toLab(b.bottom), k);
+    final lerp = hue == HuePath.arc ? _Lab.lerpArc : _Lab.lerp;
+    final top = lerp(_toLab(a.top), _toLab(b.top), k);
+    final bottom = lerp(_toLab(a.bottom), _toLab(b.bottom), k);
 
     // La bande médiane : le milieu perceptuel, bombé en chroma et en clarté.
+    //
+    // ⚠️ **Toujours par la CORDE, jamais par l'arc**, et ce n'est pas un
+    // oubli. Relevé le 2026-08-15 : le haut et le bas d'un même dégradé
+    // passent, à certaines heures, par 180° d'écart de teinte. L'arc court
+    // bascule alors de côté d'un instant à l'autre, et la bande médiane saute
+    // à travers la roue — mesuré ΔE 0,29 sur 3 minutes, **quinze fois** le
+    // seuil, là où la corde donne 0,017.
+    //
+    // La distinction à garder : l'arc sert à traverser le TEMPS (deux palettes
+    // choisies, dont on veut le chemin franc) ; la corde sert la VERTICALE du
+    // dégradé, que le moteur de rendu interpolera de toute façon en ligne
+    // droite entre les arrêts.
     final mid = _Lab.lerp(top, bottom, middleStop);
     final middle = _Lab.fromHueChroma(
       mid.hue,
@@ -280,7 +404,9 @@ abstract final class DayCycle {
       middle: _toColor(middle),
       bottom: _toColor(bottom),
       accent: _accentFor(top),
-      label: k < 0.5 ? a.label : b.label,
+      from: a.label,
+      to: b.label,
+      blend: k,
     );
   }
 
