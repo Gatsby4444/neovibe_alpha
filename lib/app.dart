@@ -16,6 +16,14 @@ import 'features/home/home_shell.dart';
 /// d'ouvrir un écran hors de tout contexte de widget.
 final navigatorKey = GlobalKey<NavigatorState>();
 
+/// Observateur de routes — permet à un écran de savoir qu'on **revient** sur
+/// lui, ce que son propre `build` ne dit pas.
+///
+/// Utilisé par `HomeShell` pour rejouer l'entrée de la barre de navigation à
+/// chaque retour d'un écran poussé. Sans lui, il faudrait lire l'animation de
+/// la route — et la séquence serait alors enfermée dans sa durée.
+final routeObserver = RouteObserver<PageRoute<dynamic>>();
+
 class NeoVibeApp extends ConsumerWidget {
   const NeoVibeApp({super.key});
 
@@ -33,7 +41,7 @@ class NeoVibeApp extends ConsumerWidget {
       navigatorKey: navigatorKey,
       // Trace le parcours d'écran en écran : sans lui, une erreur du journal
       // n'a pas de contexte (on voit le symptôme, pas d'où venait l'utilisateur).
-      navigatorObservers: [AppLogNavigatorObserver()],
+      navigatorObservers: [AppLogNavigatorObserver(), routeObserver],
       theme: isNeovibe ? NeoTheme.neovibe() : NeoTheme.light(),
       darkTheme: isNeovibe ? NeoTheme.neovibe() : NeoTheme.dark(),
       themeMode: choice == NeoThemeChoice.light

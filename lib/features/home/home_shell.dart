@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../app.dart';
 import '../../core/motion.dart';
 import '../../core/prefs.dart';
 import '../../core/widgets/gradient.dart';
@@ -34,7 +35,8 @@ class HomeShell extends ConsumerStatefulWidget {
   ConsumerState<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends ConsumerState<HomeShell> {
+class _HomeShellState extends ConsumerState<HomeShell>
+    with TickerProviderStateMixin, RouteAware {
   // Ordre de la barre, changé le 2026-08-14 sur consigne de Jay : « déplacer
   // la section Vibe sur la gauche du menu de navigation ». Elle était au
   // centre depuis le passage à cinq onglets (2026-08-01).
@@ -76,6 +78,46 @@ class _HomeShellState extends ConsumerState<HomeShell> {
   /// démarrage arrive de façon asynchrone et ne doit jamais lui reprendre la
   /// main si elle est en retard.
   var _userMoved = false;
+
+  /// La séquence d'entrée de la barre de navigation.
+  ///
+  /// ⚠️ **Son propre contrôleur, et pas l'animation de la route** : le pas
+  /// entre deux icônes ([NeoMotion.buildStep], 63 ms) est celui du rail de la
+  /// caméra (demande de Jay, 2026-08-15), et cinq icônes à ce rythme ne
+  /// tiennent pas dans les 380 ms d'une navigation.
+  late final _barEntrance = AnimationController(
+    vsync: this,
+    duration: NeoBuildIn.durationFor(_tabCount),
+  );
+
+  static const _tabCount = 5;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) routeObserver.subscribe(this, route);
+  }
+
+  /// Premier affichage de l'app.
+  @override
+  void didPush() => _barEntrance.forward(from: 0);
+
+  /// Retour d'un écran poussé (réglages, capture, conversation) : la barre se
+  /// reconstruit, icône par icône.
+  @override
+  void didPopNext() => _barEntrance.forward(from: 0);
+
+  /// Départ vers un écran poussé : la barre s'efface **avant** le contenu.
+  @override
+  void didPushNext() => _barEntrance.animateBack(0, duration: NeoMotion.fast);
+
+  @override
+  void dispose() {
+    routeObserver.unsubscribe(this);
+    _barEntrance.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -191,8 +233,10 @@ class _HomeShellState extends ConsumerState<HomeShell> {
           // onglet où l'app se pose : il ouvre la capture par-dessus, et
           // `selectedIndex` ne vaut donc jamais 0.
           NavigationDestination(
-            icon: NeoStagger.wave(
+            icon: NeoBuildIn(
+              animation: _barEntrance,
               index: 0,
+              total: _tabCount,
               child: const GradientDot(
                 size: 38,
                 child: Icon(Icons.photo_camera, color: Colors.white, size: 20),
@@ -201,47 +245,63 @@ class _HomeShellState extends ConsumerState<HomeShell> {
             label: 'Vibe',
           ),
           NavigationDestination(
-            icon: NeoStagger.wave(
+            icon: NeoBuildIn(
+              animation: _barEntrance,
               index: 1,
+              total: _tabCount,
               child: const Icon(Icons.radar_outlined),
             ),
-            selectedIcon: NeoStagger.wave(
+            selectedIcon: NeoBuildIn(
+              animation: _barEntrance,
               index: 1,
+              total: _tabCount,
               child: const GradientIcon(Icons.radar),
             ),
             label: 'Ping',
           ),
           NavigationDestination(
-            icon: NeoStagger.wave(
+            icon: NeoBuildIn(
+              animation: _barEntrance,
               index: 2,
+              total: _tabCount,
               child: const Icon(Icons.workspaces_outline),
             ),
             // Onglet actif : icône en dégradé de marque (l'indicateur de
             // Material ne sait pas porter un dégradé).
-            selectedIcon: NeoStagger.wave(
+            selectedIcon: NeoBuildIn(
+              animation: _barEntrance,
               index: 2,
+              total: _tabCount,
               child: const GradientIcon(Icons.workspaces),
             ),
             label: 'Cercle',
           ),
           NavigationDestination(
-            icon: NeoStagger.wave(
+            icon: NeoBuildIn(
+              animation: _barEntrance,
               index: 3,
+              total: _tabCount,
               child: const Icon(Icons.sports_esports_outlined),
             ),
-            selectedIcon: NeoStagger.wave(
+            selectedIcon: NeoBuildIn(
+              animation: _barEntrance,
               index: 3,
+              total: _tabCount,
               child: const GradientIcon(Icons.sports_esports),
             ),
             label: 'Jeux',
           ),
           NavigationDestination(
-            icon: NeoStagger.wave(
+            icon: NeoBuildIn(
+              animation: _barEntrance,
               index: 4,
+              total: _tabCount,
               child: const Icon(Icons.person_outline),
             ),
-            selectedIcon: NeoStagger.wave(
+            selectedIcon: NeoBuildIn(
+              animation: _barEntrance,
               index: 4,
+              total: _tabCount,
               child: const GradientIcon(Icons.person),
             ),
             label: 'Profil',

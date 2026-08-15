@@ -65,6 +65,25 @@ abstract final class NeoMotion {
   /// donne un mouvement qui démarre mou.
   static const exit = Curves.easeInCubic;
 
+  /// Le **pas d'une séquence de construction** : le temps entre deux éléments
+  /// qui s'installent l'un après l'autre.
+  ///
+  /// Une seule valeur pour toute l'app — demande de Jay, 2026-08-15 : *« pour
+  /// l'apparition des boutons de la navbar mets le même intervalle que pour
+  /// les boutons latéraux de l'interface caméra »*. Le rail de la capture
+  /// l'utilisait déjà ; la barre de navigation s'y aligne.
+  ///
+  /// ⚠️ C'est ce qui a forcé à **détacher la barre de l'animation de route** :
+  /// cinq icônes à 63 ms ne tiennent pas dans les 380 ms d'une navigation. Le
+  /// pas est une propriété du rythme, pas de la durée du conteneur — donc
+  /// c'est le conteneur qui devait céder.
+  static const buildStepMs = 63;
+  static const buildStep = Duration(milliseconds: buildStepMs);
+
+  /// Le temps que met UN élément à s'installer, une fois son tour venu.
+  static const buildItemMs = 260;
+  static const buildItem = Duration(milliseconds: buildItemMs);
+
   /// Le **ressort**, réservé à ce que le doigt vient de toucher.
   ///
   /// Il dépasse légèrement sa cible avant de revenir : c'est ce dépassement qui
@@ -179,139 +198,76 @@ class NeoPageTransitionsBuilder extends PageTransitionsBuilder {
   }
 }
 
-/// Fait entrer un élément **après** le reste de sa page, et sortir **avant**.
+/// Un élément d'une **séquence de construction** : il s'installe à son tour,
+/// après ceux qui le précèdent.
 ///
-/// ## Pourquoi ça existe
+/// ## Pourquoi un contrôleur, et non l'animation de la route
 ///
-/// Demande de Jay, 2026-08-15 : *« la fluidité, le premium […] si on revient
-/// sur l'écran principal, la barre du bas apparaît via une animation séparée
-/// 200-300 ms plus tard. »*
+/// La version précédente lisait l'animation de la route. C'était plus court à
+/// écrire, mais ça enfermait toute la séquence dans les 380 ms d'une
+/// navigation — or cinq éléments à [NeoMotion.buildStep] en réclament déjà
+/// 252 rien qu'en décalages, avant même que le dernier ait commencé.
 ///
-/// Une page qui apparaît d'un bloc se lit comme une **image** qu'on remplace.
-/// Les mêmes éléments décalés de quelques dixièmes se lisent comme un
-/// **espace** qui se recompose — c'est toute la différence, et elle ne coûte
-/// que du décalage.
+/// Deux défauts en découlaient, tous deux constatés :
 ///
-/// ## Ce qu'il faut savoir avant de s'en servir
+/// 1. **Le pas était plafonné par la durée de la navigation.** Jay : *« ce
+///    n'est pas vraiment perceptible l'apparition progressive »*.
+/// 2. **Une enveloppe de groupe multipliait les opacités.** Chaque élément
+///    était borné par la porte commune, ce qui écrasait l'échelonnement au
+///    démarrage — précisément l'effet qu'on cherchait à produire.
 ///
-/// 1. **Il se multiplie avec le fondu de la page**, il ne le remplace pas. Un
-///    élément enveloppé ici est donc *deux fois* plus lent à apparaître que le
-///    reste — c'est l'effet voulu, mais c'est pourquoi il doit rester **rare**.
-///    Partout, il donnerait une app qui traîne.
-/// 2. **Réservé à la structure** : barre de navigation, en-tête. Pas au
-///    contenu — décaler ce qu'on est venu lire, c'est faire attendre.
-/// 3. Hors d'une route (test, aperçu), il est **neutre** : pas d'animation,
-///    pas d'erreur.
-class NeoStagger extends StatelessWidget {
-  const NeoStagger({
+/// Piloté par un contrôleur propre, le rythme ne dépend plus de ce qui se
+/// passe autour.
+class NeoBuildIn extends StatelessWidget {
+  const NeoBuildIn({
     super.key,
-    required this.child,
-    this.delay = 0.45,
-    this.lead = 0.22,
+    required this.animation,
+    required this.index,
+    required this.total,
     this.rise = 14,
+    required this.child,
   });
+
+  /// Le contrôleur de la séquence. Sa durée doit valoir [durationFor].
+  final Animation<double> animation;
+
+  /// Rang dans la séquence, à partir de 0.
+  final int index;
+
+  /// Nombre d'éléments — sert à calculer les fractions.
+  final int total;
+
+  /// De combien l'élément monte en arrivant, en pixels.
+  final double rise;
 
   final Widget child;
 
-  /// Part de la transition écoulée avant que l'élément ne commence à entrer,
-  /// quand c'est **lui** la page qui arrive.
-  final double delay;
-
-  /// Symétrique, pour l'autre sens : l'élément a **fini** de partir à cette
-  /// fraction, quand sa page se fait recouvrir.
-  ///
-  /// ⚠️ **Doit rester inférieur au `_outEnd` de [NeoPageTransitionsBuilder]**
-  /// (0,45), et c'est la seule chose à vérifier en y touchant. C'est lui qui
-  /// porte l'effet au **retour** : la page réapparaît quand son recouvrement
-  /// repasse sous 0,45, l'élément seulement sous 0,22 — donc **après**.
-  ///
-  /// 🐛 Ma première version dérivait cette valeur de [delay] (`1 - delay`,
-  /// soit 0,55). Elle était donc **supérieure** à 0,45, et la barre
-  /// réapparaissait *avant* le contenu — l'inverse exact de ce qui était
-  /// demandé. Deux réglages opposés ne se déduisent pas l'un de l'autre par
-  /// symétrie : ils se nomment.
-  final double lead;
-
-  /// De combien l'élément monte en arrivant, en pixels. Un bas de page vient
-  /// donc du bas — la direction dit d'où l'élément appartient.
-  final double rise;
-
-  /// Le décalage d'un cran à l'autre d'une **vague** — voir [wave].
-  ///
-  /// **0,105 depuis le 2026-08-15**, soit ~40 ms sur les 380 ms du palier
-  /// [NeoMotion.ample]. Jay au test de la v0.9.87 : *« ce n'est pas vraiment
-  /// perceptible l'apparition progressive, monte à 40 ms entre chacune »*.
-  ///
-  /// ⚠️ On ne peut pas monter beaucoup plus haut **sans allonger la
-  /// navigation** : cinq icônes à 40 ms consomment déjà 160 ms des 380, et il
-  /// faut laisser à la dernière le temps d'entrer. C'est la contrainte à
-  /// ressortir si Jay en redemande — la réponse serait alors de détacher la
-  /// barre de l'animation de route, pas d'augmenter encore le pas.
-  static const waveStep = 0.105;
-
-  /// Un élément d'une vague : le même mouvement, retardé d'un cran par rang.
-  ///
-  /// Demande de Jay, 2026-08-15 : *« l'animation d'apparition qui démarre pour
-  /// chaque bouton de la navbar avec un léger décalage »*.
-  ///
-  /// ⚠️ Le pas est **petit exprès**. Une vague se lit à partir d'environ 40 ms
-  /// entre voisins ; au-delà de ~100 ms elle cesse d'être un mouvement d'
-  /// ensemble et devient cinq apparitions qu'on attend l'une après l'autre.
-  /// Sur les 380 ms du palier [NeoMotion.ample], 0,06 ≈ **23 ms par cran** —
-  /// et cinq boutons tiennent donc dans 90 ms.
-  factory NeoStagger.wave({
-    Key? key,
-    required int index,
-    required Widget child,
-    // Plus tôt qu'un décalage simple (0,45) : la vague doit tenir ENTIÈRE dans
-    // la transition, et son dernier cran part déjà à 0,28 + 4 × 0,105 = 0,70.
-    double delay = 0.28,
-    double rise = 14,
-  }) => NeoStagger(
-    key: key,
-    delay: delay + index * waveStep,
-    // Le départ, lui, n'est PAS décalé : à la sortie, une vague inversée
-    // donnerait l'impression que la barre s'effiloche. On part ensemble.
-    lead: 0.22,
-    rise: rise,
-    child: child,
+  /// La durée qu'un contrôleur doit avoir pour porter [count] éléments.
+  static Duration durationFor(int count) => Duration(
+    milliseconds:
+        (count - 1).clamp(0, 99) * NeoMotion.buildStep.inMilliseconds +
+        NeoMotion.buildItem.inMilliseconds,
   );
 
   @override
   Widget build(BuildContext context) {
-    final route = ModalRoute.of(context);
-    final enter = route?.animation;
-    final cover = route?.secondaryAnimation;
-    if (enter == null || cover == null) return child;
+    final totalMs = durationFor(total).inMilliseconds;
+    final beginMs = index * NeoMotion.buildStep.inMilliseconds;
+    final begin = (beginMs / totalMs).clamp(0.0, 1.0);
+    final end = ((beginMs + NeoMotion.buildItem.inMilliseconds) / totalMs)
+        .clamp(0.0, 1.0);
 
     return AnimatedBuilder(
-      animation: Listenable.merge([enter, cover]),
+      animation: animation,
       child: child,
       builder: (context, inner) {
-        // Entre en retard…
-        final arriving = Interval(
-          // Borné : une vague de beaucoup d'éléments pousserait sinon le
-          // dernier au-delà de 1, et `Interval` lèverait une assertion.
-          delay.clamp(0.0, 0.9),
-          1,
+        final t = Interval(
+          begin,
+          end == begin ? 1.0 : end,
           curve: NeoMotion.enter,
-        ).transform(enter.value.clamp(0.0, 1.0));
-
-        // …et sort en avance, sinon l'élément partirait en même temps que le
-        // reste et le décalage ne se verrait qu'à l'aller.
-        final leaving = Interval(
-          0,
-          lead,
-          curve: NeoMotion.exit,
-        ).transform(cover.value.clamp(0.0, 1.0));
-
-        final t = (arriving * (1 - leaving)).clamp(0.0, 1.0);
+        ).transform(animation.value.clamp(0.0, 1.0));
         return Opacity(
           opacity: t,
-          // `Transform.translate` et non un `SlideTransition` : on veut des
-          // pixels, pas une fraction de la taille de l'élément — une barre de
-          // navigation et un en-tête n'ont pas la même hauteur, et devraient
-          // pourtant parcourir la même distance.
           child: Transform.translate(
             offset: Offset(0, (1 - t) * rise),
             child: inner,

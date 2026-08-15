@@ -251,6 +251,15 @@ class CameraEntrance extends InheritedWidget {
 
   final Animation<double> animation;
 
+  /// Durée de la séquence complète.
+  ///
+  /// Elle vit **ici** et non dans l'écran de capture : c'est la séquence qui
+  /// distribue le rythme à ses éléments, et les fractions ci-dessous en
+  /// dépendent. La séparer de son propre calcul les ferait diverger en
+  /// silence.
+  static const durationMs = 900;
+  static const duration = Duration(milliseconds: durationMs);
+
   /// `null` hors de l'écran de capture — les contrôles s'affichent alors sans
   /// animation plutôt que de rester invisibles.
   static Animation<double>? maybeOf(BuildContext context) =>
@@ -311,16 +320,14 @@ class _Entry extends StatelessWidget {
   /// déclencheur, qui est ce qu'on est venu chercher.
   static const _railStart = 0.42;
 
-  /// ~63 ms entre deux contrôles sur les 900 ms de la séquence.
+  /// Le pas de construction de l'app ([NeoMotion.buildStep], 63 ms), exprimé
+  /// en fraction de la séquence de l'écran de capture.
   ///
-  /// Monté le 2026-08-15 sur demande de Jay (*« augmente aussi un peu
-  /// l'intervalle »*) : à 45 ms la construction se lisait à peine.
-  ///
-  /// ⚠️ Le plafond n'est pas esthétique mais arithmétique : six contrôles à
-  /// 0,07 partent de 0,42 à 0,77 de la séquence, et il faut laisser au dernier
-  /// de quoi entrer. Au-delà, c'est la DURÉE de la séquence qu'il faut monter,
-  /// pas le pas.
-  static const _step = 0.07;
+  /// ⚠️ **Dérivé, jamais recopié** : c'est le même rythme que la barre de
+  /// navigation depuis le 2026-08-15 (demande de Jay). Écrire 0,07 en dur ici
+  /// laisserait les deux diverger à la première retouche, sans que rien ne le
+  /// signale.
+  static const _step = NeoMotion.buildStepMs / CameraEntrance.durationMs;
 
   final int index;
   final Widget child;
