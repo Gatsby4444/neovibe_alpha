@@ -132,9 +132,31 @@ class DiagnosticBundle {
   static Future<String> proximity() async {
     try {
       final stats = await BleRadio().stats();
-      final buffer = StringBuffer()
-        ..writeln('annonces BLE reçues (toutes apps) : ${stats['rawScans']}')
-        ..writeln('dont NeoVibe                      : ${stats['neoScans']}');
+      final buffer = StringBuffer();
+
+      // ⚠️ **Tout ce que le natif publie, sans liste à tenir à jour.**
+      //
+      // La première version nommait deux champs — `rawScans` et `neoScans`. Le
+      // jour où le natif s'est mis à publier les capacités de mesure (UWB,
+      // Wi-Fi RTT), elles sont apparues dans l'écran de diagnostic **et pas
+      // dans le rapport** : Jay a envoyé ses relevés, et la réponse à sa
+      // question n'y était pas.
+      //
+      // C'était la deuxième fois le même jour : la section proximité elle-même
+      // avait manqué au premier rapport, pour la même raison. **Une liste de
+      // champs à recopier finit toujours par diverger de sa source.**
+      //
+      // En parcourant la map, un champ ajouté côté natif arrive ici tout seul.
+      // La cause est supprimée, pas le symptôme.
+      final ordre = ['device', 'sdk', 'rawScans', 'neoScans', 'uwb', 'wifiRtt'];
+      final cles = [
+        ...ordre.where(stats.containsKey),
+        ...stats.keys.where((k) => !ordre.contains(k)),
+      ];
+      for (final cle in cles) {
+        buffer.writeln('${cle.padRight(12)} : ${stats[cle]}');
+      }
+
       final raw = stats['rawScans'] as int?;
       final neo = stats['neoScans'] as int?;
       if (raw == 0) {
