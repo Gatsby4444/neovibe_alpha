@@ -191,6 +191,30 @@ l'utilisateur et le système.*
 
 ---
 
+## Avancement au 2026-08-16
+
+| Couche | État | Tests |
+|---|---|---|
+| 0 — Radio (natif + `BleRadio`) | ✅ écrite | — *(natif : à vérifier sur appareil)* |
+| Intention / superviseur | ✅ écrite | — |
+| 1 — Transport (`PeerLink`) | ✅ écrite | **6** |
+| 2 — Identité | ✅ conservée telle quelle | — |
+| 3 — Canal sécurisé | ⬜ à faire | |
+| 4 — Présence (`PresenceTracker`) | ✅ écrite | **10** |
+| 5 — Protocole | ⬜ à faire | |
+| 6 — Fonctions | ⬜ à faire | |
+| 7 — Synchronisation | ⬜ à faire | |
+
+⚠️ **Rien n'est encore branché** : `proximity_service.dart` (l'ancien chemin) est
+toujours celui que l'app utilise. La bascule se fera une fois les couches 3, 5 et
+6 écrites — et l'ancien fichier sera supprimé **d'un bloc**, en relevant les deux
+sens de chaque appel (règle 8 de `CLAUDE.md`).
+
+⚠️ **Le natif n'a pas tourné sur un appareil.** Il compile, c'est tout ce qu'on
+sait. Les trois choses à vérifier en priorité au premier test : que le service
+survit bien à la fermeture de l'app, que couper/remettre le Bluetooth relance
+tout seul, et que la notification dit l'état vrai.
+
 ## Ordre de construction
 
 Chaque étape est testable seule et laisse l'app compilable.
