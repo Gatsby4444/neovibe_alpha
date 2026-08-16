@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../core/models/nearby_user.dart';
 import '../../core/theme.dart';
 import '../../core/utils/formats.dart';
 import '../connections/connections_repository.dart';
@@ -10,6 +9,7 @@ import '../library/user_library_screen.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
 import 'net/ble_radio.dart';
+import 'net/distance_estimate.dart';
 import 'net/presence_tracker.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_journal.dart';
@@ -459,22 +459,59 @@ class _TuilePair extends ConsumerWidget {
         child: Text(snapshot.displayName.characters.first.toUpperCase()),
       ),
       title: Text(snapshot.displayName),
+      // ⚠️ **Une BANDE et une TENDANCE, jamais des mètres.**
+      //
+      // Demande de Jay le 2026-08-16 : afficher la distance en temps réel. La
+      // formule existe, mais le bruit de la vraie vie — un corps entre les deux
+      // appareils absorbe 10 à 20 dB — rend un chiffre en mètres faux d'un
+      // facteur 2 à 4. Afficher « 3,2 m » fabriquerait une précision qui
+      // n'existe pas, et une distance au mètre près transformerait une app de
+      // rencontre en outil de traque (spec 4.2).
+      //
+      // La TENDANCE, elle, est solide : les erreurs systématiques décalent le
+      // niveau du signal, jamais le signe de sa pente. Elle est aussi plus
+      // utile socialement — « il arrive » vaut mieux que « il est à 3 m ».
+      //
+      // La fourchette chiffrée existe, avec son incertitude assumée, dans
+      // Développeur → Diagnostic proximité.
       subtitle: Row(
         children: [
           Icon(
             Icons.circle,
             size: 10,
-            color: peer.level == ProximityLevel.veryClose
-                ? Colors.greenAccent
-                : Colors.amber,
+            color: switch (peer.band) {
+              ProximityBand.contact => Colors.greenAccent,
+              ProximityBand.close => Colors.lightGreen,
+              ProximityBand.room => Colors.amber,
+              ProximityBand.far => Colors.orange,
+            },
           ),
           const SizedBox(width: 6),
-          Text(peer.level.label),
+          Text(peer.band.label),
+          if (peer.trend != ProximityTrend.stable) ...[
+            const SizedBox(width: 8),
+            Icon(
+              peer.trend == ProximityTrend.approaching
+                  ? Icons.trending_up
+                  : Icons.trending_down,
+              size: 14,
+              color: peer.trend == ProximityTrend.approaching
+                  ? Colors.greenAccent
+                  : context.muted,
+            ),
+            const SizedBox(width: 3),
+            Text(
+              peer.trend.label,
+              style: TextStyle(
+                color: peer.trend == ProximityTrend.approaching
+                    ? Colors.greenAccent
+                    : context.muted,
+              ),
+            ),
+          ],
           if (peer.isFriend) ...[
             const SizedBox(width: 10),
             const Icon(Icons.link, size: 14),
-            const SizedBox(width: 4),
-            const Text('Déjà connectés'),
           ],
         ],
       ),

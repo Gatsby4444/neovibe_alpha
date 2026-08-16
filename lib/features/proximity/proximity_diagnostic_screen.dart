@@ -5,6 +5,7 @@ import '../../core/theme.dart';
 import 'dart:async';
 
 import 'net/ble_radio.dart';
+import 'net/distance_estimate.dart';
 import 'net/presence_tracker.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_supervisor.dart';
@@ -277,9 +278,20 @@ class _Pair extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           Text(
-            '$etat · ${peer.rssi.toStringAsFixed(0)} dBm · ${peer.level.label}'
+            '$etat · ${peer.rssi.toStringAsFixed(0)} dBm'
             '${peer.isFriend ? " · ami" : ""}',
             style: TextStyle(color: context.muted, fontSize: 12),
+          ),
+          // ⚠️ **La fourchette, jamais un nombre unique.** L'écart entre ses
+          // deux bornes est l'information la plus honnête de cet écran : c'est
+          // lui qui dit à quel point une valeur centrale ne voudrait rien dire.
+          // C'est aussi ce qui permettra de trancher, relevés en main, si des
+          // mètres sont un jour affichables.
+          Text(
+            '${peer.band.label} · ${peer.distance.range}'
+            '${peer.distance.calibrated ? "" : " (puissance d'émission non annoncée)"}'
+            '${peer.trend == ProximityTrend.stable ? "" : " · ${peer.trend.label}"}',
+            style: TextStyle(color: context.faint, fontSize: 11),
           ),
           // L'adresse est affichée exprès : c'est elle qui change quand Android
           // renouvelle la MAC, et c'est ce qui produisait deux lignes pour la

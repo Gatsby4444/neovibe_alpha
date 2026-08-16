@@ -141,6 +141,7 @@ sealed class RadioEvent {
           address: '${map['address']}',
           advertId: map['advertId'] as Uint8List,
           rssi: map['rssi'] as int,
+          txPower: map['txPower'] as int? ?? RadioScan.txPowerUnknown,
         );
       case 'link':
         return RadioLink(
@@ -167,10 +168,26 @@ class RadioScan extends RadioEvent {
     required this.address,
     required this.advertId,
     required this.rssi,
+    this.txPower = txPowerUnknown,
   });
+
+  /// Valeur d'Android quand l'émetteur n'annonce pas sa puissance.
+  static const txPowerUnknown = 127;
+
   final String address;
   final Uint8List advertId;
+
+  /// Puissance **reçue**, en dBm. Toujours négative en pratique.
   final int rssi;
+
+  /// Puissance **émise** annoncée par le pair, en dBm.
+  ///
+  /// ⚠️ Sans elle, on ne connaît que ce qui arrive et il faut deviner ce qui
+  /// est parti — or cela varie de plusieurs dB d'un appareil à l'autre. La
+  /// recevoir supprime une inconnue ; elle n'en supprime pas les autres.
+  final int txPower;
+
+  bool get hasTxPower => txPower != txPowerUnknown;
 }
 
 class RadioLink extends RadioEvent {

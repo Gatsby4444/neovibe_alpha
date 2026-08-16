@@ -156,8 +156,13 @@ class PeerNetwork {
           presence.clear();
           _emit(const PresenceChanged());
         }
-      case RadioScan(:final address, :final advertId, :final rssi):
-        await _onScan(address, advertId, rssi);
+      case RadioScan(
+        :final address,
+        :final advertId,
+        :final rssi,
+        :final txPower,
+      ):
+        await _onScan(address, advertId, rssi, txPower);
       case RadioLink(
         :final linkId,
         :final connected,
@@ -172,7 +177,12 @@ class PeerNetwork {
     }
   }
 
-  Future<void> _onScan(String address, Uint8List advertId, int rssi) async {
+  Future<void> _onScan(
+    String address,
+    Uint8List advertId,
+    int rssi,
+    int txPower,
+  ) async {
     final hex = _hex(advertId);
     final friend = _friendIndex[hex];
 
@@ -180,6 +190,7 @@ class PeerNetwork {
     presence.observe(
       address,
       rssi,
+      txPower: txPower,
       friend: friend == null
           ? null
           : PingPeerSnapshot(

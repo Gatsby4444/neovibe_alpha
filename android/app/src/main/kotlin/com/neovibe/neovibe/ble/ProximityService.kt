@@ -113,7 +113,14 @@ class ProximityService : Service(), BleEngine.Listener {
      * rejouer une heure de scan. Au-delà, les plus anciennes tombent — une
      * mémoire non bornée dans un service qui vit des jours est une fuite.
      */
-    private val pendingScans = ConcurrentLinkedQueue<Triple<String, ByteArray, Int>>()
+    private data class BufferedScan(
+        val address: String,
+        val advertId: ByteArray,
+        val rssi: Int,
+        val txPower: Int,
+    )
+
+    private val pendingScans = ConcurrentLinkedQueue<BufferedScan>()
     private val scanBufferMax = 200
 
     override fun onCreate() {
@@ -199,13 +206,13 @@ class ProximityService : Service(), BleEngine.Listener {
         updateNotification(status)
     }
 
-    override fun onScan(address: String, advertId: ByteArray, rssi: Int) {
+    override fun onScan(address: String, advertId: ByteArray, rssi: Int, txPower: Int) {
         val target = bridge
         if (target != null) {
-            target.onScan(address, advertId, rssi)
+            target.onScan(address, advertId, rssi, txPower)
             return
         }
-        pendingScans.add(Triple(address, advertId, rssi))
+        pendingScans.add(BufferedScan(address, advertId, rssi, txPower))
         while (pendingScans.size > scanBufferMax) pendingScans.poll()
     }
 
@@ -236,7 +243,7 @@ class ProximityService : Service(), BleEngine.Listener {
         target.onStatus(lastStatus)
         while (true) {
             val scan = pendingScans.poll() ?: break
-            target.onScan(scan.first, scan.second, scan.third)
+            target.onScan(scan.address, scan.advertId, scan.rssi, scan.txPower)
         }
     }
 

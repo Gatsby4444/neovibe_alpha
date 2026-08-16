@@ -1,5 +1,6 @@
 import '../../../core/models/nearby_user.dart';
 import '../ping_store.dart';
+import 'distance_estimate.dart';
 
 /// Ce que l'on sait d'un appareil détecté, à un instant donné.
 ///
@@ -30,6 +31,11 @@ class PresencePeer {
     required this.lastSeen,
     this.snapshot,
     this.isFriend = false,
+    this.txPower = 127,
+    this.band = ProximityBand.room,
+    this.trend = ProximityTrend.stable,
+    this.trendAnchorRssi,
+    this.trendAnchorAt,
   });
 
   /// Adresse BLE. **La clé de suivi tant qu'on ne connaît pas l'identité.**
@@ -48,6 +54,30 @@ class PresencePeer {
   final PingPeerSnapshot? snapshot;
   final bool isFriend;
 
+  /// Puissance d'émission annoncée par le pair (127 = non annoncée).
+  final int txPower;
+
+  /// La bande courante. Gardée pour l'hystérésis : sans elle, on ne saurait
+  /// pas de quel côté du seuil on arrive.
+  final ProximityBand band;
+  final ProximityTrend trend;
+
+  /// Le point de comparaison de la tendance, et son instant.
+  ///
+  /// ⚠️ Une pente se mesure sur une FENÊTRE, jamais entre deux mesures
+  /// consécutives : à 10 mesures par seconde, deux valeurs voisines ne
+  /// contiennent que du bruit.
+  final double? trendAnchorRssi;
+  final DateTime? trendAnchorAt;
+
+  /// Ce qu'on peut honnêtement dire de la distance.
+  DistanceEstimate get distance => DistanceModel.estimate(
+    smoothedRssi: rssi,
+    txPower: txPower,
+    currentBand: band,
+    trend: trend,
+  );
+
   String? get userId => snapshot?.userId;
 
   PresencePeer copyWith({
@@ -57,6 +87,11 @@ class PresencePeer {
     DateTime? lastSeen,
     PingPeerSnapshot? snapshot,
     bool? isFriend,
+    int? txPower,
+    ProximityBand? band,
+    ProximityTrend? trend,
+    double? trendAnchorRssi,
+    DateTime? trendAnchorAt,
   }) => PresencePeer(
     address: address,
     stage: stage ?? this.stage,
@@ -66,6 +101,11 @@ class PresencePeer {
     lastSeen: lastSeen ?? this.lastSeen,
     snapshot: snapshot ?? this.snapshot,
     isFriend: isFriend ?? this.isFriend,
+    txPower: txPower ?? this.txPower,
+    band: band ?? this.band,
+    trend: trend ?? this.trend,
+    trendAnchorRssi: trendAnchorRssi ?? this.trendAnchorRssi,
+    trendAnchorAt: trendAnchorAt ?? this.trendAnchorAt,
   );
 }
 
@@ -133,7 +173,18 @@ class PresenceTracker {
   /// [friend] est non nul quand l'ID rotatif a été reconnu dans le carnet : le
   /// pair est alors identifié **immédiatement**, sans aucun échange — c'est tout
   /// l'intérêt de l'ID rotatif.
-  void observe(String address, int rssi, {PingPeerSnapshot? friend}) {
+  /// Fenêtre sur laquelle la pente est mesurée.
+  ///
+  /// Assez longue pour que le bruit s'annule, assez courte pour qu'un pas de
+  /// marche s'y voie. Trois secondes correspondent à ~2 m de marche normale.
+  static const trendWindow = Duration(seconds: 3);
+
+  void observe(
+    String address,
+    int rssi, {
+    PingPeerSnapshot? friend,
+    int txPower = 127,
+  }) {
     final now = _now();
     final existing = _peers[address];
 
@@ -151,15 +202,40 @@ class PresenceTracker {
         lastSeen: now,
         snapshot: friend,
         isFriend: friend != null,
+        txPower: txPower,
+        band: DistanceModel.bandFor(rssi.toDouble(), null),
+        trendAnchorRssi: rssi.toDouble(),
+        trendAnchorAt: now,
       );
       if (friend != null) _mergeDuplicates(address);
       return;
     }
 
     final smoothed = existing.rssi + (rssi - existing.rssi) * smoothing;
+
+    // La tendance se mesure sur une fenêtre glissante : on ne bouge l'ancre que
+    // lorsqu'elle est assez vieille pour que la pente ait un sens.
+    var trend = existing.trend;
+    var anchorRssi = existing.trendAnchorRssi ?? smoothed;
+    var anchorAt = existing.trendAnchorAt ?? now;
+    if (now.difference(anchorAt) >= trendWindow) {
+      trend = DistanceModel.trendFor(
+        anchorRssi,
+        smoothed,
+        now.difference(anchorAt),
+      );
+      anchorRssi = smoothed;
+      anchorAt = now;
+    }
+
     _peers[address] = existing.copyWith(
       rssi: smoothed,
       level: _levelFor(smoothed, existing.level),
+      band: DistanceModel.bandFor(smoothed, existing.band),
+      trend: trend,
+      trendAnchorRssi: anchorRssi,
+      trendAnchorAt: anchorAt,
+      txPower: txPower != 127 ? txPower : existing.txPower,
       lastSeen: now,
       // Un ami reconnu en cours de route promeut le pair, jamais l'inverse :
       // une identité acquise ne se reperd pas sur une annonce.

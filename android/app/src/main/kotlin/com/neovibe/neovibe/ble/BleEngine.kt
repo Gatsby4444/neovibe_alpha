@@ -29,6 +29,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import java.util.concurrent.ConcurrentHashMap
@@ -54,13 +55,20 @@ import java.util.concurrent.ConcurrentLinkedQueue
  *    nommé. Il n'existe plus un seul `?: return` silencieux.
  * 2. **Il ne perd jamais un octet.** Les deux sens d'écriture ont leur file.
  */
+/** Valeur d'Android quand l'emetteur n'annonce pas sa puissance. */
+const val TX_POWER_UNKNOWN = 127
+
 @SuppressLint("MissingPermission") // vérifiées explicitement par evaluateRadio()
 class BleEngine(private val context: Context, private val listener: Listener) {
 
     /** Ce que le moteur remonte. Aucune de ces méthodes ne doit bloquer. */
     interface Listener {
         fun onStatus(status: RadioStatus)
-        fun onScan(address: String, advertId: ByteArray, rssi: Int)
+        /**
+         * [txPower] est la puissance d'emission annoncee par le pair, en dBm,
+         * ou [TX_POWER_UNKNOWN] s'il ne l'annonce pas.
+         */
+        fun onScan(address: String, advertId: ByteArray, rssi: Int, txPower: Int)
         fun onLink(linkId: String, connected: Boolean, mtu: Int, incoming: Boolean)
         fun onFrame(linkId: String, data: ByteArray)
     }
@@ -296,6 +304,18 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         val data = AdvertiseData.Builder()
             .addManufacturerData(BleConstants.MANUFACTURER_ID, BleConstants.MAGIC + advertId)
             .setIncludeDeviceName(false)
+            // ⚠️ **La puissance d'emission voyage avec l'annonce.**
+            //
+            // Sans elle, celui qui recoit ne connait que le RSSI - la puissance
+            // ARRIVEE - et doit DEVINER celle qui est partie. Or elle varie
+            // fortement d'un appareil a l'autre : deux telephones cote a cote
+            // peuvent emettre a 6 dB d'ecart, soit un facteur ~2 sur la distance
+            // deduite. La transmettre supprime cette inconnue-la.
+            //
+            // Cout : 3 octets sur les 31 de l'annonce. Notre charge utile en
+            // occupe 25 - il reste de la place, mais tout juste : ne rien
+            // ajouter d'autre sans recompter.
+            .setIncludeTxPowerLevel(true)
             .build()
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
@@ -326,7 +346,17 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             if (payload[0] != BleConstants.MAGIC[0] || payload[1] != BleConstants.MAGIC[1]) return
             neoScans++
             val id = payload.copyOfRange(2, BleConstants.ADVERT_PAYLOAD_SIZE)
-            main.post { listener.onScan(result.device.address, id, result.rssi) }
+            // `txPower` vaut TX_POWER_NOT_PRESENT (127) si l'emetteur ne
+            // l'annonce pas - un appareil sur une version anterieure, par
+            // exemple. On transmet tel quel : c'est au-dessus de decider quoi
+            // en faire, et inventer une valeur par defaut ici la rendrait
+            // indiscernable d'une vraie mesure.
+            val tx = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                result.txPower
+            } else {
+                TX_POWER_UNKNOWN
+            }
+            main.post { listener.onScan(result.device.address, id, result.rssi, tx) }
         }
 
         /**

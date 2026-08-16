@@ -185,8 +185,19 @@ class ProximityBridge(
     override fun onStatus(status: RadioStatus) =
         emit(mapOf("event" to "status") + status.toMap())
 
-    override fun onScan(address: String, advertId: ByteArray, rssi: Int) = emit(
-        mapOf("event" to "scan", "address" to address, "advertId" to advertId, "rssi" to rssi),
+    override fun onScan(
+        address: String,
+        advertId: ByteArray,
+        rssi: Int,
+        txPower: Int,
+    ) = emit(
+        mapOf(
+            "event" to "scan",
+            "address" to address,
+            "advertId" to advertId,
+            "rssi" to rssi,
+            "txPower" to txPower,
+        ),
     )
 
     override fun onLink(linkId: String, connected: Boolean, mtu: Int, incoming: Boolean) = emit(
