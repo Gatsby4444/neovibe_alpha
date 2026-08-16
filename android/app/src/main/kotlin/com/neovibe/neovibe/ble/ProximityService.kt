@@ -194,6 +194,18 @@ class ProximityService : Service(), BleEngine.Listener {
         "neoScans" to engine.neoScans,
         "sdk" to android.os.Build.VERSION.SDK_INT,
         "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+        // ⚠️ **Les technologies de mesure de distance que l'appareil possede.**
+        //
+        // Question de Jay, 2026-08-16 : « pour la distance tu as juste utilise
+        // le BLE ? ». Oui - c'est la seule radio que TOUS les appareils ont.
+        // Mais deux autres donneraient bien mieux si le materiel les portait :
+        // l'UWB (~10 cm) et le Wi-Fi RTT (~1-2 m).
+        //
+        // Plutot que de supposer d'apres le modele, on DEMANDE au systeme. Un
+        // « probablement pas » sur une fiche technique ne vaut pas un
+        // hasSystemFeature.
+        "uwb" to packageManager.hasSystemFeature("android.hardware.uwb"),
+        "wifiRtt" to packageManager.hasSystemFeature("android.hardware.wifi.rtt"),
     )
 
     // ------------------------------------------------------------------

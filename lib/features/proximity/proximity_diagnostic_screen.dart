@@ -114,6 +114,38 @@ class _ProximityDiagnosticScreenState
             ],
           ),
           _Bloc(
+            titre: 'Appareil et technologies de mesure',
+            enfants: [
+              _Texte('Modèle', '${_stats['device'] ?? '—'}'),
+              _Texte('Android SDK', '${_stats['sdk'] ?? '—'}'),
+              const SizedBox(height: 10),
+              // ⚠️ **Demandé au système, jamais déduit d'une fiche technique.**
+              //
+              // Question de Jay, 2026-08-16 : « pour la distance tu as juste
+              // utilisé le BLE ? ». Oui — c'est la seule radio que TOUS les
+              // appareils ont. Deux autres feraient bien mieux si le matériel
+              // les portait, et ces deux lignes disent lesquelles sont là.
+              _Ligne(
+                'UWB — précision ~10 cm',
+                _stats['uwb'] == true,
+                'Absent : la mesure au centimètre est hors de portée sur cet '
+                    'appareil, quel que soit le code écrit.',
+              ),
+              _Ligne(
+                'Wi-Fi RTT — précision ~1-2 m',
+                _stats['wifiRtt'] == true,
+                'Absent : pas de mesure de temps de vol Wi-Fi ici.',
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Le BLE, lui, est partout — c\'est pour ça qu\'on s\'appuie '
+                'dessus. Il donne une bande et une tendance fiables, jamais '
+                'une distance en mètres.',
+                style: TextStyle(color: context.faint, fontSize: 11),
+              ),
+            ],
+          ),
+          _Bloc(
             titre: 'Appareils vus (${peers.length})',
             enfants: peers.isEmpty
                 ? [
