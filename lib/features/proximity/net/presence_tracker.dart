@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import '../../../core/models/nearby_user.dart';
 import '../ping_store.dart';
 
@@ -267,11 +265,6 @@ class PresenceTracker {
     return _now().difference(peer.firstSeen);
   }
 
-  /// Une distance grossière, **jamais précise** (spec 4.2 : on ne donne pas de
-  /// distance en mètres, et on ne le fera pas — ce serait un traqueur).
-  static ProximityLevel levelOf(int rssi) =>
-      rssi >= enterVeryClose ? ProximityLevel.veryClose : ProximityLevel.close;
-
   /// Nombre de pairs, tous états confondus. Sert aux tests et au diagnostic.
   int get length => _peers.length;
 
@@ -279,9 +272,4 @@ class PresenceTracker {
   /// comme « X personnes autour de toi ».
   int get identifiedCount =>
       _peers.values.where((p) => p.stage == PresenceStage.identified).length;
-
-  /// Le meilleur RSSI observé, pour le diagnostic.
-  double get strongest => _peers.values.isEmpty
-      ? double.negativeInfinity
-      : _peers.values.map((p) => p.rssi).reduce(math.max);
 }

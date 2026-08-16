@@ -48,11 +48,6 @@ sealed class RadioStatus {
   /// pour savoir si une liste vide veut dire « personne » ou « rien ne tourne ».
   bool get isDetecting =>
       this is RadioRunning && (this as RadioRunning).scanning;
-
-  /// Vrai si l'utilisateur peut y faire quelque chose (allumer le Bluetooth,
-  /// accorder une permission). Sert à décider si l'on propose une action.
-  bool get isActionable =>
-      this is RadioAdapterOff || this is RadioPermissionsMissing;
 }
 
 class RadioUnsupported extends RadioStatus {

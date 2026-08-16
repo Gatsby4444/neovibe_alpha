@@ -119,6 +119,15 @@ abstract class FriendKeyStore {
   Future<void> put(FriendKeys keys);
   Future<void> remove(String userId);
   Future<Map<String, FriendKeys>> rotatingIndex(int slot);
+
+  /// Oublie TOUT.
+  ///
+  /// ⚠️ **Indispensable au changement de compte.** Les clés de diffusion des
+  /// amis vivent dans un fichier local : sans effacement, un compte B ouvert
+  /// sur le même appareil reconnaîtrait **silencieusement** les amis du compte
+  /// A, sans qu'aucun serveur ne l'ait autorisé. Pour une app dont la thèse est
+  /// le cercle restreint, c'est une fuite, pas un désagrément.
+  Future<void> clear();
 }
 
 /// Carnet local des clés de reconnaissance des AMIS (+ instantané de profil) :
@@ -185,6 +194,13 @@ class FriendKeyBook implements FriendKeyStore {
       }
     }
     return index;
+  }
+
+  @override
+  Future<void> clear() async {
+    _cache = {};
+    final file = await _file();
+    if (await file.exists()) await file.delete();
   }
 
   static String _hex(Uint8List bytes) =>

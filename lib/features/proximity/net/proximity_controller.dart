@@ -20,14 +20,7 @@ import 'radio_status.dart';
 
 /// Ce que l'interface a besoin de savoir, et rien de plus.
 class ProximityView {
-  const ProximityView({
-    required this.runtime,
-    this.peers = const [],
-    this.requests = const [],
-  });
-
-  /// Intention de l'utilisateur + état réel de la radio.
-  final ProximityRuntime runtime;
+  const ProximityView({this.peers = const [], this.requests = const []});
 
   /// Qui est autour, avec son état d'identification.
   final List<PresencePeer> peers;
@@ -37,13 +30,6 @@ class ProximityView {
 
   List<PresencePeer> get identified =>
       peers.where((p) => p.stage == PresenceStage.identified).toList();
-
-  /// Des appareils sont détectés mais pas encore identifiés.
-  ///
-  /// C'est ce qui permet de ne plus afficher « personne » pendant qu'une
-  /// poignée de main est en cours (défaut B5).
-  int get pendingIdentification =>
-      peers.where((p) => p.stage != PresenceStage.identified).length;
 }
 
 /// Le chef d'orchestre : il branche la radio sur le réseau, et le réseau sur
@@ -79,29 +65,76 @@ class ProximityController extends AsyncNotifier<ProximityView> {
   /// recommencer à chaque battement.
   final _certified = <String>{};
 
+  /// Le compte auquel le local du ping appartient actuellement.
+  String? _boundUserId;
+
   @override
   Future<ProximityView> build() async {
-    ref.onDispose(() {
-      _radioFeed?.cancel();
-      _peerFeed?.cancel();
-      _certificates?.cancel();
-      unawaited(_network?.dispose());
-    });
+    // ⚠️ **On ne surveille QUE le compte.**
+    //
+    // Ce `build` surveillait l'état de la radio (`ref.watch` du superviseur).
+    // Or Riverpod ré-exécute `build` à chaque changement de ce qu'il surveille,
+    // **et déclenche d'abord les `onDispose` de l'exécution précédente**. Chaque
+    // transition d'état — et il y en a au moins deux à chaque démarrage,
+    // `starting` puis `running` — **détruisait donc le réseau de pairs**
+    // aussitôt créé. Le champ `_network`, lui, restait non nul : `_ensureNetwork`
+    // repartait immédiatement, satisfait, en laissant l'app branchée sur un
+    // objet mort. Plus aucun scan, plus aucun événement, pour toujours.
+    //
+    // Le défaut était invisible : rien ne plante, rien ne s'affiche. C'est la
+    // deuxième moitié de ce que Jay a constaté au test de la v0.9.98.
+    //
+    // La règle qui en sort : **une référence qui pointe vers un objet détruit
+    // doit être remise à nul dans le même geste**. Un champ non nul vers un
+    // cadavre est un nœud orphelin — il ment à tous ceux qui le consultent.
+    final me = ref.watch(currentUserIdProvider);
+    ref.onDispose(_teardown);
 
-    final runtime = ref.watch(proximitySupervisorProvider);
-    await _ensureNetwork();
+    // ⚠️ **Changement de compte : on efface le local du ping.**
+    //
+    // Rien ne le faisait — `signOut()` ne nettoyait que la session serveur.
+    // Or le carnet de clés, les conversations ping, les croisements et les
+    // demandes en attente sont des fichiers **sans propriétaire inscrit** : un
+    // compte B ouvert sur le même appareil héritait de tout, et reconnaissait
+    // **silencieusement** les amis du compte A grâce à leurs clés de diffusion.
+    //
+    // Pour une app dont la thèse est le cercle restreint, c'est une fuite. Les
+    // méthodes d'effacement existaient déjà côté magasins ; **personne ne les
+    // appelait** — un nœud orphelin, au sens exact du terme.
+    if (_boundUserId != null && _boundUserId != me) await _forgetLocalPing();
+    _boundUserId = me;
+
+    if (me != null) await _ensureNetwork(me);
 
     return ProximityView(
-      runtime: runtime,
       peers: _network?.presence.peers ?? const [],
       requests: await _journal.pendingRequests(),
     );
   }
 
-  Future<void> _ensureNetwork() async {
+  /// Défait tout, **et remet les références à nul**.
+  void _teardown() {
+    _radioFeed?.cancel();
+    _radioFeed = null;
+    _peerFeed?.cancel();
+    _peerFeed = null;
+    _certificates?.cancel();
+    _certificates = null;
+    final network = _network;
+    _network = null; // ← la ligne qui manquait
+    unawaited(network?.dispose());
+  }
+
+  /// Efface tout ce que le ping garde en local, pour le compte qui s'en va.
+  Future<void> _forgetLocalPing() async {
+    _certified.clear();
+    await _journal.clear();
+    await _keyBook.clear();
+    await ref.read(pingStoreProvider).wipe();
+  }
+
+  Future<void> _ensureNetwork(String me) async {
     if (_network != null) return;
-    final me = ref.read(currentUserIdProvider);
-    if (me == null) return;
 
     final supervisor = ref.read(proximitySupervisorProvider.notifier);
     final network = PeerNetwork(
@@ -113,6 +146,12 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     );
     _network = network;
     await network.start();
+
+    // ⚠️ Le balayage des conversations expirées (TTL 12 h) était appelé par
+    // l'ancien `enable()`. Sa suppression l'a laissé **sans aucun appelant** :
+    // les messages ping ne se seraient plus jamais purgés, alors que leur
+    // effacement est une promesse du produit, pas une optimisation.
+    unawaited(ref.read(pingStoreProvider).sweep());
 
     // La synchro part au démarrage : c'est le moment où l'on récupère les clés
     // des amis, sans lesquelles aucune reconnaissance silencieuse n'est
@@ -513,15 +552,10 @@ class ProximityController extends AsyncNotifier<ProximityView> {
   void _refresh() {
     final network = _network;
     if (network == null) return;
-    final runtime = ref.read(proximitySupervisorProvider);
     unawaited(
       _journal.pendingRequests().then((requests) {
         state = AsyncData(
-          ProximityView(
-            runtime: runtime,
-            peers: network.presence.peers,
-            requests: requests,
-          ),
+          ProximityView(peers: network.presence.peers, requests: requests),
         );
       }),
     );

@@ -35,6 +35,21 @@ class PingStore extends ChangeNotifierBase {
   Future<File> _chatFile(String peerId) async =>
       File('${(await _root()).path}${Platform.pathSeparator}chat_$peerId.json');
 
+  /// Efface TOUT le local du ping : conversations, croisements, file d'envoi.
+  ///
+  /// ⚠️ **Appelé au changement de compte.** Ces fichiers ne portent pas
+  /// d'identifiant de propriétaire : sans effacement, le compte suivant
+  /// hériterait des conversations et des croisements du précédent.
+  Future<void> wipe() async {
+    final dir = await _root();
+    if (await dir.exists()) {
+      await for (final entry in dir.list()) {
+        if (entry is File) await entry.delete();
+      }
+    }
+    notifyListeners();
+  }
+
   // ------------------------------------------------------------------
   // Conversations
   // ------------------------------------------------------------------

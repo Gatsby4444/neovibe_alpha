@@ -104,6 +104,9 @@ class PeerNetwork {
   /// Au bout de ce délai, le côté passif prend l'initiative.
   static const passiveFallback = Duration(seconds: 12);
 
+  /// Au-delà, on considère que le lien ne s'ouvrira pas.
+  static const connectTimeout = Duration(seconds: 15);
+
   /// Index ID rotatif → ami, reconstruit à chaque créneau.
   Map<String, FriendKeys> _friendIndex = {};
   int _slot = -1;
@@ -231,7 +234,12 @@ class PeerNetwork {
     presence.markIdentifying(address);
     _emit(const PresenceChanged());
     try {
-      await radio.connect(address);
+      // ⚠️ **Avec une échéance.** Une connexion GATT qui n'aboutit pas peut
+      // rester sans réponse une trentaine de secondes côté Android — et si le
+      // rappel natif se perd, pour toujours. Sans borne ici, `_connecting`
+      // garderait l'adresse indéfiniment et **plus aucune tentative** ne serait
+      // possible avec ce pair.
+      await radio.connect(address).timeout(connectTimeout);
     } catch (_) {
       presence.markIdentificationFailed(address);
       _emit(const PresenceChanged());

@@ -16,6 +16,12 @@ import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanCallback.SCAN_FAILED_ALREADY_STARTED
+import android.bluetooth.le.ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED
+import android.bluetooth.le.ScanCallback.SCAN_FAILED_FEATURE_UNSUPPORTED
+import android.bluetooth.le.ScanCallback.SCAN_FAILED_INTERNAL_ERROR
+import android.bluetooth.le.ScanCallback.SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES
+import android.bluetooth.le.ScanCallback.SCAN_FAILED_SCANNING_TOO_FREQUENTLY
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
@@ -117,6 +123,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      */
     fun start(advertId: ByteArray): Boolean {
         desiredAdvertId = advertId
+        scanRetried = false
         val blocker = evaluateRadio(context)
         if (blocker != null) {
             publish(blocker)
@@ -190,7 +197,17 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             when (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1)) {
                 BluetoothAdapter.STATE_ON -> {
                     val wanted = desiredAdvertId
-                    if (wanted != null) start(wanted) else publish(currentStatus())
+                    if (wanted == null) {
+                        publish(currentStatus())
+                        return
+                    }
+                    // PAS TOUT DE SUITE. STATE_ON annonce que l'adaptateur est
+                    // allume, pas que la pile BLE accepte deja un scan :
+                    // demarrer dans la foulee echoue souvent en erreur interne,
+                    // et on aurait alors accuse le code d'un defaut qui n'est
+                    // qu'un defaut de rythme.
+                    publish(RadioStatus.Starting)
+                    main.postDelayed({ if (desiredAdvertId != null) start(wanted) }, 1_200)
                 }
                 BluetoothAdapter.STATE_TURNING_OFF, BluetoothAdapter.STATE_OFF -> {
                     // Les liens sont morts avec la radio : on le DIT, au lieu de
@@ -223,9 +240,24 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             // `advertising = false`. C'est visible, et c'est vrai.
             publish(
                 if (scanning) currentStatus()
-                else RadioStatus.Failed("advertise", "Advertising impossible ($errorCode)"),
+                else RadioStatus.Failed("advertise", advertiseFailureText(errorCode)),
             )
         }
+    }
+
+    private fun advertiseFailureText(code: Int): String = when (code) {
+        AdvertiseCallback.ADVERTISE_FAILED_DATA_TOO_LARGE ->
+            "L'annonce est trop grosse pour cet appareil."
+        AdvertiseCallback.ADVERTISE_FAILED_TOO_MANY_ADVERTISERS ->
+            "Trop d'applications diffusent en meme temps sur cet appareil."
+        AdvertiseCallback.ADVERTISE_FAILED_ALREADY_STARTED ->
+            "Une diffusion precedente n'a pas pu etre arretee."
+        AdvertiseCallback.ADVERTISE_FAILED_INTERNAL_ERROR ->
+            "Le Bluetooth de l'appareil a rencontre une erreur interne."
+        AdvertiseCallback.ADVERTISE_FAILED_FEATURE_UNSUPPORTED ->
+            "Cet appareil ne sait pas se rendre visible en Bluetooth basse " +
+                "consommation."
+        else -> "La diffusion a echoue (code Android $code)."
     }
 
     private fun startAdvertising(advertId: ByteArray) {
@@ -267,10 +299,84 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             main.post { listener.onScan(result.device.address, id, result.rssi) }
         }
 
+        /**
+         * Un code d'erreur brut n'est PAS un message.
+         *
+         * La premiere version publiait « Scan impossible (6) ». Jay l'a lu au
+         * test et n'a rien pu en faire - c'est le contraire de ce que ce
+         * chantier cherche : nommer une cause ACTIONNABLE. Deux de ces six cas
+         * se reparent d'ailleurs tout seuls, encore fallait-il les distinguer.
+         */
         override fun onScanFailed(errorCode: Int) {
             scanning = false
-            publish(RadioStatus.Failed("scan", "Scan impossible ($errorCode)"))
+            when (errorCode) {
+                SCAN_FAILED_ALREADY_STARTED -> {
+                    // Un scan de NOTRE application est encore enregistre cote
+                    // systeme : typiquement apres une coupure du Bluetooth, ou
+                    // stopScan n'a pas pu s'executer (le scanner etait deja
+                    // null). On degage la place et on reprend, une seule fois.
+                    dropScanRegistration()
+                    if (retryScan()) return
+                }
+                SCAN_FAILED_SCANNING_TOO_FREQUENTLY -> {
+                    // Android limite un meme processus a quelques demarrages de
+                    // scan par tranche de 30 s. Ce n'est pas une panne, c'est
+                    // une attente : on le DIT, et on repart tout seul.
+                    publish(
+                        RadioStatus.Failed(
+                            "scanThrottled",
+                            "Android a mis la detection en pause : trop de " +
+                                "demarrages en peu de temps. Reprise automatique " +
+                                "dans une trentaine de secondes.",
+                        ),
+                    )
+                    main.postDelayed({ if (desiredAdvertId != null) startScanning() }, 35_000)
+                    return
+                }
+            }
+            publish(RadioStatus.Failed("scan", scanFailureText(errorCode)))
         }
+    }
+
+    /**
+     * Retire notre enregistrement de scan aupres du systeme.
+     *
+     * Methode et non lambda sur place : ecrite dans l'initialiseur de
+     * `scanCallback`, elle s'y serait citee elle-meme et Kotlin ne pouvait plus
+     * inferer le type de la propriete.
+     */
+    private fun dropScanRegistration() {
+        runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
+    }
+
+    /** Une seule reprise par demarrage : sinon on boucle sur un defaut reel. */
+    private var scanRetried = false
+
+    private fun retryScan(): Boolean {
+        if (scanRetried) return false
+        scanRetried = true
+        main.postDelayed({ if (desiredAdvertId != null) startScanning() }, 400)
+        return true
+    }
+
+    private fun scanFailureText(code: Int): String = when (code) {
+        SCAN_FAILED_ALREADY_STARTED ->
+            "Une detection precedente n'a pas pu etre arretee. Coupe puis " +
+                "rallume la visibilite."
+        SCAN_FAILED_APPLICATION_REGISTRATION_FAILED ->
+            "Android a refuse d'enregistrer la detection. Redemarrer le " +
+                "Bluetooth regle presque toujours ce cas."
+        SCAN_FAILED_INTERNAL_ERROR ->
+            "Le Bluetooth de l'appareil a rencontre une erreur interne. " +
+                "Coupe puis rallume le Bluetooth."
+        SCAN_FAILED_FEATURE_UNSUPPORTED ->
+            "Cet appareil ne sait pas faire ce type de detection."
+        SCAN_FAILED_OUT_OF_HARDWARE_RESOURCES ->
+            "Le Bluetooth de l'appareil est sature par d'autres applications."
+        SCAN_FAILED_SCANNING_TOO_FREQUENTLY ->
+            "Trop de demarrages de detection en peu de temps. Attends une " +
+                "trentaine de secondes."
+        else -> "La detection a echoue (code Android $code)."
     }
 
     private fun startScanning() {

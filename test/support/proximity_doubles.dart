@@ -63,6 +63,9 @@ class CarnetMemoire implements FriendKeyStore {
   Future<void> remove(String userId) async => _amis.remove(userId);
 
   @override
+  Future<void> clear() async => _amis.clear();
+
+  @override
   Future<Map<String, FriendKeys>> rotatingIndex(int slot) async {
     final index = <String, FriendKeys>{};
     for (final ami in _amis.values) {

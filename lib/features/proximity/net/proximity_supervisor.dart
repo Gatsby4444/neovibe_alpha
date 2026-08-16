@@ -33,10 +33,6 @@ class ProximityRuntime {
   /// veut dire « personne ».
   bool get isLive => wantsVisible && status.isDetecting;
 
-  /// L'intention est là mais le matériel ne suit pas. Il y a quelque chose à
-  /// dire à l'utilisateur, et souvent quelque chose à lui faire faire.
-  bool get isBlocked => wantsVisible && !status.isDetecting;
-
   ProximityRuntime copyWith({
     bool? wantsVisible,
     RadioStatus? status,
@@ -174,9 +170,13 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
     try {
       await _radio.updateAdvert(await _identity.currentRotatingId());
     } catch (_) {
-      // Le service n'est plus là : l'état le dira, et `retry` s'en chargera.
-      // Rien à rattraper ici — une rotation ratée coûte au pire un créneau de
-      // reconnaissance, et l'index des amis tolère déjà ±1 créneau.
+      // ⚠️ **L'échec dit quelque chose : le service n'est plus là.**
+      //
+      // La première version se contentait de l'ignorer. Mais si le service a
+      // été tué, l'app restait visiblement « active » sans plus aucune radio —
+      // et personne ne l'aurait su avant le prochain lancement. Puisque
+      // l'intention est toujours là, on rétablit.
+      if (state.wantsVisible) await _engage();
     }
   }
 }

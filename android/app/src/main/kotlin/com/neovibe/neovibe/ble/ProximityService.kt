@@ -132,8 +132,30 @@ class ProximityService : Service(), BleEngine.Listener {
                 return START_NOT_STICKY
             }
             else -> {
+                val advertId = intent?.getByteArrayExtra(EXTRA_ADVERT_ID)
+                if (advertId == null) {
+                    // Android nous a relances apres nous avoir tues : l'intent
+                    // d'origine est perdu, donc l'identifiant rotatif aussi. Il
+                    // est derive d'une cle du Keystore que SEUL le Dart sait
+                    // lire : impossible de le reconstruire ici.
+                    //
+                    // On ne garde donc PAS une notification qui annonce une
+                    // detection qui n'existe pas. On se retire ; le superviseur
+                    // Dart relancera tout au prochain lancement de l'app, en
+                    // relisant l'intention persistee.
+                    onStatus(
+                        RadioStatus.Failed(
+                            "restarted",
+                            "Le service a ete relance par le systeme : rouvre " +
+                                "l'app pour reprendre la detection.",
+                        ),
+                    )
+                    stopForegroundCompat()
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 startForegroundCompat()
-                intent?.getByteArrayExtra(EXTRA_ADVERT_ID)?.let { engine.start(it) }
+                engine.start(advertId)
             }
         }
         // START_STICKY : si Android nous tue sous la pression mémoire, il nous
@@ -158,7 +180,6 @@ class ProximityService : Service(), BleEngine.Listener {
     fun disconnect(linkId: String) = engine.disconnect(linkId)
     fun send(linkId: String, data: ByteArray): Boolean = engine.send(linkId, data)
     fun mtuOf(linkId: String): Int = engine.mtuOf(linkId)
-    fun status(): RadioStatus = lastStatus
 
     // ------------------------------------------------------------------
     // Écoute du moteur

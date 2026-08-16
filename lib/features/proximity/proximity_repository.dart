@@ -78,13 +78,11 @@ class ProximityRepository {
     }
   }
 
-  Future<void> sendRequest(String receiverId) async {
-    final me = ref.read(supabaseProvider).auth.currentUser!.id;
-    await ref.read(supabaseProvider).from('connection_requests').insert({
-      'sender_id': me,
-      'receiver_id': receiverId,
-    });
-  }
+  // ⚠️ `sendRequest` a été supprimée le 2026-08-16 : plus aucun appelant.
+  // Une demande de proximité part désormais d'appareil à appareil, co-signée
+  // (`ProximityController.requestFriendship`), et les recommandations A→B→C ont
+  // leur propre dépôt. Ce fichier ne garde donc que la RÉPONSE à une demande
+  // serveur et l'historique — la seule chose qui passe encore par ce canal.
 
   Future<void> accept(String requestId) => ref
       .read(supabaseProvider)
