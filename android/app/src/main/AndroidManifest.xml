@@ -60,6 +60,14 @@
             android:foregroundServiceType="connectedDevice"
             android:exported="false" />
 
+        <!-- Proximité : le service POSSÈDE la radio BLE et survit à l'activité
+             (reconstruction du 2026-08-16, décision de Jay). C'est lui qui
+             détient l'advertising, le scan et les liens GATT. -->
+        <service
+            android:name=".ble.ProximityService"
+            android:foregroundServiceType="connectedDevice"
+            android:exported="false" />
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

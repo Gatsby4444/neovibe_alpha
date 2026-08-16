@@ -1,5 +1,6 @@
 package com.neovibe.neovibe
 
+import com.neovibe.neovibe.ble.ProximityBridge
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 
@@ -8,6 +9,11 @@ import io.flutter.embedding.engine.FlutterEngine
 class MainActivity : FlutterFragmentActivity() {
     private var nativeCamera: NativeCamera? = null
     private var nativeBle: NativeBle? = null
+
+    /// Pont vers le service de proximité. **Il est jetable** : il naît et meurt
+    /// avec l'activité, alors que le service, lui, survit (reconstruction du
+    /// 2026-08-16).
+    private var proximity: ProximityBridge? = null
     private var nativeMedia: NativeMedia? = null
     private var nativePlayer: NativePlayer? = null
     private var nativeDiagnostics: NativeDiagnostics? = null
@@ -23,6 +29,13 @@ class MainActivity : FlutterFragmentActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
         )
         nativeBle = NativeBle(this, flutterEngine.dartExecutor.binaryMessenger)
+        proximity = ProximityBridge(
+            // `applicationContext` et NON `this` : le pont ne doit pas retenir
+            // l'activité, sans quoi on réintroduirait le lien qu'on vient de
+            // couper entre la radio et l'interface.
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
         nativeMedia = NativeMedia(flutterEngine.dartExecutor.binaryMessenger)
         nativePlayer = NativePlayer(
             applicationContext,
@@ -42,6 +55,9 @@ class MainActivity : FlutterFragmentActivity() {
         nativePlayer = null
         nativeDiagnostics?.dispose()
         nativeDiagnostics = null
+        // Le pont s'en va, le service reste : c'est tout l'intérêt.
+        proximity?.dispose()
+        proximity = null
         super.onDestroy()
     }
 }
