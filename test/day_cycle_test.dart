@@ -140,7 +140,7 @@ void main() {
     // ### Ce que ce test protège, et pourquoi il vaut plus qu'il n'en a l'air
     //
     // C'est la propriété obtenue le 2026-08-15 en passant à l'arc de teinte
-    // (`_Lab.lerpArc`), et validée à l'œil par Jay.
+    // (`_Lab.lerpArcPair`), et validée à l'œil par Jay.
     //
     // L'ancienne interpolation était une **corde** dans le plan (a, b) : une
     // ligne droite, qui passe donc près du CENTRE de la roue des couleurs —
@@ -189,7 +189,7 @@ void main() {
             '${lowestAt.toStringAsFixed(2)} h, contre '
             '${ends.toStringAsFixed(3)} à la plus terne de ses bornes. '
             'Le gris est fabriqué par le CHEMIN, pas par les palettes — '
-            'vérifier que _Lab.lerpArc est bien utilisée dans DayCycle.at.',
+            'vérifier que _Lab.lerpArcPair est bien utilisée dans DayCycle.at.',
       );
     }
   });

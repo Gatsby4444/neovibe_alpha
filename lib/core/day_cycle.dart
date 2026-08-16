@@ -63,54 +63,121 @@ class _Lab {
   ///
   /// ⚠️ **Réservée à la VERTICALE du dégradé** (la bande médiane). Elle ne doit
   /// plus servir à traverser le temps : elle coupe à travers le gris, c'est le
-  /// défaut corrigé le 2026-08-15 — voir [lerpArc].
+  /// défaut corrigé le 2026-08-15 — voir [lerpArcPair].
   static _Lab lerp(_Lab x, _Lab y, double t) =>
       _Lab(x.l + (y.l - x.l) * t, x.a + (y.a - x.a) * t, x.b + (y.b - x.b) * t);
 
-  /// Interpolation **par l'arc** : la teinte tourne, la chroma se lerpe.
+  /// Interpole le HAUT et le BAS d'un dégradé **sans les laisser diverger**.
   ///
-  /// C'est le correctif du 2026-08-15. La corde ci-dessus est une ligne droite
-  /// dans le plan (a, b) — donc elle **coupe à travers le centre de la roue**,
-  /// c'est-à-dire à travers le gris. Quand deux palettes voisines ont des
-  /// teintes opposées, le milieu du segment est plus terne que ses DEUX
-  /// extrémités : mesuré 0,043 entre Jungle (0,075) et Cotton Candy (0,146).
+  /// ## D'où vient l'arc — l'acquis du 2026-08-15, à ne pas perdre
   ///
-  /// Ces creux sont une bonne moitié des « gradients ternes » relevés par Jay,
-  /// et ils ne sont dans **aucune** palette — ils naissent du chemin.
+  /// *(Cette section documentait `lerpArc`, supprimée le 2026-08-16 : cette
+  /// fonction-ci est devenue son unique appelante, donc son seul usage.)*
   ///
+  /// La corde ([lerp]) est une ligne droite dans le plan (a, b) : elle **coupe à
+  /// travers le centre de la roue**, c'est-à-dire à travers le gris. Quand deux
+  /// palettes voisines ont des teintes opposées, le milieu du segment devient
+  /// plus terne que ses DEUX extrémités — mesuré 0,043 entre Jungle (0,075) et
+  /// Cotton Candy (0,146). Ces creux étaient une bonne moitié des « gradients
+  /// ternes » relevés par Jay, et ils n'étaient dans **aucune** palette.
+  ///
+  /// L'arc — la teinte tourne, la chroma se lerpe — les supprime.
   /// **Adopté définitivement par Jay le 2026-08-15** après comparaison à l'œil
-  /// dans l'aperçu (*« l'arc me va nickel »*). La corde a été retirée du
-  /// chemin temporel ; il n'en reste que l'usage vertical.
+  /// (*« l'arc me va nickel »*). La corde ne sert plus qu'à la verticale.
   ///
-  /// Propriété que cela garantit, et que `day_cycle_test.dart` surveille :
-  /// **le milieu d'un segment n'est jamais plus terne que sa borne la plus
-  /// terne** (pire ratio mesuré 0,83, contre 0,37 avec la corde).
+  /// ## Le défaut que la PAIRE supprime, mesuré le 2026-08-16
   ///
-  /// ⚠️ Le garde-fou du quasi-gris n'est pas cosmétique : sous une chroma de
-  /// ~0,012 la teinte n'est plus qu'un bruit d'arrondi, et la faire tourner
-  /// ferait pivoter une couleur qui n'en a pas.
-  static _Lab lerpArc(_Lab x, _Lab y, double t) {
+  /// L'arc seul choisissait le chemin court **pour chaque bord
+  /// indépendamment**. Quand
+  /// les deux bords d'un dégradé demandent des sens opposés, ils s'écartent en
+  /// cours de route : mesuré sur `Desert → Azuria`, à 6 h 53 le haut était à
+  /// **311°** (magenta, arrivé par la gauche) et le bas à **139°** (vert, arrivé
+  /// par la droite) — **172° d'écart**. La verticale du dégradé relie alors deux
+  /// teintes quasi opposées, et la bande médiane tombe à une chroma de
+  /// **0,009**, c'est-à-dire **sous le seuil du gris** ([_greyChroma]).
+  ///
+  /// ⚠️ **Ce n'était pas un défaut de palette.** Les deux bords restaient francs
+  /// tout du long (chroma 0,16 en haut, 0,12-0,16 en bas) : le gris n'existait
+  /// **dans aucune des deux couleurs**, il naissait de leur écartement. C'est le
+  /// même genre de cause que les « gradients ternes » du 2026-08-15 — le chemin,
+  /// pas les couleurs — d'un cran plus profond.
+  ///
+  /// ⚠️ Ce phénomène **était déjà constaté** le 2026-08-15 (voir le commentaire
+  /// de la bande médiane dans [DayCycle.at] : *« le haut et le bas passent, à
+  /// certaines heures, par 180° d'écart de teinte »*). Il avait été traité comme
+  /// une donnée à contourner — la corde sur la verticale — au lieu d'une cause à
+  /// supprimer. La corde reste juste et nécessaire pour la stabilité ; elle ne
+  /// pouvait simplement rien contre deux bords qui divergent.
+  ///
+  /// ## La règle retenue : le haut MÈNE, le bas SUIT
+  ///
+  /// Le haut tourne par son arc court, comme avant. Le bas n'est plus interpolé
+  /// pour lui-même : il se tient **à un écart du haut**, et c'est cet écart qui
+  /// s'interpole (par son propre arc court) entre celui de la palette de départ
+  /// et celui de la palette d'arrivée.
+  ///
+  /// L'écart des bornes est donc une **borne de l'écart en route** : le dégradé
+  /// garde sa forme tout du long, et les deux bords **ne peuvent pas** diverger.
+  /// Ce n'est pas un réglage, c'est une propriété de la formule.
+  ///
+  /// ⚠️ **Une première version choisissait « le sens commun le moins coûteux ».
+  /// Elle était fausse**, et le test l'a dit tout de suite : deux rotations
+  /// minuscules de signes opposés (le haut −10°, le bas +15° — c'est-à-dire deux
+  /// bords qui ne bougent presque pas) déclenchaient un détour de 350° sur l'un
+  /// des deux. Elle a fabriqué un gris là où il n'y en avait jamais eu
+  /// (`Deep Forest → Nuit`, chroma 0,000). *Un critère sur le SIGNE traite une
+  /// différence de 25° comme un désaccord ; ce qu'il fallait regarder, c'est
+  /// l'ÉCART, pas le sens.*
+  static (_Lab, _Lab) lerpArcPair(
+    _Lab xTop,
+    _Lab yTop,
+    _Lab xBot,
+    _Lab yBot,
+    double t,
+  ) {
+    final dTop = _short(yTop.hue - xTop.hue);
+
+    // L'écart bas-haut à chaque bout, puis son interpolation.
+    final gapStart = _short(xBot.hue - xTop.hue);
+    final gapEnd = _short(yBot.hue - yTop.hue);
+    final gap = gapStart + _short(gapEnd - gapStart) * t;
+
+    final topHue = xTop.hue + dTop * t;
+    return (
+      _lerpAlong(xTop, yTop, topHue, t),
+      _lerpAlong(xBot, yBot, topHue + gap, t),
+    );
+  }
+
+  /// Ramène un écart d'angle dans ]-π, π] — l'arc court.
+  static double _short(double d) {
+    var v = d;
+    while (v > math.pi) {
+      v -= 2 * math.pi;
+    }
+    while (v < -math.pi) {
+      v += 2 * math.pi;
+    }
+    return v;
+  }
+
+  /// Clarté et chroma se lerpent ; la **teinte est imposée** par l'appelant.
+  ///
+  /// Le garde-fou du quasi-gris reste ici : sous [_greyChroma] la teinte n'est
+  /// qu'un bruit d'arrondi, et la faire tourner ferait pivoter une couleur qui
+  /// n'en a pas.
+  static _Lab _lerpAlong(_Lab x, _Lab y, double hue, double t) {
     final l = x.l + (y.l - x.l) * t;
     final c = x.chroma + (y.chroma - x.chroma) * t;
-
-    // L'arc COURT : sans ce repliement on ferait le tour par le long côté.
-    var dh = y.hue - x.hue;
-    while (dh > math.pi) {
-      dh -= 2 * math.pi;
-    }
-    while (dh < -math.pi) {
-      dh += 2 * math.pi;
-    }
-
-    final double hue;
+    final double h;
     if (x.chroma < _greyChroma) {
-      hue = y.hue;
+      h = y.hue;
     } else if (y.chroma < _greyChroma) {
-      hue = x.hue;
+      h = x.hue;
     } else {
-      hue = x.hue + dh * t;
+      h = hue;
     }
-    return fromHueChroma(hue, c, l);
+    return fromHueChroma(h, c, l);
   }
 
   /// En dessous, une couleur n'a plus de teinte exploitable.
@@ -197,6 +264,16 @@ double perceptualDistance(Color a, Color b) {
   return math.sqrt(dl * dl + da * da + db * db);
 }
 
+/// La même distance que [perceptualDistance], entre deux couleurs **déjà en
+/// OkLab** — pour mesurer un chemin sans repasser par sRVB à chaque pas (ce qui
+/// arrondirait sur 8 bits et fausserait la somme).
+double _labDistance(_Lab x, _Lab y) {
+  final dl = x.l - y.l;
+  final da = x.a - y.a;
+  final db = x.b - y.b;
+  return math.sqrt(dl * dl + da * da + db * db);
+}
+
 /// **Chroma** perceptuelle d'une couleur : sa distance à l'axe des gris.
 ///
 /// C'est la mesure de « à quel point c'est coloré », indépendamment de la
@@ -207,7 +284,19 @@ double chromaOf(Color c) => _toLab(c).chroma;
 class DayAnchor {
   const DayAnchor(this.hour, this.top, this.bottom, this.label);
 
-  /// Heure locale, 0–24.
+  /// Une palette **sans heure** — un élément d'ORDRE, pas de calendrier.
+  ///
+  /// C'est la forme sous laquelle on déclare un jeu de couleurs : les heures
+  /// sont ensuite calculées par [DayCycle.autoSchedule]. Le constructeur existe
+  /// pour rendre la règle **structurelle** plutôt que documentaire — on ne peut
+  /// pas poser une heure à la main là où le moteur doit la déduire (voir
+  /// `RAPPELS.md` #29 ② : un segment trop rapide est un défaut que le test a
+  /// déjà attrapé deux fois, et que personne ne verrait sur un ordre composé à
+  /// la main).
+  const DayAnchor.palette(this.top, this.bottom, this.label) : hour = 0;
+
+  /// Heure locale, 0–24. **Nulle et sans signification** sur un ancrage construit
+  /// par [DayAnchor.palette] : elle n'a de sens qu'après [DayCycle.autoSchedule].
   final double hour;
 
   final Color top;
@@ -303,33 +392,51 @@ abstract final class DayCycle {
   /// ⚠️ **C'est le seul endroit à éditer pour changer les couleurs.** Le moteur
   /// ne bouge pas quand la palette bouge — et le test des 1440 minutes dit
   /// immédiatement si un nouvel ancrage casse la lisibilité.
-  static const anchors = <DayAnchor>[
-    // ⚠️ La cadence n'est plus uniforme, et c'est le sujet même de cette
-    // version : chaque segment reçoit la durée que sa distance de couleur
-    // exige, et le reste du budget va là où il y a du monde.
-    //
-    // Mesuré : le minimum imposé par le seuil d'imperceptibilité est de ~11 h
-    // sur 24 — il reste donc 13 h à répartir librement. La nuit morte
-    // (1 h-6 h) absorbe les segments longs et ternes ; les heures d'usage
-    // reçoivent les palettes franches.
-    //
-    // ⚠️ Le saut `Jungle sombre → Desert` (vert quasi noir → orange) est le
-    // plus grand de l'arc : à 1 h 30 il FAISAIT ÉCHOUER le test (0,0202 pour
-    // un seuil de 0,0200). Il lui faut 2 h 30. Ne pas le resserrer.
-    DayAnchor(0.0, Color(0xFF034C36), Color(0xFF003332), 'Deep Forest'),
-    DayAnchor(1.5, Color(0xFF04150F), Color(0xFF06231D), 'Nuit'),
-    DayAnchor(3.5, Color(0xFF071512), Color(0xFF0C342C), 'Jungle sombre'),
-    DayAnchor(6.0, Color(0xFFBC430D), Color(0xFFF09410), 'Desert'),
-    DayAnchor(8.0, Color(0xFF1B0B3D), Color(0xFF5B22C8), 'Deep Ocean'),
-    DayAnchor(10.0, Color(0xFFA92655), Color(0xFFFD8D67), 'Velvet Sunset'),
-    DayAnchor(11.5, Color(0xFFDD7A83), Color(0xFFE8BFC3), 'Blush Silk'),
-    DayAnchor(13.0, Color(0xFF292F91), Color(0xFF4CA8DD), 'Azuria'),
-    DayAnchor(14.5, Color(0xFF076653), Color(0xFFE2FBCE), 'Jungle'),
-    DayAnchor(16.0, Color(0xFF708F96), Color(0xFFAA895F), 'Muted Olive Sky'),
-    DayAnchor(18.0, Color(0xFF7AABFF), Color(0xFFFF9AEF), 'Cotton Candy'),
-    DayAnchor(21.5, Color(0xFF6968A6), Color(0xFFCF9893), 'Lavender Dusk'),
-    DayAnchor(24.0, Color(0xFF034C36), Color(0xFF003332), 'Deep Forest'),
+  /// **L'ORDRE choisi par Jay le 2026-08-16**, dans l'écran d'aperçu.
+  ///
+  /// ⚠️ **Aucune heure n'est écrite ici, et c'est volontaire.** Jay a fourni sa
+  /// palette accompagnée d'heures (0,00 · 1,41 · 1,86 · 5,32 …) — mais ces
+  /// heures sont une **sortie** de [autoSchedule], pas un choix. Les recopier en
+  /// dur aurait figé un résultat calculé : à la première retouche d'une couleur,
+  /// elles seraient devenues fausses **sans que rien ne le signale**, et le
+  /// partage « l'utilisateur pose l'ordre, le moteur déduit les heures »
+  /// (`RAPPELS.md` #29 ②) aurait été rompu du côté où il compte le plus — le
+  /// défaut par défaut.
+  ///
+  /// Le type l'impose désormais : [DayAnchor.palette] n'accepte pas d'heure.
+  ///
+  /// **Changements de Jay par rapport à l'ordre du 2026-08-15** : Azuria remonte
+  /// de la 8ᵉ à la 5ᵉ place (juste après Desert), et Muted Olive Sky descend en
+  /// dernier, derrière Cotton Candy et Lavender Dusk.
+  static const _order = <DayAnchor>[
+    DayAnchor.palette(Color(0xFF034C36), Color(0xFF003332), 'Deep Forest'),
+    DayAnchor.palette(Color(0xFF04150F), Color(0xFF06231D), 'Nuit'),
+    DayAnchor.palette(Color(0xFF071512), Color(0xFF0C342C), 'Jungle sombre'),
+    DayAnchor.palette(Color(0xFFBC430D), Color(0xFFF09410), 'Desert'),
+    DayAnchor.palette(Color(0xFF292F91), Color(0xFF4CA8DD), 'Azuria'),
+    DayAnchor.palette(Color(0xFF1B0B3D), Color(0xFF5B22C8), 'Deep Ocean'),
+    DayAnchor.palette(Color(0xFFA92655), Color(0xFFFD8D67), 'Velvet Sunset'),
+    DayAnchor.palette(Color(0xFFDD7A83), Color(0xFFE8BFC3), 'Blush Silk'),
+    DayAnchor.palette(Color(0xFF076653), Color(0xFFE2FBCE), 'Jungle'),
+    DayAnchor.palette(Color(0xFF7AABFF), Color(0xFFFF9AEF), 'Cotton Candy'),
+    DayAnchor.palette(Color(0xFF6968A6), Color(0xFFCF9893), 'Lavender Dusk'),
+    DayAnchor.palette(Color(0xFF708F96), Color(0xFFAA895F), 'Muted Olive Sky'),
   ];
+
+  /// Le calendrier effectif : l'ordre de Jay, dont les heures sont réparties au
+  /// prorata de la distance de couleur.
+  ///
+  /// ⚠️ **C'est [_order] qu'on édite pour changer les couleurs, jamais ceci.**
+  /// Les heures ne sont plus une donnée : elles sont **dérivées**, donc toujours
+  /// cohérentes avec les couleurs en place. La cadence n'est pas uniforme et
+  /// c'est le sujet — un grand écart de couleur reçoit beaucoup d'heures, un
+  /// petit peu — de sorte qu'aucun segment ne peut être « le plus rapide ».
+  ///
+  /// ⚠️ La mise en garde de la version précédente (« le saut Jungle sombre →
+  /// Desert a besoin de 2 h 30, ne pas le resserrer ») **n'a plus lieu d'être** :
+  /// c'était un réglage à la main, et c'est précisément ce que la répartition au
+  /// prorata rend impossible à rater. Le test des 1440 minutes reste le juge.
+  static final anchors = autoSchedule(_order);
 
   /// Les **12 palettes distinctes**, sans l'ancrage de bouclage à 24 h.
   ///
@@ -359,13 +466,48 @@ abstract final class DayCycle {
   /// ⚠️ Seules les distances **relatives** comptent (c'est une proportion) :
   /// inutile de chercher une métrique exacte au ΔE près. On prend le pire des
   /// deux bords ; la bande médiane en est dérivée et suit le même facteur.
+  ///
+  /// ⚠️ **Les deux sorties dégénérées ci-dessous rendaient `anchors`** — ce qui
+  /// est devenu une **référence circulaire** le 2026-08-16, `anchors` étant
+  /// désormais produit par cette fonction. Dart ne l'aurait signalé qu'à
+  /// l'exécution, et seulement sur une entrée qui n'arrive jamais. Elles rendent
+  /// donc l'entrée telle quelle : c'est aussi la réponse honnête, il n'y a rien
+  /// à répartir sur moins de deux palettes.
   static List<DayAnchor> autoSchedule(List<DayAnchor> order) {
-    if (order.length < 2) return anchors;
+    if (order.length < 2) return List.of(order);
 
-    double gap(DayAnchor a, DayAnchor b) => math.max(
-      perceptualDistance(a.top, b.top),
-      perceptualDistance(a.bottom, b.bottom),
-    );
+    // ⚠️ **La LONGUEUR DU CHEMIN, pas la distance à vol d'oiseau** (corrigé le
+    // 2026-08-16). Cette fonction mesurait `perceptualDistance`, c'est-à-dire la
+    // corde — alors que le moteur parcourt un ARC depuis le 2026-08-15. Un
+    // segment qui fait tourner la teinte de 200° parcourt bien plus de chemin
+    // que la corde entre ses deux bouts : il recevait donc trop peu d'heures, et
+    // défilait plus vite que les autres.
+    //
+    // L'incohérence était **latente depuis l'adoption de l'arc** ; elle n'a
+    // sauté aux yeux qu'en couplant les deux bords, qui allonge encore le
+    // trajet. Elle vide de son sens l'énoncé « la vitesse perçue est uniforme »,
+    // qui est la raison d'être de toute cette répartition.
+    //
+    // On échantillonne le trajet réel au lieu de chercher une formule fermée :
+    // la longueur d'arc en OkLab n'en a pas de simple, et 24 pas suffisent
+    // largement (calculé une fois au démarrage, pour 12 segments).
+    double gap(DayAnchor a, DayAnchor b) {
+      const steps = 24;
+      final xTop = _toLab(a.top);
+      final yTop = _toLab(b.top);
+      final xBot = _toLab(a.bottom);
+      final yBot = _toLab(b.bottom);
+      var top = 0.0;
+      var bottom = 0.0;
+      var prev = _Lab.lerpArcPair(xTop, yTop, xBot, yBot, 0);
+      for (var i = 1; i <= steps; i++) {
+        final cur = _Lab.lerpArcPair(xTop, yTop, xBot, yBot, i / steps);
+        top += _labDistance(prev.$1, cur.$1);
+        bottom += _labDistance(prev.$2, cur.$2);
+        prev = cur;
+      }
+      return math.max(top, bottom);
+    }
 
     // Le segment de bouclage (dernier → premier) compte comme les autres :
     // minuit n'est pas un bord, c'est un point de passage.
@@ -374,7 +516,7 @@ abstract final class DayCycle {
         gap(order[i], order[(i + 1) % order.length]),
     ];
     final total = gaps.reduce((a, b) => a + b);
-    if (total <= 0) return anchors;
+    if (total <= 0) return List.of(order);
 
     final out = <DayAnchor>[];
     var hour = 0.0;
@@ -459,8 +601,16 @@ abstract final class DayCycle {
     final span = b.hour - a.hour;
     final k = span <= 0 ? 0.0 : ((t - a.hour) / span).clamp(0.0, 1.0);
 
-    final top = _Lab.lerpArc(_toLab(a.top), _toLab(b.top), k);
-    final bottom = _Lab.lerpArc(_toLab(a.bottom), _toLab(b.bottom), k);
+    // Les deux bords tournent ENSEMBLE — voir `_Lab.lerpArcPair`. Les
+    // interpoler séparément les laissait diverger jusqu'à 172°, et la bande
+    // médiane tombait alors sous le seuil du gris.
+    final (top, bottom) = _Lab.lerpArcPair(
+      _toLab(a.top),
+      _toLab(b.top),
+      _toLab(a.bottom),
+      _toLab(b.bottom),
+      k,
+    );
 
     // La bande médiane : le milieu perceptuel, bombé en chroma et en clarté.
     //
