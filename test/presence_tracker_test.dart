@@ -149,4 +149,47 @@ void main() {
     expect(t.peers.first.address, 'BB');
     expect(t.peers.last.address, 'AA');
   });
+  test('un ami qui change d\'adresse BLE ne compte QU\'UNE fois', () {
+    final h = Horloge();
+    final t = PresenceTracker(clock: h.call);
+
+    // Android change périodiquement l'adresse MAC de l'appareil, pour empêcher
+    // le pistage. La même personne apparaît donc sous deux adresses.
+    t.observe('AA:ancienne', -70, friend: profil);
+    h.avance(const Duration(seconds: 2));
+    t.observe('BB:nouvelle', -65, friend: profil);
+
+    // Jay, au test du 2026-08-16 : « j'ai deux fois mimi sur mon téléphone ».
+    expect(t.length, 1);
+    expect(t.peers.single.address, 'BB:nouvelle');
+    expect(t.byUser('u-1'), isNotNull);
+  });
+
+  test('la fusion garde l\'adresse vue le plus RÉCEMMENT', () {
+    final h = Horloge();
+    final t = PresenceTracker(clock: h.call);
+
+    t.observe('BB:nouvelle', -65, friend: profil);
+    h.avance(const Duration(seconds: 3));
+    // Une annonce en retard, émise sous l'ancienne adresse, arrive après.
+    t.observe('AA:ancienne', -70, friend: profil);
+
+    // C'est la plus récente qui gagne : c'est par elle que le pair nous parle
+    // maintenant, donc c'est elle qui portera le lien GATT.
+    expect(t.length, 1);
+    expect(t.peers.single.address, 'AA:ancienne');
+  });
+
+  test('deux personnes distinctes ne fusionnent jamais', () {
+    final t = PresenceTracker();
+    const autre = PingPeerSnapshot(
+      userId: 'u-2',
+      username: 'Bob',
+      verified: true,
+    );
+    t.observe('AA', -70, friend: profil);
+    t.observe('BB', -70, friend: autre);
+
+    expect(t.length, 2);
+  });
 }

@@ -1,0 +1,811 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeoVibe — comment le ping voit les gens autour de toi</title>
+<style>
+:root{
+  --bg:#0d0d12; --panel:#16161f; --panel2:#1d1d28; --line:#2c2c3a;
+  --ink:#e9e9f2; --muted:#9a9ab0; --faint:#65657d;
+  --ok:#3bd6a8; --no:#ff5f6d; --key:#ffd24a; --me:#c05cff; --peer:#3ba9ff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{padding:28px 24px 10px;max-width:1180px;margin:0 auto}
+h1{margin:0 0 4px;font-size:26px;letter-spacing:-.3px}
+.sub{color:var(--muted);margin:0}
+nav{max-width:1180px;margin:18px auto 0;padding:0 24px;display:flex;gap:8px;flex-wrap:wrap}
+nav button{background:var(--panel);color:var(--muted);border:1px solid var(--line);
+  padding:9px 16px;border-radius:999px;cursor:pointer;font-size:14px}
+nav button.on{background:var(--ink);color:#0d0d12;border-color:var(--ink);font-weight:600}
+main{max-width:1180px;margin:0 auto;padding:22px 24px 90px}
+section{display:none} section.on{display:block}
+h2{font-size:20px;margin:34px 0 10px;letter-spacing:-.2px}
+h3{font-size:16px;margin:24px 0 8px;color:var(--ink)}
+p{margin:10px 0}
+.muted{color:var(--muted)} .faint{color:var(--faint);font-size:13px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:18px;margin:16px 0}
+.card.warn{border-color:#5a3a1e;background:#1b1509}
+.card.bad{border-color:#5a2230;background:#1c0f13}
+.card.good{border-color:#1e4d3e;background:#0c1a16}
+.lab{background:var(--panel2);border:1px solid var(--line);border-radius:14px;
+  padding:16px;margin:16px 0}
+.row{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.row.top{align-items:flex-start}
+.col{flex:1;min-width:260px}
+button.act{background:var(--panel);color:var(--ink);border:1px solid var(--line);
+  padding:8px 14px;border-radius:9px;cursor:pointer;font-size:14px}
+button.act:hover{border-color:var(--ink)}
+button.act.on{background:var(--ink);color:#0d0d12;font-weight:600}
+.sw{display:inline-flex;align-items:center;gap:8px;background:var(--panel);
+  border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer;
+  font-size:13px;user-select:none}
+.sw .dot{width:11px;height:11px;border-radius:50%;background:var(--no)}
+.sw.on .dot{background:var(--ok)}
+table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:13px}
+code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:13px}
+pre{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5}
+svg{display:block;max-width:100%}
+.tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;
+  border:1px solid var(--line);color:var(--muted)}
+.tag.ok{color:var(--ok);border-color:#1e4d3e}
+.tag.no{color:var(--no);border-color:#5a2230}
+.legend{font-size:12px;color:var(--faint);margin-top:8px}
+.big{font-size:22px;font-weight:600;letter-spacing:-.3px}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+ul{margin:8px 0 8px 20px;padding:0} li{margin:5px 0}
+.stack{display:flex;flex-direction:column;gap:6px}
+.layer{border:1px solid var(--line);border-radius:9px;padding:9px 12px;
+  background:var(--panel2);font-size:13px}
+.layer b{color:var(--ink)} .layer span{color:var(--muted)}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Comment le ping voit les gens autour de toi</h1>
+  <p class="sub">NeoVibe — reconstruction du 2026-08-16. Cours, schémas et simulateurs.</p>
+</header>
+
+<nav>
+  <button class="on" data-go="0">1 · Le problème</button>
+  <button data-go="1">2 · L'identifiant rotatif</button>
+  <button data-go="2">3 · Les deux sens</button>
+  <button data-go="3">4 · La poignée de main</button>
+  <button data-go="4">5 · La présence</button>
+  <button data-go="5">6 · Intention ≠ état</button>
+  <button data-go="6">7 · Les couches</button>
+  <button data-go="7">8 · Les bugs, expliqués</button>
+</nav>
+
+<main>
+
+<!-- ================================================================= 1 -->
+<section class="on">
+  <h2>Trois exigences qui se contredisent</h2>
+
+  <p>Le ping doit répondre à une question simple — <b>qui est autour de moi ?</b> —
+  en respectant trois choses qui, prises deux à deux, s'opposent.</p>
+
+  <div class="row top">
+    <div class="col card">
+      <div class="big">① Sans serveur</div>
+      <p class="muted">La détection doit marcher dans le métro, en festival, en
+      voyage. Donc aucun appel réseau ne peut faire partie du chemin.</p>
+    </div>
+    <div class="col card">
+      <div class="big">② Sans se faire pister</div>
+      <p class="muted">Diffuser un identifiant fixe, c'est porter une plaque
+      d'immatriculation. N'importe quel commerçant avec un capteur pourrait
+      suivre tes déplacements.</p>
+    </div>
+    <div class="col card">
+      <div class="big">③ Sans se dévoiler</div>
+      <p class="muted">Ton pseudo et ta photo ne doivent pas circuler en clair
+      dans l'air. Seul quelqu'un qui est vraiment là, et à qui tu réponds, doit
+      les obtenir.</p>
+    </div>
+  </div>
+
+  <div class="card warn">
+    <h3>La contradiction</h3>
+    <p>Pour qu'un <b>ami</b> te reconnaisse sans serveur, il faut qu'il puisse
+    lire quelque chose de stable dans ce que tu diffuses. Mais pour qu'un
+    <b>inconnu</b> ne te piste pas, ce que tu diffuses doit changer tout le
+    temps.</p>
+    <p class="muted">Il faut donc un identifiant qui soit <b>imprévisible pour
+    tout le monde, sauf pour ceux qui possèdent une clé.</b> C'est l'objet du
+    chapitre suivant.</p>
+  </div>
+
+  <h3>Ce que la radio peut faire, et à quel prix</h3>
+  <table>
+    <tr><th>Mécanisme</th><th>Portée</th><th>Ce qu'il transporte</th><th>Coût</th></tr>
+    <tr><td><b>Advertising</b> (annonce)</td><td>~10-30 m</td>
+        <td>26 octets, en clair, vers tout le monde</td><td>Très faible</td></tr>
+    <tr><td><b>Scan</b> (écoute)</td><td>idem</td>
+        <td>Les annonces des autres + leur puissance</td><td>Faible</td></tr>
+    <tr><td><b>Lien GATT</b></td><td>idem</td>
+        <td>Autant d'octets qu'on veut, à deux</td><td>Élevé — une connexion</td></tr>
+  </table>
+  <p class="faint">C'est cette différence de coût qui structure tout : on
+  <b>annonce</b> en permanence quelque chose de minuscule, et on n'ouvre un
+  <b>lien</b> que quand on a une vraie raison.</p>
+</section>
+
+<!-- ================================================================= 2 -->
+<section>
+  <h2>L'identifiant rotatif</h2>
+
+  <p>Ton téléphone ne diffuse jamais qui tu es. Il diffuse <b>16 octets calculés</b> :</p>
+
+  <pre>identifiant = HMAC-SHA256( ta clé de diffusion , numéro du créneau de 15 min )
+                                                       ↑ tronqué à 16 octets</pre>
+
+  <p>La <b>clé de diffusion</b> est un secret de 32 octets, tiré au hasard à
+  l'installation, qui ne quitte jamais le Keystore de l'appareil. Le <b>créneau</b>
+  est simplement l'heure, découpée en tranches de 15 minutes.</p>
+
+  <div class="row top">
+    <div class="col card good">
+      <h3>Pour un ami</h3>
+      <p>Il a reçu ta clé de diffusion (par le serveur, quand vous êtes devenus
+      amis). Il peut donc calculer <b>à l'avance</b> ce que tu vas diffuser, et
+      te reconnaître <b>sans t'adresser la parole</b>.</p>
+    </div>
+    <div class="col card bad">
+      <h3>Pour un espion</h3>
+      <p>Il voit passer des suites d'octets qui changent toutes les 15 minutes,
+      sans aucun lien calculable entre elles. Il ne peut ni t'identifier, ni
+      relier deux observations.</p>
+    </div>
+  </div>
+
+  <div class="lab">
+    <h3>Simulateur — 24 heures de diffusion</h3>
+    <div class="row">
+      <label class="muted" style="min-width:90px">Heure</label>
+      <input id="rotH" type="range" min="0" max="1439" value="540" style="flex:1">
+      <span id="rotHv" class="mono" style="min-width:70px"></span>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div class="col">
+        <div class="faint">Ce que ton téléphone diffuse</div>
+        <div id="rotId" class="mono big" style="color:var(--me)"></div>
+        <div class="faint">créneau n° <span id="rotSlot" class="mono"></span></div>
+      </div>
+      <div class="col">
+        <div class="faint">Ce qu'un ami calcule de son côté</div>
+        <div id="rotFriend" class="mono big" style="color:var(--ok)"></div>
+        <div id="rotMatch" class="faint"></div>
+      </div>
+    </div>
+    <div style="margin-top:14px">
+      <div class="faint">Le carnet de l'espion (ce qu'il a vu aujourd'hui)</div>
+      <div id="rotSpy" class="mono faint" style="margin-top:6px;line-height:1.9"></div>
+    </div>
+    <div class="legend">Fais glisser : à chaque changement de créneau, l'identifiant
+    change entièrement. L'ami suit, parce qu'il refait le calcul. L'espion accumule
+    des lignes qu'il ne peut relier à rien.</div>
+  </div>
+
+  <div class="card warn">
+    <h3>Le détail qui sauve : la tolérance ±1 créneau</h3>
+    <p>Deux téléphones n'ont jamais exactement la même heure. À la frontière d'un
+    créneau, l'un a déjà basculé et l'autre pas.</p>
+    <p>L'app calcule donc, pour chaque ami, <b>trois</b> identifiants : celui du
+    créneau précédent, celui du créneau courant, celui du suivant. Sans cette
+    tolérance, les amis cesseraient de se reconnaître quelques secondes toutes
+    les 15 minutes — un défaut rare, intermittent, et impossible à reproduire à
+    la demande.</p>
+  </div>
+</section>
+
+<!-- ================================================================= 3 -->
+<section>
+  <h2>Les deux sens de la radio</h2>
+
+  <p>C'est le chapitre le plus important, parce que c'est celui qui explique le
+  bug le plus déroutant : <b>un appareil qui voit tout le monde sans que personne
+  ne le voie.</b></p>
+
+  <p>La proximité n'est pas une fonction unique. Ce sont <b>deux mécanismes
+  indépendants</b>, qui peuvent tomber séparément :</p>
+
+  <table>
+    <tr><th></th><th>Diffusion (advertising)</th><th>Détection (scan)</th></tr>
+    <tr><td>Rôle</td><td>Les autres me voient</td><td>Je vois les autres</td></tr>
+    <tr><td>Si elle échoue</td><td>Je suis invisible — <b>mon écran ne le sait pas</b></td>
+        <td>Ma liste est vide</td></tr>
+    <tr><td>Causes fréquentes</td><td>Trop d'applications diffusent, pile saturée</td>
+        <td>Bluetooth éteint, permission manquante, bridage Android</td></tr>
+  </table>
+
+  <div class="lab">
+    <h3>Simulateur — deux téléphones, quatre interrupteurs</h3>
+    <div class="row" style="margin-bottom:10px">
+      <div class="col">
+        <div class="faint" style="margin-bottom:6px">Téléphone A</div>
+        <span class="sw on" data-sw="ad"><span class="dot"></span>A diffuse</span>
+        <span class="sw on" data-sw="as"><span class="dot"></span>A détecte</span>
+      </div>
+      <div class="col">
+        <div class="faint" style="margin-bottom:6px">Téléphone B</div>
+        <span class="sw on" data-sw="bd"><span class="dot"></span>B diffuse</span>
+        <span class="sw on" data-sw="bs"><span class="dot"></span>B détecte</span>
+      </div>
+    </div>
+    <svg id="twoWay" viewBox="0 0 640 190" height="190"></svg>
+    <div class="row">
+      <div class="col card" style="margin:6px 0">
+        <div class="faint">Écran de A</div><div id="scrA"></div>
+      </div>
+      <div class="col card" style="margin:6px 0">
+        <div class="faint">Écran de B</div><div id="scrB"></div>
+      </div>
+    </div>
+    <div class="legend">Coupe <b>« A diffuse »</b> : B ne voit plus personne, alors
+    que A continue de voir B. C'est exactement ce que Jay a constaté entre son
+    téléphone et sa tablette — et pendant longtemps, <b>l'écran de A n'en disait
+    rien</b>.</div>
+  </div>
+
+  <div class="card bad">
+    <h3>Le bug, dans le code</h3>
+    <pre>// L'ancienne version
+if (status.isDetecting) return const SizedBox.shrink();   // ← cache le bandeau
+...
+RadioRunning(advertising: false) =&gt; ('Tu n\'es pas annoncé', …)   // ← inatteignable</pre>
+    <p><code>isDetecting</code> ne regarde que le <b>scan</b>. Dès que le scan
+    tournait, le bandeau disparaissait — <b>y compris quand la diffusion avait
+    échoué</b>. Le message « tu n'es pas annoncé », écrit trois lignes plus bas,
+    ne pouvait donc jamais s'afficher.</p>
+    <p class="muted">Corrigé le 2026-08-16 : le bandeau ne se cache que sur
+    <code>isHealthy</code> — <b>les deux sens</b> en marche.</p>
+  </div>
+</section>
+
+<!-- ================================================================= 4 -->
+<section>
+  <h2>La poignée de main</h2>
+
+  <p>Reconnaître un <b>ami</b> ne demande aucun échange : son identifiant rotatif
+  suffit. Mais un <b>inconnu</b>, lui, doit se révéler — et cela demande un canal
+  que personne d'autre ne peut lire, ni fabriquer.</p>
+
+  <div class="lab">
+    <h3>Simulateur — étape par étape</h3>
+    <div class="row" style="margin-bottom:10px">
+      <button class="act" id="hsPrev">◀ Précédent</button>
+      <button class="act" id="hsNext">Suivant ▶</button>
+      <span class="sw" data-sw="mitm"><span class="dot"></span>Un attaquant s'intercale</span>
+    </div>
+    <svg id="hsSvg" viewBox="0 0 640 230" height="230"></svg>
+    <div class="card" style="margin-top:6px"><div id="hsText"></div></div>
+    <div class="legend">Active l'attaquant, puis avance : la signature de la clé
+    éphémère l'arrête à l'étape 2. Sans elle, il établissait deux canaux et lisait
+    tout — c'était le cas avant le 2026-08-16.</div>
+  </div>
+
+  <h3>Ce que chaque pièce empêche</h3>
+  <table>
+    <tr><th>Pièce</th><th>Ce qu'elle empêche</th><th>Sans elle</th></tr>
+    <tr><td><b>X25519 éphémère</b></td><td>Qu'un tiers lise l'échange</td>
+        <td>Tout circule en clair dans l'air</td></tr>
+    <tr><td><b>Signature Ed25519 de la clé éphémère</b></td>
+        <td>Qu'un tiers <i>s'intercale</i></td>
+        <td>Un homme du milieu établit deux canaux et relaie</td></tr>
+    <tr><td><b>Compteur de trames</b></td><td>Qu'une trame captée soit renvoyée</td>
+        <td>Un message peut être rejoué : « je te dois 10 € », deux fois</td></tr>
+    <tr><td><b>Clé du profil = clé de la poignée de main</b></td>
+        <td>Qu'on présente le profil signé d'un autre</td>
+        <td>La signature prouve qui a écrit, pas qui est en face</td></tr>
+  </table>
+</section>
+
+<!-- ================================================================= 5 -->
+<section>
+  <h2>La présence : transformer un signal en information</h2>
+
+  <p>La radio ne donne pas une distance. Elle donne un <b>RSSI</b> — une puissance
+  reçue, en dBm, qui varie énormément sans que personne ne bouge : réflexions sur
+  les murs, orientation du téléphone, un corps qui passe.</p>
+
+  <div class="lab">
+    <h3>Simulateur — le même appareil, immobile</h3>
+    <div class="row" style="margin-bottom:8px">
+      <span class="sw on" data-sw="smooth"><span class="dot"></span>Lissage</span>
+      <span class="sw on" data-sw="hyst"><span class="dot"></span>Hystérésis</span>
+      <button class="act" id="rssiPlay">Pause</button>
+      <span class="faint">Bascules d'étiquette : <b id="flips" class="mono">0</b></span>
+    </div>
+    <svg id="rssi" viewBox="0 0 640 200" height="200"></svg>
+    <div class="legend">Coupe le lissage : l'étiquette « très proche / proche »
+    se met à clignoter plusieurs fois par seconde, sans que rien n'ait bougé.
+    Coupe l'hystérésis : elle bascule dès qu'on frôle le seuil. Une information
+    qui clignote n'est pas une information.</div>
+  </div>
+
+  <div class="card warn">
+    <h3>Une personne, deux adresses</h3>
+    <p>Android <b>renouvelle périodiquement l'adresse MAC Bluetooth</b> de
+    l'appareil — même intention que notre identifiant rotatif, une couche plus
+    bas. La présence étant indexée par adresse, la même personne apparaissait
+    alors <b>deux fois</b>, puis la ligne périmée s'éteignait au bout du délai de
+    grâce.</p>
+    <p class="muted">C'est mot pour mot ce que Jay a rapporté :
+    <i>« j'ai deux fois mimi »</i>, puis <i>« le deuxième a disparu »</i>.</p>
+    <p><b>Le correctif</b> : l'adresse reste la bonne clé de <i>transport</i> —
+    c'est elle qui désigne un lien. Mais elle n'a jamais été une identité. Dès
+    que le <code>userId</code> est connu, il fait foi, et les adresses
+    concurrentes fusionnent sur celle vue le plus récemment.</p>
+  </div>
+
+  <h3>Les trois états d'un appareil vu</h3>
+  <div class="stack">
+    <div class="layer"><b>détecté</b> <span>— la radio le voit, on ne sait pas qui c'est</span></div>
+    <div class="layer"><b>en identification</b> <span>— la poignée de main est en cours</span></div>
+    <div class="layer"><b>identifié</b> <span>— ami reconnu, ou inconnu révélé</span></div>
+  </div>
+  <p class="faint">Avant la reconstruction, seul le troisième existait. Les deux
+  premiers s'affichaient donc comme « Personne à proximité » — le même écran que
+  Bluetooth éteint, et que permission manquante. <b>Trois causes, un seul
+  message :</b> aucun test n'était interprétable.</p>
+</section>
+
+<!-- ================================================================= 6 -->
+<section>
+  <h2>L'intention n'est pas l'état</h2>
+
+  <p>C'est la pièce qui rend le système résistant, et elle n'existait pas.</p>
+
+  <div class="row top">
+    <div class="col card">
+      <h3>L'intention</h3>
+      <p>Ce que <b>tu veux</b> : être visible, ou non. Elle ne change que si tu
+      touches l'interrupteur. Elle est <b>écrite sur le disque</b>, donc elle
+      survit à la fermeture de l'app et au redémarrage du téléphone.</p>
+    </div>
+    <div class="col card">
+      <h3>L'état</h3>
+      <p>Ce que <b>le matériel fait</b> réellement. Il change tout seul : le
+      Bluetooth s'éteint, une permission est retirée, Android bride le scan.
+      Il est <b>publié par le natif</b>, jamais deviné.</p>
+    </div>
+  </div>
+
+  <div class="lab">
+    <h3>Simulateur — le superviseur réconcilie</h3>
+    <div class="row" style="margin-bottom:10px">
+      <span class="sw on" data-sw="want"><span class="dot"></span>Je veux être visible</span>
+      <span class="sw on" data-sw="bt"><span class="dot"></span>Bluetooth allumé</span>
+      <span class="sw on" data-sw="perm"><span class="dot"></span>Permission accordée</span>
+      <button class="act" id="killApp">Fermer et rouvrir l'app</button>
+    </div>
+    <div class="row">
+      <div class="col card"><div class="faint">Intention (disque)</div>
+        <div id="supWant" class="big"></div></div>
+      <div class="col card"><div class="faint">État (natif)</div>
+        <div id="supState" class="big"></div></div>
+      <div class="col card"><div class="faint">Ce que l'écran dit</div>
+        <div id="supSay"></div></div>
+    </div>
+    <div class="legend">Coupe le Bluetooth : l'intention <b>ne bouge pas</b>.
+    Rallume-le : tout repart, sans que tu touches à l'interrupteur. Ferme et
+    rouvre l'app : l'intention est relue, la radio redémarre. C'est ce seul
+    découpage qui règle les quatre aléas, sans un seul cas particulier.</div>
+  </div>
+
+  <div class="card bad">
+    <h3>Avant : un seul booléen pour les deux rôles</h3>
+    <p><code>visible</code> vivait en mémoire et servait à la fois d'intention
+    et d'état. Conséquences observées :</p>
+    <ul>
+      <li>l'app rouverte repartait invisible — pendant que le service tournait
+      encore, la notification disant l'inverse ;</li>
+      <li>rallumer le Bluetooth ne relançait rien : il fallait couper puis
+      remettre l'interrupteur, ce que personne ne devine ;</li>
+      <li>un message d'erreur était effacé par la première mise à jour venue.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ================================================================= 7 -->
+<section>
+  <h2>Les couches</h2>
+
+  <p>Chaque couche ignore totalement celles du dessus. C'est ce qui permet de
+  tester chacune seule — et de situer une panne au lieu de la chercher partout.</p>
+
+  <div class="stack">
+    <div class="layer" style="border-color:#3a2a55"><b>Interface</b>
+      <span>— dit la vérité, propose l'action</span></div>
+    <div class="layer" style="border-color:#3a2a55"><b>7 · Synchronisation</b>
+      <span>— remonte au serveur quand internet revient</span></div>
+    <div class="layer" style="border-color:#3a2a55"><b>6 · Fonctions</b>
+      <span>— certificats, chat, demandes d'amis, waves</span></div>
+    <div class="layer" style="border-color:#2a4055"><b>6 · Réseau de pairs</b>
+      <span>— liens, canaux, aiguillage. Ne sait pas ce qu'est un certificat</span></div>
+    <div class="layer" style="border-color:#2a4055"><b>5 · Protocole</b>
+      <span>— le format du fil, typé et versionné</span></div>
+    <div class="layer" style="border-color:#2a4055"><b>4 · Présence</b>
+      <span>— qui est là, avec quel état. Aucune radio, aucun réseau</span></div>
+    <div class="layer" style="border-color:#2a4055"><b>3 · Canal sécurisé</b>
+      <span>— chiffre, authentifie, refuse le rejeu</span></div>
+    <div class="layer" style="border-color:#2a4055"><b>2 · Identité</b>
+      <span>— clés, identifiant rotatif, carnet d'amis</span></div>
+    <div class="layer" style="border-color:#1e4d3e"><b>1 · Transport</b>
+      <span>— découpe et réassemble les trames</span></div>
+    <div class="layer" style="border-color:#1e4d3e"><b>0 · Radio (Kotlin)</b>
+      <span>— possède le matériel, publie son état RÉEL</span></div>
+  </div>
+
+  <div class="card">
+    <h3>La frontière qui compte</h3>
+    <p>Entre la couche 4 et la couche 6 passe une ligne : <b>en dessous on parle
+    radio, trames et clés ; au-dessus on parle profils, messages et
+    certificats.</b></p>
+    <p class="muted">L'ancien fichier de 1 040 lignes faisait les deux. C'est
+    pour ça qu'un défaut de radio s'y manifestait comme un défaut d'interface, et
+    que personne ne pouvait le situer.</p>
+  </div>
+
+  <h3>Où vit quoi</h3>
+  <table>
+    <tr><th>Ce qui se passe</th><th>Où c'est décidé</th></tr>
+    <tr><td>Le Bluetooth s'éteint</td><td>Couche 0 — un récepteur système, en Kotlin</td></tr>
+    <tr><td>On rouvre l'app</td><td>Le superviseur relit l'intention</td></tr>
+    <tr><td>Un ami passe</td><td>Couche 4, via l'index rotatif de la couche 2</td></tr>
+    <tr><td>Un inconnu se révèle</td><td>Couches 3 et 5, sur un lien de la couche 1</td></tr>
+    <tr><td>Un croisement est certifié</td><td>Couche 6, après 10 s de présence continue</td></tr>
+    <tr><td>Le serveur l'apprend</td><td>Couche 7, quand internet revient</td></tr>
+  </table>
+</section>
+
+<!-- ================================================================= 8 -->
+<section>
+  <h2>Les bugs, et ce qu'ils enseignent</h2>
+
+  <p>Six défauts trouvés entre le 2026-08-16 et les tests de Jay. Aucun ne
+  levait d'erreur. Tous produisaient un écran parfaitement calme.</p>
+
+  <div class="card bad">
+    <h3>1 · Le pont n'était jamais branché au service</h3>
+    <pre>ProximityService.instance?.bridge = this   // le service n'existe pas encore</pre>
+    <p>Le <code>?.</code> avalait l'affectation <b>en silence</b>. Le service
+    tournait ensuite pour toujours sans destinataire : notification juste, écran
+    bloqué sur « Démarrage… », listes vides.</p>
+    <p class="tag no">Leçon</p>
+    <p class="muted">Deux objets dont l'un doit trouver l'autre ne doivent pas
+    dépendre de <b>l'ordre dans lequel ils naissent</b>. Chacun dépose et lit au
+    même endroit : quel que soit le premier arrivé, le lien se fait.</p>
+  </div>
+
+  <div class="card bad">
+    <h3>2 · Le réseau de pairs était détruit aussitôt créé</h3>
+    <p>Le <code>build</code> du contrôleur surveillait l'état de la radio.
+    Riverpod ré-exécute <code>build</code> à chaque changement — en déclenchant
+    d'abord les <code>onDispose</code> précédents. Chaque transition détruisait
+    donc le réseau. Le champ, lui, restait non nul : la garde
+    <code>if (_network != null) return</code> repartait satisfaite, en laissant
+    l'app branchée sur un <b>objet mort</b>.</p>
+    <p class="tag no">Leçon</p>
+    <p class="muted">Une référence vers un objet détruit se remet à nul
+    <b>dans le même geste</b>. Un champ non nul pointant vers un cadavre ne casse
+    rien : il <i>ment</i> à tous ceux qui le consultent.</p>
+  </div>
+
+  <div class="card bad">
+    <h3>3 · Un code d'erreur n'est pas un message</h3>
+    <p>« Scan impossible (6) ». Le 6 signifie : <i>Android a bridé les
+    démarrages de scan, attends 30 secondes</i>. Ce n'est même pas une panne.</p>
+    <p class="tag no">Leçon</p>
+    <p class="muted">Nommer une cause ne suffit pas : il faut la nommer dans les
+    termes de celui qui la lit, et dire ce qu'il peut en faire.</p>
+  </div>
+
+  <div class="card bad">
+    <h3>4 · Un message inatteignable</h3>
+    <p>« Tu n'es pas annoncé » existait dans le code, et le code ne pouvait pas
+    l'afficher — la condition au-dessus le rendait inaccessible. Voir le
+    chapitre 3.</p>
+    <p class="tag no">Leçon</p>
+    <p class="muted">Une branche qu'aucun chemin n'atteint est du code mort
+    déguisé en fonctionnalité. Elle rassure sans rien faire.</p>
+  </div>
+
+  <div class="card bad">
+    <h3>5 · Une personne, deux lignes</h3>
+    <p>L'adresse MAC change ; l'identité, non. Voir le chapitre 5.</p>
+    <p class="tag no">Leçon</p>
+    <p class="muted">Une clé de transport n'est pas une clé d'identité. Les
+    confondre marche jusqu'au jour où la couche du dessous exerce son droit de
+    changer d'adresse.</p>
+  </div>
+
+  <div class="card bad">
+    <h3>6 · Ce que la déconnexion n'effaçait pas</h3>
+    <p>Le carnet de clés survivait au changement de compte : un compte B ouvert
+    sur le même téléphone reconnaissait <b>silencieusement</b> les amis du compte
+    A. Les méthodes d'effacement existaient déjà — <b>personne ne les
+    appelait</b>.</p>
+    <p class="tag no">Leçon</p>
+    <p class="muted">Une fonction sans appelant n'est pas neutre. Ici, elle
+    donnait l'illusion que le nettoyage était prévu.</p>
+  </div>
+
+  <div class="card good">
+    <h3>Le fil commun</h3>
+    <p class="big">Aucun de ces six défauts ne lève d'erreur.</p>
+    <p>Ils produisent tous un système qui a l'air de marcher. C'est pourquoi la
+    reconstruction a mis autant d'effort sur une seule idée : <b>l'app doit dire
+    ce qui est vrai, y compris quand c'est « je ne sais pas »</b>. Un écran vide
+    qui ne distingue pas quatre causes n'est pas neutre — il oriente vers la
+    mauvaise.</p>
+  </div>
+</section>
+
+</main>
+
+<script>
+/* ---------------------------------------------------------------- onglets */
+const secs = [...document.querySelectorAll('main section')];
+const tabs = [...document.querySelectorAll('nav button')];
+tabs.forEach(b => b.onclick = () => {
+  tabs.forEach(x => x.classList.remove('on'));
+  secs.forEach(x => x.classList.remove('on'));
+  b.classList.add('on');
+  secs[+b.dataset.go].classList.add('on');
+  window.scrollTo(0, 0);
+});
+
+/* ------------------------------------------------------- interrupteurs */
+const SW = {ad:1, as:1, bd:1, bs:1, mitm:0, smooth:1, hyst:1, want:1, bt:1, perm:1};
+document.querySelectorAll('.sw').forEach(el => {
+  el.onclick = () => {
+    const k = el.dataset.sw;
+    SW[k] = SW[k] ? 0 : 1;
+    el.classList.toggle('on', !!SW[k]);
+    drawTwoWay(); drawHandshake(); drawSup();
+  };
+});
+
+/* ------------------------------------------ 2 · identifiant rotatif */
+/* Un HMAC réel serait excessif ici : on veut montrer la PROPRIÉTÉ (imprévisible
+   sans la clé, reproductible avec), pas refaire SHA-256 en JavaScript. */
+function pseudoHmac(key, slot) {
+  let h = 0x811c9dc5;
+  const s = key + '|' + slot;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = (h * 0x01000193) >>> 0; }
+  let out = '';
+  for (let i = 0; i < 8; i++) {
+    h ^= h << 13; h >>>= 0; h ^= h >> 17; h ^= h << 5; h >>>= 0;
+    out += (h & 0xff).toString(16).padStart(2, '0');
+  }
+  return out;
+}
+const MA_CLE = 'cle-secrete-de-jay';
+const rotH = document.getElementById('rotH');
+function drawRot() {
+  if (!rotH) return;
+  const min = +rotH.value, slot = Math.floor(min / 15);
+  const hh = String(Math.floor(min / 60)).padStart(2, '0');
+  const mm = String(min % 60).padStart(2, '0');
+  document.getElementById('rotHv').textContent = hh + ':' + mm;
+  document.getElementById('rotSlot').textContent = slot;
+  const id = pseudoHmac(MA_CLE, slot);
+  document.getElementById('rotId').textContent = id;
+  document.getElementById('rotFriend').textContent = pseudoHmac(MA_CLE, slot);
+  document.getElementById('rotMatch').innerHTML =
+    '<span class="tag ok">correspond — reconnu sans un mot</span>';
+  const spy = [];
+  for (let s = Math.max(0, slot - 4); s <= slot; s++) {
+    const t = String(Math.floor(s * 15 / 60)).padStart(2, '0') + ':' +
+              String((s * 15) % 60).padStart(2, '0');
+    spy.push(t + '  ' + pseudoHmac(MA_CLE, s) + (s === slot ? '   ← maintenant' : ''));
+  }
+  document.getElementById('rotSpy').innerHTML =
+    spy.join('<br>') + '<br><span style="color:var(--no)">aucun lien calculable entre ces lignes</span>';
+}
+if (rotH) { rotH.oninput = drawRot; drawRot(); }
+
+/* ------------------------------------------------- 3 · les deux sens */
+function phone(x, y, label, color) {
+  return `<rect x="${x}" y="${y}" width="86" height="120" rx="12"
+    fill="#16161f" stroke="${color}" stroke-width="2"/>
+    <text x="${x + 43}" y="${y + 68}" text-anchor="middle" fill="${color}"
+    font-size="13" font-weight="600">${label}</text>`;
+}
+function drawTwoWay() {
+  const svg = document.getElementById('twoWay');
+  if (!svg) return;
+  const aSeesB = SW.as && SW.bd, bSeesA = SW.bs && SW.ad;
+  let h = phone(40, 35, 'A', 'var(--me)') + phone(514, 35, 'B', 'var(--peer)');
+  // B -> A (A détecte ce que B diffuse)
+  h += arrow(500, 72, 130, 72, aSeesB, 'B annonce → A écoute');
+  h += arrow(130, 118, 500, 118, bSeesA, 'A annonce → B écoute');
+  svg.innerHTML = h;
+  const say = (sees, other, iAdv) => {
+    let t = sees
+      ? `<span class="tag ok">${other} est là</span>`
+      : `<span class="tag no">Personne à proximité</span>`;
+    if (!iAdv) t += ` <span class="tag no">tu n'es pas annoncé</span>`;
+    return t;
+  };
+  document.getElementById('scrA').innerHTML = say(aSeesB, 'B', SW.ad);
+  document.getElementById('scrB').innerHTML = say(bSeesA, 'A', SW.bd);
+}
+function arrow(x1, y, x2, y2, on, label) {
+  const col = on ? 'var(--ok)' : '#3a3a48';
+  const mid = (x1 + x2) / 2;
+  const dir = x2 > x1 ? 1 : -1;
+  return `<line x1="${x1}" y1="${y}" x2="${x2}" y2="${y2}" stroke="${col}"
+    stroke-width="2" ${on ? '' : 'stroke-dasharray="6 6"'}/>
+    <polygon points="${x2},${y2} ${x2 - 10 * dir},${y2 - 5} ${x2 - 10 * dir},${y2 + 5}"
+      fill="${col}"/>
+    <text x="${mid}" y="${y2 - 10}" text-anchor="middle" fill="${col}"
+      font-size="11">${label}${on ? '' : '  ✕'}</text>`;
+}
+drawTwoWay();
+
+/* --------------------------------------------- 4 · poignée de main */
+const HS = [
+  {t:'<b>Rien n\'est encore échangé.</b> A a repéré l\'annonce de B, mais un identifiant rotatif ne dit pas qui est là — seulement que quelqu\'un y est.'},
+  {t:'<b>A envoie sa clé éphémère, SIGNÉE</b> par sa clé d\'appareil, qui ne quitte jamais le Keystore. La signature est ce qui empêche un tiers de se substituer à A.'},
+  {t:'<b>B vérifie la signature, puis répond</b> avec sa propre clé éphémère, signée elle aussi. Chacun combine sa clé privée avec la clé publique de l\'autre : les deux obtiennent le même secret, que personne n\'a transmis.'},
+  {t:'<b>Le canal est ouvert.</b> Chaque trame est chiffrée et numérotée : une trame captée puis renvoyée est refusée, car son numéro n\'avance pas.'},
+  {t:'<b>Les profils s\'échangent, dans le tunnel.</b> Chacun vérifie que la clé qui signe le profil est bien celle qui a signé la poignée de main — sans quoi on prouverait qui a écrit le profil, pas qui est en face.'},
+];
+let hsStep = 0;
+function drawHandshake() {
+  const svg = document.getElementById('hsSvg');
+  if (!svg) return;
+  const mitm = SW.mitm;
+  const blocked = mitm && hsStep >= 2;
+  let h = phone(30, 55, 'A', 'var(--me)') + phone(524, 55, 'B', 'var(--peer)');
+  if (mitm) {
+    h += `<rect x="277" y="70" width="86" height="90" rx="12" fill="#1c0f13"
+      stroke="var(--no)" stroke-width="2"/>
+      <text x="320" y="112" text-anchor="middle" fill="var(--no)" font-size="12"
+      font-weight="600">espion</text>
+      <text x="320" y="130" text-anchor="middle" fill="var(--no)" font-size="10">
+      ${blocked ? 'refusé' : 'relaie'}</text>`;
+  }
+  const lines = [
+    null,
+    {y:95, l:'hello + clé éphémère + signature', d:1},
+    {y:125, l:'helloAck + clé éphémère + signature', d:-1},
+    {y:155, l:'trames chiffrées, numérotées', d:1},
+    {y:185, l:'profils signés, vérifiés', d:1},
+  ];
+  for (let i = 1; i <= hsStep; i++) {
+    const s = lines[i]; if (!s) continue;
+    const ko = mitm && i >= 2;
+    const col = ko ? 'var(--no)' : 'var(--ok)';
+    const x1 = s.d > 0 ? 120 : 520, x2 = s.d > 0 ? 520 : 120;
+    h += `<line x1="${x1}" y1="${s.y}" x2="${x2}" y2="${s.y}" stroke="${col}"
+      stroke-width="2" ${ko ? 'stroke-dasharray="5 5"' : ''}/>
+      <text x="320" y="${s.y - 6}" text-anchor="middle" fill="${col}" font-size="11">
+      ${s.l}${ko ? '  ✕ signature invalide' : ''}</text>`;
+  }
+  svg.innerHTML = h;
+  let txt = HS[hsStep].t;
+  if (mitm && hsStep >= 2) {
+    txt += '<br><br><span class="tag no">L\'attaquant est arrêté</span> Il peut relayer la clé éphémère de A, mais il ne peut pas la signer avec la clé d\'appareil de A — elle ne quitte jamais le Keystore. B rejette, et coupe.';
+  }
+  document.getElementById('hsText').innerHTML = txt;
+}
+const hsNext = document.getElementById('hsNext');
+if (hsNext) {
+  hsNext.onclick = () => { hsStep = Math.min(HS.length - 1, hsStep + 1); drawHandshake(); };
+  document.getElementById('hsPrev').onclick = () => { hsStep = Math.max(0, hsStep - 1); drawHandshake(); };
+  drawHandshake();
+}
+
+/* --------------------------------------------------- 5 · RSSI */
+let rssiRun = true, rssiT = 0, smoothed = -70, level = 'proche', flips = 0;
+const hist = [];
+function stepRssi() {
+  if (!document.getElementById('rssi')) return;
+  if (rssiRun) {
+    rssiT++;
+    // Un appareil IMMOBILE : la vraie valeur ne bouge pas, seul le bruit varie.
+    const brut = -58 + (Math.random() - 0.5) * 18;
+    smoothed = SW.smooth ? smoothed + (brut - smoothed) * 0.35 : brut;
+    const v = smoothed;
+    const before = level;
+    if (SW.hyst) {
+      if (level === 'très proche') level = v <= -66 ? 'proche' : 'très proche';
+      else level = v >= -58 ? 'très proche' : 'proche';
+    } else {
+      level = v >= -58 ? 'très proche' : 'proche';
+    }
+    if (before !== level) flips++;
+    hist.push({brut, v, level});
+    if (hist.length > 120) hist.shift();
+    document.getElementById('flips').textContent = flips;
+  }
+  drawRssi();
+  requestAnimationFrame(stepRssi);
+}
+function drawRssi() {
+  const svg = document.getElementById('rssi');
+  if (!svg) return;
+  const W = 640, H = 200, y = v => 20 + (-v - 40) * 3.2;
+  let h = `<line x1="0" y1="${y(-58)}" x2="${W}" y2="${y(-58)}" stroke="var(--key)"
+      stroke-dasharray="4 4" stroke-width="1"/>
+    <text x="6" y="${y(-58) - 5}" fill="var(--key)" font-size="10">seuil d'entrée −58</text>`;
+  if (SW.hyst) h += `<line x1="0" y1="${y(-66)}" x2="${W}" y2="${y(-66)}"
+      stroke="#7a6a2a" stroke-dasharray="4 4" stroke-width="1"/>
+    <text x="6" y="${y(-66) + 12}" fill="#7a6a2a" font-size="10">seuil de sortie −66</text>`;
+  const pts = hist.map((p, i) => `${i * (W / 120)},${y(p.v)}`).join(' ');
+  const raw = hist.map((p, i) => `${i * (W / 120)},${y(p.brut)}`).join(' ');
+  h += `<polyline points="${raw}" fill="none" stroke="#3a3a48" stroke-width="1"/>`;
+  h += `<polyline points="${pts}" fill="none" stroke="var(--peer)" stroke-width="2"/>`;
+  hist.forEach((p, i) => {
+    if (i === 0) return;
+    if (p.level !== hist[i - 1].level) {
+      h += `<line x1="${i * (W / 120)}" y1="10" x2="${i * (W / 120)}" y2="${H - 10}"
+        stroke="var(--no)" stroke-width="1" opacity=".5"/>`;
+    }
+  });
+  h += `<text x="${W - 8}" y="24" text-anchor="end" fill="var(--ink)" font-size="13"
+    font-weight="600">${level}</text>`;
+  svg.innerHTML = h;
+}
+const rssiPlay = document.getElementById('rssiPlay');
+if (rssiPlay) {
+  rssiPlay.onclick = () => {
+    rssiRun = !rssiRun;
+    rssiPlay.textContent = rssiRun ? 'Pause' : 'Reprendre';
+  };
+  stepRssi();
+}
+
+/* ------------------------------------------- 6 · intention vs état */
+let appOpen = true;
+function drawSup() {
+  const w = document.getElementById('supWant');
+  if (!w) return;
+  const intent = SW.want;   // persistée : survit à la fermeture
+  let state, say;
+  if (!SW.perm) { state = 'permissionsMissing'; }
+  else if (!SW.bt) { state = 'adapterOff'; }
+  else if (!intent) { state = 'idle'; }
+  else { state = 'running(diffusion, détection)'; }
+
+  if (!intent) say = '<span class="tag">Visibilité coupée</span>';
+  else if (state.startsWith('running'))
+    say = '<span class="tag ok">Les autres proches peuvent te voir</span>';
+  else if (state === 'adapterOff')
+    say = '<span class="tag no">Bluetooth éteint</span> + un bouton, et ça repart tout seul dès que tu le rallumes';
+  else say = '<span class="tag no">Permission manquante</span> + un bouton pour l\'accorder';
+
+  w.innerHTML = intent
+    ? '<span style="color:var(--ok)">visible</span>'
+    : '<span style="color:var(--faint)">coupée</span>';
+  document.getElementById('supState').innerHTML =
+    `<span class="mono" style="font-size:14px">${state}</span>`;
+  document.getElementById('supSay').innerHTML = say +
+    (appOpen ? '' : '<div class="faint" style="margin-top:6px">app fermée — la détection continue dans le service</div>');
+}
+const kill = document.getElementById('killApp');
+if (kill) {
+  kill.onclick = () => {
+    appOpen = false; drawSup();
+    setTimeout(() => {
+      appOpen = true; drawSup();
+      // L'intention n'a pas bougé : c'est tout l'intérêt.
+    }, 1400);
+  };
+  drawSup();
+}
+</script>
+</body>
+</html>

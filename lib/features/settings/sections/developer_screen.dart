@@ -7,6 +7,7 @@ import 'developer_flags_screen.dart';
 import 'developer_logs_screen.dart';
 import 'day_cycle_preview_screen.dart';
 import 'developer_tools_screen.dart';
+import '../../proximity/proximity_diagnostic_screen.dart';
 
 /// Le dossier **Développeur** — tout ce qui doit disparaître avant la prod.
 ///
@@ -56,6 +57,14 @@ class DeveloperScreen extends StatelessWidget {
             builder: _tools,
           ),
           const SettingsCategoryTile(
+            icon: Icons.wifi_tethering,
+            title: 'Diagnostic proximité',
+            subtitle:
+                'Les DEUX sens de la radio séparément, et chaque appareil vu '
+                'avec son adresse',
+            builder: _proximity,
+          ),
+          const SettingsCategoryTile(
             icon: Icons.wb_twilight,
             title: 'Cycle de 24 h — aperçu',
             subtitle:
@@ -74,6 +83,7 @@ class DeveloperScreen extends StatelessWidget {
   static Widget _logs(BuildContext _) => const DeveloperLogsScreen();
   static Widget _tools(BuildContext _) => const DeveloperToolsScreen();
   static Widget _dayCycle(BuildContext _) => const DayCyclePreviewScreen();
+  static Widget _proximity(BuildContext _) => const ProximityDiagnosticScreen();
 }
 
 /// Le bouton que Jay a demandé : **tout**, en une fois, prêt à être renvoyé.

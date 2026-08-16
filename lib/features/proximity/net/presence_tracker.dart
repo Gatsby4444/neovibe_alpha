@@ -152,6 +152,7 @@ class PresenceTracker {
         snapshot: friend,
         isFriend: friend != null,
       );
+      if (friend != null) _mergeDuplicates(address);
       return;
     }
 
@@ -166,6 +167,10 @@ class PresenceTracker {
       snapshot: friend ?? existing.snapshot,
       isFriend: friend != null ? true : existing.isFriend,
     );
+    // Un ami est reconnu ICI, sans poignée de main : c'est donc ici aussi qu'il
+    // faut fusionner ses adresses. Ne le faire que dans `markIdentified`
+    // laissait le cas le plus fréquent — celui des amis — dupliqué.
+    if (friend != null) _mergeDuplicates(address);
   }
 
   ProximityLevel _levelFor(double rssi, ProximityLevel current) {
@@ -223,6 +228,42 @@ class PresenceTracker {
       snapshot: snapshot,
       lastSeen: _now(),
     );
+    _mergeDuplicates(address);
+  }
+
+  /// Une personne, une ligne — quelle que soit son adresse BLE.
+  ///
+  /// ## Le défaut, constaté par Jay le 2026-08-16
+  ///
+  /// « J'ai deux fois mimi sur mon téléphone », puis « le deuxième a disparu ».
+  /// Les deux moitiés de la phrase décrivent exactement le même mécanisme.
+  ///
+  /// **Android change périodiquement l'adresse MAC Bluetooth de l'appareil**,
+  /// pour empêcher le pistage — c'est la même intention que notre identifiant
+  /// rotatif, appliquée une couche plus bas. La présence étant indexée par
+  /// adresse, un changement de MAC crée donc une **deuxième ligne pour la même
+  /// personne** ; l'ancienne s'éteint ensuite toute seule au bout du délai de
+  /// grâce, d'où la disparition observée quelques secondes plus tard.
+  ///
+  /// ⚠️ **L'adresse reste la bonne clé de TRANSPORT** — c'est elle qui désigne
+  /// un lien GATT. Mais elle n'a jamais été une identité. Dès qu'on connaît le
+  /// `userId`, c'est lui qui fait foi, et les adresses concurrentes fusionnent
+  /// sur la plus récemment vue.
+  void _mergeDuplicates(String address) {
+    final peer = _peers[address];
+    final userId = peer?.userId;
+    if (peer == null || userId == null) return;
+
+    for (final other in _peers.values.toList()) {
+      if (other.address == address || other.userId != userId) continue;
+      // On garde la ligne vue le plus récemment : c'est l'adresse par laquelle
+      // le pair nous parle MAINTENANT.
+      if (other.lastSeen.isAfter(peer.lastSeen)) {
+        _peers.remove(address);
+        return;
+      }
+      _peers.remove(other.address);
+    }
   }
 
   /// La poignée de main a échoué : on **retombe sur « détecté »**, pas sur rien.

@@ -249,7 +249,17 @@ class _BandeauEtat extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final status = runtime.status;
-    if (status.isDetecting) return const SizedBox.shrink();
+    // ⚠️ **`isHealthy`, et non `isDetecting`.**
+    //
+    // Cette ligne testait `isDetecting` : le bandeau disparaissait donc dès que
+    // le SCAN tournait, même si la DIFFUSION avait échoué. Le cas
+    // « tu n'es pas annoncé » écrit juste en dessous était par conséquent
+    // **inatteignable** — un message que le code ne pouvait pas afficher.
+    //
+    // Effet concret, constaté par Jay le 2026-08-16 : un appareil qui voit tout
+    // le monde sans que personne ne le voie, et une interface parfaitement
+    // sereine. La proximité est symétrique ; l'état affiché doit l'être aussi.
+    if (status.isHealthy) return const SizedBox.shrink();
 
     final (String titre, String detail, String? action) = switch (status) {
       RadioAdapterOff() => (

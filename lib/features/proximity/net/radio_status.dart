@@ -48,6 +48,18 @@ sealed class RadioStatus {
   /// pour savoir si une liste vide veut dire « personne » ou « rien ne tourne ».
   bool get isDetecting =>
       this is RadioRunning && (this as RadioRunning).scanning;
+
+  /// Vrai si les autres peuvent nous voir.
+  ///
+  /// ⚠️ **Distinct de [isDetecting], et il faut les deux.** La proximité est
+  /// symétrique : détecter sans être annoncé donne un appareil qui voit tout le
+  /// monde sans que personne ne le voie — exactement l'asymétrie constatée par
+  /// Jay le 2026-08-16 entre son téléphone et sa tablette.
+  bool get isBroadcasting =>
+      this is RadioRunning && (this as RadioRunning).advertising;
+
+  /// Vrai quand les deux sens fonctionnent. C'est le seul « tout va bien ».
+  bool get isHealthy => isDetecting && isBroadcasting;
 }
 
 class RadioUnsupported extends RadioStatus {
