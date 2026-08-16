@@ -6,7 +6,7 @@ publish_to: 'none'
 # versionCode plus Ã©levÃ©, Android refuse de mettre Ã  jour un APK sideloadÃ© (Jay
 # est restÃ© bloquÃ© en v0.9.2 en croyant installer la v0.9.3). Convention :
 # 0.9.4+94 â†’ versionName 0.9.4, versionCode 94 (suffixe = version sans points).
-version: 0.9.110+200
+version: 0.9.111+201
 
 environment:
   sdk: ^3.12.2

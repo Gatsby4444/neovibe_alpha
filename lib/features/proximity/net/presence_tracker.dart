@@ -116,7 +116,14 @@ class PresencePeer {
 /// exhaustivement — et le lissage comme l'hystérésis sont exactement le genre de
 /// règles qu'on ne peut pas valider à la main sur un téléphone.
 class PresenceTracker {
-  PresenceTracker({DateTime Function()? clock}) : _now = clock ?? DateTime.now;
+  PresenceTracker({DateTime Function()? clock, this.hasLiveLink})
+    : _now = clock ?? DateTime.now;
+
+  /// Le transport a-t-il un lien vivant sur cette adresse ?
+  ///
+  /// Injecté par le réseau. La présence ne connaît pas les liens — elle
+  /// **demande**, ce qui lui évite de dépendre de la couche du dessous.
+  final bool Function(String address)? hasLiveLink;
 
   final DateTime Function() _now;
   final _peers = <String, PresencePeer>{};
@@ -332,15 +339,45 @@ class PresenceTracker {
 
     for (final other in _peers.values.toList()) {
       if (other.address == address || other.userId != userId) continue;
-      // On garde la ligne vue le plus récemment : c'est l'adresse par laquelle
-      // le pair nous parle MAINTENANT.
-      if (other.lastSeen.isAfter(peer.lastSeen)) {
-        _peers.remove(address);
-        return;
+
+      // ⚠️ **Une adresse qui porte un lien vivant l'emporte sur une adresse
+      // plus récente.**
+      //
+      // Une connexion GATT déjà établie survit au renouvellement de la MAC :
+      // elle est liée au lien, pas à l'adresse annoncée. Préférer aveuglément
+      // la plus récente revenait donc à désigner une adresse **sans canal**,
+      // alors qu'une session vivante existait sur l'autre — et à rouvrir une
+      // connexion pour rien. (Défaut du 2026-08-16 : « poignée de main
+      // impossible ».)
+      final autreEstVivante = hasLiveLink?.call(other.address) ?? false;
+      final celleCiEstVivante = hasLiveLink?.call(address) ?? false;
+
+      final String perdante;
+      if (autreEstVivante != celleCiEstVivante) {
+        perdante = autreEstVivante ? address : other.address;
+      } else {
+        perdante = other.lastSeen.isAfter(peer.lastSeen)
+            ? address
+            : other.address;
       }
-      _peers.remove(other.address);
+      _peers.remove(perdante);
+      _mergedAway.add(perdante);
+      if (perdante == address) return;
     }
   }
+
+  /// Les adresses abandonnées par une fusion, à fermer côté transport.
+  ///
+  /// ⚠️ **Vidée à la lecture** : sans ça, la même adresse serait refermée à
+  /// chaque battement, et un lien tout juste rouvert sur une adresse recyclée
+  /// serait coupé sans raison.
+  List<String> takeMergedAway() {
+    final out = _mergedAway.toList();
+    _mergedAway.clear();
+    return out;
+  }
+
+  final _mergedAway = <String>{};
 
   /// La poignée de main a échoué : on **retombe sur « détecté »**, pas sur rien.
   ///

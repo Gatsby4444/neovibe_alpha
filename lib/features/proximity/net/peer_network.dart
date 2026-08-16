@@ -72,8 +72,15 @@ class PeerNetwork {
     DateTime Function()? clock,
   }) : _identity = identity ?? ProximityIdentity(),
        _keyBook = keyBook ?? FriendKeyBook(),
-       _clock = clock ?? DateTime.now,
-       presence = PresenceTracker(clock: clock);
+       _clock = clock ?? DateTime.now {
+    // La présence peut demander au transport si une adresse porte encore un
+    // lien : c'est ce qui lui permet de ne pas abandonner une session vivante.
+    presence = PresenceTracker(
+      clock: clock,
+      hasLiveLink: (address) =>
+          _channels[address]?.stage == ChannelStage.established,
+    );
+  }
 
   /// Mon identifiant. Sert à décider qui initie et à signer.
   final String myUserId;
@@ -86,7 +93,7 @@ class PeerNetwork {
   final FriendKeyStore _keyBook;
   final DateTime Function() _clock;
 
-  final PresenceTracker presence;
+  late final PresenceTracker presence;
 
   final _links = <String, PeerLink>{};
   final _channels = <String, SecureChannel>{};
@@ -241,6 +248,12 @@ class PeerNetwork {
   }
 
   Future<void> _open(String address) async {
+    // Déjà relié : ouvrir un second lien produirait exactement le doublon que
+    // `_onLinkUp` doit maintenant refuser. Autant ne pas le créer.
+    final channel = _channels[address];
+    if (channel != null && channel.stage != ChannelStage.closed) return;
+    if (_connecting.contains(address)) return;
+
     _connecting.add(address);
     presence.markIdentifying(address);
     _emit(const PresenceChanged());
@@ -259,7 +272,43 @@ class PeerNetwork {
     }
   }
 
+  /// Un lien s'ouvre.
+  ///
+  /// ## ⚠️ Le premier lien gagne, et un canal ÉTABLI ne se remplace jamais
+  ///
+  /// **Défaut du 2026-08-16, relevé par Jay** : *« charles envoie des messages
+  /// fantômes à mimi qui ne les reçoit jamais »*, et en face *« poignée de main
+  /// impossible »*.
+  ///
+  /// Cette méthode écrasait `_channels[linkId]` **sans condition**. Or deux
+  /// appareils peuvent très bien se connecter **en même temps** — c'est même
+  /// devenu fréquent depuis le repli passif de 12 s, qui fait prendre
+  /// l'initiative au second si le premier tarde. Chacun reçoit alors DEUX
+  /// événements de lien pour le même pair, et le second détruisait la session
+  /// déjà négociée.
+  ///
+  /// Conséquence exacte : l'émetteur chiffrait avec la clé de l'ancienne
+  /// session, le destinataire tentait de déchiffrer avec la nouvelle, et
+  /// `decrypt` rendait `null`. Le message **disparaissait sans un mot** — ni
+  /// erreur chez l'un, ni trace chez l'autre. Des messages fantômes.
+  ///
+  /// Deux règles en découlent, et elles suffisent :
+  ///
+  /// 1. **un canal établi ne se remplace jamais** — il porte une clé que le
+  ///    pair utilise déjà ;
+  /// 2. **le premier lien gagne** — un second lien vers un pair déjà relié est
+  ///    un doublon, quel que soit son sens. S'il est vraiment mort,
+  ///    `_onLinkDown` fera le ménage et la tentative suivante réussira.
   Future<void> _onLinkUp(String linkId, int mtu, bool incoming) async {
+    final existing = _channels[linkId];
+    if (existing != null && existing.stage != ChannelStage.closed) {
+      // Déjà en relation avec ce pair : ce lien-ci est un doublon.
+      return;
+    }
+    // Un canal fermé laisse derrière lui un transport à refermer proprement,
+    // sinon ses envois en attente resteraient suspendus pour toujours.
+    _links.remove(linkId)?.close();
+
     _links[linkId] = PeerLink(
       linkId: linkId,
       mtu: mtu,
@@ -518,6 +567,19 @@ class PeerNetwork {
   Future<void> tick() async {
     final slot = ProximityIdentity.slotIndex(_clock());
     if (slot != _slot) await refreshFriends();
+
+    // ⚠️ **Les adresses abandonnées par une fusion.**
+    //
+    // Quand Android renouvelle sa MAC, la présence fusionne les deux lignes du
+    // même pair. Mais le LIEN, lui, restait ouvert sur l'adresse abandonnée :
+    // `sendToUser` visait alors la nouvelle adresse, qui n'avait aucun canal,
+    // et rouvrait une connexion là où une session vivante existait déjà.
+    for (final address in presence.takeMergedAway()) {
+      _links.remove(address)?.close();
+      _channels.remove(address)?.close();
+      _awaiting.remove(address);
+      radio.disconnect(address);
+    }
 
     final gone = presence.prune();
     for (final peer in gone) {

@@ -240,4 +240,39 @@ void main() {
       expect(a.reseau.presence.byUser('u-b'), isNotNull);
     },
   );
+
+  test('les DEUX se connectent en meme temps : aucun message fantome', () async {
+    // ⚠️ Le cas exact rapporte par Jay le 2026-08-16 : « charles envoie des
+    // messages fantomes a mimi qui ne les recoit jamais ».
+    //
+    // Le repli passif de 12 s rend ce cas frequent : si l'initiateur tarde,
+    // l'autre prend la main - et les deux finissent connectes. Chacun recevait
+    // alors DEUX evenements de lien, et le second detruisait la session deja
+    // negociee. L'emetteur chiffrait avec l'ancienne cle, le destinataire
+    // dechiffrait avec la nouvelle, et le message disparaissait sans un mot.
+    await a.voit(b);
+    await b.voit(a);
+    await jusqua(() => a.reseau.presence.identifiedCount == 1);
+
+    // On force le second lien, dans l'autre sens, comme si les deux avaient
+    // decide d'initier.
+    await radioB.connect(radioA.adresse);
+    await Future<void>.delayed(const Duration(milliseconds: 40));
+
+    final recus = <String>[];
+    b.reseau.events.listen((e) {
+      if (e is PeerMessageReceived && e.message is ChatMessage) {
+        recus.add((e.message as ChatMessage).text);
+      }
+    });
+
+    await a.reseau.sendToUser(
+      'u-b',
+      ChatMessage(id: 'm', text: 'toujours la ?', sentAt: DateTime.now()),
+    );
+    await jusqua(() => recus.isNotEmpty);
+
+    // Sans le correctif, ce message n'arrivait jamais.
+    expect(recus.single, 'toujours la ?');
+  });
 }
