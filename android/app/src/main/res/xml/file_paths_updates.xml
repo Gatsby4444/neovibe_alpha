@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Chemins publiables par le FileProvider des mises à jour.
+
+  ⚠️ **Volontairement étroit** : uniquement le sous-dossier où l'APK est
+  téléchargé. Publier la racine du stockage de l'app exposerait aussi les
+  journaux, le carnet de clés du ping et les médias en cache à toute
+  application capable de recevoir cette URI.
+
+  `files-path` désigne `getFilesDir()`. `path` restreint au dossier utilisé par
+  `getApplicationSupportDirectory()` côté Flutter.
+-->
+<paths>
+    <files-path name="updates" path="." />
+</paths>

@@ -15,6 +15,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var nativeMedia: NativeMedia? = null
     private var nativePlayer: NativePlayer? = null
     private var nativeDiagnostics: NativeDiagnostics? = null
+    private var nativeInstall: NativeInstall? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -43,6 +44,10 @@ class MainActivity : FlutterFragmentActivity() {
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
+        // `this` et non `applicationContext` : lancer une activite d'installation
+        // depuis un contexte d'application exigerait NEW_TASK et perdrait le
+        // retour visuel vers l'app.
+        nativeInstall = NativeInstall(this, flutterEngine.dartExecutor.binaryMessenger)
     }
 
     override fun onDestroy() {
@@ -55,6 +60,8 @@ class MainActivity : FlutterFragmentActivity() {
         // Le pont s'en va, le service reste : c'est tout l'intérêt.
         proximity?.dispose()
         proximity = null
+        nativeInstall?.dispose()
+        nativeInstall = null
         super.onDestroy()
     }
 }

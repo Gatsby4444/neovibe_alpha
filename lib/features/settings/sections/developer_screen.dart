@@ -8,6 +8,7 @@ import 'developer_logs_screen.dart';
 import 'day_cycle_preview_screen.dart';
 import 'developer_tools_screen.dart';
 import '../../proximity/proximity_diagnostic_screen.dart';
+import 'developer_update_screen.dart';
 
 /// Le dossier **Développeur** — tout ce qui doit disparaître avant la prod.
 ///
@@ -33,6 +34,14 @@ class DeveloperScreen extends StatelessWidget {
             'avant la mise en production.',
           ),
           const _CopyEverythingTile(),
+          const SettingsCategoryTile(
+            icon: Icons.system_update,
+            title: 'Mise à jour et rapports',
+            subtitle:
+                'Installer la dernière release, et envoyer le diagnostic au '
+                'serveur au lieu de le copier',
+            builder: _update,
+          ),
           const Divider(),
           const SettingsCategoryTile(
             icon: Icons.toggle_on_outlined,
@@ -83,6 +92,7 @@ class DeveloperScreen extends StatelessWidget {
   static Widget _logs(BuildContext _) => const DeveloperLogsScreen();
   static Widget _tools(BuildContext _) => const DeveloperToolsScreen();
   static Widget _dayCycle(BuildContext _) => const DayCyclePreviewScreen();
+  static Widget _update(BuildContext _) => const DeveloperUpdateScreen();
   static Widget _proximity(BuildContext _) => const ProximityDiagnosticScreen();
 }
 

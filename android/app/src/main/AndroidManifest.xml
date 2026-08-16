@@ -27,6 +27,11 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Mise a jour depuis l'app (outil de DEV, demande de Jay 2026-08-16).
+         A RETIRER AVANT LA PROD avec la section Developpeur : Google Play
+         restreint fortement cette permission. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-feature android:name="android.hardware.camera" android:required="true" />
 
@@ -67,6 +72,19 @@
             android:name=".ble.ProximityService"
             android:foregroundServiceType="connectedDevice"
             android:exported="false" />
+
+        <!-- Publie l'APK telecharge a l'installateur systeme. Portee
+             volontairement etroite : voir res/xml/file_paths_updates.xml.
+             OUTIL DE DEV, a retirer avec la section Developpeur. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths_updates" />
+        </provider>
 
         <meta-data
             android:name="flutterEmbedding"
