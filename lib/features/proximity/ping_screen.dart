@@ -513,6 +513,20 @@ class _TuilePair extends ConsumerWidget {
             const SizedBox(width: 10),
             const Icon(Icons.link, size: 14),
           ],
+          // ⚠️ **Affiché à la demande de Jay pour les relevés du 2026-08-16**,
+          // et présenté comme ce que c'est : une ESTIMATION, avec sa
+          // fourchette. Il veut juger la fiabilité sur le terrain plutôt que
+          // sur ma parole — c'est la bonne façon de trancher.
+          //
+          // ⚠️ **À revoir après les relevés.** Si la fourchette se révèle aussi
+          // large qu'annoncée, ce chiffre n'a rien à faire dans l'interface
+          // d'un utilisateur : il redescendra dans le diagnostic. Ce n'est pas
+          // une régression, c'est la décision que les mesures auront dictée.
+          const SizedBox(width: 10),
+          Text(
+            '≈ ${peer.distance.metersLabel}',
+            style: TextStyle(color: context.faint, fontSize: 12),
+          ),
         ],
       ),
       trailing: Row(

@@ -320,9 +320,17 @@ class _Pair extends StatelessWidget {
           // C'est aussi ce qui permettra de trancher, relevés en main, si des
           // mètres sont un jour affichables.
           Text(
-            '${peer.band.label} · ${peer.distance.range}'
-            '${peer.distance.calibrated ? "" : " (puissance d'émission non annoncée)"}'
+            '${peer.band.label} · estimation ${peer.distance.metersLabel} '
+            '(plage ${peer.distance.range})'
+            '${peer.distance.calibrated ? "" : " · puissance émise non annoncée"}'
             '${peer.trend == ProximityTrend.stable ? "" : " · ${peer.trend.label}"}',
+            style: TextStyle(color: context.faint, fontSize: 11),
+          ),
+          // Les entrées brutes du calcul : c'est avec elles qu'on recalibrera
+          // l'exposant de perte après les relevés.
+          Text(
+            'RSSI lissé ${peer.rssi.toStringAsFixed(1)} dBm · '
+            'puissance émise ${peer.txPower == 127 ? "non annoncée" : "${peer.txPower} dBm"}',
             style: TextStyle(color: context.faint, fontSize: 11),
           ),
           // L'adresse est affichée exprès : c'est elle qui change quand Android

@@ -117,6 +117,20 @@ class DistanceEstimate {
   /// est encore plus large, et il faut le dire.
   final bool calibrated;
 
+  /// L'estimation centrale, en mètres.
+  ///
+  /// ⚠️ **À ne jamais montrer seule.** Elle n'existe que pour être comparée à
+  /// une distance réelle pendant les relevés : c'est le seul usage où un
+  /// nombre unique est légitime, parce qu'on connaît la vérité à côté. Dès
+  /// qu'on la montre sans sa fourchette, on prétend une précision qui n'existe
+  /// pas — voir le tableau en tête de fichier.
+  double get meters => math.sqrt(minMeters * maxMeters);
+
+  /// Le nombre à comparer avec le mètre ruban, pendant les relevés.
+  String get metersLabel => meters < 10
+      ? '${meters.toStringAsFixed(1)} m'
+      : '${meters.toStringAsFixed(0)} m';
+
   String get range => maxMeters >= 30
       ? 'plus de ${minMeters.toStringAsFixed(0)} m'
       : '${minMeters.toStringAsFixed(minMeters < 10 ? 1 : 0)} à '
