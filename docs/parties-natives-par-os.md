@@ -447,8 +447,23 @@ il n'y a rien à écrire côté natif pour lui.
 ⚠️ **Côté Android**, si l'on voulait un jour que ce geste passe AVANT celui du
 système sur un appareil en navigation par gestes, il faudrait déclarer une zone
 d'exclusion (`View.setSystemGestureExclusionRects`) — que Flutter n'expose pas,
-donc un canal de plus. **Non fait, et volontairement** : le geste système fait
-déjà exactement la même chose (revenir en arrière).
+donc un canal de plus.
+
+🔴 **Corrigé le 2026-08-16 après test de Jay sur tablette.** Ce paragraphe se
+terminait par : *« Non fait, et volontairement : le geste système fait déjà
+exactement la même chose (revenir en arrière). »* **C'est faux, et ça fermait
+l'app.** Les deux gestes décident au même instant — le relâchement — et quand
+les deux sont délivrés, notre sortie ferme la caméra puis le retour système
+dépile l'accueil devenu sommet.
+
+**La zone d'exclusion reste écartée, mais pour un meilleur motif** : elle est
+plafonnée par le système à ~200 dp par bord, soit environ un cinquième de la
+hauteur d'une tablette — un garde-fou qui échoue précisément sur les grands
+écrans. La solution retenue ne demande **aucun natif** : `MediaQuery.
+systemGestureInsetsOf` dit où le système a posé sa zone, et notre bande ne
+s'arme que là où cette marge est nulle (navigation à 3 boutons). **Rien à écrire
+pour iOS non plus** — iOS ne réserve que le bord gauche, et ces marges y valent
+zéro à droite.
 
 ## 8. Notifications push (à vérifier)
 

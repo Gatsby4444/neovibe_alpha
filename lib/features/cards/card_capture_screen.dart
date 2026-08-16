@@ -357,12 +357,42 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
 
   /// Largeur de la bande sensible, au bord droit.
   ///
-  /// **30 px depuis le 2026-08-16** (réglage de Jay au test). Un peu plus large
-  /// que la zone de geste système d'Android (~24 px) : sur un appareil en
-  /// navigation par gestes, le système prend la main avant nous et fait le même
-  /// retour — les deux ne se disputent donc rien, et le verrou ci-dessus couvre
-  /// le cas limite où les deux aboutiraient.
+  /// **30 px depuis le 2026-08-16** (réglage de Jay au test).
+  ///
+  /// ⚠️ **Le commentaire qui suivait cette ligne était FAUX, et il a coûté un
+  /// plantage** (constaté par Jay sur tablette le 2026-08-16). Il affirmait que
+  /// « le système prend la main avant nous et fait le même retour — les deux ne
+  /// se disputent donc rien ». Les deux se disputent bel et bien le geste, et
+  /// quand les deux aboutissent l'app se **ferme** : voir `_exitBandAllowed`.
   static const _exitEdge = 30.0;
+
+  /// La bande n'existe **que** là où le système ne revendique pas le bord.
+  ///
+  /// ## Pourquoi c'est la cause, et pas un garde-fou
+  ///
+  /// En navigation par gestes, Android se réserve les bords. Le SDK Flutter le
+  /// dit sur `MediaQueryData.systemGestureInsets` : *« les glissements qui
+  /// commencent dans cette zone peuvent ne pas être délivrés à l'app […] les
+  /// apps devraient éviter d'y placer des détecteurs de gestes »*. Le **peuvent**
+  /// est le mot important : la livraison n'est pas déterministe, donc le défaut
+  /// n'apparaît qu'une fois sur cinq et **ne se reproduit pas à la demande**.
+  ///
+  /// Quand les deux sont délivrés, ils décident **au même instant** — le
+  /// relâchement, puisque nous testons une vitesse et qu'Android valide sa
+  /// course. Notre sortie ferme la caméra ; le retour système arrive juste après
+  /// et dépile ce qui est devenu le sommet, c'est-à-dire l'accueil. **L'app se
+  /// ferme, après un aperçu de l'accueil.**
+  ///
+  /// Poser notre bande en retrait de la zone système ne suffirait pas : le
+  /// système ne perd jamais son bord, on ne ferait que déplacer la frontière du
+  /// conflit. On supprime donc la cause — **là où Android tient le bord, nous
+  /// n'y sommes pas du tout**, et son retour fait déjà exactement ce que notre
+  /// bande faisait (constaté par Jay : la sortie « normale » est la sienne).
+  ///
+  /// Sur un appareil en navigation à **3 boutons**, ces marges valent zéro et la
+  /// bande reprend sa place — aucun geste système ne la conteste.
+  bool _exitBandAllowed(BuildContext context) =>
+      MediaQuery.systemGestureInsetsOf(context).right == 0;
 
   /// Vrai si le geste courant est parti de la bande.
   var _fromRightEdge = false;
@@ -370,7 +400,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   void _onExitDragStart(DragStartDetails details) {
     final width = MediaQuery.sizeOf(context).width;
     _fromRightEdge =
-        _edgeExitAllowed && details.globalPosition.dx >= width - _exitEdge;
+        _edgeExitAllowed &&
+        _exitBandAllowed(context) &&
+        details.globalPosition.dx >= width - _exitEdge;
   }
 
   void _onExitDragEnd(DragEndDetails details) {
@@ -1621,432 +1653,188 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       // `opaque` : le cadre d'aperçu est en 9:16 et ne couvre donc pas
       // forcément toute la surface. Sans ça, un geste parti d'une bande vide
       // ne toucherait aucun enfant et ne nous arriverait jamais.
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: _onExitDragStart,
-        onHorizontalDragEnd: _onExitDragEnd,
-        onHorizontalDragCancel: () => _fromRightEdge = false,
-        child: SafeArea(
-          // Chaque enfant du Stack porte une clé : plusieurs sont
-          // conditionnels (masqués pendant l'enregistrement) et, sans clé,
-          // le rebuild déclenché PENDANT l'appui long recréait l'élément du
-          // déclencheur — son LongPressGestureRecognizer était détruit en
-          // plein geste et onLongPressEnd n'arrivait jamais (relâcher ne
-          // stoppait plus la vidéo).
-          //
-          // `Clip.none` : la lueur du flash frontal DÉBORDE volontairement de la
-          // zone sûre pour couvrir l'écran entier (voir sa clé plus bas).
-          //
-          // Le fondu d'ensemble occupe la PREMIÈRE moitié de la séquence ; le
-          // déclencheur et le rail s'échelonnent ensuite, chacun lisant
-          // `CameraEntrance` — voir `camera_controls.dart`.
-          //
-          // ⚠️ **Aucun fondu global ici, et c'est délibéré.** La v0.9.88 en avait
-          // posé un autour de tout le `Stack` : il enveloppait donc l'aperçu
-          // caméra — un `Texture`, composé par la plateforme — dans un calque
-          // d'opacité. Résultat rapporté par Jay : **écran noir en mode Vibe,
-          // seuls les boutons visibles**, plus un à-coup à l'ouverture. Le
-          // Oneshot y échappait parce qu'il emprunte un autre chemin d'aperçu.
-          //
-          // Le fondu d'ouverture est déjà donné par `NeoFadeRoute`, une fois, au
-          // niveau de la route. En remettre un ici ne faisait que superposer
-          // deux fondus **et** toucher à la seule chose qu'il ne fallait pas
-          // toucher.
-          //
-          // *Règle : le fondu appartient à l'habillage, jamais à l'image. Une
-          // texture externe ne passe pas sous un calque d'opacité.*
-          child: CameraEntrance(
-            animation: _entrance,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned.fill(
-                  key: const ValueKey('preview'),
-                  child: _previewFrame(),
+      body: PopScope(
+        // Le retour SYSTÈME (geste ou bouton) ne doit pas abandonner une prise
+        // en cours. Cette règle existait déjà — `_edgeExitAllowed` — mais elle
+        // ne protégeait que NOTRE glissement : Android, lui, fermait l'écran en
+        // plein enregistrement sans rien demander. Le verrou était écrit, il
+        // n'était simplement pas posé sur le seul chemin qui le franchissait.
+        //
+        // ⚠️ On ne bloque QUE l'enregistrement et le traitement, pas le verso ni
+        // le récapitulatif. Bloquer plus large enfermerait l'utilisateur : le
+        // retour système est parfois sa seule sortie, et un écran dont on ne
+        // peut plus sortir est un défaut pire que celui qu'on corrige.
+        //
+        // ⚠️ `Navigator.pop()` direct n'est PAS concerné par `PopScope` : la
+        // croix et `_leave()` continuent de fonctionner même quand `canPop` est
+        // faux. Seuls le retour système et `maybePop` passent par ici.
+        //
+        // Posé DANS l'arbre et non autour du `Scaffold` : `PopScope` s'enregistre
+        // auprès de la route qui l'englobe, sa position exacte est indifférente.
+        canPop: !_recording && !_busy,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop || !mounted) return;
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(
+              SnackBar(
+                content: Text(
+                  _recording
+                      ? 'Enregistrement en cours — relâche pour l\'arrêter.'
+                      : 'Capture en cours…',
                 ),
-                // Grille de cadrage : dessinée dans le cadre 9:16, donc sur
-                // exactement ce qui sera capturé — pas sur tout l'écran.
-                if (gridOn && showCaptureTools)
-                  const Positioned.fill(
-                    key: ValueKey('grid'),
-                    child: Center(
-                      child: AspectRatio(
-                        aspectRatio: 9 / 16,
-                        child: CaptureGridOverlay(),
-                      ),
-                    ),
-                  ),
-                // Flash frontal : la lueur doit couvrir **TOUT L'ÉCRAN** — pas le
-                // cadre d'aperçu, ni même la zone de l'app (consigne Jay,
-                // 2026-07-26 seconde passe). Ce `Positioned` aux marges NÉGATIVES
-                // annule exactement le retrait du `SafeArea` parent : le calque
-                // repart des quatre bords physiques, barre d'état et barre de
-                // navigation comprises (d'où le mode bord à bord posé en initState
-                // et le `Clip.none` du Stack).
-                if (screenFlashLit)
-                  Positioned(
-                    key: const ValueKey('screen-flash'),
-                    top: -safePadding.top,
-                    bottom: -safePadding.bottom,
-                    left: -safePadding.left,
-                    right: -safePadding.right,
-                    child: ScreenFlashOverlay(settings: screenFlashSettings),
-                  ),
-                if (_countdown != null)
+              ),
+            );
+        },
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: _onExitDragStart,
+          onHorizontalDragEnd: _onExitDragEnd,
+          onHorizontalDragCancel: () => _fromRightEdge = false,
+          child: SafeArea(
+            // Chaque enfant du Stack porte une clé : plusieurs sont
+            // conditionnels (masqués pendant l'enregistrement) et, sans clé,
+            // le rebuild déclenché PENDANT l'appui long recréait l'élément du
+            // déclencheur — son LongPressGestureRecognizer était détruit en
+            // plein geste et onLongPressEnd n'arrivait jamais (relâcher ne
+            // stoppait plus la vidéo).
+            //
+            // `Clip.none` : la lueur du flash frontal DÉBORDE volontairement de la
+            // zone sûre pour couvrir l'écran entier (voir sa clé plus bas).
+            //
+            // Le fondu d'ensemble occupe la PREMIÈRE moitié de la séquence ; le
+            // déclencheur et le rail s'échelonnent ensuite, chacun lisant
+            // `CameraEntrance` — voir `camera_controls.dart`.
+            //
+            // ⚠️ **Aucun fondu global ici, et c'est délibéré.** La v0.9.88 en avait
+            // posé un autour de tout le `Stack` : il enveloppait donc l'aperçu
+            // caméra — un `Texture`, composé par la plateforme — dans un calque
+            // d'opacité. Résultat rapporté par Jay : **écran noir en mode Vibe,
+            // seuls les boutons visibles**, plus un à-coup à l'ouverture. Le
+            // Oneshot y échappait parce qu'il emprunte un autre chemin d'aperçu.
+            //
+            // Le fondu d'ouverture est déjà donné par `NeoFadeRoute`, une fois, au
+            // niveau de la route. En remettre un ici ne faisait que superposer
+            // deux fondus **et** toucher à la seule chose qu'il ne fallait pas
+            // toucher.
+            //
+            // *Règle : le fondu appartient à l'habillage, jamais à l'image. Une
+            // texture externe ne passe pas sous un calque d'opacité.*
+            child: CameraEntrance(
+              animation: _entrance,
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
                   Positioned.fill(
-                    key: const ValueKey('countdown'),
-                    child: CountdownOverlay(seconds: _countdown!),
+                    key: const ValueKey('preview'),
+                    child: _previewFrame(),
                   ),
-                if (_busy && _type == CardType.oneshot)
-                  const Positioned.fill(
-                    key: ValueKey('oneshot-busy'),
-                    child: ColoredBox(
-                      color: Colors.black54,
+                  // Grille de cadrage : dessinée dans le cadre 9:16, donc sur
+                  // exactement ce qui sera capturé — pas sur tout l'écran.
+                  if (gridOn && showCaptureTools)
+                    const Positioned.fill(
+                      key: ValueKey('grid'),
                       child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 12),
-                            Text('Oneshot — les deux faces…'),
-                          ],
+                        child: AspectRatio(
+                          aspectRatio: 9 / 16,
+                          child: CaptureGridOverlay(),
                         ),
                       ),
                     ),
-                  ),
-                if (ref.watch(devCameraHudProvider))
-                  Positioned(
-                    key: const ValueKey('hud'),
-                    top: 60,
-                    left: 12,
-                    child: _CameraHud(
-                      camera: _camera,
-                      caps: _caps,
-                      dualError: _dualError,
+                  // Flash frontal : la lueur doit couvrir **TOUT L'ÉCRAN** — pas le
+                  // cadre d'aperçu, ni même la zone de l'app (consigne Jay,
+                  // 2026-07-26 seconde passe). Ce `Positioned` aux marges NÉGATIVES
+                  // annule exactement le retrait du `SafeArea` parent : le calque
+                  // repart des quatre bords physiques, barre d'état et barre de
+                  // navigation comprises (d'où le mode bord à bord posé en initState
+                  // et le `Clip.none` du Stack).
+                  if (screenFlashLit)
+                    Positioned(
+                      key: const ValueKey('screen-flash'),
+                      top: -safePadding.top,
+                      bottom: -safePadding.bottom,
+                      left: -safePadding.left,
+                      right: -safePadding.right,
+                      child: ScreenFlashOverlay(settings: screenFlashSettings),
                     ),
-                  ),
-                Positioned(
-                  key: const ValueKey('close'),
-                  top: 12,
-                  left: 12,
-                  child: IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
-                    onPressed: _leave,
-                  ),
-                ),
-                // Reprendre la face précédente sans tout annuler (consigne Jay)
-                if (_step == 1 && !_recording)
+                  if (_countdown != null)
+                    Positioned.fill(
+                      key: const ValueKey('countdown'),
+                      child: CountdownOverlay(seconds: _countdown!),
+                    ),
+                  if (_busy && _type == CardType.oneshot)
+                    const Positioned.fill(
+                      key: ValueKey('oneshot-busy'),
+                      child: ColoredBox(
+                        color: Colors.black54,
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(),
+                              SizedBox(height: 12),
+                              Text('Oneshot — les deux faces…'),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (ref.watch(devCameraHudProvider))
+                    Positioned(
+                      key: const ValueKey('hud'),
+                      top: 60,
+                      left: 12,
+                      child: _CameraHud(
+                        camera: _camera,
+                        caps: _caps,
+                        dualError: _dualError,
+                      ),
+                    ),
                   Positioned(
-                    key: const ValueKey('retake'),
+                    key: const ValueKey('close'),
                     top: 12,
-                    left: 60,
+                    left: 12,
                     child: IconButton(
-                      tooltip: 'Reprendre le recto',
-                      icon: const Icon(Icons.undo, color: Colors.white),
-                      onPressed: _busy || _switching
-                          ? null
-                          : _retakePreviousFace,
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: _leave,
                     ),
                   ),
-                // « Passer » : la Card s'arrête à une face (demande de Jay
-                // 2026-08-10, en remplacement du mode Mono). N'apparaît qu'une
-                // fois le recto posé, et jamais là où le verso est obligatoire
-                // (Oneshot, BeReal).
-                // Placé en bas à DROITE, en miroir du bouton galerie : le
-                // haut-droite est pris par le bandeau d'étape et le flanc droit
-                // par la colonne d'outils.
-                if (_canSkipBackFace)
-                  Positioned(
-                    key: const ValueKey('skip-back'),
-                    bottom: 42,
-                    right: 28,
-                    child: _SkipBackButton(
-                      onPressed: _busy || _switching ? null : _skipBackFace,
-                    ),
-                  ),
-                Positioned(
-                  key: const ValueKey('header'),
-                  top: 16,
-                  right: 16,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          _step == 0 ? 'Recto — ce que tu vois' : 'Verso — toi',
-                          style: const TextStyle(color: Colors.white),
-                        ),
+                  // Reprendre la face précédente sans tout annuler (consigne Jay)
+                  if (_step == 1 && !_recording)
+                    Positioned(
+                      key: const ValueKey('retake'),
+                      top: 12,
+                      left: 60,
+                      child: IconButton(
+                        tooltip: 'Reprendre le recto',
+                        icon: const Icon(Icons.undo, color: Colors.white),
+                        onPressed: _busy || _switching
+                            ? null
+                            : _retakePreviousFace,
                       ),
-                      if (widget.bereal)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              gradient: CardType.bereal.gradient,
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              'BeReal · ${_berealRemaining ~/ 60}:${(_berealRemaining % 60).toString().padLeft(2, '0')}',
-                              style: const TextStyle(
-                                color: Colors.black,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                // Double live (Oneshot) : demandé EXPLICITEMENT (décision Jay,
-                // 2026-07-14). Changer de mode ne réveille plus la caméra double :
-                // c'est ce bouton, et lui seul, qui l'ouvre.
-                if (_canOfferDual)
+                    ),
+                  // « Passer » : la Card s'arrête à une face (demande de Jay
+                  // 2026-08-10, en remplacement du mode Mono). N'apparaît qu'une
+                  // fois le recto posé, et jamais là où le verso est obligatoire
+                  // (Oneshot, BeReal).
+                  // Placé en bas à DROITE, en miroir du bouton galerie : le
+                  // haut-droite est pris par le bandeau d'étape et le flanc droit
+                  // par la colonne d'outils.
+                  if (_canSkipBackFace)
+                    Positioned(
+                      key: const ValueKey('skip-back'),
+                      bottom: 42,
+                      right: 28,
+                      child: _SkipBackButton(
+                        onPressed: _busy || _switching ? null : _skipBackFace,
+                      ),
+                    ),
                   Positioned(
-                    key: const ValueKey('dual-live'),
-                    bottom: 190,
+                    key: const ValueKey('header'),
+                    top: 16,
                     right: 16,
-                    child: _DualLiveButton(onPressed: _tryOpenDual),
-                  ),
-                // Sélecteur de type : AVANT la première photo. Épuré : texte seul,
-                // swipe localisé (PageView) et mise en avant animée du mode actif.
-                // Masqué pendant un enregistrement vidéo.
-                if (!widget.bereal && _step == 0 && !_recording)
-                  Positioned(
-                    key: const ValueKey('type-selector'),
-                    bottom: 124,
-                    left: 0,
-                    right: 0,
-                    // VERROU : dès le déclenchement, le type de la card est figé
-                    // (bug critique du 2026-07-14 : mode changé pendant le
-                    // traitement → Mono à deux faces). Le sélecteur devient
-                    // inerte ET grisé — l'utilisateur voit que c'est verrouillé,
-                    // il ne se demande pas pourquoi son geste n'a rien fait.
-                    child: IgnorePointer(
-                      ignoring: _typeLocked,
-                      child: AnimatedOpacity(
-                        opacity: _typeLocked ? 0.35 : 1,
-                        duration: NeoMotion.fast,
-                        child: SizedBox(
-                          height: 46,
-                          child: PageView.builder(
-                            controller: _typeController,
-                            physics: _typeLocked
-                                ? const NeverScrollableScrollPhysics()
-                                : null,
-                            onPageChanged: (i) =>
-                                _onTypeChanged(CardType.selectable[i]),
-                            itemCount: CardType.selectable.length,
-                            itemBuilder: (context, index) {
-                              final type = CardType.selectable[index];
-                              return AnimatedBuilder(
-                                animation: _typeController,
-                                builder: (context, _) {
-                                  final page =
-                                      _typeController.hasClients &&
-                                          _typeController
-                                              .position
-                                              .haveDimensions
-                                      ? _typeController.page!
-                                      : _typeController.initialPage.toDouble();
-                                  final distance = (page - index).abs().clamp(
-                                    0.0,
-                                    1.0,
-                                  );
-                                  final selectedness = 1.0 - distance;
-                                  return GestureDetector(
-                                    onTap: () => _typeController.animateToPage(
-                                      index,
-                                      duration: NeoMotion.normal,
-                                      curve: NeoMotion.enter,
-                                    ),
-                                    child: Center(
-                                      child: Transform.scale(
-                                        scale: 0.82 + 0.34 * selectedness,
-                                        child: Text(
-                                          type.tag,
-                                          style: TextStyle(
-                                            color: Color.lerp(
-                                              Colors.white38,
-                                              type == CardType.standard
-                                                  ? Colors.white
-                                                  : type.color,
-                                              selectedness,
-                                            ),
-                                            fontWeight: FontWeight.w700,
-                                            letterSpacing: 1.1,
-                                            shadows: [
-                                              Shadow(
-                                                blurRadius: 14 * selectedness,
-                                                color:
-                                                    (type == CardType.standard
-                                                            ? Colors.white
-                                                            : type.color)
-                                                        .withValues(
-                                                          alpha:
-                                                              0.7 *
-                                                              selectedness,
-                                                        ),
-                                              ),
-                                              const Shadow(
-                                                blurRadius: 4,
-                                                color: Colors.black87,
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              );
-                            },
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                // Import galerie (cards classiques uniquement)
-                if (_galleryAllowed && !_recording)
-                  Positioned(
-                    key: const ValueKey('gallery'),
-                    bottom: 42,
-                    left: 28,
-                    // Même direction artistique que le rail : c'est un contrôle de
-                    // l'écran caméra, il n'a pas de raison d'avoir sa propre
-                    // matière. Un `CameraRail` d'un seul enfant, parce que c'est
-                    // lui qui porte la direction jusqu'au bouton.
-                    child: CameraRail(
-                      children: [
-                        CameraButton(
-                          tooltip: 'Importer depuis la galerie',
-                          icon: const Icon(Icons.photo_library_outlined),
-                          onPressed: _busy ? null : _importFromGallery,
-                        ),
-                      ],
-                    ),
-                  ),
-                // Colonne d'outils à droite (consigne Jay 2026-07-26), de haut en
-                // bas : flash (LED à l'arrière / lueur d'écran en frontale),
-                // retardateur, grille, HD, bascule caméra, couleur de fond. Les
-                // menus s'ouvrent vers la gauche.
-                //
-                // **Rien de tout ça en Oneshot** (consigne Jay 2026-07-26) : le
-                // Oneshot, c'est la caméra pure. Jamais de face tableau, pas de
-                // bascule de sens (les deux caméras prennent en même temps), et un
-                // flash qui n'aura pas les mêmes règles — Jay détaillera.
-                if (!_recording && _type != CardType.oneshot)
-                  Positioned(
-                    key: const ValueKey('tools'),
-                    right: 20,
-                    // Centrée verticalement (consigne Jay 2026-07-26) : `top` et
-                    // `bottom` à 0 donnent toute la hauteur, `Center` place la
-                    // colonne au milieu.
-                    top: 0,
-                    bottom: 0,
-                    child: Center(
-                      // Le rail de la caméra, dans la direction artistique
-                      // choisie par Jay (Réglages → Apparence). L'écartement lui
-                      // appartient : les `SizedBox(height: 12)` qui séparaient les
-                      // boutons ont disparu, sinon deux réglages d'espacement
-                      // seraient en désaccord.
-                      child: CameraRail(
-                        children: [
-                          // FLASH — deux boutons qui ne coexistent JAMAIS
-                          // (consigne Jay 2026-07-26) : la LED en caméra arrière,
-                          // la lueur d'écran en frontale, au même emplacement.
-                          if (_camera.lensBack) ...[
-                            // Pas de LED sur cette caméra : pas de bouton du tout
-                            // plutôt qu'un bouton menteur.
-                            if (_camera.hasFlash)
-                              _FlashControl(
-                                mode: _camera.flashMode,
-                                onChanged: _busy ? null : _setFlash,
-                              ),
-                          ] else
-                            ScreenFlashControl(
-                              on: _screenFlash,
-                              settings: screenFlashSettings,
-                              onToggle: (on) {
-                                setState(() => _screenFlash = on);
-                                _applyScreenFlashAssist();
-                              },
-                              onChanged: (s) =>
-                                  ref.read(screenFlashProvider.notifier).set(s),
-                            ),
-                          if (showCaptureTools) ...[
-                            CaptureTimerControl(
-                              seconds: _timerSeconds,
-                              onChanged: _busy
-                                  ? null
-                                  : (value) => setState(() {
-                                      _timerSeconds = value;
-                                      if (value > 0) _timerRestore = value;
-                                    }),
-                            ),
-                            GridButton(
-                              active: gridOn,
-                              onChanged: (value) => ref
-                                  .read(captureGridProvider.notifier)
-                                  .set(value),
-                            ),
-                            HdButton(
-                              active: _hd,
-                              onChanged: _busy
-                                  ? null
-                                  : (value) => setState(() => _hd = value),
-                            ),
-                          ],
-                          if (showLensToggle)
-                            CameraButton(
-                              tooltip: 'Changer de caméra',
-                              icon: const Icon(Icons.cameraswitch),
-                              onPressed: _busy || _switching
-                                  ? null
-                                  : _toggleLens,
-                            ),
-                          // Bouton COULEUR (ex-bouton dessin) : appui court = face
-                          // entièrement remplie de cette couleur, appui long =
-                          // palette.
-                          //
-                          // **Jamais en BeReal** (consigne Jay 2026-07-31, « cela
-                          // va de soi ») : le BeReal est obligatoirement une PHOTO
-                          // PRISE AVEC LES CAMÉRAS du téléphone. Une face de
-                          // couleur unie n'est pas une prise de vue — elle viderait
-                          // le format de sa contrainte.
-                          // Exclu aussi en **bibliothèque éphémère** (consigne Jay
-                          // 2026-08-10) : le tableau n'y sert à rien, le but est
-                          // une vraie photo ou vidéo du moment.
-                          if (_type != CardType.bereal &&
-                              widget.libraryTarget == null)
-                            _ColorButton(
-                              background: _background,
-                              onTap: _busy ? null : _useColorFace,
-                              onLongPress: _busy ? null : _openPalette,
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                // Indicateur d'enregistrement : durée + consigne de verrouillage
-                if (_recording)
-                  Positioned(
-                    key: const ValueKey('record-status'),
-                    bottom: 124,
-                    left: 0,
-                    right: 0,
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -2057,116 +1845,399 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                             color: Colors.black54,
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.fiber_manual_record,
-                                color: Colors.redAccent,
-                                size: 16,
+                          child: Text(
+                            _step == 0
+                                ? 'Recto — ce que tu vois'
+                                : 'Verso — toi',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                        if (widget.bereal)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
                               ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '${_recordSeconds ~/ 60}:${(_recordSeconds % 60).toString().padLeft(2, '0')}'
-                                ' / ${_maxVideoSeconds ~/ 60}:${(_maxVideoSeconds % 60).toString().padLeft(2, '0')}',
-                                style: const TextStyle(color: Colors.white),
+                              decoration: BoxDecoration(
+                                gradient: CardType.bereal.gradient,
+                                borderRadius: BorderRadius.circular(20),
                               ),
-                              if (_recordLocked) ...[
-                                const SizedBox(width: 6),
-                                const Icon(
-                                  Icons.lock,
-                                  color: Colors.white70,
-                                  size: 14,
+                              child: Text(
+                                'BeReal · ${_berealRemaining ~/ 60}:${(_berealRemaining % 60).toString().padLeft(2, '0')}',
+                                style: const TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
                                 ),
-                              ],
-                            ],
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          _recordLocked
-                              ? 'Vidéo verrouillée — tape le bouton pour arrêter'
-                              : 'Relâche pour arrêter · glisse hors du bouton pour verrouiller',
-                          style: const TextStyle(
-                            color: Colors.white70,
-                            fontSize: 12,
-                            shadows: [
-                              Shadow(blurRadius: 4, color: Colors.black),
-                            ],
-                          ),
-                        ),
                       ],
                     ),
                   ),
-                Positioned(
-                  key: const ValueKey('shutter'),
-                  bottom: 28,
-                  left: 0,
-                  right: 0,
-                  child: CameraShutterEntrance(
-                    child: Center(
-                      // Tap = photo ; appui maintenu = vidéo (verrouillage en
-                      // glissant hors du cercle, tap pour arrêter). Seuil réduit à
-                      // 180 ms (300 ms perçu trop long par Jay) — il remplace la
-                      // « pression forte », indétectable sur Android.
-                      child: RawGestureDetector(
-                        gestures: {
-                          TapGestureRecognizer:
-                              GestureRecognizerFactoryWithHandlers<
-                                TapGestureRecognizer
-                              >(() => TapGestureRecognizer(), (recognizer) {
-                                recognizer.onTap = _switching
-                                    ? null
-                                    : _onShutterTap;
-                              }),
-                          LongPressGestureRecognizer:
-                              GestureRecognizerFactoryWithHandlers<
-                                LongPressGestureRecognizer
-                              >(
-                                () => LongPressGestureRecognizer(
-                                  duration: const Duration(milliseconds: 180),
-                                ),
-                                (recognizer) {
-                                  recognizer
-                                    ..onLongPressStart =
-                                        _onShutterLongPressStart
-                                    ..onLongPressMoveUpdate =
-                                        _onShutterLongPressMove
-                                    ..onLongPressEnd = _onShutterLongPressEnd;
-                                },
-                              ),
-                        },
-                        child: Container(
-                          height: 76,
-                          width: 76,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: _recording
-                                  ? Colors.redAccent
-                                  : shutterColor,
-                              width: 5,
+                  // Double live (Oneshot) : demandé EXPLICITEMENT (décision Jay,
+                  // 2026-07-14). Changer de mode ne réveille plus la caméra double :
+                  // c'est ce bouton, et lui seul, qui l'ouvre.
+                  if (_canOfferDual)
+                    Positioned(
+                      key: const ValueKey('dual-live'),
+                      bottom: 190,
+                      right: 16,
+                      child: _DualLiveButton(onPressed: _tryOpenDual),
+                    ),
+                  // Sélecteur de type : AVANT la première photo. Épuré : texte seul,
+                  // swipe localisé (PageView) et mise en avant animée du mode actif.
+                  // Masqué pendant un enregistrement vidéo.
+                  if (!widget.bereal && _step == 0 && !_recording)
+                    Positioned(
+                      key: const ValueKey('type-selector'),
+                      bottom: 124,
+                      left: 0,
+                      right: 0,
+                      // VERROU : dès le déclenchement, le type de la card est figé
+                      // (bug critique du 2026-07-14 : mode changé pendant le
+                      // traitement → Mono à deux faces). Le sélecteur devient
+                      // inerte ET grisé — l'utilisateur voit que c'est verrouillé,
+                      // il ne se demande pas pourquoi son geste n'a rien fait.
+                      child: IgnorePointer(
+                        ignoring: _typeLocked,
+                        child: AnimatedOpacity(
+                          opacity: _typeLocked ? 0.35 : 1,
+                          duration: NeoMotion.fast,
+                          child: SizedBox(
+                            height: 46,
+                            child: PageView.builder(
+                              controller: _typeController,
+                              physics: _typeLocked
+                                  ? const NeverScrollableScrollPhysics()
+                                  : null,
+                              onPageChanged: (i) =>
+                                  _onTypeChanged(CardType.selectable[i]),
+                              itemCount: CardType.selectable.length,
+                              itemBuilder: (context, index) {
+                                final type = CardType.selectable[index];
+                                return AnimatedBuilder(
+                                  animation: _typeController,
+                                  builder: (context, _) {
+                                    final page =
+                                        _typeController.hasClients &&
+                                            _typeController
+                                                .position
+                                                .haveDimensions
+                                        ? _typeController.page!
+                                        : _typeController.initialPage
+                                              .toDouble();
+                                    final distance = (page - index).abs().clamp(
+                                      0.0,
+                                      1.0,
+                                    );
+                                    final selectedness = 1.0 - distance;
+                                    return GestureDetector(
+                                      onTap: () =>
+                                          _typeController.animateToPage(
+                                            index,
+                                            duration: NeoMotion.normal,
+                                            curve: NeoMotion.enter,
+                                          ),
+                                      child: Center(
+                                        child: Transform.scale(
+                                          scale: 0.82 + 0.34 * selectedness,
+                                          child: Text(
+                                            type.tag,
+                                            style: TextStyle(
+                                              color: Color.lerp(
+                                                Colors.white38,
+                                                type == CardType.standard
+                                                    ? Colors.white
+                                                    : type.color,
+                                                selectedness,
+                                              ),
+                                              fontWeight: FontWeight.w700,
+                                              letterSpacing: 1.1,
+                                              shadows: [
+                                                Shadow(
+                                                  blurRadius: 14 * selectedness,
+                                                  color:
+                                                      (type == CardType.standard
+                                                              ? Colors.white
+                                                              : type.color)
+                                                          .withValues(
+                                                            alpha:
+                                                                0.7 *
+                                                                selectedness,
+                                                          ),
+                                                ),
+                                                const Shadow(
+                                                  blurRadius: 4,
+                                                  color: Colors.black87,
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                );
+                              },
                             ),
-                            color: _recording
-                                ? Colors.redAccent.withValues(alpha: 0.35)
+                          ),
+                        ),
+                      ),
+                    ),
+                  // Import galerie (cards classiques uniquement)
+                  if (_galleryAllowed && !_recording)
+                    Positioned(
+                      key: const ValueKey('gallery'),
+                      bottom: 42,
+                      left: 28,
+                      // Même direction artistique que le rail : c'est un contrôle de
+                      // l'écran caméra, il n'a pas de raison d'avoir sa propre
+                      // matière. Un `CameraRail` d'un seul enfant, parce que c'est
+                      // lui qui porte la direction jusqu'au bouton.
+                      child: CameraRail(
+                        children: [
+                          CameraButton(
+                            tooltip: 'Importer depuis la galerie',
+                            icon: const Icon(Icons.photo_library_outlined),
+                            onPressed: _busy ? null : _importFromGallery,
+                          ),
+                        ],
+                      ),
+                    ),
+                  // Colonne d'outils à droite (consigne Jay 2026-07-26), de haut en
+                  // bas : flash (LED à l'arrière / lueur d'écran en frontale),
+                  // retardateur, grille, HD, bascule caméra, couleur de fond. Les
+                  // menus s'ouvrent vers la gauche.
+                  //
+                  // **Rien de tout ça en Oneshot** (consigne Jay 2026-07-26) : le
+                  // Oneshot, c'est la caméra pure. Jamais de face tableau, pas de
+                  // bascule de sens (les deux caméras prennent en même temps), et un
+                  // flash qui n'aura pas les mêmes règles — Jay détaillera.
+                  if (!_recording && _type != CardType.oneshot)
+                    Positioned(
+                      key: const ValueKey('tools'),
+                      right: 20,
+                      // Centrée verticalement (consigne Jay 2026-07-26) : `top` et
+                      // `bottom` à 0 donnent toute la hauteur, `Center` place la
+                      // colonne au milieu.
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        // Le rail de la caméra, dans la direction artistique
+                        // choisie par Jay (Réglages → Apparence). L'écartement lui
+                        // appartient : les `SizedBox(height: 12)` qui séparaient les
+                        // boutons ont disparu, sinon deux réglages d'espacement
+                        // seraient en désaccord.
+                        child: CameraRail(
+                          children: [
+                            // FLASH — deux boutons qui ne coexistent JAMAIS
+                            // (consigne Jay 2026-07-26) : la LED en caméra arrière,
+                            // la lueur d'écran en frontale, au même emplacement.
+                            if (_camera.lensBack) ...[
+                              // Pas de LED sur cette caméra : pas de bouton du tout
+                              // plutôt qu'un bouton menteur.
+                              if (_camera.hasFlash)
+                                _FlashControl(
+                                  mode: _camera.flashMode,
+                                  onChanged: _busy ? null : _setFlash,
+                                ),
+                            ] else
+                              ScreenFlashControl(
+                                on: _screenFlash,
+                                settings: screenFlashSettings,
+                                onToggle: (on) {
+                                  setState(() => _screenFlash = on);
+                                  _applyScreenFlashAssist();
+                                },
+                                onChanged: (s) => ref
+                                    .read(screenFlashProvider.notifier)
+                                    .set(s),
+                              ),
+                            if (showCaptureTools) ...[
+                              CaptureTimerControl(
+                                seconds: _timerSeconds,
+                                onChanged: _busy
+                                    ? null
+                                    : (value) => setState(() {
+                                        _timerSeconds = value;
+                                        if (value > 0) _timerRestore = value;
+                                      }),
+                              ),
+                              GridButton(
+                                active: gridOn,
+                                onChanged: (value) => ref
+                                    .read(captureGridProvider.notifier)
+                                    .set(value),
+                              ),
+                              HdButton(
+                                active: _hd,
+                                onChanged: _busy
+                                    ? null
+                                    : (value) => setState(() => _hd = value),
+                              ),
+                            ],
+                            if (showLensToggle)
+                              CameraButton(
+                                tooltip: 'Changer de caméra',
+                                icon: const Icon(Icons.cameraswitch),
+                                onPressed: _busy || _switching
+                                    ? null
+                                    : _toggleLens,
+                              ),
+                            // Bouton COULEUR (ex-bouton dessin) : appui court = face
+                            // entièrement remplie de cette couleur, appui long =
+                            // palette.
+                            //
+                            // **Jamais en BeReal** (consigne Jay 2026-07-31, « cela
+                            // va de soi ») : le BeReal est obligatoirement une PHOTO
+                            // PRISE AVEC LES CAMÉRAS du téléphone. Une face de
+                            // couleur unie n'est pas une prise de vue — elle viderait
+                            // le format de sa contrainte.
+                            // Exclu aussi en **bibliothèque éphémère** (consigne Jay
+                            // 2026-08-10) : le tableau n'y sert à rien, le but est
+                            // une vraie photo ou vidéo du moment.
+                            if (_type != CardType.bereal &&
+                                widget.libraryTarget == null)
+                              _ColorButton(
+                                background: _background,
+                                onTap: _busy ? null : _useColorFace,
+                                onLongPress: _busy ? null : _openPalette,
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  // Indicateur d'enregistrement : durée + consigne de verrouillage
+                  if (_recording)
+                    Positioned(
+                      key: const ValueKey('record-status'),
+                      bottom: 124,
+                      left: 0,
+                      right: 0,
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.fiber_manual_record,
+                                  color: Colors.redAccent,
+                                  size: 16,
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${_recordSeconds ~/ 60}:${(_recordSeconds % 60).toString().padLeft(2, '0')}'
+                                  ' / ${_maxVideoSeconds ~/ 60}:${(_maxVideoSeconds % 60).toString().padLeft(2, '0')}',
+                                  style: const TextStyle(color: Colors.white),
+                                ),
+                                if (_recordLocked) ...[
+                                  const SizedBox(width: 6),
+                                  const Icon(
+                                    Icons.lock,
+                                    color: Colors.white70,
+                                    size: 14,
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            _recordLocked
+                                ? 'Vidéo verrouillée — tape le bouton pour arrêter'
+                                : 'Relâche pour arrêter · glisse hors du bouton pour verrouiller',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              shadows: [
+                                Shadow(blurRadius: 4, color: Colors.black),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  Positioned(
+                    key: const ValueKey('shutter'),
+                    bottom: 28,
+                    left: 0,
+                    right: 0,
+                    child: CameraShutterEntrance(
+                      child: Center(
+                        // Tap = photo ; appui maintenu = vidéo (verrouillage en
+                        // glissant hors du cercle, tap pour arrêter). Seuil réduit à
+                        // 180 ms (300 ms perçu trop long par Jay) — il remplace la
+                        // « pression forte », indétectable sur Android.
+                        child: RawGestureDetector(
+                          gestures: {
+                            TapGestureRecognizer:
+                                GestureRecognizerFactoryWithHandlers<
+                                  TapGestureRecognizer
+                                >(() => TapGestureRecognizer(), (recognizer) {
+                                  recognizer.onTap = _switching
+                                      ? null
+                                      : _onShutterTap;
+                                }),
+                            LongPressGestureRecognizer:
+                                GestureRecognizerFactoryWithHandlers<
+                                  LongPressGestureRecognizer
+                                >(
+                                  () => LongPressGestureRecognizer(
+                                    duration: const Duration(milliseconds: 180),
+                                  ),
+                                  (recognizer) {
+                                    recognizer
+                                      ..onLongPressStart =
+                                          _onShutterLongPressStart
+                                      ..onLongPressMoveUpdate =
+                                          _onShutterLongPressMove
+                                      ..onLongPressEnd = _onShutterLongPressEnd;
+                                  },
+                                ),
+                          },
+                          child: Container(
+                            height: 76,
+                            width: 76,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: _recording
+                                    ? Colors.redAccent
+                                    : shutterColor,
+                                width: 5,
+                              ),
+                              color: _recording
+                                  ? Colors.redAccent.withValues(alpha: 0.35)
+                                  : _type == CardType.oneshot
+                                  ? shutterColor.withValues(alpha: 0.25)
+                                  : null,
+                            ),
+                            child: _recording
+                                ? Icon(
+                                    _recordLocked ? Icons.stop : Icons.videocam,
+                                    color: Colors.white,
+                                  )
                                 : _type == CardType.oneshot
-                                ? shutterColor.withValues(alpha: 0.25)
+                                ? const Icon(Icons.flip_camera_android)
                                 : null,
                           ),
-                          child: _recording
-                              ? Icon(
-                                  _recordLocked ? Icons.stop : Icons.videocam,
-                                  color: Colors.white,
-                                )
-                              : _type == CardType.oneshot
-                              ? const Icon(Icons.flip_camera_android)
-                              : null,
                         ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

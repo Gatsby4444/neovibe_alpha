@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -217,6 +218,55 @@ class _HomeShellState extends ConsumerState<HomeShell>
     // Pop-up des demandes de connexion entrantes (consigne Jay)
     listenForConnectionRequestPopups(ref, context);
 
+    return PopScope(
+      // La coquille est la RACINE : un retour y fermait l'app sur-le-champ, sans
+      // rien demander (aucun `PopScope` n'existait nulle part dans l'app —
+      // relevé par inventaire le 2026-08-16).
+      //
+      // Sans conséquence tant que Jay testait au bouton retour ; en navigation
+      // par gestes, un glissement parti d'un bord est capté par Android, arrive
+      // comme un retour, et **ferme l'app au milieu d'un changement de section**.
+      // La cause n'est pas le mode gestes : c'est que rien ne protégeait la
+      // racine. Le mode gestes n'a fait que la rendre atteignable par mégarde.
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _confirmExit();
+      },
+      child: _shell(context),
+    );
+  }
+
+  /// Instant du dernier retour resté sans suite.
+  DateTime? _exitAsked;
+
+  /// Fenêtre laissée pour confirmer. Assez longue pour lire le message, assez
+  /// courte pour qu'un retour d'il y a une minute ne ferme pas l'app.
+  static const _exitWindow = Duration(seconds: 3);
+
+  /// « Appuyez une deuxième fois pour quitter » (demande de Jay, 2026-08-16).
+  void _confirmExit() {
+    final now = DateTime.now();
+    final asked = _exitAsked;
+    if (asked != null && now.difference(asked) <= _exitWindow) {
+      // La sortie est DEMANDÉE au système, jamais forcée : `SystemNavigator.pop`
+      // rend la main à Android, qui met la tâche en arrière-plan comme il le
+      // ferait pour n'importe quelle app. Tuer le processus perdrait l'état.
+      SystemNavigator.pop();
+      return;
+    }
+    _exitAsked = now;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Appuie une deuxième fois pour quitter'),
+          duration: _exitWindow,
+        ),
+      );
+  }
+
+  Widget _shell(BuildContext context) {
     return Scaffold(
       // Navigation au SWIPE entre sections (test demandé par Jay, 2026-08-15).
       //
