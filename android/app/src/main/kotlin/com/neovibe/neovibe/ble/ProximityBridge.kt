@@ -47,7 +47,7 @@ class ProximityBridge(
     fun dispose() {
         methods.setMethodCallHandler(null)
         events.setStreamHandler(null)
-        ProximityService.instance?.let { if (it.bridge === this) it.bridge = null }
+        if (ProximityBus.listener === this) ProximityBus.listener = null
     }
 
     // ------------------------------------------------------------------
@@ -139,14 +139,18 @@ class ProximityBridge(
 
     override fun onListen(arguments: Any?, sink: EventChannel.EventSink?) {
         this.sink = sink
-        // Le service rejoue son état courant dès qu'on s'y branche : une
-        // interface qui vient de naître n'a pas à deviner ce qui s'est passé
-        // avant elle.
-        ProximityService.instance?.bridge = this
+        // ⚠️ On DÉPOSE, on ne va pas chercher. Le service n'existe peut-être pas
+        // encore — il ne démarre qu'à l'appel de `start`. L'ancienne version
+        // faisait `ProximityService.instance?.bridge = this` ici, et le `?.`
+        // avalait l'affectation en silence : le service tournait ensuite sans
+        // jamais rien remonter au Dart.
+        ProximityBus.listener = this
+        // S'il tourne déjà, il rejoue ce qu'on a manqué.
+        ProximityService.instance?.replayToBridge()
     }
 
     override fun onCancel(arguments: Any?) {
-        ProximityService.instance?.let { if (it.bridge === this) it.bridge = null }
+        if (ProximityBus.listener === this) ProximityBus.listener = null
         sink = null
     }
 

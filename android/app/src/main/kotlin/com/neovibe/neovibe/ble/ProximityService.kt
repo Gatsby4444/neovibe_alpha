@@ -14,6 +14,32 @@ import androidx.core.app.NotificationCompat
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
+ * Le point de rendez-vous entre le pont et le service.
+ *
+ * ## Pourquoi il existe — le défaut du 2026-08-16, relevé par Jay au test
+ *
+ * Le pont s'enregistrait auprès du service par `ProximityService.instance?.bridge = this`,
+ * **au moment où le Dart s'abonne au flux**. Or, à cet instant, le service
+ * n'existe pas encore : il ne démarre qu'à l'appel de `start`, plus tard. Le
+ * `?.` avalait donc l'affectation **en silence**, et le service tournait ensuite
+ * pour toujours sans destinataire.
+ *
+ * Symptômes, tous expliqués par cette seule ligne : la notification disait vrai
+ * (le moteur, lui, savait), l'écran restait bloqué sur « Démarrage… » (aucun
+ * état ne remontait), et rien n'était jamais détecté (aucun scan ne remontait
+ * non plus).
+ *
+ * ⚠️ **La leçon dépasse le correctif** : deux objets dont l'un doit trouver
+ * l'autre ne doivent pas dépendre de **l'ordre dans lequel ils naissent**. Ici,
+ * chacun dépose et lit au même endroit ; quel que soit le premier arrivé, le
+ * lien se fait. C'est la cause supprimée, pas une initialisation mieux rangée.
+ */
+object ProximityBus {
+    @Volatile
+    var listener: BleEngine.Listener? = null
+}
+
+/**
  * Le service de premier plan qui POSSÈDE la radio.
  *
  * ## Pourquoi un service, et pas l'activité
@@ -74,13 +100,8 @@ class ProximityService : Service(), BleEngine.Listener {
         }
     }
 
-    /** Le pont vers le Dart, quand il y en a un. */
-    @Volatile
-    var bridge: BleEngine.Listener? = null
-        set(value) {
-            field = value
-            if (value != null) replayTo(value)
-        }
+    /** Le pont vers le Dart, quand il y en a un. Publié par [ProximityBus]. */
+    private val bridge: BleEngine.Listener? get() = ProximityBus.listener
 
     private lateinit var engine: BleEngine
     private var lastStatus: RadioStatus = RadioStatus.Idle
@@ -123,7 +144,6 @@ class ProximityService : Service(), BleEngine.Listener {
     override fun onDestroy() {
         engine.detach()
         instance = null
-        bridge = null
         super.onDestroy()
     }
 
@@ -170,6 +190,17 @@ class ProximityService : Service(), BleEngine.Listener {
         // Idem : une trame chiffrée que personne ne peut ouvrir est perdue, et
         // c'est assumé. La rejouer plus tard casserait l'anti-rejeu du canal.
         bridge?.onFrame(linkId, data)
+    }
+
+    /**
+     * Rejoue l'état courant et les scans mis de côté au pont qui vient
+     * d'arriver.
+     *
+     * Appelé par le pont lui-même : une interface qui vient de naître n'a pas à
+     * deviner ce qui s'est passé avant elle.
+     */
+    fun replayToBridge() {
+        replayTo(ProximityBus.listener ?: return)
     }
 
     private fun replayTo(target: BleEngine.Listener) {

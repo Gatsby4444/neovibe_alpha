@@ -148,7 +148,17 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
   }
 
   Future<void> _engage() async {
-    state = state.copyWith(status: const RadioStarting());
+    // ⚠️ **On sonde AVANT de démarrer.** Un obstacle connu — Bluetooth éteint,
+    // permission manquante — se dit tout de suite, sans attendre qu'un
+    // événement remonte. Sans cela, l'écran reste sur « Démarrage… » aussi
+    // longtemps que le flux tarde : c'est exactement ce que Jay a constaté au
+    // test du 2026-08-16, et l'attente n'apprend rien à personne.
+    final blocker = await _radio.probe();
+    if (blocker is! RadioIdle) {
+      state = state.copyWith(status: blocker);
+    } else {
+      state = state.copyWith(status: const RadioStarting());
+    }
     _slot = ProximityIdentity.slotIndex(DateTime.now());
     await _radio.start(await _identity.currentRotatingId());
     _rotation?.cancel();
