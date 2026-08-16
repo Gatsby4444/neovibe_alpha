@@ -181,6 +181,14 @@ class ProximityService : Service(), BleEngine.Listener {
     fun send(linkId: String, data: ByteArray): Boolean = engine.send(linkId, data)
     fun mtuOf(linkId: String): Int = engine.mtuOf(linkId)
 
+    /** Ce que la radio a reellement recu depuis le dernier demarrage. */
+    fun stats(): Map<String, Any?> = mapOf(
+        "rawScans" to engine.rawScans,
+        "neoScans" to engine.neoScans,
+        "sdk" to android.os.Build.VERSION.SDK_INT,
+        "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+    )
+
     // ------------------------------------------------------------------
     // Écoute du moteur
     // ------------------------------------------------------------------

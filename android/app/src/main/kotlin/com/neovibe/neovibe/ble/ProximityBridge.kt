@@ -72,6 +72,18 @@ class ProximityBridge(
                     result.success(null)
                 }
 
+                "stats" -> {
+                    val service = ProximityService.instance
+                    result.success(
+                        service?.stats() ?: mapOf(
+                            "rawScans" to 0,
+                            "neoScans" to 0,
+                            "sdk" to android.os.Build.VERSION.SDK_INT,
+                            "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+                        ),
+                    )
+                }
+
                 "stop" -> {
                     ProximityService.stop(context)
                     result.success(null)

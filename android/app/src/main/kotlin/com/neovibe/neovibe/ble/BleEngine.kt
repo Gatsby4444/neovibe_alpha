@@ -90,6 +90,30 @@ class BleEngine(private val context: Context, private val listener: Listener) {
 
     private var lastPublished: RadioStatus? = null
 
+    /**
+     * Annonces BLE recues, **toutes applications confondues**.
+     *
+     * ⚠️ C'est l'instrument qui manquait. Avec le seul etat « detection
+     * active », deux pannes tres differentes se ressemblaient :
+     *
+     * - `rawScans == 0` → la radio ne livre **rien**. Le probleme est sous nous
+     *   (permission, puce, bridage systeme) ;
+     * - `rawScans > 0` mais `neoScans == 0` → la radio livre, mais **aucune
+     *   annonce NeoVibe n'arrive**. Le probleme est chez celui d'en face, ou
+     *   dans le contenu de son annonce.
+     *
+     * Un seul chiffre separe donc « je n'entends rien » de « personne ne
+     * parle » — deux phrases que l'ancienne interface confondait.
+     */
+    @Volatile
+    var rawScans = 0
+        private set
+
+    /** Parmi elles, celles qui portent notre signature. */
+    @Volatile
+    var neoScans = 0
+        private set
+
     // ------------------------------------------------------------------
     // Cycle de vie
     // ------------------------------------------------------------------
@@ -124,6 +148,8 @@ class BleEngine(private val context: Context, private val listener: Listener) {
     fun start(advertId: ByteArray): Boolean {
         desiredAdvertId = advertId
         scanRetried = false
+        rawScans = 0
+        neoScans = 0
         val blocker = evaluateRadio(context)
         if (blocker != null) {
             publish(blocker)
@@ -291,10 +317,14 @@ class BleEngine(private val context: Context, private val listener: Listener) {
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            // Compte AVANT tout tri : c'est ce chiffre qui dit si la radio
+            // livre quelque chose, independamment de ce qu'on en garde.
+            rawScans++
             val payload = result.scanRecord
                 ?.getManufacturerSpecificData(BleConstants.MANUFACTURER_ID) ?: return
             if (payload.size != BleConstants.ADVERT_PAYLOAD_SIZE) return
             if (payload[0] != BleConstants.MAGIC[0] || payload[1] != BleConstants.MAGIC[1]) return
+            neoScans++
             val id = payload.copyOfRange(2, BleConstants.ADVERT_PAYLOAD_SIZE)
             main.post { listener.onScan(result.device.address, id, result.rssi) }
         }
@@ -386,15 +416,35 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             publish(RadioStatus.Failed("scan", "Scan indisponible sur cet appareil"))
             return
         }
-        val filter = ScanFilter.Builder()
-            .setManufacturerData(
-                BleConstants.MANUFACTURER_ID,
-                BleConstants.MAGIC,
-                byteArrayOf(0xFF.toByte(), 0xFF.toByte()),
-            )
-            .build()
+        // ⚠️ **Un filtre qui accepte TOUT, et le tri se fait en logiciel.**
+        //
+        // Le filtre precedent portait sur les donnees de fabricant
+        // (`setManufacturerData`). C'est la bonne facon de faire *en theorie* :
+        // le tri est delegue a la puce, l'application n'est reveillee que pour
+        // ce qui l'interesse.
+        //
+        // En pratique, **ce filtrage materiel est notoirement inegal d'un
+        // fabricant a l'autre** : certaines puces ne savent pas appliquer un
+        // masque sur les donnees de fabricant et laissent passer tout, d'autres
+        // ne laissent rien passer du tout. Le second cas donne exactement ce que
+        // Jay a constate le 2026-08-16 : deux appareils qui s'annoncent en
+        // parfaite sante, et un seul qui voit l'autre.
+        //
+        // Le tri logiciel, lui, existait deja dans `onScanResult` et n'a jamais
+        // dependu du materiel. Le filtre materiel n'etait donc qu'une
+        // optimisation - et une optimisation dont la defaillance est
+        // silencieuse et depend de l'appareil est pire que pas d'optimisation.
+        //
+        // ⚠️ La liste reste NON VIDE : sur plusieurs versions d'Android, un scan
+        // sans aucun filtre est refuse ou bride en arriere-plan. Un filtre vide
+        // accepte tout tout en gardant le chemin "scan filtre" du systeme.
+        //
+        // Contrepartie assumee : on est reveille pour chaque annonce BLE des
+        // environs, pas seulement les notres. Mesurable via `stats()`.
+        val filter = ScanFilter.Builder().build()
         val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
             .build()
         scanner.startScan(listOf(filter), settings, scanCallback)
         scanning = true

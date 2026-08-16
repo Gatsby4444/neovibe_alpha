@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme.dart';
+import 'dart:async';
+
+import 'net/ble_radio.dart';
 import 'net/presence_tracker.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_supervisor.dart';
@@ -21,11 +24,46 @@ import 'net/radio_status.dart';
 /// radio, l'intention de l'utilisateur, et chaque appareil vu avec son état
 /// d'identification et son adresse. C'est ce qui transforme « ça ne marche
 /// pas » en « c'est la diffusion de cet appareil-là qui ne part pas ».
-class ProximityDiagnosticScreen extends ConsumerWidget {
+class ProximityDiagnosticScreen extends ConsumerStatefulWidget {
   const ProximityDiagnosticScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<ProximityDiagnosticScreen> createState() =>
+      _ProximityDiagnosticScreenState();
+}
+
+class _ProximityDiagnosticScreenState
+    extends ConsumerState<ProximityDiagnosticScreen> {
+  final _radio = BleRadio();
+  Map<String, dynamic> _stats = const {};
+  Timer? _poll;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+    _poll = Timer.periodic(const Duration(seconds: 1), (_) => _refresh());
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    try {
+      final s = await _radio.stats();
+      if (mounted) setState(() => _stats = s);
+    } catch (_) {
+      // Le service ne tourne pas : les compteurs restent a leur derniere
+      // valeur connue plutot que de sauter a zero, ce qui ferait croire a une
+      // remise a zero de la radio.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final runtime = ref.watch(proximitySupervisorProvider);
     final view = ref.watch(proximityControllerProvider).value;
     final peers = view?.peers ?? const <PresencePeer>[];
@@ -60,6 +98,21 @@ class ProximityDiagnosticScreen extends ConsumerWidget {
             ],
           ),
           _Bloc(
+            titre: 'Ce que la radio a REÇU',
+            enfants: [
+              _Texte(
+                'Annonces BLE (toutes apps)',
+                '${_stats['rawScans'] ?? '—'}',
+              ),
+              _Texte('dont NeoVibe', '${_stats['neoScans'] ?? '—'}'),
+              const SizedBox(height: 8),
+              Text(
+                _lireCompteurs(),
+                style: TextStyle(color: context.muted, fontSize: 12),
+              ),
+            ],
+          ),
+          _Bloc(
             titre: 'Appareils vus (${peers.length})',
             enfants: peers.isEmpty
                 ? [
@@ -83,6 +136,28 @@ class ProximityDiagnosticScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// ⚠️ **Le chiffre le plus utile de tout cet écran.**
+  ///
+  /// Il sépare deux pannes que « détection active » confondait : ne rien
+  /// entendre, et n'avoir personne à entendre.
+  String _lireCompteurs() {
+    final raw = _stats['rawScans'] as int?;
+    final neo = _stats['neoScans'] as int?;
+    if (raw == null) return 'Le service ne tourne pas.';
+    if (raw == 0) {
+      return 'ZÉRO annonce reçue, toutes applications confondues. La radio ne '
+          "te livre rien : le problème est SOUS l'app — permission, puce, ou "
+          "bridage du système. Ce n'est pas la faute de l'autre appareil.";
+    }
+    if (neo == 0) {
+      return 'La radio te livre bien des annonces ($raw), mais AUCUNE ne vient '
+          "de NeoVibe. Ton écoute fonctionne : c'est la diffusion d'en face "
+          "qui n'arrive pas jusqu'ici.";
+    }
+    return 'La chaîne est complète : $raw annonces reçues, dont $neo de '
+        'NeoVibe.';
   }
 
   static String _nommer(RadioStatus status) => switch (status) {

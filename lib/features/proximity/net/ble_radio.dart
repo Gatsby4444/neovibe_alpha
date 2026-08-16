@@ -64,6 +64,15 @@ class BleRadio {
   Future<void> disconnect(String linkId) =>
       _methods.invokeMethod('disconnect', {'linkId': linkId});
 
+  /// Ce que la radio a reçu depuis le dernier démarrage.
+  ///
+  /// ⚠️ **`rawScans` compte TOUTES les annonces BLE**, pas seulement les
+  /// nôtres. C'est ce qui permet de distinguer « je n'entends rien » de
+  /// « personne ne parle » — deux pannes que l'état « détection active »
+  /// confondait.
+  Future<Map<String, dynamic>> stats() async =>
+      await _methods.invokeMapMethod<String, dynamic>('stats') ?? const {};
+
   /// Envoie un **morceau** brut. Le découpage est l'affaire du transport.
   Future<void> send(String linkId, Uint8List data) =>
       _methods.invokeMethod('send', {'linkId': linkId, 'data': data});
