@@ -29,6 +29,15 @@ class _DeveloperUpdateScreenState extends ConsumerState<DeveloperUpdateScreen> {
   String? _erreur;
   var _busy = false;
   double _progress = 0;
+
+  /// L'APK déjà téléchargé, s'il l'est.
+  ///
+  /// ⚠️ **Le garder rend l'installation RÉESSAYABLE.** Fondre téléchargement et
+  /// installation en un geste obligeait à retélécharger 30 Mo à chaque refus
+  /// d'Android — et le refus est fréquent la première fois, puisqu'il faut
+  /// d'abord autoriser l'app.
+  File? _apk;
+  String? _dansTelechargements;
   final _note = TextEditingController();
   final _token = TextEditingController();
 
@@ -73,33 +82,35 @@ class _DeveloperUpdateScreenState extends ConsumerState<DeveloperUpdateScreen> {
     }
   }
 
-  Future<void> _update() async {
+  /// Étape 1 — télécharger, et **déposer une copie dans les Téléchargements**.
+  Future<void> _telecharger() async {
     final build = _latest;
     if (build == null) return;
     setState(() {
       _busy = true;
       _progress = 0;
       _erreur = null;
+      _apk = null;
+      _dansTelechargements = null;
     });
     try {
-      final File apk = await AppUpdater.download(
+      final apk = await AppUpdater.download(
         build,
         onProgress: (p) {
           if (mounted) setState(() => _progress = p);
         },
       );
-      await AppUpdater.install(apk);
+      // Le dépôt dans les Téléchargements ne doit JAMAIS faire échouer le
+      // téléchargement : c'est un filet, pas le chemin principal.
+      String? nom;
+      try {
+        nom = await AppUpdater.publishToDownloads(apk);
+      } catch (_) {}
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            // ⚠️ On dit « Android va demander », jamais « installé » : rien ne
-            // nous revient après le lancement de l'installateur, et annoncer un
-            // succès qu'on ne constate pas serait un mensonge une fois sur deux.
-            content: Text(
-              'Android va te demander de confirmer l\'installation.',
-            ),
-          ),
-        );
+        setState(() {
+          _apk = apk;
+          _dansTelechargements = nom;
+        });
       }
     } catch (e) {
       if (mounted) {
@@ -107,6 +118,29 @@ class _DeveloperUpdateScreenState extends ConsumerState<DeveloperUpdateScreen> {
       }
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Étape 2 — lancer l'installateur système sur le fichier déjà téléchargé.
+  Future<void> _installer() async {
+    final apk = _apk;
+    if (apk == null) return;
+    try {
+      await AppUpdater.install(apk);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            // ⚠️ On dit « Android va demander », jamais « installé » : rien ne
+            // nous revient après le lancement de l'installateur, et annoncer un
+            // succès qu'on ne constate pas serait un mensonge une fois sur deux.
+            content: Text('Android va te demander de confirmer.'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _erreur = e.toString().replaceFirst('Bad state: ', ''));
+      }
     }
   }
 
@@ -177,28 +211,58 @@ class _DeveloperUpdateScreenState extends ConsumerState<DeveloperUpdateScreen> {
                     const SizedBox(height: 10),
                     LinearProgressIndicator(value: _progress),
                   ],
+                  if (_dansTelechargements != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Déposé dans tes Téléchargements : $_dansTelechargements\n'
+                      'Tu peux aussi l\'ouvrir depuis là, comme un fichier '
+                      'téléchargé avec Chrome.',
+                      style: TextStyle(color: context.muted, fontSize: 12),
+                    ),
+                  ],
                   const SizedBox(height: 12),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
                       TextButton(
                         onPressed: _busy ? null : _check,
                         child: const Text('Vérifier'),
                       ),
-                      const SizedBox(width: 8),
-                      FilledButton(
-                        onPressed: _busy || latest == null || aJour
+                      // ⚠️ **Jamais grisé.** La première version désactivait ce
+                      // bouton quand l'app était à jour, en le renommant « À
+                      // jour » — Jay a donc conclu qu'il n'existait pas. Un
+                      // bouton grisé au libellé changé est indiscernable d'une
+                      // fonction absente. Il reste donc toujours actionnable,
+                      // et c'est son LIBELLÉ qui dit ce qu'il fera.
+                      FilledButton.icon(
+                        onPressed: _busy || latest == null
                             ? null
-                            : _update,
-                        child: Text(
-                          aJour ? 'À jour' : 'Télécharger et installer',
+                            : _telecharger,
+                        icon: const Icon(Icons.download),
+                        label: Text(
+                          latest == null
+                              ? 'Télécharger'
+                              : aJour
+                              ? 'Retélécharger ${latest.version}'
+                              : 'Télécharger ${latest.version}',
                         ),
                       ),
+                      if (_apk != null)
+                        FilledButton.icon(
+                          onPressed: _busy ? null : _installer,
+                          icon: const Icon(Icons.android),
+                          label: const Text('Installer'),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    'Android affichera sa propre confirmation : aucune app ne '
-                    'peut en installer une autre sans elle.',
+                    'Deux étapes séparées : le fichier reste téléchargé si '
+                    'l\'installation échoue, et « Installer » se réessaie sans '
+                    'retélécharger 30 Mo. Android affichera toujours sa propre '
+                    'confirmation — aucune app ne peut en installer une autre '
+                    'sans elle.',
                     style: TextStyle(color: context.faint, fontSize: 12),
                   ),
                 ],

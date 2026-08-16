@@ -154,6 +154,13 @@ class AppUpdater {
     return file;
   }
 
+  /// Dépose une copie de [apk] dans les **Téléchargements** du système.
+  ///
+  /// Rend le nom du fichier déposé. Un échec n'est pas bloquant : c'est un
+  /// filet, pas le chemin principal — voir `NativeInstall.publishToDownloads`.
+  static Future<String?> publishToDownloads(File apk) async =>
+      _channel.invokeMethod<String>('publish', {'path': apk.path});
+
   /// Demande au système d'installer [apk].
   ///
   /// ⚠️ Rend la main **immédiatement** : c'est Android qui affiche sa

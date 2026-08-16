@@ -38,6 +38,65 @@ class NativeInstall(
 
     private val channel = MethodChannel(messenger, "neovibe/install")
 
+    /**
+     * Copie l'APK dans le dossier **Téléchargements** du système.
+     *
+     * ## Pourquoi, alors qu'on sait lancer l'installateur
+     *
+     * Demande de Jay, 2026-08-16 : *« télécharger l'APK, cela pourrait se faire
+     * comme dans Chrome : on télécharge, on voit dans les téléchargements, on
+     * clique et cela lance l'installateur »*.
+     *
+     * Il a raison, et ça vaut mieux que ce que j'avais fait. Le fichier posé
+     * dans le stockage privé de l'app **n'existe que pour l'app** : si
+     * l'intention d'installation échoue — autorisation refusée, constructeur
+     * qui filtre, écran qui se ferme — le téléchargement est perdu et il faut
+     * tout recommencer. Dans les Téléchargements, il reste **atteignable
+     * autrement**, exactement comme un fichier venu du navigateur.
+     *
+     * C'est un filet, pas un doublon : les deux chemins mènent au même
+     * installateur système, mais l'un ne dépend pas de l'autre.
+     *
+     * ⚠️ `MediaStore` et non un chemin en dur : depuis Android 10, écrire
+     * directement dans `/sdcard/Download` est refusé (stockage cloisonné).
+     */
+    private fun publishToDownloads(file: File, result: MethodChannel.Result) {
+        try {
+            val resolver = activity.contentResolver
+            val values = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.Downloads.DISPLAY_NAME, file.name)
+                put(
+                    android.provider.MediaStore.Downloads.MIME_TYPE,
+                    "application/vnd.android.package-archive",
+                )
+            }
+            val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            } else {
+                @Suppress("DEPRECATION")
+                Uri.fromFile(
+                    android.os.Environment.getExternalStoragePublicDirectory(
+                        android.os.Environment.DIRECTORY_DOWNLOADS,
+                    ),
+                )
+            }
+            val uri = resolver.insert(collection, values)
+                ?: return result.error("NO_URI", "Téléchargements inaccessibles", null)
+            resolver.openOutputStream(uri).use { out ->
+                if (out == null) {
+                    result.error("NO_STREAM", "Écriture impossible", null)
+                    return
+                }
+                file.inputStream().use { it.copyTo(out) }
+            }
+            result.success(file.name)
+        } catch (e: Exception) {
+            // Un échec ici ne doit PAS empêcher l'installation directe : ce
+            // chemin est un filet, pas le chemin principal.
+            result.error("PUBLISH_FAILED", e.message ?: e.toString(), null)
+        }
+    }
+
     init {
         channel.setMethodCallHandler(this)
     }
@@ -45,10 +104,6 @@ class NativeInstall(
     fun dispose() = channel.setMethodCallHandler(null)
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
-        if (call.method != "install") {
-            result.notImplemented()
-            return
-        }
         val path = call.argument<String>("path")
         if (path == null) {
             result.error("ARG", "chemin manquant", null)
@@ -58,6 +113,12 @@ class NativeInstall(
         if (!file.exists()) {
             result.error("NO_FILE", "Fichier introuvable : $path", null)
             return
+        }
+
+        when (call.method) {
+            "publish" -> return publishToDownloads(file, result)
+            "install" -> Unit
+            else -> return result.notImplemented()
         }
 
         try {
