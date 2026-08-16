@@ -107,11 +107,25 @@ class ProximityIdentity {
   }
 }
 
-/// Carnet local des clés de reconnaissance des AMIS (+ instantané de
-/// profil) : permet d'identifier un ami depuis son ID rotatif, hors ligne,
-/// sans poignée de main. Alimenté par la table `device_keys` quand internet
-/// est là, et directement en BLE quand on devient amis sur place.
-class FriendKeyBook {
+/// Ce dont le réseau a besoin d'un carnet d'amis — et rien de plus.
+///
+/// Extrait le 2026-08-16 pour que `PeerNetwork` soit testable : `FriendKeyBook`
+/// écrit dans le répertoire de l'application, indisponible en test unitaire. Une
+/// couche qu'on ne peut pas faire tourner sans téléphone est une couche qu'on ne
+/// teste jamais — et c'est exactement ce qui a laissé passer les treize défauts
+/// du diagnostic.
+abstract class FriendKeyStore {
+  Future<Map<String, FriendKeys>> all();
+  Future<void> put(FriendKeys keys);
+  Future<void> remove(String userId);
+  Future<Map<String, FriendKeys>> rotatingIndex(int slot);
+}
+
+/// Carnet local des clés de reconnaissance des AMIS (+ instantané de profil) :
+/// permet d'identifier un ami depuis son ID rotatif, **hors ligne**, sans
+/// poignée de main. Alimenté par la table `device_keys` quand internet est là,
+/// et directement en BLE quand on devient amis sur place.
+class FriendKeyBook implements FriendKeyStore {
   FriendKeyBook();
 
   Map<String, FriendKeys>? _cache;
@@ -123,6 +137,7 @@ class FriendKeyBook {
     return File('${ping.path}${Platform.pathSeparator}friend_keys.json');
   }
 
+  @override
   Future<Map<String, FriendKeys>> all() async {
     if (_cache != null) return _cache!;
     try {
@@ -137,12 +152,14 @@ class FriendKeyBook {
     }
   }
 
+  @override
   Future<void> put(FriendKeys keys) async {
     final map = await all();
     map[keys.userId] = keys;
     await _save(map);
   }
 
+  @override
   Future<void> remove(String userId) async {
     final map = await all();
     if (map.remove(userId) != null) await _save(map);
@@ -157,6 +174,7 @@ class FriendKeyBook {
 
   /// Table de correspondance ID rotatif (hex) → ami, pour les créneaux
   /// [slot-1, slot, slot+1] (tolérance d'horloge entre appareils).
+  @override
   Future<Map<String, FriendKeys>> rotatingIndex(int slot) async {
     final friends = await all();
     final index = <String, FriendKeys>{};

@@ -181,17 +181,45 @@ class PresenceTracker {
         : ProximityLevel.close;
   }
 
+  /// Un lien s'est ouvert avec [address].
+  ///
+  /// ⚠️ **Un lien est en soi une preuve de présence**, et il peut arriver AVANT
+  /// la première annonce : rien ne garantit l'ordre entre un résultat de scan et
+  /// une connexion GATT entrante. Le côté qui *reçoit* la connexion n'a
+  /// d'ailleurs souvent rien vu du tout — c'est l'autre qui l'a repéré.
+  ///
+  /// Sans cette porte d'entrée, la présence n'avait aucune ligne à identifier
+  /// quand le profil arrivait, et **la poignée de main aboutissait dans le
+  /// vide** : les deux appareils échangeaient correctement, et l'écran du
+  /// récepteur restait désespérément vide. Trouvé par
+  /// `test/peer_network_test.dart`, jamais par un test de couche isolée.
+  void noteLink(String address) {
+    if (_peers.containsKey(address)) return;
+    final now = _now();
+    _peers[address] = PresencePeer(
+      address: address,
+      stage: PresenceStage.identifying,
+      // Aucune mesure : on prend une valeur prudente plutôt que d'inventer une
+      // proximité. La première annonce la corrigera.
+      rssi: leaveVeryClose.toDouble(),
+      level: ProximityLevel.close,
+      firstSeen: now,
+      lastSeen: now,
+    );
+  }
+
   /// La poignée de main démarre : il y a quelqu'un, on ne sait pas encore qui.
   void markIdentifying(String address) {
-    final peer = _peers[address];
-    if (peer == null || peer.stage == PresenceStage.identified) return;
+    noteLink(address);
+    final peer = _peers[address]!;
+    if (peer.stage == PresenceStage.identified) return;
     _peers[address] = peer.copyWith(stage: PresenceStage.identifying);
   }
 
   /// La poignée de main a abouti.
   void markIdentified(String address, PingPeerSnapshot snapshot) {
-    final peer = _peers[address];
-    if (peer == null) return;
+    noteLink(address);
+    final peer = _peers[address]!;
     _peers[address] = peer.copyWith(
       stage: PresenceStage.identified,
       snapshot: snapshot,
