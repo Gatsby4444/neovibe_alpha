@@ -10,7 +10,7 @@ import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
 import '../proximity/ping_chat_screen.dart';
 import '../proximity/ping_store.dart';
-import '../proximity/proximity_service.dart';
+import '../proximity/net/proximity_controller.dart';
 import 'library_deck_screen.dart';
 import 'library_repository.dart';
 import 'mini_card.dart';
@@ -31,8 +31,7 @@ class UserLibraryScreen extends ConsumerWidget {
     final items = ref.watch(libraryItemsProvider(profile.id));
     final connections = ref.watch(fullConnectionsProvider);
     final isConnected = connections.any((c) => c.peerIdFor(me) == profile.id);
-    final proximity = ref.watch(proximityServiceProvider);
-    final inRange = proximity.nearby.containsKey(profile.id);
+    final inRange = ref.watch(peerInRangeProvider(profile.id));
 
     return Scaffold(
       appBar: AppBar(
@@ -100,8 +99,8 @@ class UserLibraryScreen extends ConsumerWidget {
                       onPressed: () async {
                         try {
                           await ref
-                              .read(proximityServiceProvider.notifier)
-                              .sendFriendRequest(profile.id);
+                              .read(proximityControllerProvider.notifier)
+                              .requestFriendship(profile.id);
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(

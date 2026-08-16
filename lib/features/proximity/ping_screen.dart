@@ -1,22 +1,35 @@
 import 'package:flutter/material.dart';
-import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/models/nearby_user.dart';
+import '../../core/theme.dart';
 import '../../core/utils/formats.dart';
 import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
+import 'net/presence_tracker.dart';
+import 'net/proximity_controller.dart';
+import 'net/proximity_journal.dart';
+import 'net/proximity_supervisor.dart';
+import 'net/radio_status.dart';
 import 'ping_chat_screen.dart';
 import 'ping_store.dart';
-import 'proximity_service.dart';
 
-/// Module Ping (plein écran, ouvert depuis Cercle) — 100 % BLE LOCAL
-/// (chantier A, décisions Jay 2026-07-13) : personnes à proximité
-/// (amis reconnus par ID rotatif, inconnus révélés par poignée de main
-/// chiffrée), conversations ping locales (TTL 12 h, jamais serveur),
-/// croisements récents certifiés.
+/// Le Ping — découverte 100 % locale, chiffrée d'appareil à appareil.
+///
+/// ## Le principe de cet écran, après la reconstruction du 2026-08-16
+///
+/// **Il ne dit jamais « personne » quand il ne sait pas.**
+///
+/// L'ancienne version affichait le même écran vide dans trois situations sans
+/// rapport : Bluetooth éteint, permission manquante, et poignée de main en
+/// cours. Trois causes, un seul message — donc aucun moyen, pour l'utilisateur
+/// comme pour nous, de savoir laquelle. C'est le défaut qui a rendu les tests
+/// de Jay ininterprétables pendant des semaines.
+///
+/// Ici, chaque état a sa phrase et, quand c'est possible, **son bouton**.
 class PingScreen extends ConsumerStatefulWidget {
   const PingScreen({super.key});
 
@@ -28,9 +41,7 @@ class _PingScreenState extends ConsumerState<PingScreen> {
   List<PingConversation> _conversations = const [];
   List<LocalEncounter> _encounters = const [];
 
-  /// Capturé à l'initialisation : `ref` est INTERDIT dans `dispose()` (le
-  /// widget est déjà démonté — Riverpod lève « Using "ref" when a widget is
-  /// about to or has been unmounted », vu dans le journal de Jay).
+  /// Capturé à l'initialisation : `ref` est INTERDIT dans `dispose()`.
   late final _store = ref.read(pingStoreProvider);
 
   @override
@@ -47,12 +58,6 @@ class _PingScreenState extends ConsumerState<PingScreen> {
   }
 
   Future<void> _reload() async {
-    // `_store` capturé, JAMAIS `ref.read` ici : `_reload` est appelé par un
-    // écouteur du store (mise à jour BLE), qui peut tomber pendant que l'écran
-    // est en train d'être démonté → Riverpod lève « Using "ref" when a widget
-    // is about to or has been unmounted » (4 occurrences dans le journal de Jay
-    // du 2026-07-25). Le champ `_store` avait été introduit pour ça, mais cette
-    // ligne était restée en arrière.
     final convs = await _store.conversations();
     final encounters = await _store.encounters();
     if (!mounted) return;
@@ -64,95 +69,74 @@ class _PingScreenState extends ConsumerState<PingScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final proximity = ref.watch(proximityServiceProvider);
-    final nearby = proximity.nearbyList;
-    final nearbyIds = proximity.nearby.keys.toSet();
-
-    // Conversations ping visibles : pair en portée. Hors de portée, elles
-    // sortent de la liste (mais restent 12 h en local : elles reviennent si
-    // on se recroise).
-    final visibleConversations = _conversations
-        .where((c) => nearbyIds.contains(c.peerId))
+    final view = ref.watch(proximityControllerProvider).value;
+    // ⚠️ L'état de la radio se lit **au superviseur**, jamais à l'instantané du
+    // contrôleur : c'est le superviseur qui en est l'autorité, et son état
+    // change plus souvent que la liste des pairs. Le lire ailleurs, c'est
+    // rouvrir l'écart entre ce qu'on affiche et ce qui est vrai.
+    final runtime = ref.watch(proximitySupervisorProvider);
+    final peers = view?.peers ?? const <PresencePeer>[];
+    final identified = peers
+        .where((p) => p.stage == PresenceStage.identified)
         .toList();
-
-    // Croisés récemment : plus en portée, profil + certificat en local.
-    final pastEncounters = _encounters
-        .where((e) => !nearbyIds.contains(e.peer.userId))
-        .toList();
-
-    final pendingRequest = proximity.incomingFriendRequest;
+    final enCours = peers.length - identified.length;
+    final nearbyIds = identified
+        .map((p) => p.userId)
+        .whereType<String>()
+        .toSet();
 
     return Scaffold(
-      appBar: AppBar(
-        // Titre centré : c'est un TITRE DE SECTION, pas un fil d'Ariane
-        // (consigne de Jay, 2026-08-15). Les écrans poussés gardent le titre
-        // aligné à gauche — le thème n'est pas touché.
-        centerTitle: true,
-        title: const Text('Ping'),
-      ),
+      appBar: AppBar(centerTitle: true, title: const Text('Ping')),
       body: RefreshIndicator(
         onRefresh: _reload,
         child: ListView(
           children: [
-            // Stories des personnes croisées (consigne Jay 2026-08-02) :
-            // uniquement celles qui ont activé « stories publiques », et
-            // uniquement si le croisement certifié date de moins de 24 h.
             StoriesBar(
               provider: crossedStoriesProvider,
               emptyHint:
                   'Pas de story des gens que tu croises. Elles n\'apparaissent '
                   'que si la personne a activé ses stories publiques.',
             ),
+
             SwitchListTile(
               title: const Text('Visible à proximité'),
-              subtitle: Text(
-                proximity.visible
-                    ? 'Les autres membres NeoVibe proches peuvent te voir'
-                    : 'Active pour rencontrer ceux qui te croisent',
-              ),
-              value: proximity.visible,
-              onChanged: (on) => on
-                  ? ref.read(proximityServiceProvider.notifier).enable()
-                  : ref.read(proximityServiceProvider.notifier).disable(),
+              subtitle: Text(_sousTitreInterrupteur(runtime)),
+              value: runtime.wantsVisible,
+              // Tant que l'intention n'est pas relue, l'interrupteur est inerte
+              // — sinon il s'afficherait éteint puis sauterait, et un
+              // utilisateur qui voit ça le rebascule, donc coupe sa visibilité.
+              onChanged: runtime.intentLoaded
+                  ? (on) => ref
+                        .read(proximitySupervisorProvider.notifier)
+                        .setVisible(on)
+                  : null,
             ),
-            if (proximity.visible)
+
+            if (runtime.wantsVisible) _BandeauEtat(runtime: runtime),
+
+            if (runtime.isLive)
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'Découverte 100 % locale : ton identifiant change toutes '
-                  'les 15 minutes et ton profil ne circule que dans un canal '
+                  'Découverte 100 % locale : ton identifiant change toutes les '
+                  '15 minutes et ton profil ne circule que dans un canal '
                   'chiffré, d\'appareil à appareil.',
                   style: TextStyle(color: context.faint, fontSize: 11),
                 ),
               ),
-            if (proximity.error != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  proximity.error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ),
-            if (pendingRequest != null)
-              _FriendRequestBanner(request: pendingRequest),
-            const _SectionTitle('Autour de toi'),
-            if (!proximity.visible)
-              const _EmptyHint(
-                icon: Icons.bluetooth_disabled,
-                text:
-                    'Ta visibilité est coupée.\nPersonne ne peut te détecter, et tu ne détectes personne.',
-              )
-            else if (nearby.isEmpty)
-              const _EmptyHint(
-                icon: Icons.radar,
-                text:
-                    'Personne à proximité pour l\'instant.\nLes membres NeoVibe proches apparaîtront ici.',
-              )
-            else
-              for (final peer in nearby) _NearbyTile(peer: peer),
-            if (visibleConversations.isNotEmpty) ...[
-              const _SectionTitle('Conversations ping'),
-              for (final conv in visibleConversations)
+
+            for (final request
+                in view?.requests ?? const <PendingFriendRequest>[])
+              _CarteDemande(request: request),
+
+            const _TitreSection('Autour de toi'),
+            ..._autourDeToi(runtime, identified, enCours),
+
+            if (_conversations.any((c) => nearbyIds.contains(c.peerId))) ...[
+              const _TitreSection('Conversations ping'),
+              for (final conv in _conversations.where(
+                (c) => nearbyIds.contains(c.peerId),
+              ))
                 ListTile(
                   leading: const Icon(Icons.podcasts),
                   title: Text(conv.peer.displayName),
@@ -175,28 +159,196 @@ class _PingScreenState extends ConsumerState<PingScreen> {
                   ),
                 ),
             ],
-            if (pastEncounters.isNotEmpty) ...[
-              const _SectionTitle('Croisés récemment'),
-              for (final encounter in pastEncounters)
-                _EncounterTile(encounter: encounter),
+
+            if (_encounters.any((e) => !nearbyIds.contains(e.peer.userId))) ...[
+              const _TitreSection('Croisés récemment'),
+              for (final rencontre in _encounters.where(
+                (e) => !nearbyIds.contains(e.peer.userId),
+              ))
+                _TuileRencontre(encounter: rencontre),
             ],
+
             const SizedBox(height: 24),
           ],
         ),
       ),
     );
   }
+
+  String _sousTitreInterrupteur(ProximityRuntime runtime) {
+    if (!runtime.wantsVisible) {
+      return 'Active pour rencontrer ceux qui te croisent';
+    }
+    if (runtime.isLive) {
+      return 'Les autres membres NeoVibe proches peuvent te voir';
+    }
+    return 'Activée, mais en pause — voir ci-dessous';
+  }
+
+  /// La liste, et surtout **ce qu'on dit quand elle est vide**.
+  List<Widget> _autourDeToi(
+    ProximityRuntime runtime,
+    List<PresencePeer> identified,
+    int enCours,
+  ) {
+    if (!runtime.wantsVisible) {
+      return const [
+        _Vide(
+          icon: Icons.bluetooth_disabled,
+          text:
+              'Ta visibilité est coupée.\nPersonne ne peut te détecter, et tu '
+              'ne détectes personne.',
+        ),
+      ];
+    }
+    if (!runtime.status.isDetecting) {
+      // Le bandeau d'état dit déjà la cause exacte et propose l'action : ne pas
+      // répéter « personne à proximité », qui serait faux — on ne cherche pas.
+      return const [
+        _Vide(
+          icon: Icons.pause_circle_outline,
+          text:
+              'La détection est en pause. Rien n\'est cherché pour l\'instant.',
+        ),
+      ];
+    }
+    return [
+      for (final peer in identified) _TuilePair(peer: peer),
+      if (enCours > 0)
+        ListTile(
+          leading: const SizedBox(
+            width: 24,
+            height: 24,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+          title: Text(
+            enCours == 1
+                ? 'Un appareil détecté'
+                : '$enCours appareils détectés',
+          ),
+          // ⚠️ C'est exactement le cas que l'ancienne version affichait comme
+          // « Personne à proximité » : deux téléphones en train de se parler.
+          subtitle: const Text('Vérification chiffrée en cours…'),
+        ),
+      if (identified.isEmpty && enCours == 0)
+        const _Vide(
+          icon: Icons.radar,
+          text:
+              'Personne à proximité pour l\'instant.\nLes membres NeoVibe '
+              'proches apparaîtront ici.',
+        ),
+    ];
+  }
 }
 
-/// Demande d'ami reçue en BLE (co-signée) : accepter échange les clés de
-/// reconnaissance et remontera au serveur au retour d'internet.
-class _FriendRequestBanner extends ConsumerWidget {
-  const _FriendRequestBanner({required this.request});
-  final PendingBleFriendRequest request;
+/// Dit **pourquoi** la détection ne tourne pas, et propose quoi faire.
+class _BandeauEtat extends ConsumerWidget {
+  const _BandeauEtat({required this.runtime});
+  final ProximityRuntime runtime;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final service = ref.read(proximityServiceProvider.notifier);
+    final status = runtime.status;
+    if (status.isDetecting) return const SizedBox.shrink();
+
+    final (String titre, String detail, String? action) = switch (status) {
+      RadioAdapterOff() => (
+        'Bluetooth éteint',
+        'La détection de proximité a besoin du Bluetooth. Rien ne tourne tant '
+            'qu\'il est coupé — et tout repartira tout seul quand tu '
+            'l\'allumeras.',
+        'Ouvrir les réglages',
+      ),
+      RadioPermissionsMissing() => (
+        'Permission manquante',
+        'Sans elle, Android ne renvoie aucun résultat de détection — sans '
+            'aucune erreur. C\'est pour ça que rien n\'apparaît.',
+        'Accorder',
+      ),
+      RadioUnsupported() => (
+        'Bluetooth LE indisponible',
+        'Cet appareil n\'a pas le Bluetooth basse consommation : le Ping ne '
+            'peut pas fonctionner ici.',
+        null,
+      ),
+      RadioFailed(:final message) => (
+        'Détection interrompue',
+        message,
+        'Réessayer',
+      ),
+      RadioStarting() => ('Démarrage…', 'La radio se met en route.', null),
+      RadioRunning(advertising: false) => (
+        'Tu n\'es pas annoncé',
+        'Tu détectes les autres, mais eux ne te voient pas : le système a '
+            'refusé la diffusion. Réessayer suffit le plus souvent.',
+        'Réessayer',
+      ),
+      _ => ('En pause', 'La détection ne tourne pas.', 'Réessayer'),
+    };
+
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.info_outline, size: 18),
+                const SizedBox(width: 8),
+                Text(
+                  titre,
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(detail, style: TextStyle(color: context.muted, fontSize: 12)),
+            if (action != null) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: FilledButton.tonal(
+                  onPressed: () => _agir(ref, status),
+                  child: Text(action),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _agir(WidgetRef ref, RadioStatus status) async {
+    if (status is RadioPermissionsMissing) {
+      await [
+        Permission.bluetoothScan,
+        Permission.bluetoothAdvertise,
+        Permission.bluetoothConnect,
+        Permission.locationWhenInUse,
+        Permission.notification,
+      ].request();
+    } else if (status is RadioAdapterOff) {
+      await openAppSettings();
+    }
+    // Dans tous les cas on redemande : c'est le natif qui dira si ça a marché.
+    await ref.read(proximitySupervisorProvider.notifier).retry();
+  }
+}
+
+/// Une demande d'ami reçue en proximité.
+///
+/// ⚠️ **Plusieurs peuvent coexister**, et elles survivent à la fermeture de
+/// l'app. L'ancienne version n'en gardait qu'une, en mémoire : la seconde
+/// écrasait la première sans trace.
+class _CarteDemande extends ConsumerWidget {
+  const _CarteDemande({required this.request});
+  final PendingFriendRequest request;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
     return Card(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Padding(
@@ -209,7 +361,7 @@ class _FriendRequestBanner extends ConsumerWidget {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             Text(
-              'Vous êtes à proximité en ce moment',
+              'Reçue ${vagueTimeAgo(request.receivedAt)}',
               style: TextStyle(color: context.muted, fontSize: 12),
             ),
             const SizedBox(height: 8),
@@ -217,13 +369,12 @@ class _FriendRequestBanner extends ConsumerWidget {
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 TextButton(
-                  onPressed: () =>
-                      service.respondToFriendRequest(accept: false),
+                  onPressed: () => _repondre(context, ref, accept: false),
                   child: const Text('Refuser'),
                 ),
                 const SizedBox(width: 8),
                 FilledButton(
-                  onPressed: () => service.respondToFriendRequest(accept: true),
+                  onPressed: () => _repondre(context, ref, accept: true),
                   child: const Text('Accepter'),
                 ),
               ],
@@ -233,15 +384,52 @@ class _FriendRequestBanner extends ConsumerWidget {
       ),
     );
   }
+
+  /// ⚠️ **L'échec se DIT, et la demande reste.**
+  ///
+  /// L'ancienne version effaçait la carte puis abandonnait en silence si le
+  /// lien BLE était tombé : la demande disparaissait pour toujours, sans copie
+  /// serveur, et l'émetteur n'apprenait jamais rien.
+  Future<void> _repondre(
+    BuildContext context,
+    WidgetRef ref, {
+    required bool accept,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(proximityControllerProvider.notifier)
+          .respondToRequest(request.fromUserId, accept: accept);
+      if (accept) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Vous êtes connectés avec '
+              '${request.snapshot.displayName}.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${request.snapshot.displayName} n\'est plus à portée. La demande '
+            'est gardée : réessaie quand vous serez de nouveau proches.',
+          ),
+        ),
+      );
+    }
+  }
 }
 
-class _NearbyTile extends ConsumerWidget {
-  const _NearbyTile({required this.peer});
-  final NearbyPeer peer;
+class _TuilePair extends ConsumerWidget {
+  const _TuilePair({required this.peer});
+  final PresencePeer peer;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final snapshot = peer.snapshot;
+    final snapshot = peer.snapshot!;
     return ListTile(
       leading: CircleAvatar(
         child: Text(snapshot.displayName.characters.first.toUpperCase()),
@@ -252,12 +440,12 @@ class _NearbyTile extends ConsumerWidget {
           Icon(
             Icons.circle,
             size: 10,
-            color: peer.proximity == ProximityLevel.veryClose
+            color: peer.level == ProximityLevel.veryClose
                 ? Colors.greenAccent
                 : Colors.amber,
           ),
           const SizedBox(width: 6),
-          Text(peer.proximity.label),
+          Text(peer.level.label),
           if (peer.isFriend) ...[
             const SizedBox(width: 10),
             const Icon(Icons.link, size: 14),
@@ -266,44 +454,77 @@ class _NearbyTile extends ConsumerWidget {
           ],
         ],
       ),
-      // Message direct (100 % BLE, marche sans internet) + profil complet
-      // (serveur, si internet) au tap — consigne Jay 2026-07-12 conservée.
-      trailing: IconButton(
-        icon: const Icon(Icons.chat_bubble_outline),
-        tooltip: 'Message ping',
-        onPressed: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) =>
-                PingChatScreen(peerId: snapshot.userId, peer: snapshot),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (!peer.isFriend)
+            IconButton(
+              icon: const Icon(Icons.person_add_alt),
+              tooltip: 'Demander à se connecter',
+              onPressed: () => _demander(context, ref, snapshot),
+            ),
+          IconButton(
+            icon: const Icon(Icons.chat_bubble_outline),
+            tooltip: 'Message ping',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) =>
+                    PingChatScreen(peerId: snapshot.userId, peer: snapshot),
+              ),
+            ),
+          ),
+        ],
+      ),
+      onTap: () => _ouvrirProfil(context, ref, snapshot),
+    );
+  }
+
+  Future<void> _demander(
+    BuildContext context,
+    WidgetRef ref,
+    PingPeerSnapshot snapshot,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(proximityControllerProvider.notifier)
+          .requestFriendship(snapshot.userId);
+      messenger.showSnackBar(
+        SnackBar(content: Text('Demande envoyée à ${snapshot.displayName}.')),
+      );
+    } catch (_) {
+      // Un envoi raté se DIT. En silence, l'utilisateur croit avoir demandé.
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossible de joindre cette personne — rapproche-toi '
+            'et réessaie.',
           ),
         ),
-      ),
-      onTap: () => _openProfile(context, ref, snapshot),
-    );
+      );
+    }
   }
 }
 
-class _EncounterTile extends ConsumerWidget {
-  const _EncounterTile({required this.encounter});
+class _TuileRencontre extends ConsumerWidget {
+  const _TuileRencontre({required this.encounter});
   final LocalEncounter encounter;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return ListTile(
-      leading: CircleAvatar(
-        child: Text(encounter.peer.displayName.characters.first.toUpperCase()),
-      ),
-      title: Text(encounter.peer.displayName),
-      subtitle: Text('Croisé ${vagueTimeAgo(encounter.at)}'),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () => _openProfile(context, ref, encounter.peer),
-    );
-  }
+  Widget build(BuildContext context, WidgetRef ref) => ListTile(
+    leading: CircleAvatar(
+      child: Text(encounter.peer.displayName.characters.first.toUpperCase()),
+    ),
+    title: Text(encounter.peer.displayName),
+    subtitle: Text('Croisé ${vagueTimeAgo(encounter.at)}'),
+    trailing: const Icon(Icons.chevron_right),
+    onTap: () => _ouvrirProfil(context, ref, encounter.peer),
+  );
 }
 
 /// Ouvre le profil complet (serveur). Sans internet, retombe sur la
 /// conversation ping locale.
-Future<void> _openProfile(
+Future<void> _ouvrirProfil(
   BuildContext context,
   WidgetRef ref,
   PingPeerSnapshot snapshot,
@@ -328,8 +549,8 @@ Future<void> _openProfile(
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle(this.title);
+class _TitreSection extends StatelessWidget {
+  const _TitreSection(this.title);
   final String title;
 
   @override
@@ -339,26 +560,24 @@ class _SectionTitle extends StatelessWidget {
   );
 }
 
-class _EmptyHint extends StatelessWidget {
-  const _EmptyHint({required this.icon, required this.text});
+class _Vide extends StatelessWidget {
+  const _Vide({required this.icon, required this.text});
   final IconData icon;
   final String text;
 
   @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        children: [
-          Icon(icon, size: 48, color: context.ghost),
-          const SizedBox(height: 12),
-          Text(
-            text,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: context.muted),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.all(24),
+    child: Column(
+      children: [
+        Icon(icon, size: 48, color: context.ghost),
+        const SizedBox(height: 12),
+        Text(
+          text,
+          textAlign: TextAlign.center,
+          style: TextStyle(color: context.muted),
+        ),
+      ],
+    ),
+  );
 }

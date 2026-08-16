@@ -29,7 +29,7 @@ import '../library_vibes/library_target.dart';
 import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
 import 'video_player_screen.dart';
-import '../proximity/proximity_service.dart';
+import '../proximity/net/proximity_controller.dart';
 import 'conversations_repository.dart';
 import 'group_settings_screen.dart';
 
@@ -224,12 +224,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // NB : depuis le chantier BLE (2026-07-13), les conversations ping sont
     // 100 % locales (PingChatScreen) — ce canal serveur ne subsiste que pour
     // les conversations prox héritées, il n'en est plus créé de nouvelles.
-    final proximity = ref.watch(proximityServiceProvider);
     final outOfRange =
         isProximity &&
         peer != null &&
         partial == null &&
-        !proximity.nearby.containsKey(peer.id);
+        !ref.watch(peerInRangeProvider(peer.id));
 
     return Scaffold(
       appBar: AppBar(

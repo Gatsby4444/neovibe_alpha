@@ -15,6 +15,7 @@ import 'proximity_journal.dart';
 import 'proximity_protocol.dart';
 import 'ble_radio.dart';
 import 'proximity_supervisor.dart';
+import 'proximity_sync.dart';
 import 'radio_status.dart';
 
 /// Ce que l'interface a besoin de savoir, et rien de plus.
@@ -112,6 +113,11 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     );
     _network = network;
     await network.start();
+
+    // La synchro part au démarrage : c'est le moment où l'on récupère les clés
+    // des amis, sans lesquelles aucune reconnaissance silencieuse n'est
+    // possible.
+    unawaited(ref.read(proximitySyncProvider).run());
 
     _radioFeed = supervisor.events.listen(network.onRadioEvent);
     _peerFeed = network.events.listen(_onPeerEvent);
@@ -288,6 +294,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       LocalEncounter(peer: peer, at: DateTime.now(), certificate: certificate),
     );
     await store.enqueue({'type': 'encounter', 'certificate': certificate});
+    unawaited(ref.read(proximitySyncProvider).run());
     _refresh();
   }
 
@@ -420,6 +427,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       'type': 'connection',
       'record': record,
     });
+    unawaited(ref.read(proximitySyncProvider).run());
     await _journal.removeRequest(fromUserId);
     _refresh();
   }
@@ -444,6 +452,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       'type': 'connection',
       'record': accept.record,
     });
+    unawaited(ref.read(proximitySyncProvider).run());
     _refresh();
   }
 
@@ -496,6 +505,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       'peerId': friend.userId,
       'notifyAfter': when.toUtc().toIso8601String(),
     });
+    unawaited(ref.read(proximitySyncProvider).run());
   }
 
   // ------------------------------------------------------------------
@@ -543,6 +553,16 @@ class _RadioAdapter implements RadioCommands {
   Future<void> send(String linkId, Uint8List chunk) =>
       _radio.send(linkId, chunk);
 }
+
+/// Vrai si [userId] est à portée **maintenant**.
+///
+/// Point d'entrée unique pour tout ce qui exige la présence physique — la
+/// barrière fondatrice du produit. Il ne doit jamais s'appuyer sur un souvenir :
+/// c'est la présence vivante qui répond, pas un historique.
+final peerInRangeProvider = Provider.family<bool, String>((ref, userId) {
+  final view = ref.watch(proximityControllerProvider).value;
+  return view?.identified.any((p) => p.userId == userId) ?? false;
+});
 
 final proximityControllerProvider =
     AsyncNotifierProvider<ProximityController, ProximityView>(

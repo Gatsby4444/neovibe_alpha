@@ -8,8 +8,6 @@ import io.flutter.embedding.engine.FlutterEngine
 // LifecycleOwner, que seule la variante Fragment fournit.
 class MainActivity : FlutterFragmentActivity() {
     private var nativeCamera: NativeCamera? = null
-    private var nativeBle: NativeBle? = null
-
     /// Pont vers le service de proximité. **Il est jetable** : il naît et meurt
     /// avec l'activité, alors que le service, lui, survit (reconstruction du
     /// 2026-08-16).
@@ -28,7 +26,6 @@ class MainActivity : FlutterFragmentActivity() {
             flutterEngine.renderer,
             flutterEngine.dartExecutor.binaryMessenger,
         )
-        nativeBle = NativeBle(this, flutterEngine.dartExecutor.binaryMessenger)
         proximity = ProximityBridge(
             // `applicationContext` et NON `this` : le pont ne doit pas retenir
             // l'activité, sans quoi on réintroduirait le lien qu'on vient de

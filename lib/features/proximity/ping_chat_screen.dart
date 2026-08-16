@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import 'ping_store.dart';
-import 'proximity_service.dart';
+import 'net/proximity_controller.dart';
 
 /// Conversation ping : 100 % LOCALE et 100 % BLE (décisions Jay
 /// 2026-07-13) — les messages ne touchent jamais le serveur, vivent 12 h
@@ -63,7 +63,7 @@ class _PingChatScreenState extends ConsumerState<PingChatScreen> {
     setState(() => _sending = true);
     try {
       await ref
-          .read(proximityServiceProvider.notifier)
+          .read(proximityControllerProvider.notifier)
           .sendMessage(widget.peerId, text);
       _input.clear();
       await _reload();
@@ -80,10 +80,7 @@ class _PingChatScreenState extends ConsumerState<PingChatScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final inRange = ref
-        .watch(proximityServiceProvider)
-        .nearby
-        .containsKey(widget.peerId);
+    final inRange = ref.watch(peerInRangeProvider(widget.peerId));
     final messages = _conversation?.messages ?? const <PingMessage>[];
     final blocked =
         (_conversation?.unansweredOutgoing ?? 0) >= PingStore.unansweredLimit;
