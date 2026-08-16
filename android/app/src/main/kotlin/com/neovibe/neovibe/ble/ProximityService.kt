@@ -298,6 +298,8 @@ class ProximityService : Service(), BleEngine.Listener {
                 else if (status.scanning) "Détection active — tu n'es pas annoncé"
                 else "En veille — la diffusion a échoué"
             is RadioStatus.AdapterOff -> "En pause — le Bluetooth est éteint"
+            is RadioStatus.LocationOff ->
+                "En pause — la localisation de l'appareil est éteinte"
             is RadioStatus.PermissionsMissing -> "En pause — permission manquante"
             is RadioStatus.Unsupported -> "Indisponible sur cet appareil"
             is RadioStatus.Failed -> "En pause — ${status.message}"

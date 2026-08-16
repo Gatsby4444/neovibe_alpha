@@ -5,6 +5,8 @@ import '../../features/cards/native_camera.dart';
 import 'app_log.dart';
 import 'card_rules_trace.dart';
 
+import '../../features/proximity/net/ble_radio.dart';
+
 /// Tout ce qu'il faut pour diagnostiquer, en **un seul** copier-coller.
 ///
 /// ### Pourquoi ça existe
@@ -121,16 +123,48 @@ class DiagnosticBundle {
     return buffer.toString().trimRight();
   }
 
-  /// Le paquet complet, prêt à coller.
+  /// L'état de la proximité, au moment de la collecte.
   ///
-  /// [sections] permet d'en produire une partie seulement — l'écran des temps
-  /// d'ouverture copie ses seules mesures.
+  /// ⚠️ **Absent du paquet jusqu'au 2026-08-16**, alors que c'était le chantier
+  /// en cours : le premier rapport envoyé par Jay depuis la tablette ne
+  /// contenait donc **rien** sur le ping. Une section manquante ne se voit pas
+  /// dans un rapport — on lit ce qui est là, jamais ce qui n'y est pas.
+  static Future<String> proximity() async {
+    try {
+      final stats = await BleRadio().stats();
+      final buffer = StringBuffer()
+        ..writeln('annonces BLE reçues (toutes apps) : ${stats['rawScans']}')
+        ..writeln('dont NeoVibe                      : ${stats['neoScans']}');
+      final raw = stats['rawScans'] as int?;
+      final neo = stats['neoScans'] as int?;
+      if (raw == 0) {
+        buffer.writeln(
+          'LECTURE : la radio ne livre RIEN. Le problème est sous l\'app '
+          '(permission, localisation éteinte sur Android <= 11, ou puce).',
+        );
+      } else if (raw != null && neo == 0) {
+        buffer.writeln(
+          'LECTURE : la radio livre ($raw), mais aucune annonce NeoVibe. '
+          'L\'écoute marche ; c\'est la diffusion d\'en face qui n\'arrive pas.',
+        );
+      }
+      return buffer.toString();
+    } catch (e) {
+      return 'indisponible : $e';
+    }
+  }
+
+  /// Le paquet complet, prêt à coller ou à envoyer.
+  ///
+  /// Les drapeaux permettent d'en produire une partie seulement — l'écran des
+  /// temps d'ouverture copie ses seules mesures.
   static Future<String> build({
     bool device = true,
     bool video = true,
     bool rules = true,
     bool appLog = true,
     bool cameraLog = true,
+    bool proximityState = true,
   }) async {
     final buffer = StringBuffer()
       ..writeln('===== DIAGNOSTIC NEOVIBE =====')
@@ -142,6 +176,15 @@ class DiagnosticBundle {
         'app ${info['appVersion'] ?? '?'}+${info['appBuild'] ?? '?'} · '
         '${info['model'] ?? '?'} · Android ${info['android'] ?? '?'}',
       );
+    }
+
+    // ⚠️ Placée juste après l'appareil, et **avant** les journaux : c'est la
+    // section la plus courte et la plus décisive du paquet. Enfouie après
+    // 40 000 caractères de journal caméra, elle ne serait jamais lue.
+    if (proximityState) {
+      buffer
+        ..writeln('\n===== PROXIMITÉ — CE QUE LA RADIO A REÇU =====')
+        ..writeln(await proximity());
     }
 
     if (video) {

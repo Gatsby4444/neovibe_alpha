@@ -64,6 +64,13 @@ class BleRadio {
   Future<void> disconnect(String linkId) =>
       _methods.invokeMethod('disconnect', {'linkId': linkId});
 
+  /// Ouvre les réglages de LOCALISATION du système.
+  ///
+  /// Pas ceux de l'app : sur Android ≤ 11, c'est le **service** qu'il faut
+  /// allumer, et aucune permission accordée ne le remplace.
+  Future<void> openLocationSettings() =>
+      _methods.invokeMethod('openLocationSettings');
+
   /// Ce que la radio a reçu depuis le dernier démarrage.
   ///
   /// ⚠️ **`rawScans` compte TOUTES les annonces BLE**, pas seulement les

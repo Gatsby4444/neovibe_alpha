@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import java.util.UUID
@@ -67,6 +68,34 @@ sealed class RadioStatus {
     /** Le Bluetooth est éteint. L'utilisateur doit l'allumer. */
     object AdapterOff : RadioStatus()
 
+    /**
+     * Le service de LOCALISATION du téléphone est éteint — et sur Android ≤ 11,
+     * cela suffit à rendre tout scan BLE aveugle.
+     *
+     * ## Pourquoi ce cas existe, et pourquoi il a coûté une journée
+     *
+     * Jusqu'à Android 11 inclus, le système considère qu'écouter les
+     * identifiants Bluetooth des environs revient à se localiser. Il exige donc
+     * **deux choses distinctes**, qu'on confond facilement :
+     *
+     * 1. la **permission** `ACCESS_FINE_LOCATION` accordée à l'app ;
+     * 2. le **service de localisation** allumé sur l'appareil.
+     *
+     * La première était vérifiée. La seconde, non. Or sans elle `startScan`
+     * **réussit** — pas d'exception, pas de code d'erreur, `onScanFailed` n'est
+     * jamais appelé — et ne livre **jamais aucun résultat**.
+     *
+     * C'est le défaut constaté par Jay le 2026-08-16 : sa tablette Android 10
+     * affichait diffusion ET détection au vert, et zéro appareil, pendant que
+     * son téléphone (Android 12+) voyait la tablette. **L'asymétrie ne venait
+     * ni du code ni de la puce : elle venait de la version d'Android.**
+     *
+     * ⚠️ À partir d'Android 12, `BLUETOOTH_SCAN` avec `neverForLocation` remplace
+     * cette exigence — d'où un appareil récent qui marche et un ancien qui ne
+     * marche pas, avec exactement le même code.
+     */
+    object LocationOff : RadioStatus()
+
     /** Tout est possible, mais personne n'a demandé à être visible. */
     object Idle : RadioStatus()
 
@@ -87,6 +116,7 @@ sealed class RadioStatus {
         is Unsupported -> mapOf("type" to "unsupported")
         is PermissionsMissing -> mapOf("type" to "permissionsMissing", "missing" to missing)
         is AdapterOff -> mapOf("type" to "adapterOff")
+        is LocationOff -> mapOf("type" to "locationOff")
         is Idle -> mapOf("type" to "idle")
         is Starting -> mapOf("type" to "starting")
         is Running -> mapOf(
@@ -148,5 +178,30 @@ fun evaluateRadio(context: Context): RadioStatus? {
     if (missing.isNotEmpty()) return RadioStatus.PermissionsMissing(missing)
 
     if (!adapter.isEnabled) return RadioStatus.AdapterOff
+
+    // ⚠️ Sur Android <= 11 SEULEMENT. Au-delà, `BLUETOOTH_SCAN` suffit et
+    // exiger la localisation serait une demande abusive.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && !isLocationEnabled(context)) {
+        return RadioStatus.LocationOff
+    }
     return null
+}
+
+/**
+ * Le service de localisation est-il allumé ?
+ *
+ * `isLocationEnabled` existe depuis l'API 28 ; en dessous, on lit le mode dans
+ * les réglages. Les deux appareils de test sont au-dessus, mais un `when` qui
+ * couvre tout coûte trois lignes et évite un plantage sur un appareil plus
+ * ancien.
+ */
+private fun isLocationEnabled(context: Context): Boolean {
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        ?: return false
+    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        manager.isLocationEnabled
+    } else {
+        manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+    }
 }

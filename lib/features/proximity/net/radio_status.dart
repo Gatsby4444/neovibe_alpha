@@ -28,6 +28,8 @@ sealed class RadioStatus {
         );
       case 'adapterOff':
         return const RadioAdapterOff();
+      case 'locationOff':
+        return const RadioLocationOff();
       case 'idle':
         return const RadioIdle();
       case 'starting':
@@ -73,6 +75,19 @@ class RadioPermissionsMissing extends RadioStatus {
 
 class RadioAdapterOff extends RadioStatus {
   const RadioAdapterOff();
+}
+
+/// Le service de localisation de l'appareil est éteint.
+///
+/// ⚠️ **Sur Android ≤ 11 seulement, et ça suffit à tout aveugler.** Le système
+/// considère alors qu'écouter les identifiants Bluetooth des environs revient à
+/// se localiser : sans le service allumé, `startScan` réussit et ne renvoie
+/// **jamais** de résultat, sans la moindre erreur.
+///
+/// La permission accordée ne remplace pas le service allumé — ce sont deux
+/// choses distinctes, et les confondre a coûté une journée le 2026-08-16.
+class RadioLocationOff extends RadioStatus {
+  const RadioLocationOff();
 }
 
 class RadioIdle extends RadioStatus {

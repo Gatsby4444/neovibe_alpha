@@ -72,6 +72,18 @@ class ProximityBridge(
                     result.success(null)
                 }
 
+                // Ouvre les reglages de LOCALISATION du systeme - pas ceux de
+                // l'app. Sur Android <= 11, c'est le service lui-meme qu'il faut
+                // allumer, et aucune permission accordee ne le remplace.
+                "openLocationSettings" -> {
+                    context.startActivity(
+                        android.content.Intent(
+                            android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS,
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                    )
+                    result.success(null)
+                }
+
                 "stats" -> {
                     val service = ProximityService.instance
                     result.success(

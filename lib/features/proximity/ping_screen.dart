@@ -9,6 +9,7 @@ import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
+import 'net/ble_radio.dart';
 import 'net/presence_tracker.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_journal.dart';
@@ -269,6 +270,15 @@ class _BandeauEtat extends ConsumerWidget {
             'l\'allumeras.',
         'Ouvrir les réglages',
       ),
+      RadioLocationOff() => (
+        'Localisation de l\'appareil éteinte',
+        'Sur Android 11 et avant, le système exige que la localisation soit '
+            'allumée pour détecter les appareils Bluetooth autour de toi. '
+            'Ce n\'est pas une permission à accorder : c\'est l\'interrupteur '
+            'de localisation du téléphone. Sans lui, la détection tourne dans '
+            'le vide, sans aucune erreur.',
+        'Ouvrir les réglages de localisation',
+      ),
       RadioPermissionsMissing() => (
         'Permission manquante',
         'Sans elle, Android ne renvoie aucun résultat de détection — sans '
@@ -332,7 +342,11 @@ class _BandeauEtat extends ConsumerWidget {
   }
 
   Future<void> _agir(WidgetRef ref, RadioStatus status) async {
-    if (status is RadioPermissionsMissing) {
+    if (status is RadioLocationOff) {
+      // ⚠️ Les réglages de LOCALISATION du système, pas ceux de l'app : c'est
+      // le service qu'il faut allumer, et aucune permission ne le remplace.
+      await BleRadio().openLocationSettings();
+    } else if (status is RadioPermissionsMissing) {
       await [
         Permission.bluetoothScan,
         Permission.bluetoothAdvertise,
