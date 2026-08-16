@@ -35,6 +35,7 @@
 | Hôte / cycle de vie | — | `MainActivity : FlutterFragmentActivity` | `AppDelegate` / `FlutterViewController` |
 | Journal caméra (dev) | (dans `neovibe/camera`) | `CamLog` (fichier disque) | fichier disque (trivial) |
 | Diagnostic appareil (dev) | `neovibe/diag` | `NativeDiagnostics` (`PackageManager` + `Build`) | `Bundle.main.infoDictionary` + `UIDevice` |
+| **Installation d'APK (dev)** | `neovibe/install` | `NativeInstall` + `FileProvider` + `MediaStore` | *sans objet — iOS n'installe que par l'App Store ou TestFlight* |
 
 ### Natif **fourni par un paquet**, donc rien à écrire — mais à connaître
 
@@ -213,7 +214,7 @@ et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
 
 | Canal | Sens | Contenu |
 |---|---|---|
-| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `updateAdvert`, `connect`, `disconnect`, `send` |
+| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `updateAdvert`, `connect`, `disconnect`, `send`, `stats`, `openLocationSettings` |
 | `neovibe/proximity/events` | natif → Dart | les **constats** : `status`, `scan`, `link`, `frame` |
 
 L'ancien code faisait remonter les événements par `invokeMethod` sur le canal de
@@ -494,6 +495,32 @@ systemGestureInsetsOf` dit où le système a posé sa zone, et notre bande ne
 s'arme que là où cette marge est nulle (navigation à 3 boutons). **Rien à écrire
 pour iOS non plus** — iOS ne réserve que le bord gauche, et ces marges y valent
 zéro à droite.
+
+## 7 ter. Installation d'une mise à jour depuis l'app — **OUTIL DE DEV**
+
+**Rôle** : télécharger l'APK de la dernière release et lancer l'installateur
+système. Demande de Jay du 2026-08-16, pour raccourcir la boucle de test.
+
+**Canal** : `neovibe/install`. Méthodes : `publish` (dépose une copie dans les
+Téléchargements via `MediaStore`), `install` (lance l'installateur).
+
+**Android (fait, 2026-08-16)** : `NativeInstall.kt`, plus un `FileProvider`
+d'autorité `${applicationId}.updates` et `res/xml/file_paths_updates.xml`.
+
+⚠️ **Android n'autorise AUCUNE installation silencieuse.** Le système affiche
+toujours sa confirmation ; seule une application propriétaire de l'appareil
+(kiosque, MDM) y échappe. Le bouton supprime les gestes *avant* la
+confirmation, pas la confirmation.
+
+⚠️ **À RETIRER AVANT LA PROD**, avec trois choses qui ne sont pas dans le
+dossier Développeur : la permission `REQUEST_INSTALL_PACKAGES` (Google Play la
+restreint fortement), le `FileProvider`, et la table `dev_reports`. Voir
+`RAPPELS.md` #19.
+
+**iOS** : **sans objet**. Une app iOS ne peut pas en installer une autre ;
+la distribution de test passe par TestFlight. Rien à porter.
+
+---
 
 ## 8. Notifications push (à vérifier)
 
