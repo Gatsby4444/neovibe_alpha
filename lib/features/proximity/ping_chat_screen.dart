@@ -82,8 +82,28 @@ class _PingChatScreenState extends ConsumerState<PingChatScreen> {
   Widget build(BuildContext context) {
     final inRange = ref.watch(peerInRangeProvider(widget.peerId));
     final messages = _conversation?.messages ?? const <PingMessage>[];
+    // ⚠️ **Le verrou d'émission n'existe QUE face à un inconnu.**
+    //
+    // Il double la règle du destinataire, et pour la même raison : empêcher un
+    // inconnu d'insister. Entre amis, il transformait une conversation normale
+    // en impasse — Jay, au test du 2026-08-16 : « les deux chats sont bloqués ».
+    //
+    // ⚠️ Le pire était l'issue : le déblocage exigeait une réponse, et la
+    // réponse était précisément ce que la règle d'en face interdisait. Deux
+    // verrous qui se tenaient l'un l'autre.
+    final isFriend =
+        ref
+            .watch(proximityControllerProvider)
+            .value
+            ?.peers
+            .any((p) => p.userId == widget.peerId && p.isFriend) ??
+        false;
     final blocked =
+        !isFriend &&
         (_conversation?.unansweredOutgoing ?? 0) >= PingStore.unansweredLimit;
+    final refused = ref
+        .read(proximityControllerProvider.notifier)
+        .wasRejectedBy(widget.peerId);
 
     return Scaffold(
       appBar: AppBar(
@@ -142,6 +162,8 @@ class _PingChatScreenState extends ConsumerState<PingChatScreen> {
                       decoration: InputDecoration(
                         hintText: !inRange
                             ? 'Hors de portée — recroisez-vous'
+                            : refused
+                            ? 'Ton dernier message a été refusé — attends sa réponse'
                             : blocked
                             ? 'Attends une réponse (3 messages max)'
                             : 'Message…',

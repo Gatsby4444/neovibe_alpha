@@ -126,4 +126,52 @@ void main() {
       );
     });
   });
+
+  group('l ANCRAGE ABSOLU - le test qui manquait', () {
+    // ⚠️ Le 2026-08-16, deux appareils a moins d'un metre affichaient
+    // « entre 40 et 140 m ». Tous les tests passaient : ils ne verifiaient que
+    // des proprietes RELATIVES, et une erreur d'ECHELLE les traverse sans les
+    // faire broncher. Ces trois-la ancrent la valeur absolue.
+
+    test('un RSSI typique de UN METRE rend environ un metre', () {
+      // -48 dBm est ce qu'on lit a 1 m d'un emetteur a -7 dBm.
+      final e = DistanceModel.estimate(
+        smoothedRssi: -48,
+        txPower: -7,
+        currentBand: null,
+        trend: ProximityTrend.stable,
+      );
+      expect(e.meters, closeTo(1.0, 0.3));
+    });
+
+    test(
+      'deux appareils cote a cote ne sont JAMAIS a des dizaines de metres',
+      () {
+        // Le cas exact rapporte par Jay : appareils a moins d'un metre.
+        for (final rssi in [-40.0, -45.0, -50.0, -55.0]) {
+          final e = DistanceModel.estimate(
+            smoothedRssi: rssi,
+            txPower: -7,
+            currentBand: null,
+            trend: ProximityTrend.stable,
+          );
+          expect(
+            e.meters,
+            lessThan(5),
+            reason: 'a $rssi dBm on est dans la meme piece, pas a un carrefour',
+          );
+        }
+      },
+    );
+
+    test('un signal faible rend bien une grande distance', () {
+      final e = DistanceModel.estimate(
+        smoothedRssi: -95,
+        txPower: -7,
+        currentBand: null,
+        trend: ProximityTrend.stable,
+      );
+      expect(e.meters, greaterThan(20));
+    });
+  });
 }

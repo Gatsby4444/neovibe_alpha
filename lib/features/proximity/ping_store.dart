@@ -20,6 +20,20 @@ class PingStore extends ChangeNotifierBase {
 
   /// Règle anti-spam (côté RÉCEPTEUR, consigne Jay) : au-delà de 3 messages
   /// consécutifs sans réponse, les messages entrants sont refusés.
+  ///
+  /// ⚠️ **Ne s'applique qu'aux INCONNUS depuis le 2026-08-16.**
+  ///
+  /// Elle existe pour empêcher un inconnu croisé dans la rue de harceler
+  /// quelqu'un qui ne lui répond pas. Entre **amis**, elle n'a aucun sens : ils
+  /// ont déjà franchi la barrière que tout le produit sert à protéger, et une
+  /// conversation normale comporte évidemment plusieurs messages d'affilée.
+  ///
+  /// Constaté par Jay au test : *« la limite se remet à chaque fois […] la
+  /// discussion est déjà en cours et en plus ils sont amis […] maintenant les
+  /// deux chats sont bloqués »*. Les deux appareils s'étaient enfermés — l'un
+  /// refusait de recevoir, l'autre d'envoyer, et **plus rien ne pouvait les
+  /// débloquer** puisque le déblocage exigeait précisément le message que la
+  /// règle interdisait.
   static const unansweredLimit = 3;
 
   Directory? _dir;
@@ -90,15 +104,25 @@ class PingStore extends ChangeNotifierBase {
   /// anti-spam : retourne false si le message est refusé (non stocké,
   /// jamais affiché — l'app émettrice modifiée peut envoyer, personne ne
   /// reçoit, consigne Jay).
+  /// Range un message. Rend `false` si la règle anti-spam l'a refusé.
+  ///
+  /// ⚠️ **L'appelant DOIT regarder ce retour.** Un `false` ignoré, c'est un
+  /// message détruit en silence — et c'est très exactement ce qui s'est passé
+  /// le 2026-08-16 : `ProximityController` jetait la valeur, l'émetteur croyait
+  /// avoir parlé, le destinataire ne voyait rien, et personne ne pouvait
+  /// comprendre pourquoi.
   Future<bool> append(
     String peerId, {
     required PingPeerSnapshot peer,
     required PingMessage message,
+    bool fromFriend = false,
   }) async {
     final existing =
         await conversation(peerId) ??
         PingConversation(peerId: peerId, peer: peer, messages: const []);
-    if (!message.mine) {
+    // Les amis sont exemptés : la règle vise l'inconnu insistant, pas une
+    // conversation en cours entre deux personnes qui se sont choisies.
+    if (!message.mine && !fromFriend) {
       final unanswered = existing.unansweredIncoming;
       if (unanswered >= unansweredLimit) return false;
     }

@@ -148,12 +148,49 @@ class DistanceModel {
   /// le calibrer sur les vrais appareils, intérieur et extérieur.
   static const pathLossExponent = 2.5;
 
-  /// Puissance supposée quand le pair ne l'annonce pas.
+  /// Puissance d'émission supposée quand le pair ne l'annonce pas, en dBm.
   ///
-  /// `ADVERTISE_TX_POWER_MEDIUM` correspond à peu près à −7 dBm mesuré à 1 m
-  /// sur la plupart des appareils. Une supposition, et elle est signalée comme
-  /// telle par [DistanceEstimate.calibrated].
+  /// `ADVERTISE_TX_POWER_MEDIUM` vaut environ −7 dBm **à l'antenne**.
   static const assumedTxPower = -7;
+
+  /// Perte entre l'antenne et un récepteur placé à **un mètre**, en dB.
+  ///
+  /// # ⚠️ La constante qui manquait, et qui rendait tout faux d'un facteur 100
+  ///
+  /// **Défaut du 2026-08-16, relevé par Jay** : deux appareils posés à moins
+  /// d'un mètre affichaient « entre 40 et 140 m ».
+  ///
+  /// La cause n'était **pas** le bruit dont j'avais parlé — c'était une erreur
+  /// de modèle. J'avais écrit :
+  ///
+  /// ```
+  /// distance = 10 ^ ((puissance_émise − RSSI) / (10 n))
+  /// ```
+  ///
+  /// en traitant la **puissance d'émission** comme si elle était la puissance
+  /// **reçue à un mètre**. Ce sont deux choses différentes, séparées par toute
+  /// la perte de propagation du premier mètre : à 2,4 GHz, environ **41 dB**.
+  ///
+  /// Avec −7 dBm d'émission, un récepteur à un mètre voit donc ≈ −48 dBm, pas
+  /// −7. En prenant −7 comme référence, chaque distance était multipliée par
+  /// `10^(41/25) ≈ 44`. Un mètre devenait quarante — exactement ce que Jay a lu.
+  ///
+  /// ## Ce qui aurait dû l'attraper
+  ///
+  /// Mes tests vérifiaient des propriétés **relatives** — « plus le signal est
+  /// fort, plus la distance est courte » — et elles étaient toutes vraies. Une
+  /// erreur d'échelle traverse ce genre de test sans le faire broncher.
+  ///
+  /// Il manquait **un point d'ancrage absolu** : *un RSSI typique de un mètre
+  /// doit rendre environ un mètre*. Il existe maintenant, et c'est lui qui
+  /// protège cette constante.
+  static const pathLossAt1m = 41;
+
+  /// Le RSSI qu'on lirait à **un mètre** de cet émetteur.
+  ///
+  /// C'est LA référence du modèle — l'équivalent de la « measured power » des
+  /// balises. Jamais la puissance d'émission.
+  static int referenceRssi(int txPower) => txPower - pathLossAt1m;
 
   /// Incertitude retenue pour la fourchette, en dB.
   ///
@@ -177,7 +214,8 @@ class DistanceModel {
   static const hysteresisDb = 6;
 
   static double metersFor(double rssi, int txPower) {
-    final ratio = (txPower - rssi) / (10 * pathLossExponent);
+    // ⚠️ `referenceRssi`, jamais `txPower` directement — voir [pathLossAt1m].
+    final ratio = (referenceRssi(txPower) - rssi) / (10 * pathLossExponent);
     return math.pow(10, ratio).toDouble();
   }
 

@@ -213,6 +213,8 @@ sealed class PeerMessage {
           return FriendAcceptMessage.fromJson(map);
         case 'friendDecline':
           return const FriendDeclineMessage();
+        case 'chatRejected':
+          return const ChatRejectedMessage();
         default:
           return null;
       }
@@ -446,6 +448,19 @@ class FriendAcceptMessage extends PeerMessage {
       broadcastKey: base64Decode(map['broadcastTo'] as String),
     );
   }
+}
+
+/// « Ton message a été refusé par ma règle anti-spam. »
+///
+/// ⚠️ **Existe parce qu'un refus silencieux est pire qu'un refus.** Avant le
+/// 2026-08-16, le destinataire jetait le message sans rien dire : l'émetteur le
+/// voyait parti, le destinataire ne voyait rien, et les deux se retrouvaient
+/// bloqués sans comprendre. Dire non coûte une trame.
+class ChatRejectedMessage extends PeerMessage {
+  const ChatRejectedMessage();
+
+  @override
+  Map<String, dynamic> toJson() => {'t': 'chatRejected'};
 }
 
 /// Refus explicite.

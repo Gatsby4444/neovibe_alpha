@@ -196,20 +196,49 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     }
   }
 
+  /// Pairs qui ont refusé notre dernier message (règle anti-spam).
+  ///
+  /// Vidé dès qu'ils nous écrivent : leur message EST la réponse attendue.
+  final _rejections = <String>{};
+
+  /// Vrai si [userId] a refusé notre dernier message.
+  bool wasRejectedBy(String userId) => _rejections.contains(userId);
+
   Future<void> _onMessage(
     String address,
     PingPeerSnapshot peer,
     PeerMessage message,
   ) async {
+    final network = _network;
+    if (network == null) return;
     switch (message) {
       case ChatMessage(:final id, :final text, :final sentAt):
-        await ref
+        final isFriend = (await _keyBook.all()).containsKey(peer.userId);
+        final accepted = await ref
             .read(pingStoreProvider)
             .append(
               peer.userId,
               peer: peer,
               message: PingMessage(id: id, mine: false, text: text, at: sentAt),
+              fromFriend: isFriend,
             );
+        if (!accepted) {
+          // ⚠️ **On le DIT à l'émetteur.** Refuser un message est une décision
+          // défendable ; le détruire sans que personne ne le sache ne l'est
+          // pas. Sans cette réponse, l'émetteur voit son message parti et le
+          // destinataire ne voit rien — un silence que rien ne permet
+          // d'expliquer, des deux côtés.
+          try {
+            await network.send(address, const ChatRejectedMessage());
+          } catch (_) {
+            // Le lien est tombé : l'émetteur le saura autrement.
+          }
+        }
+        _refresh();
+
+      case ChatRejectedMessage():
+        // Notre message a été refusé par la règle anti-spam d'en face.
+        _rejections.add(peer.userId);
         _refresh();
 
       case CertOfferMessage():
@@ -500,6 +529,8 @@ class ProximityController extends AsyncNotifier<ProximityView> {
   // ------------------------------------------------------------------
 
   Future<void> sendMessage(String userId, String text) async {
+    // Notre interlocuteur nous parle de nouveau : le refus est levé.
+    _rejections.remove(userId);
     final network = _network;
     if (network == null) throw StateError('proximité inactive');
     final peer = network.presence.byUser(userId);
