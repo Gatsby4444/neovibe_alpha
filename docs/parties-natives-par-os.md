@@ -30,7 +30,7 @@
 | Caméra | `neovibe/camera` | CameraX + Camera2 + OpenGL ES | AVFoundation + Metal/CoreImage + AVAssetWriter |
 | Anti-capture | (dans `neovibe/camera` : `setSecure`) | `WindowManager.FLAG_SECURE` | Pas d'équivalent strict → détection + occultation |
 | Média (hors caméra) | `neovibe/media` | `MediaMetadataRetriever` (image de couverture d'une vidéo) | `AVAssetImageGenerator` |
-| Proximité BLE | `neovibe/ble` | BLE natif (advertise/scan + GATT) | CoreBluetooth |
+| Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise/scan + GATT) | CoreBluetooth, **mode dégradé à concevoir** |
 | Transfert média proximité | *(à venir)* | Wi-Fi Direct (Wi-Fi P2P) | MultipeerConnectivity |
 | Hôte / cycle de vie | — | `MainActivity : FlutterFragmentActivity` | `AppDelegate` / `FlutterViewController` |
 | Journal caméra (dev) | (dans `neovibe/camera`) | `CamLog` (fichier disque) | fichier disque (trivial) |
@@ -205,24 +205,54 @@ l'architecture 4 couches) prend d'autant plus d'importance.
 **Rôle** : détecter les pairs à proximité, échanger les mini-profils, et servir
 de tuyau d'octets pour le **chat ping** (texte, petits paquets).
 
-**Canal** : `neovibe/ble`. Méthodes : `start`, `stop`, `connect`, `disconnect`,
-`send`. Événements natif→Dart : `onError`, `onLink`, `onFrame`, (scan) résultats.
+⚠️ **Entièrement reconstruit le 2026-08-16** (carte blanche de Jay). `NativeBle.kt`
+et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
+`docs/architecture-proximite.md`.
 
-**Android (fait)** : `NativeBle.kt` — **BLE natif complet** :
-- **Advertising** (`AdvertiseCallback`) + **Scan** (`ScanCallback`) pour la
-  détection ;
-- **Serveur GATT** (on est périphérique) + **client GATT** (on est central) :
-  un lien = un tuyau d'octets (write requests / MTU).
-- Scan en arrière-plan via service de premier plan (voir `RAPPELS.md` :
-  batterie à optimiser).
+**Deux canaux, et la séparation est volontaire** :
 
-**iOS (à faire)** : **CoreBluetooth** :
+| Canal | Sens | Contenu |
+|---|---|---|
+| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `updateAdvert`, `connect`, `disconnect`, `send` |
+| `neovibe/proximity/events` | natif → Dart | les **constats** : `status`, `scan`, `link`, `frame` |
+
+L'ancien code faisait remonter les événements par `invokeMethod` sur le canal de
+commandes. Un flux qui remonte n'a pas les mêmes règles qu'un ordre qui descend —
+il n'attend pas de réponse, il peut n'avoir aucun auditeur, et il doit survivre
+au remplacement de l'interface.
+
+**Android (fait, 2026-08-16)** — trois fichiers dans `ble/` :
+
+- **`RadioStatus.kt`** — l'**état réel** de la radio, et le calcul des
+  permissions réellement exigées selon la version d'Android. C'est le cœur du
+  chantier : plus aucun échec silencieux.
+- **`BleEngine.kt`** — advertising, scan, serveur et client GATT. **Ne dépend
+  d'aucune `Activity`.** Écoute `ACTION_STATE_CHANGED` : le Bluetooth rallumé
+  relance tout seul. Files d'écriture dans **les deux sens**.
+- **`ProximityService.kt`** — service de premier plan qui **possède** le moteur
+  et survit à la destruction de l'interface (décision de Jay). Sa notification
+  dit l'état vrai.
+- **`ProximityBridge.kt`** — le pont vers Dart. **Jetable** : il naît et meurt
+  avec l'activité, le service reste.
+
+⚠️ Déclarer le service au manifeste avec
+`android:foregroundServiceType="connectedDevice"`.
+
+**iOS (à faire)** — **CoreBluetooth**, et il faudra concevoir un **mode
+dégradé** :
+
 - `CBPeripheralManager` (advertising + serveur GATT), `CBCentralManager` (scan +
-  client GATT).
-- **Points d'attention** : le scan en arrière-plan est **très restreint** sur
-  iOS (filtrage obligatoire par UUID de service, pas de scan continu, réveils
-  limités) → la détection de proximité « app fermée » se comportera différemment
-  et devra être repensée. L'advertising en arrière-plan est aussi bridé.
+  client GATT) ;
+- ⚠️ **Le modèle Android ne se transpose pas.** iOS n'a pas d'équivalent du
+  service de premier plan : le scan en arrière-plan est très restreint
+  (filtrage obligatoire par UUID de service, pas de scan continu, réveils
+  limités) et **l'advertising en arrière-plan ne transporte pas les données de
+  fabricant** — or c'est là que voyage notre ID rotatif. La reconnaissance
+  silencieuse des amis app fermée devra donc être repensée, pas seulement
+  portée.
+- ⚠️ **Ce qui se porte tel quel, en revanche** : tout ce qui est au-dessus de la
+  radio est en Dart pur et sans dépendance Android — transport, canal sécurisé,
+  protocole, présence, fonctions. Seule la couche 0 est à réécrire.
 
 ---
 
@@ -278,7 +308,7 @@ dans `CardMediaCache.videoThumb`.
 
 **Android (fait)** : `MainActivity.kt` = **`FlutterFragmentActivity`** (et NON
 `FlutterActivity`) — CameraX exige un `LifecycleOwner`, que seule la variante
-Fragment fournit. Enregistre les canaux caméra + BLE + média + **lecteur vidéo**
+Fragment fournit. Enregistre les canaux caméra + proximité + média + **lecteur vidéo**
 (bloc 7), initialise `CamLog`, et **libère les lecteurs dans `onDestroy`** — un
 ExoPlayer non libéré garde son décodeur matériel.
 
