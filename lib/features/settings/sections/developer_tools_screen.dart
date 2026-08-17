@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/notifications/notification_service.dart';
+import '../../proximity/net/proximity_controller.dart';
 import '../gl_preview_test_screen.dart';
 import '../settings_common.dart';
 
@@ -24,6 +25,9 @@ class DeveloperToolsScreen extends ConsumerWidget {
                 'bon sens (pas pivoté ni en miroir) ?',
             builder: _glPreview,
           ),
+          Divider(),
+          SettingsHeader('Ping'),
+          _RemiseAZeroPing(),
           Divider(),
           SettingsHeader('BeReal'),
           SettingsNote('En attendant le déclenchement serveur aléatoire.'),
@@ -114,6 +118,65 @@ class _DevBerealSection extends ConsumerWidget {
           },
         ),
       ],
+    );
+  }
+}
+
+/// Remise à zéro du local du ping — **outil de test**.
+///
+/// ⚠️ Supprimer une amitié en base ne suffit pas à revenir à « ils ne se sont
+/// jamais vus » : le carnet, les conversations ping, les croisements, les
+/// demandes et le cooldown des waves vivent **sur l'appareil**. Sans ce bouton,
+/// un test de première rencontre repart avec la moitié de la mémoire de la
+/// précédente — et ce qu'on observe n'est alors pas une première rencontre.
+class _RemiseAZeroPing extends ConsumerWidget {
+  const _RemiseAZeroPing();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return ListTile(
+      leading: const Icon(Icons.restart_alt),
+      title: const Text('Remettre le ping à zéro (local)'),
+      subtitle: const Text(
+        "Carnet d'amis, conversations ping, croisements, demandes et "
+        'cooldown des waves. Ne touche pas au serveur.',
+      ),
+      onTap: () async {
+        final messenger = ScaffoldMessenger.of(context);
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Remettre le ping à zéro ?'),
+            content: const Text(
+              'Tout ce que le ping garde sur CET appareil est effacé. Les '
+              'amitiés reviendront à la prochaine synchronisation, celles '
+              'qui existent encore côté serveur.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Annuler'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Effacer'),
+              ),
+            ],
+          ),
+        );
+        if (ok != true) return;
+        try {
+          await ref.read(proximityControllerProvider.notifier).resetLocalPing();
+        } catch (_) {
+          messenger.showSnackBar(
+            const SnackBar(content: Text('Échec de la remise à zéro.')),
+          );
+          return;
+        }
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Ping remis à zéro sur cet appareil.')),
+        );
+      },
     );
   }
 }

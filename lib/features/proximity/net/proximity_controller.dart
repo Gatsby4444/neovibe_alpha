@@ -171,6 +171,24 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     unawaited(network?.dispose());
   }
 
+  /// Remet à zéro **tout le local du ping**, à la demande.
+  ///
+  /// ⚠️ **Outil de test** (Développeur), et il manquait. Supprimer une amitié
+  /// en base ne suffit pas à revenir à « ils ne se sont jamais vus » : le
+  /// carnet, les conversations ping, les croisements, les demandes et le
+  /// cooldown des waves vivent **sur l'appareil**. Sans ce bouton, un test de
+  /// première rencontre repartait avec la moitié de la mémoire de la
+  /// précédente — et ce qu'on aurait observé n'aurait pas été une première
+  /// rencontre.
+  ///
+  /// À retirer avec la section Développeur (RAPPELS #4).
+  Future<void> resetLocalPing() async {
+    await _forgetLocalPing();
+    await _network?.refreshFriends();
+    unawaited(ref.read(proximitySyncProvider).run());
+    _refresh();
+  }
+
   /// Efface tout ce que le ping garde en local, pour le compte qui s'en va.
   Future<void> _forgetLocalPing() async {
     _certified.clear();
