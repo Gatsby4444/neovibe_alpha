@@ -28,13 +28,19 @@ class Appareil {
     required int graine,
     required RadioSimulee radio,
     DateTime Function()? horloge,
+    Duration profilLent = Duration.zero,
   }) async {
     final identite = await IdentiteMemoire.creer(graine: graine);
     final carnet = CarnetMemoire();
     final reseau = PeerNetwork(
       myUserId: userId,
-      myProfile: () async =>
-          PingPeerSnapshot(userId: userId, username: nom, verified: true),
+      myProfile: () async {
+        // ⚠️ **Le profil vient d'un provider Riverpod, parfois du réseau.**
+        // Sur l'appareil de Jay, c'est ce délai qui a ouvert la fenêtre : le
+        // canal chiffrait déjà, et notre profil attendait encore sa source.
+        if (profilLent > Duration.zero) await Future<void>.delayed(profilLent);
+        return PingPeerSnapshot(userId: userId, username: nom, verified: true);
+      },
       radio: radio,
       identity: identite,
       keyBook: carnet,
@@ -461,6 +467,71 @@ void main() {
     );
     return (un, deux);
   }
+
+  test('notre profil part TOUJOURS avant le premier message', () async {
+    // ⚠️ **Relevé sur l'appareil de Jay le 2026-08-17** :
+    // `message reçu avant le profil (CertOfferMessage, présence identifying)`.
+    //
+    // Le balayage des certificats tourne toutes les 2 s et n'attend que « canal
+    // établi ». Or l'identité arrive APRÈS la poignée de main : le certificat
+    // pouvait donc doubler notre profil. En face, on ne savait pas encore qui
+    // parlait, et la trame était **jetée**.
+    //
+    // Le coût était pire que la trame perdue : `_certified` était déjà marqué,
+    // donc **aucune nouvelle tentative** — le croisement était perdu pour de
+    // bon, en silence, alors que c'est la fondation des streaks.
+    //
+    // On ne peut pas régler ça en face : c'est l'ordre d'ÉMISSION qui décide.
+    final radio1 = RadioSimulee('11');
+    final radio2 = RadioSimulee('22');
+    radio1.pair = radio2;
+    radio2.pair = radio1;
+    // ⚠️ **Le profil de Un est LENT** — c'est la reproduction fidèle de ce qui
+    // s'est passé chez Jay : `myProfile()` lit un provider Riverpod, parfois
+    // adossé au réseau. Le canal chiffre bien avant que la réponse n'arrive.
+    final un = await Appareil.creer(
+      'Un',
+      userId: 'u-1',
+      graine: 11,
+      radio: radio1,
+      profilLent: const Duration(milliseconds: 80),
+    );
+    final deux = await Appareil.creer(
+      'Deux',
+      userId: 'u-2',
+      graine: 12,
+      radio: radio2,
+    );
+
+    // ⚠️ **L'écoute est posée AVANT la connexion.** Sinon l'identification a
+    // déjà eu lieu quand on commence à regarder, et le test ne peut plus voir
+    // l'ordre — il ne pourrait contenir que la moitié de la réponse.
+    final ordre = <String>[];
+    deux.reseau.events.listen((e) {
+      if (e is PeerIdentified) ordre.add('identité');
+      if (e is PeerMessageReceived) ordre.add('message');
+    });
+
+    await radio1.connect(radio2.adresse);
+
+    // Dès que le canal chiffre, on envoie — c'est exactement ce que fait le
+    // balayage des certificats, qui n'attend rien de plus.
+    await jusqua(() => un.reseau.hasEstablishedChannel(radio2.adresse));
+    await un.reseau.send(
+      radio2.adresse,
+      ChatMessage(id: 'm', text: 'premier', sentAt: DateTime.now()),
+    );
+    await jusqua(() => ordre.contains('message'));
+
+    expect(
+      ordre.first,
+      'identité',
+      reason: 'un message qui double le profil est jeté en face, sans un mot',
+    );
+
+    await un.reseau.dispose();
+    await deux.reseau.dispose();
+  });
 
   for (final quiReconstruit in ['le même côté', 'l\'autre côté']) {
     test(

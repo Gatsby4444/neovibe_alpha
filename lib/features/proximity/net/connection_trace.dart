@@ -24,14 +24,25 @@ import '../../../core/diagnostics/event_trace.dart';
 ///
 /// ⚠️ **Aucun nom, aucun contenu.** Des identifiants et des motifs.
 abstract final class ConnectionTrace {
-  static final instance = EventTrace('connexions');
-
-  /// Dénominateurs : ce qui s'est bien passé.
+  /// Dénominateurs : ce qui s'est bien passé. **Toujours affichés, même à
+  /// zéro** — un zéro mesuré et un seau vide ne se ressemblent que dans un
+  /// rapport qui cache les zéros.
   static const requestsSent = 'demandes émises';
   static const requestsReceived = 'demandes reçues';
   static const accepted = 'demandes acceptées';
   static const declined = 'demandes refusées';
-  static const friendsPulled = 'amis reçus du serveur';
+  static const friendsPulled = 'synchros du carnet réussies';
+
+  static final instance = EventTrace(
+    'connexions',
+    counters: [
+      requestsSent,
+      requestsReceived,
+      accepted,
+      declined,
+      friendsPulled,
+    ],
+  );
 
   static void count(String kind) => instance.count(kind);
 

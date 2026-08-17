@@ -25,10 +25,21 @@ import '../../../core/diagnostics/event_trace.dart';
 /// ⚠️ **Aucun contenu de message n'y entre.** Un motif, une adresse de lien, un
 /// nombre d'octets — rien de plus.
 abstract final class TransportTrace {
-  static final instance = EventTrace('transport');
-
   /// Trames applicatives **livrées** — le dénominateur.
   static const delivered = 'trames applicatives livrées';
+
+  /// Poignées de main **abouties**, le second dénominateur.
+  ///
+  /// Il manquait, et son absence a rendu le premier rapport ambigu : sans lui,
+  /// « aucune trame livrée » ne disait pas si les appareils s'étaient parlé.
+  static const handshakes = 'poignées de main abouties';
+
+  static final instance = EventTrace(
+    'transport',
+    counters: [delivered, handshakes],
+  );
+
+  static void noteHandshake() => instance.count(handshakes);
 
   static void noteDelivered() => instance.count(delivered);
 

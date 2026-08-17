@@ -182,6 +182,13 @@ class PeerNetwork {
     await _events.close();
   }
 
+  /// Y a-t-il un canal capable de chiffrer avec cette adresse ?
+  ///
+  /// Exposé pour les tests : c'est la condition exacte sur laquelle s'appuie le
+  /// balayage des certificats, et donc celle qu'il faut pouvoir reproduire.
+  bool hasEstablishedChannel(String address) =>
+      _channels[address]?.stage == ChannelStage.established;
+
   /// Recharge le carnet d'amis et son index rotatif.
   Future<void> refreshFriends() async {
     _slot = ProximityIdentity.slotIndex(_clock());
@@ -363,6 +370,7 @@ class PeerNetwork {
     // Un canal fermé laisse derrière lui un transport à refermer proprement,
     // sinon ses envois en attente resteraient suspendus pour toujours.
     _links.remove(linkId)?.close();
+    _profileSent.remove(linkId);
 
     _links[linkId] = PeerLink(
       linkId: linkId,
@@ -398,6 +406,7 @@ class PeerNetwork {
   }
 
   void _onLinkDown(String linkId) {
+    _profileSent.remove(linkId);
     _links.remove(linkId)?.close();
     _channels.remove(linkId)?.close();
     // Le lien tombe, mais la RADIO peut encore voir le pair : on redescend à
@@ -613,21 +622,42 @@ class PeerNetwork {
     _emit(const PresenceChanged());
   }
 
+  /// Les canaux sur lesquels notre profil est **déjà parti**.
+  ///
+  /// ⚠️ **Notre profil doit être la PREMIÈRE trame applicative d'une session.**
+  ///
+  /// Relevé sur l'appareil de Jay le 2026-08-17 :
+  /// `message reçu avant le profil (CertOfferMessage, présence identifying)`.
+  /// Le certificat de croisement était parti avant notre profil ; en face, on ne
+  /// savait pas encore qui parlait, et il a été **jeté**. Pire : `_certified`
+  /// était déjà marqué, donc **aucune nouvelle tentative** — le croisement était
+  /// perdu pour de bon, en silence, alors que c'est la fondation des streaks.
+  ///
+  /// La cause est une course : le balayage des certificats tourne toutes les
+  /// 2 s et n'attend que « canal établi », alors que l'identité arrive **après**
+  /// la poignée de main. On ne peut pas régler ça en face — c'est l'ordre
+  /// d'émission qui décide. D'où l'invariant, tenu ici, à l'émission.
+  final _profileSent = <String>{};
+
   Future<void> _sendProfile(String linkId, SecureChannel channel) async {
     final me = await myProfile();
     final signature = await _identity.sign(
       ProfileMessage.signedPayload(me.userId, me.username),
     );
-    await send(
+    _profileSent.add(linkId);
+    await _sendWire(
       linkId,
-      ProfileMessage(
-        userId: me.userId,
-        username: me.username,
-        tagName: me.tagName,
-        devicePublicKey: await _identity.edPublicKey(),
-        signature: signature,
+      await channel.encrypt(
+        ProfileMessage(
+          userId: me.userId,
+          username: me.username,
+          tagName: me.tagName,
+          devicePublicKey: await _identity.edPublicKey(),
+          signature: signature,
+        ),
       ),
     );
+    TransportTrace.noteHandshake();
   }
 
   // ------------------------------------------------------------------
@@ -644,6 +674,9 @@ class PeerNetwork {
     if (channel == null || channel.stage != ChannelStage.established) {
       throw StateError('aucun canal établi avec $linkId');
     }
+    // Notre profil d'abord, **toujours**. Sans lui, le destinataire ne sait pas
+    // de qui vient ce message et le jette sans un mot — voir [_profileSent].
+    if (!_profileSent.contains(linkId)) await _sendProfile(linkId, channel);
     await _sendWire(linkId, await channel.encrypt(message));
   }
 

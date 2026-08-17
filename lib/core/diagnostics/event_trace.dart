@@ -51,10 +51,23 @@ class TraceEvent {
 /// aux mêmes règles peuvent partager le même code ; ils ne doivent pas partager
 /// le même seau, sinon un rapport ne dit plus lequel des deux a bougé.
 class EventTrace {
-  EventTrace(this.name, {this.capacity = 200});
+  EventTrace(this.name, {required this.counters, this.capacity = 200});
 
   /// Ce qui s'affiche en tête de section dans le rapport.
   final String name;
+
+  /// Les dénominateurs, **déclarés d'avance et toujours affichés, même à zéro.**
+  ///
+  /// ⚠️ **Défaut de l'instrument, relevé sur le premier rapport qui s'en est
+  /// servi (2026-08-17).** Le rendu écrivait « rien à signaler » quand aucun
+  /// compteur n'avait bougé. Jay a lu « tout va bien » ; ça voulait dire
+  /// **« aucune trame applicative n'a été livrée »** — c'est-à-dire que le chat
+  /// n'avait pas été exercé du tout.
+  ///
+  /// Un zéro **mesuré** et un seau **vide** ne se ressemblent que dans un
+  /// rapport qui n'affiche pas les zéros. C'est la faute que ce fichier existe
+  /// pour empêcher, commise par ce fichier.
+  final List<String> counters;
 
   /// Assez pour couvrir une session de test de Jay, assez peu pour tenir dans
   /// un rapport lisible. Les événements consignés sont censés être **rares** :
@@ -95,22 +108,28 @@ class EventTrace {
   }
 
   /// Rendu pour le rapport de diagnostic.
+  ///
+  /// ⚠️ **Les dénominateurs s'affichent TOUJOURS, y compris à zéro.** Sans ça,
+  /// « rien à signaler » se lit « tout va bien » alors qu'il veut dire « rien
+  /// n'a été mesuré » — deux conclusions opposées derrière la même phrase.
   String report() {
     final buffer = StringBuffer();
-    if (_totals.isEmpty && _events.isEmpty) return 'rien à signaler.';
 
-    final totaux = _totals.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    for (final e in totaux) {
-      buffer.writeln('${e.key.padRight(28)} : ${e.value}');
+    for (final cle in counters) {
+      buffer.writeln('${cle.padRight(30)} : ${_totals[cle] ?? 0}');
+    }
+    // Un compteur apparu sans avoir été déclaré : on l'affiche quand même,
+    // plutôt que de le taire (même raison que pour la map du natif).
+    for (final e in _totals.entries.where((e) => !counters.contains(e.key))) {
+      buffer.writeln('${e.key.padRight(30)} : ${e.value}');
     }
 
     if (_events.isEmpty) {
-      buffer.writeln('aucun événement consigné.');
+      buffer.writeln('${'incidents consignés'.padRight(30)} : 0');
       return buffer.toString();
     }
 
-    buffer.writeln('${'événements consignés'.padRight(28)} : $total');
+    buffer.writeln('${'incidents consignés'.padRight(30)} : $total');
     final tri = _counts.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
     for (final e in tri) {
