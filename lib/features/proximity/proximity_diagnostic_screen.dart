@@ -7,6 +7,7 @@ import 'dart:async';
 import 'net/ble_radio.dart';
 import 'net/distance_estimate.dart';
 import 'net/presence_tracker.dart';
+import 'ping_store.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_supervisor.dart';
 import 'net/radio_status.dart';
@@ -289,17 +290,21 @@ class _Texte extends StatelessWidget {
   );
 }
 
-class _Pair extends StatelessWidget {
+class _Pair extends ConsumerWidget {
   const _Pair({required this.peer});
   final PresencePeer peer;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final etat = switch (peer.stage) {
       PresenceStage.detected => 'détecté, identité inconnue',
       PresenceStage.identifying => 'poignée de main en cours',
       PresenceStage.identified => 'identifié',
     };
+    // Le statut d'ami se dérive du carnet — la présence ne le porte plus.
+    final userId = peer.userId;
+    final estAmi =
+        userId != null && (ref.watch(isFriendProvider(userId)).value ?? false);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Column(
@@ -311,7 +316,7 @@ class _Pair extends StatelessWidget {
           ),
           Text(
             '$etat · ${peer.rssi.toStringAsFixed(0)} dBm'
-            '${peer.isFriend ? " · ami" : ""}',
+            '${estAmi ? " · ami" : ""}',
             style: TextStyle(color: context.muted, fontSize: 12),
           ),
           // ⚠️ **La fourchette, jamais un nombre unique.** L'écart entre ses

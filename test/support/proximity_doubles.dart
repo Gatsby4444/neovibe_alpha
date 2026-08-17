@@ -1,6 +1,5 @@
-import 'dart:typed_data';
-
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 import 'package:neovibe/features/proximity/net/peer_network.dart';
 import 'package:neovibe/features/proximity/net/radio_status.dart';
 import 'package:neovibe/features/proximity/proximity_identity.dart';
@@ -50,20 +49,44 @@ class IdentiteMemoire implements ProximityIdentity {
 }
 
 /// Carnet d'amis en mémoire — même logique d'index rotatif que le vrai.
+///
+/// ⚠️ **Il prévient de ses changements, comme le vrai.** Sans ça, le test ne
+/// pourrait pas voir le défaut du 2026-08-17 : des clés téléchargées après le
+/// démarrage du réseau, et un index rotatif qui ne les voyait jamais.
 class CarnetMemoire implements FriendKeyStore {
   final _amis = <String, FriendKeys>{};
+  final _changes = _Notifier();
+
+  @override
+  Listenable get changes => _changes;
 
   @override
   Future<Map<String, FriendKeys>> all() async => _amis;
 
   @override
-  Future<void> put(FriendKeys keys) async => _amis[keys.userId] = keys;
+  Future<void> put(FriendKeys keys) async {
+    _amis[keys.userId] = keys;
+    _changes.ping();
+  }
 
   @override
-  Future<void> remove(String userId) async => _amis.remove(userId);
+  Future<void> remove(String userId) async {
+    if (_amis.remove(userId) != null) _changes.ping();
+  }
 
   @override
-  Future<void> clear() async => _amis.clear();
+  Future<void> replace(Iterable<FriendKeys> friends) async {
+    _amis
+      ..clear()
+      ..addEntries(friends.map((f) => MapEntry(f.userId, f)));
+    _changes.ping();
+  }
+
+  @override
+  Future<void> clear() async {
+    _amis.clear();
+    _changes.ping();
+  }
 
   @override
   Future<Map<String, FriendKeys>> rotatingIndex(int slot) async {
@@ -152,4 +175,9 @@ class HorlogeMobile {
   DateTime instant = DateTime(2026, 8, 16, 12);
   DateTime call() => instant;
   void avance(Duration d) => instant = instant.add(d);
+}
+
+/// `notifyListeners` est protégée : seule une sous-classe peut l'appeler.
+class _Notifier extends ChangeNotifier {
+  void ping() => notifyListeners();
 }

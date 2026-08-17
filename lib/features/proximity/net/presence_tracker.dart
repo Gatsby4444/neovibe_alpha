@@ -30,7 +30,6 @@ class PresencePeer {
     required this.firstSeen,
     required this.lastSeen,
     this.snapshot,
-    this.isFriend = false,
     this.txPower = 127,
     this.band = ProximityBand.room,
     this.trend = ProximityTrend.stable,
@@ -51,8 +50,21 @@ class PresencePeer {
   final DateTime lastSeen;
 
   /// Profil, une fois l'identité connue.
+  ///
+  /// ⚠️ **Une identité, pas un statut.** Il n'y a volontairement **pas** de
+  /// champ `isFriend` ici, et c'est le correctif du 2026-08-17.
+  ///
+  /// Il en existait un. Il n'était écrit que par [observe] — le chemin de l'ID
+  /// rotatif — et pas par [markIdentified] — le chemin de la poignée de main.
+  /// Un ami identifié par poignée de main s'affichait donc comme un inconnu,
+  /// avec un bouton « demander à se connecter », **alors que l'information
+  /// juste existait au même instant** dans l'événement `PeerIdentified`.
+  ///
+  /// La sortie n'est pas d'écrire le champ au second endroit : c'est de ne pas
+  /// avoir le champ. **La présence dit OÙ et À QUELLE DISTANCE, jamais QUI.**
+  /// Le statut d'ami se dérive du carnet au moment du rendu
+  /// (`isFriendProvider`), là où il ne peut pas se désynchroniser.
   final PingPeerSnapshot? snapshot;
-  final bool isFriend;
 
   /// Puissance d'émission annoncée par le pair (127 = non annoncée).
   final int txPower;
@@ -86,7 +98,6 @@ class PresencePeer {
     ProximityLevel? level,
     DateTime? lastSeen,
     PingPeerSnapshot? snapshot,
-    bool? isFriend,
     int? txPower,
     ProximityBand? band,
     ProximityTrend? trend,
@@ -100,7 +111,6 @@ class PresencePeer {
     firstSeen: firstSeen,
     lastSeen: lastSeen ?? this.lastSeen,
     snapshot: snapshot ?? this.snapshot,
-    isFriend: isFriend ?? this.isFriend,
     txPower: txPower ?? this.txPower,
     band: band ?? this.band,
     trend: trend ?? this.trend,
@@ -208,7 +218,6 @@ class PresenceTracker {
         firstSeen: now,
         lastSeen: now,
         snapshot: friend,
-        isFriend: friend != null,
         txPower: txPower,
         band: DistanceModel.bandFor(rssi.toDouble(), null),
         trendAnchorRssi: rssi.toDouble(),
@@ -248,7 +257,6 @@ class PresenceTracker {
       // une identité acquise ne se reperd pas sur une annonce.
       stage: friend != null ? PresenceStage.identified : existing.stage,
       snapshot: friend ?? existing.snapshot,
-      isFriend: friend != null ? true : existing.isFriend,
     );
     // Un ami est reconnu ICI, sans poignée de main : c'est donc ici aussi qu'il
     // faut fusionner ses adresses. Ne le faire que dans `markIdentified`

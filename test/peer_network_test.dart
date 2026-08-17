@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/features/proximity/net/peer_network.dart';
 import 'package:neovibe/features/proximity/net/presence_tracker.dart';
@@ -156,9 +158,58 @@ void main() {
     radioB.injoignable = true;
     await a.voit(b);
 
+    // Reconnu, donc identifié — sans le moindre échange. C'est tout l'intérêt
+    // de l'ID rotatif, et c'est ce qui se vérifie ici : une IDENTITÉ.
     expect(a.reseau.presence.byUser('u-b'), isNotNull);
-    expect(a.reseau.presence.byUser('u-b')!.isFriend, isTrue);
+    expect(a.reseau.presence.byUser('u-b')!.stage, PresenceStage.identified);
     expect(radioA.connexions, isEmpty, reason: 'aucun lien ne doit s\'ouvrir');
+  });
+
+  test('des clés arrivées APRÈS le démarrage sont prises en compte', () async {
+    // ⚠️ **Le défaut du 2026-08-17, en test.**
+    //
+    // `PeerNetwork.start()` construisait l'index rotatif, **puis** la synchro
+    // téléchargeait les clés — sans que rien ne le dise. L'index n'était
+    // reconstruit qu'au changement de créneau, toutes les 15 minutes, et depuis
+    // un cache périmé : donc jamais. Un ami restait un inconnu jusqu'au
+    // prochain lancement de l'app, et l'écran lui proposait « demander à se
+    // connecter ».
+    //
+    // Ici le réseau tourne déjà, le carnet est vide, et les clés arrivent
+    // ensuite — exactement l'ordre réel.
+    await a.reseau.start();
+    expect(a.reseau.presence.length, 0);
+
+    // Les clés arrivent maintenant, comme le ferait la synchronisation.
+    await a.carnet.put(
+      FriendKeys(
+        userId: 'u-b',
+        username: 'Bob',
+        edPublicKey: await b.identite.edPublicKey(),
+        broadcastKey: await b.identite.broadcastKey(),
+      ),
+    );
+
+    // ⚠️ **Aucun `refreshFriends()` explicite ici.** C'est tout le sujet : le
+    // carnet prévient, l'index se reconstruit seul. Si on l'appelait à la main,
+    // ce test ne prouverait rien — il vérifierait qu'une méthode appelée fait
+    // ce qu'elle dit, pas que quelqu'un l'appelle au bon moment.
+    radioB.injoignable = true;
+    await jusqua(() {
+      unawaited(a.voit(b));
+      return a.reseau.presence.byUser('u-b')?.stage == PresenceStage.identified;
+    });
+
+    // Reconnu à son ID rotatif : l'index a bien été reconstruit après coup.
+    // Et une fois reconnu, un ami n'ouvre plus aucun lien — c'est la propriété
+    // que la reconnaissance silencieuse doit garantir.
+    final avant = radioA.connexions.length;
+    await a.voit(b);
+    expect(
+      radioA.connexions.length,
+      avant,
+      reason: 'un ami reconnu n\'ouvre aucun lien',
+    );
   });
 
   test('quel que soit le rôle, le lien finit par s\'ouvrir', () async {

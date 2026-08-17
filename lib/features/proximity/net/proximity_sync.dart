@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/supabase_providers.dart';
 import '../ping_store.dart';
 import '../proximity_identity.dart';
+import 'connection_trace.dart';
 
 /// La couche 7 : ce qui remonte au serveur quand internet revient.
 ///
@@ -32,7 +33,12 @@ class ProximitySync {
   final Ref ref;
 
   final _identity = ProximityIdentity();
-  final _keyBook = FriendKeyBook();
+
+  /// ⚠️ **Le carnet vient du provider.** Ce champ valait `FriendKeyBook()` :
+  /// la synchro écrivait alors dans **son** cache et dans le fichier, pendant
+  /// que le contrôleur et le réseau gardaient le leur, chargé au démarrage. Les
+  /// clés téléchargées ici n'atteignaient jamais l'app.
+  FriendKeyStore get _keyBook => ref.read(friendBookProvider);
 
   var _running = false;
 
@@ -59,21 +65,56 @@ class ProximitySync {
         'broadcast_key': base64Encode(await _identity.broadcastKey()),
       });
 
-      await _pullFriendKeys(client, me);
+      // ⚠️ **La file d'abord, le carnet ensuite. L'ordre est le correctif.**
+      //
+      // `_pullFriendKeys` REMPLACE désormais le carnet par ce que le serveur
+      // renvoie (sinon un ami retiré resterait un ami pour toujours). Or un ami
+      // tout juste accepté en BLE n'existe côté serveur qu'une fois la file
+      // vidée : dans l'ordre inverse, on l'aurait effacé du carnet **juste
+      // avant** de le créer.
       await _drainOutbox(client, me);
+      await _pullFriendKeys(client, me);
     } catch (_) {
       // Hors ligne : tout reste en file, on réessaiera. C'est le seul cas où
-      // ne rien dire est juste.
+      // ne rien dire est juste. Le carnet n'est PAS touché — un carnet vidé
+      // parce que le réseau est tombé ferait disparaître tous les amis.
+      ConnectionTrace.note(ConnectionEvent.syncOffline);
     } finally {
       _running = false;
     }
   }
 
   /// Rapatrie les clés de reconnaissance des amis — **en deux requêtes**.
+  ///
+  /// ⚠️ **Ce que `device_keys` renvoie EST la liste d'amis, et rien au point
+  /// d'appel ne le dit.** La politique RLS `device_keys_friends` restreint la
+  /// lecture aux `connections` en `status = 'full'` ; le client, lui, écrit
+  /// « prends tout sauf moi ». La définition d'« ami » côté application vit donc
+  /// dans une politique du serveur. C'est vrai, c'est vérifié en base le
+  /// 2026-08-17 — et c'est écrit ici parce qu'un jour quelqu'un relâchera cette
+  /// politique et croira n'avoir touché qu'à de la lecture.
+  ///
+  /// ⚠️ **On REMPLACE, on n'ajoute pas.** `put` seul faisait qu'une amitié
+  /// rompue restait vraie sur l'appareil pour toujours : on continuait de
+  /// reconnaître la personne à son ID rotatif et de la présenter comme une amie.
   Future<void> _pullFriendKeys(dynamic client, String me) async {
     final rows =
         await client.from('device_keys').select().neq('user_id', me) as List;
-    if (rows.isEmpty) return;
+
+    if (rows.isEmpty) {
+      // Le serveur dit « aucun ami ». C'est une réponse, pas une absence de
+      // réponse — une erreur réseau aurait levé et nous aurait envoyés dans le
+      // `catch` de `run()`, qui ne touche pas au carnet.
+      final avant = (await _keyBook.all()).length;
+      if (avant > 0) {
+        ConnectionTrace.note(
+          ConnectionEvent.friendsRemoved,
+          detail: '$avant retiré(s), le serveur n\'en renvoie aucun',
+        );
+      }
+      await _keyBook.replace(const []);
+      return;
+    }
 
     final ids = rows
         .map((r) => (r as Map<String, dynamic>)['user_id'] as String)
@@ -90,11 +131,17 @@ class ProximitySync {
       for (final p in profiles) (p as Map<String, dynamic>)['id'] as String: p,
     };
 
+    final amis = <FriendKeys>[];
     for (final raw in rows) {
       final row = raw as Map<String, dynamic>;
       final profile = byId[row['user_id'] as String];
       if (profile == null) continue;
-      await _keyBook.put(
+      final broadcast = row['broadcast_key'] as String?;
+      // Un ami qui n'a pas encore publié sa clé de diffusion ne peut pas être
+      // reconnu en silence. Le garder sans clé ferait planter l'index rotatif ;
+      // l'omettre le rend simplement invisible jusqu'à sa prochaine connexion.
+      if (broadcast == null) continue;
+      amis.add(
         FriendKeys(
           userId: row['user_id'] as String,
           username: profile['display_name'] as String,
@@ -103,12 +150,23 @@ class ProximitySync {
           edPublicKey: Uint8List.fromList(
             base64Decode(row['ed_pub'] as String),
           ),
-          broadcastKey: Uint8List.fromList(
-            base64Decode(row['broadcast_key'] as String),
-          ),
+          broadcastKey: Uint8List.fromList(base64Decode(broadcast)),
         ),
       );
     }
+
+    final avant = (await _keyBook.all()).keys.toSet();
+    final apres = amis.map((a) => a.userId).toSet();
+    final partis = avant.difference(apres);
+    if (partis.isNotEmpty) {
+      ConnectionTrace.note(
+        ConnectionEvent.friendsRemoved,
+        detail: '${partis.length} retiré(s)',
+      );
+    }
+
+    await _keyBook.replace(amis);
+    ConnectionTrace.count(ConnectionTrace.friendsPulled);
   }
 
   /// Vide la file, en distinguant ce qui mérite une nouvelle tentative.
@@ -139,6 +197,10 @@ class ProximitySync {
           default:
             // Type inconnu : il ne partira jamais. L'abandonner tout de suite
             // vaut mieux que de le traîner à chaque synchronisation.
+            ConnectionTrace.note(
+              ConnectionEvent.outboxAbandoned,
+              detail: 'type inconnu : ${item['type']}',
+            );
             abandoned++;
             continue;
         }
@@ -147,6 +209,10 @@ class ProximitySync {
         if (attempts >= maxAttempts) {
           // Échec définitif : on abandonne, et on le COMPTE. Retenter à
           // l'infini n'aurait jamais rien changé qu'à la facture réseau.
+          ConnectionTrace.note(
+            ConnectionEvent.outboxAbandoned,
+            detail: '${item['type']} après $attempts tentatives — $e',
+          );
           abandoned++;
           continue;
         }

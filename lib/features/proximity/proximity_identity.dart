@@ -1,9 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
-import 'dart:typed_data';
 
 import 'package:cryptography/cryptography.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -120,6 +120,24 @@ abstract class FriendKeyStore {
   Future<void> remove(String userId);
   Future<Map<String, FriendKeys>> rotatingIndex(int slot);
 
+  /// Remplace **tout** le carnet par [friends].
+  ///
+  /// ⚠️ **Indispensable pour qu'un ami retiré cesse d'en être un.** `put` seul
+  /// ne fait qu'ajouter : sans remplacement, une amitié rompue côté serveur
+  /// resterait vraie sur l'appareil **pour toujours** — on continuerait de
+  /// reconnaître la personne à son ID rotatif et de la présenter comme une
+  /// amie. Un carnet qui ne sait qu'ajouter n'est pas une source de vérité,
+  /// c'est une archive.
+  Future<void> replace(Iterable<FriendKeys> friends);
+
+  /// Prévient quand le carnet change.
+  ///
+  /// ⚠️ **C'est la pièce qui manquait le 2026-08-17.** La synchronisation
+  /// écrivait les clés téléchargées, et **rien ne le disait** : l'index rotatif
+  /// du réseau, construit une fois au démarrage, ne les voyait jamais. Un ami
+  /// restait un inconnu jusqu'au prochain lancement de l'app.
+  Listenable get changes;
+
   /// Oublie TOUT.
   ///
   /// ⚠️ **Indispensable au changement de compte.** Les clés de diffusion des
@@ -137,7 +155,27 @@ abstract class FriendKeyStore {
 class FriendKeyBook implements FriendKeyStore {
   FriendKeyBook();
 
+  /// ⚠️ **Un seul exemplaire dans l'app — voir `friendBookProvider`.**
+  ///
+  /// Ce cache est ce qui rend le carnet rapide, et c'est aussi ce qui l'a rendu
+  /// faux. Le 2026-08-17, **trois** instances coexistaient (contrôleur,
+  /// synchronisation, et le défaut de `PeerNetwork`), chacune avec son cache.
+  /// La synchronisation écrivait ses clés sur le disque **avec la sienne** ; les
+  /// deux autres avaient déjà chargé le fichier et ne le relisaient jamais.
+  ///
+  /// Résultat : les clés téléchargées du serveur étaient **invisibles au réseau
+  /// qui tourne**, pour toute la durée de vie du processus. Un ami s'affichait
+  /// alors comme un inconnu, avec un bouton « demander à se connecter ».
+  ///
+  /// La cause n'est pas le cache : c'est qu'un objet à état partagé était
+  /// construit avec `new` à trois endroits. Il passe donc par un provider, et
+  /// `new` ne doit plus apparaître ailleurs que dans les tests.
   Map<String, FriendKeys>? _cache;
+
+  final _changes = _BookNotifier();
+
+  @override
+  Listenable get changes => _changes;
 
   Future<File> _file() async {
     final dir = await getApplicationSupportDirectory();
@@ -174,11 +212,28 @@ class FriendKeyBook implements FriendKeyStore {
     if (map.remove(userId) != null) await _save(map);
   }
 
+  @override
+  Future<void> replace(Iterable<FriendKeys> friends) async {
+    final map = {for (final f in friends) f.userId: f};
+    final before = await all();
+    // Rien n'a changé : ne pas réveiller tout le monde pour rien. Une synchro
+    // tourne à chaque croisement, et reconstruire l'index rotatif coûte un HMAC
+    // par ami et par créneau.
+    if (before.length == map.length &&
+        before.keys.every(map.containsKey) &&
+        before.entries.every((e) => e.value.sameAs(map[e.key]!))) {
+      return;
+    }
+    await _save(map);
+  }
+
   Future<void> _save(Map<String, FriendKeys> map) async {
+    _cache = map;
     final file = await _file();
     await file.writeAsString(
       jsonEncode(map.map((k, v) => MapEntry(k, v.toJson()))),
     );
+    _changes.ping();
   }
 
   /// Table de correspondance ID rotatif (hex) → ami, pour les créneaux
@@ -201,10 +256,18 @@ class FriendKeyBook implements FriendKeyStore {
     _cache = {};
     final file = await _file();
     if (await file.exists()) await file.delete();
+    _changes.ping();
   }
 
   static String _hex(Uint8List bytes) =>
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+}
+
+/// Sous-classe minuscule : `notifyListeners` est protégée, seule une classe
+/// dérivée peut l'appeler. Contourner par un `ignore:` marcherait aussi, et
+/// laisserait derrière lui une entorse à expliquer à chaque relecture.
+class _BookNotifier extends ChangeNotifier {
+  void ping() => notifyListeners();
 }
 
 class FriendKeys {
@@ -241,4 +304,23 @@ class FriendKeys {
     edPublicKey: base64Decode(json['edPub'] as String),
     broadcastKey: base64Decode(json['broadcast'] as String),
   );
+
+  /// Même contenu ? Sert à `replace` pour ne pas annoncer un changement qui
+  /// n'en est pas un — la synchro tourne à chaque croisement, et reconstruire
+  /// l'index rotatif coûte un HMAC par ami et par créneau.
+  bool sameAs(FriendKeys other) =>
+      userId == other.userId &&
+      username == other.username &&
+      tagName == other.tagName &&
+      avatarUrl == other.avatarUrl &&
+      _sameBytes(edPublicKey, other.edPublicKey) &&
+      _sameBytes(broadcastKey, other.broadcastKey);
+
+  static bool _sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 }

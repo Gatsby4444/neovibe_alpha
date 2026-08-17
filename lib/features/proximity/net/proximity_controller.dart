@@ -9,6 +9,7 @@ import '../../../core/notifications/notification_service.dart';
 import '../../../core/supabase_providers.dart';
 import '../ping_store.dart';
 import '../proximity_identity.dart';
+import 'connection_trace.dart';
 import 'peer_network.dart';
 import 'presence_tracker.dart';
 import 'proximity_journal.dart';
@@ -51,7 +52,13 @@ class ProximityController extends AsyncNotifier<ProximityView> {
 
   final _journal = ProximityJournal();
   final _identity = ProximityIdentity();
-  final _keyBook = FriendKeyBook();
+
+  /// ⚠️ **Le carnet vient du provider, il ne se construit pas ici.**
+  ///
+  /// Ce champ valait `FriendKeyBook()`. La synchronisation en avait un autre, et
+  /// `PeerNetwork` un troisième par défaut — trois caches mémoire sur un seul
+  /// fichier. Les clés téléchargées n'arrivaient jamais jusqu'ici.
+  FriendKeyStore get _keyBook => ref.read(friendBookProvider);
 
   /// Croisement VALIDÉ = contact continu pendant ce délai (décision de Jay,
   /// 2026-07-13). En dessous, c'est un « presque » — un wave.
@@ -185,8 +192,10 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     switch (event) {
       case PresenceChanged():
         _refresh();
-      case PeerIdentified(:final snapshot, :final isFriend):
-        if (isFriend) await _maybeWave(snapshot);
+      case PeerIdentified(:final snapshot):
+        // Le réseau dit QUI ; c'est ici, au-dessus de la frontière, qu'on sait
+        // ce que cette personne est pour nous.
+        if (await _isFriend(snapshot.userId)) await _maybeWave(snapshot);
         _refresh();
       case PeerMessageReceived(:final address, :final snapshot, :final message):
         await _onMessage(address, snapshot, message);
@@ -213,7 +222,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     if (network == null) return;
     switch (message) {
       case ChatMessage(:final id, :final text, :final sentAt):
-        final isFriend = (await _keyBook.all()).containsKey(peer.userId);
+        final isFriend = await _isFriend(peer.userId);
         final accepted = await ref
             .read(pingStoreProvider)
             .append(
@@ -370,6 +379,10 @@ class ProximityController extends AsyncNotifier<ProximityView> {
   // Demandes d'amis
   // ------------------------------------------------------------------
 
+  /// Suis-je ami avec cette personne ? **Une seule source, le carnet.**
+  Future<bool> _isFriend(String userId) async =>
+      (await _keyBook.all()).containsKey(userId);
+
   /// Envoie une demande d'ami à un pair présent.
   ///
   /// Lève si le pair n'est plus joignable — **l'appelant doit le dire à
@@ -379,6 +392,16 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     final network = _network;
     final me = ref.read(currentUserIdProvider);
     if (network == null || me == null) throw StateError('proximité inactive');
+
+    // ⚠️ **Ceinture, pas bretelles.** Le bouton ne s'affiche plus pour un ami
+    // (le statut se dérive du carnet), donc ce cas ne devrait pas se produire.
+    // Il reste possible sur une course : deux personnes qui se demandent en
+    // même temps, ou une interface pas encore redessinée. Le dire vaut mieux
+    // que d'envoyer une demande qui n'a pas de sens.
+    if (await _isFriend(userId)) {
+      ConnectionTrace.note(ConnectionEvent.requestToFriend, subject: userId);
+      throw StateError('déjà connectés');
+    }
 
     final ts = DateTime.now().toUtc().toIso8601String();
     await network.sendToUser(
@@ -394,6 +417,9 @@ class ProximityController extends AsyncNotifier<ProximityView> {
         broadcastKey: await _identity.broadcastKey(),
       ),
     );
+    // Compté APRÈS l'envoi : `sendToUser` lève si le pair n'est plus joignable,
+    // et une demande qui n'est pas partie n'est pas une demande émise.
+    ConnectionTrace.count(ConnectionTrace.requestsSent);
   }
 
   Future<void> _onFriendRequest(
@@ -401,7 +427,14 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     FriendRequestMessage request,
   ) async {
     final me = ref.read(currentUserIdProvider);
-    if (me == null || request.to != me || request.from != peer.userId) return;
+    if (me == null || request.to != me || request.from != peer.userId) {
+      ConnectionTrace.note(
+        ConnectionEvent.notForUs,
+        subject: request.from,
+        detail: 'destinataire ${request.to}',
+      );
+      return;
+    }
 
     final ok = await ProximityIdentity.verify(
       FriendRequestMessage.signedPayload(
@@ -412,7 +445,23 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       request.signature,
       request.devicePublicKey,
     );
-    if (!ok) return;
+    if (!ok) {
+      ConnectionTrace.note(ConnectionEvent.badSignature, subject: request.from);
+      return;
+    }
+
+    // ⚠️ **Déjà amis : rien à demander.** Sans cette garde, une demande
+    // redondante créait un encadré « X veut se connecter avec toi » entre deux
+    // personnes déjà connectées — ce que Jay a vu le 2026-08-17.
+    if (await _isFriend(request.from)) {
+      ConnectionTrace.note(
+        ConnectionEvent.requestFromFriend,
+        subject: request.from,
+      );
+      return;
+    }
+
+    ConnectionTrace.count(ConnectionTrace.requestsReceived);
 
     // Persistée : elle survit à la fermeture de l'app et à l'éloignement.
     await _journal.putRequest(
@@ -452,6 +501,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
         await network.sendToUser(fromUserId, const FriendDeclineMessage());
       } catch (_) {}
       await _journal.removeRequest(fromUserId);
+      ConnectionTrace.count(ConnectionTrace.declined);
       _refresh();
       return;
     }
@@ -497,6 +547,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     });
     unawaited(ref.read(proximitySyncProvider).run());
     await _journal.removeRequest(fromUserId);
+    ConnectionTrace.count(ConnectionTrace.accepted);
     _refresh();
   }
 

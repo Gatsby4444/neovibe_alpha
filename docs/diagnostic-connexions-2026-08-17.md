@@ -141,9 +141,33 @@ peint hors du cadre. C'est le point 5 de Jay — et la demande était donc
 
 **Reproduit** : `test/filled_button_row_test.dart`, rouge aujourd'hui.
 
-⚠️ **Le défaut n'est pas dans la carte, il est dans le thème** : *tout*
-`FilledButton` de l'app placé dans une `Row` est cassé. Le correctif est une
-décision de Jay, voir §5.
+### A4 bis — L'ampleur réelle : UN seul endroit, mais un piège permanent
+
+⚠️ **Correction d'une affirmation trop large faite en première lecture.** J'avais
+écrit que *tout* `FilledButton` dans une `Row` était cassé. **Inventaire fait :
+c'est faux.**
+
+La largeur infinie n'est un problème que si le parent laisse la largeur
+**non bornée**. Un `Expanded`, un `Flexible` ou un `SizedBox` la borne, et le
+bouton se comporte normalement. Une `Row` ne la borne **pas** pour un enfant
+non-flexible : c'est le seul cas qui casse.
+
+Sur les **49** `FilledButton` de l'app, 8 sont dans une `Row` :
+
+| Endroit | État |
+|---|---|
+| `user_library_screen.dart:63` | ✅ `Expanded` |
+| `gl_preview_test_screen.dart` ×3 | ✅ `Expanded` |
+| `day_cycle_preview_screen.dart` ×2 | ✅ `SizedBox(width: infinity)` |
+| `ping_screen.dart:332` | ✅ `Align` (largeur bornée) |
+| **`ping_screen.dart:400` — « Accepter »** | 🔴 **nu dans la `Row`** |
+
+**Un seul site cassé dans toute l'app**, et c'est celui que Jay a trouvé. Les
+autres tiennent parce que leurs auteurs ont mis un `Expanded` — **par habitude,
+pas parce qu'une règle l'imposait.**
+
+C'est ça, le vrai défaut : la règle n'est écrite nulle part, et sa violation ne
+se voit pas en release.
 
 ### A5 — Deux magasins pour un même concept, et deux écrans qui n'en lisent qu'un
 
@@ -300,18 +324,29 @@ ligne serveur, et c'est voulu (la co-signature part d'appareil à appareil). Ça
 veut dire **une seule vue au-dessus de deux magasins**, chacun gardant ses
 règles.
 
-### ③ Le thème : `Size.fromHeight` — décision de Jay
+### ③ Le thème — recommandation RÉVISÉE après inventaire
 
-Deux options, et elles n'ont pas le même effet visuel dans toute l'app :
+Ma première recommandation (changer le thème) reposait sur une ampleur que
+l'inventaire a démentie (A4 bis). **Un seul site est cassé.**
 
-| Option | Effet |
+Et la largeur infinie n'est **pas** un accident à supprimer : c'est ce qui rend
+pleine largeur les ~40 gros boutons de l'app (connexion, envoi, réglages) sans
+que personne n'ait à l'écrire. La retirer les rétracterait tous à la taille de
+leur libellé, et il faudrait repasser sur chaque écran.
+
+**Donc : garder le thème, corriger le site, et NOMMER la contrainte là où elle
+naît.**
+
+| | Action |
 |---|---|
-| **a** — `minimumSize: Size(0, 52)` sur le thème | corrige partout ; **tous les gros boutons pleine largeur de l'app se mettent à la taille de leur libellé**. Il faudrait poser `SizedBox(width: double.infinity)` là où la pleine largeur est voulue |
-| **b** — garder le thème, corriger la carte | un seul écran réparé ; **le piège reste armé** pour le prochain `FilledButton` dans une `Row` |
+| 1 | `ping_screen.dart` — les deux boutons de la carte dans des `Expanded` (meilleur rendu au passage : deux boutons de largeur égale) |
+| 2 | `theme.dart` — un commentaire au point de définition : *« `Size.fromHeight` pose une largeur minimale INFINIE. C'est voulu — c'est ce qui rend les gros boutons pleine largeur. Dans une `Row`, il FAUT un `Expanded`/`Flexible`/`SizedBox`, sinon le bouton est peint hors de l'écran, et en release rien ne le signale. »* |
+| 3 | `test/filled_button_row_test.dart` — garde le contrat : le motif nu échoue, le motif `Expanded` passe |
 
-Je recommande **(a)** — c'est la cause, et le test l'attrape désormais — mais
-c'est un changement visuel sur plusieurs écrans, donc ton appel. Le test
-`filled_button_row_test.dart` reste rouge jusqu'à la décision : c'est voulu.
+C'est l'application de la règle du 2026-08-15 : *un commentaire qui énonce une
+contrainte dit comment elle a été constatée.* Ici la contrainte est réelle, elle
+n'était écrite nulle part, et son coût a été une demande d'ami impossible à
+accepter.
 
 ### ④ Instrumenter ce chemin
 

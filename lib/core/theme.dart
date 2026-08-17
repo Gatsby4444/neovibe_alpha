@@ -489,6 +489,28 @@ abstract final class NeoTheme {
       borderRadius: BorderRadius.circular(_radius),
     );
     return FilledButton.styleFrom(
+      // ⚠️ **`Size.fromHeight(52)` vaut `Size(double.infinity, 52)`** — une
+      // largeur minimale **INFINIE**, pas « seulement une hauteur ». Le nom du
+      // constructeur dit le contraire de ce qu'il fait.
+      //
+      // C'est **voulu** : c'est ce qui rend pleine largeur les ~40 gros boutons
+      // de l'app (connexion, envoi, réglages) sans que personne n'ait à
+      // l'écrire. Sous un parent à largeur bornée, l'infini est raboté à la
+      // place disponible.
+      //
+      // 🔴 **Mais dans une `Row`, il FAUT un `Expanded`, un `Flexible` ou un
+      // `SizedBox`.** Une `Row` ne borne pas la largeur de ses enfants
+      // non-flexibles : le bouton réclame alors l'infini et **est peint hors de
+      // l'écran**. En debug Flutter lève ; en **release l'assertion est
+      // compilée hors du binaire**, donc rien ne le signale.
+      //
+      // Constaté le 2026-08-17 : la carte « X veut se connecter avec toi »
+      // rendait bien ses deux boutons, et Jay n'a vu que « Refuser » — la
+      // demande d'ami était impossible à accepter. Inventaire fait ce jour-là :
+      // 8 `FilledButton` dans une `Row`, 7 protégés par un `Expanded` **par
+      // habitude**, 1 nu. La règle n'était écrite nulle part ; elle l'est ici.
+      //
+      // Gardé par `test/filled_button_row_test.dart`.
       minimumSize: const Size.fromHeight(52),
       shape: shape,
       backgroundColor: Colors.transparent,

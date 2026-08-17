@@ -389,17 +389,33 @@ class _CarteDemande extends ConsumerWidget {
               style: TextStyle(color: context.muted, fontSize: 12),
             ),
             const SizedBox(height: 8),
+            // ⚠️ **`Expanded` sur les deux, et ce n'est pas de la cosmétique.**
+            //
+            // Le style des `FilledButton` pose `minimumSize:
+            // Size.fromHeight(52)`, ce qui vaut `Size(infinity, 52)` : une
+            // largeur minimale **infinie**. Une `Row` ne borne pas la largeur de
+            // ses enfants non-flexibles — « Accepter » réclamait donc l'infini
+            // et était peint **hors de l'écran**. En debug Flutter lève ; en
+            // release l'assertion est compilée hors du binaire et il n'y a
+            // aucun signe.
+            //
+            // Jay n'a vu que « Refuser », et la demande d'ami était donc
+            // impossible à accepter (2026-08-17). `Expanded` borne la largeur,
+            // et donne au passage deux boutons de largeur égale.
             Row(
-              mainAxisAlignment: MainAxisAlignment.end,
               children: [
-                TextButton(
-                  onPressed: () => _repondre(context, ref, accept: false),
-                  child: const Text('Refuser'),
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => _repondre(context, ref, accept: false),
+                    child: const Text('Refuser'),
+                  ),
                 ),
                 const SizedBox(width: 8),
-                FilledButton(
-                  onPressed: () => _repondre(context, ref, accept: true),
-                  child: const Text('Accepter'),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => _repondre(context, ref, accept: true),
+                    child: const Text('Accepter'),
+                  ),
                 ),
               ],
             ),
@@ -454,6 +470,17 @@ class _TuilePair extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final snapshot = peer.snapshot!;
+    // ⚠️ **Le statut d'ami se DÉRIVE ici, il ne vient pas de la présence.**
+    //
+    // Il venait de `peer.isFriend`, un champ de l'entrée de présence — écrit
+    // par le chemin de l'ID rotatif, et **pas** par celui de la poignée de
+    // main. Un ami identifié par poignée de main s'affichait donc comme un
+    // inconnu, avec ce bouton. Jay, 2026-08-17 : « il manque une connexion
+    // entre la vérification et l'affichage. »
+    //
+    // Le champ n'existe plus. La question se pose au carnet, au moment du
+    // rendu, là où elle ne peut pas se désynchroniser.
+    final estAmi = ref.watch(isFriendProvider(snapshot.userId)).value ?? false;
     return ListTile(
       leading: CircleAvatar(
         child: Text(snapshot.displayName.characters.first.toUpperCase()),
@@ -509,7 +536,7 @@ class _TuilePair extends ConsumerWidget {
               ),
             ),
           ],
-          if (peer.isFriend) ...[
+          if (estAmi) ...[
             const SizedBox(width: 10),
             const Icon(Icons.link, size: 14),
           ],
@@ -532,7 +559,7 @@ class _TuilePair extends ConsumerWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (!peer.isFriend)
+          if (!estAmi)
             IconButton(
               icon: const Icon(Icons.person_add_alt),
               tooltip: 'Demander à se connecter',

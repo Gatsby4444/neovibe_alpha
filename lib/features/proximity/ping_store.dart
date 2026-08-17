@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
+
+import 'proximity_identity.dart';
 
 /// Stockage 100 % LOCAL du module ping (décision Jay 2026-07-13 :
 /// séparation totale d'avec la messagerie d'amis — ces données ne touchent
@@ -388,3 +391,49 @@ class LocalEncounter {
 }
 
 final pingStoreProvider = Provider((ref) => PingStore());
+
+/// **LE** carnet d'amis de l'app. Un seul, et c'est tout l'intérêt.
+///
+/// ⚠️ **Ne jamais écrire `FriendKeyBook()` ailleurs que dans un test.**
+///
+/// Le 2026-08-17, trois instances coexistaient — contrôleur, synchronisation, et
+/// le défaut de `PeerNetwork` — chacune avec son cache mémoire. La
+/// synchronisation écrivait les clés téléchargées du serveur avec la sienne ;
+/// les deux autres avaient déjà chargé le fichier et ne le relisaient jamais.
+/// **Un ami s'affichait donc comme un inconnu**, avec un bouton « demander à se
+/// connecter », jusqu'au prochain lancement de l'app.
+///
+/// Le cache n'était pas le défaut : le défaut était qu'un objet à état partagé
+/// se construisait avec `new` à trois endroits. Un provider supprime la cause ;
+/// une règle de relecture ne l'aurait qu'écartée.
+final friendBookProvider = Provider<FriendKeyStore>((ref) => FriendKeyBook());
+
+/// Suis-je ami avec cette personne ?
+///
+/// ⚠️ **Le seul endroit de l'app qui répond à cette question.**
+///
+/// Elle se **dérive** du carnet, elle ne se **recopie** nulle part. C'est la
+/// différence qui a coûté la panne du 2026-08-17 : `PeerNetwork` calculait
+/// `isFriend`, l'émettait dans `PeerIdentified`, et `markIdentified` ne le
+/// rangeait pas dans l'entrée de présence — que le bouton lisait. La réponse
+/// était juste, et personne ne la lisait au bon endroit.
+///
+/// La règle qui en sort, et qui rend le défaut impossible plutôt que corrigé :
+/// **la présence dit OÙ et À QUELLE DISTANCE, jamais QUI.**
+final isFriendProvider = StreamProvider.family<bool, String>((ref, userId) {
+  final book = ref.watch(friendBookProvider);
+  final controller = StreamController<bool>();
+
+  Future<void> emit() async {
+    if (controller.isClosed) return;
+    controller.add((await book.all()).containsKey(userId));
+  }
+
+  book.changes.addListener(emit);
+  ref.onDispose(() {
+    book.changes.removeListener(emit);
+    controller.close();
+  });
+  unawaited(emit());
+  return controller.stream;
+});

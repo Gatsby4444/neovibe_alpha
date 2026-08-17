@@ -25,12 +25,23 @@ class PresenceChanged extends PeerEvent {
   const PresenceChanged();
 }
 
-/// Un pair inconnu s'est révélé, ou un ami a confirmé son profil.
+/// Un pair s'est révélé : on sait maintenant QUI il est.
+///
+/// ⚠️ **Il n'y a pas de `isFriend` ici, et c'est délibéré (2026-08-17).**
+///
+/// Il y en avait un. `PeerNetwork` interrogeait le carnet pour le calculer, et
+/// le publiait — donc une notion **produit** descendait sous la frontière que
+/// ce fichier déclare lui-même tenir : *« en dessous on parle radio, trames et
+/// clés ; au-dessus on parle profils, messages et certificats »*.
+///
+/// Le coût a été concret : la même question recevait deux réponses (l'événement
+/// et l'entrée de présence), elles divergeaient, et le bouton lisait la
+/// mauvaise. Le réseau dit désormais **qui**, jamais **ce que cette personne
+/// est pour moi** — cette question-là se pose au carnet, au moment du rendu.
 class PeerIdentified extends PeerEvent {
-  const PeerIdentified(this.address, this.snapshot, {required this.isFriend});
+  const PeerIdentified(this.address, this.snapshot);
   final String address;
   final PingPeerSnapshot snapshot;
-  final bool isFriend;
 }
 
 /// Un message applicatif est arrivé, déchiffré et authentifié.
@@ -64,15 +75,28 @@ class PeerLost extends PeerEvent {
 /// C'est la ligne que l'ancien `proximity_service.dart` ne tenait pas : il
 /// faisait les deux, et ses 1040 lignes n'ont jamais pu être testées.
 class PeerNetwork {
+  /// ⚠️ **[keyBook] est OBLIGATOIRE, et c'est le correctif du 2026-08-17.**
+  ///
+  /// Il valait `keyBook ?? FriendKeyBook()`. Ce `??` était la **troisième**
+  /// instance du carnet — la plus dangereuse, parce qu'elle se créait toute
+  /// seule, sans qu'aucun appelant ne l'ait demandée, avec son propre cache
+  /// mémoire sur le même fichier. Un défaut commode qui fabrique un état
+  /// partagé est un défaut qui finira par diverger.
+  ///
+  /// Aucun appelant ne s'en servait — mais rien ne l'empêchait, et c'est
+  /// précisément ce genre de porte ouverte qu'on ferme au lieu de la surveiller.
   PeerNetwork({
     required this.myUserId,
     required this.myProfile,
     required this.radio,
+    required FriendKeyStore keyBook,
     ProximityIdentity? identity,
-    FriendKeyStore? keyBook,
     DateTime Function()? clock,
-  }) : _identity = identity ?? ProximityIdentity(),
-       _keyBook = keyBook ?? FriendKeyBook(),
+    // Le champ est privé : un paramètre formel initialisant l'exposerait sous
+    // son nom privé, que les appelants ne peuvent pas nommer.
+    // ignore: prefer_initializing_formals
+  }) : _keyBook = keyBook,
+       _identity = identity ?? ProximityIdentity(),
        _clock = clock ?? DateTime.now {
     // La présence peut demander au transport si une adresse porte encore un
     // lien : c'est ce qui lui permet de ne pas abandonner une session vivante.
@@ -125,11 +149,25 @@ class PeerNetwork {
   Timer? _housekeeping;
 
   Future<void> start() async {
+    // ⚠️ **On s'abonne au carnet, on ne le relit pas à heure fixe.**
+    //
+    // Défaut du 2026-08-17 : l'index rotatif était construit ici, **puis** la
+    // synchronisation téléchargeait les clés — sans que rien ne le dise. Il
+    // n'était reconstruit qu'au changement de créneau, toutes les 15 minutes,
+    // et depuis un cache périmé : donc jamais. Un ami restait un inconnu
+    // jusqu'au prochain lancement de l'app.
+    //
+    // Un abonnement supprime la course : peu importe qui arrive en premier, du
+    // réseau ou des clés.
+    _keyBook.changes.addListener(_onBookChanged);
     await refreshFriends();
     _housekeeping ??= Timer.periodic(const Duration(seconds: 3), (_) => tick());
   }
 
+  void _onBookChanged() => unawaited(refreshFriends());
+
   Future<void> dispose() async {
+    _keyBook.changes.removeListener(_onBookChanged);
     _housekeeping?.cancel();
     _housekeeping = null;
     for (final link in _links.values) {
@@ -516,8 +554,7 @@ class PeerNetwork {
 
     final snapshot = profile.toSnapshot();
     presence.markIdentified(linkId, snapshot);
-    final isFriend = (await _keyBook.all()).containsKey(profile.userId);
-    _emit(PeerIdentified(linkId, snapshot, isFriend: isFriend));
+    _emit(PeerIdentified(linkId, snapshot));
     _emit(const PresenceChanged());
   }
 

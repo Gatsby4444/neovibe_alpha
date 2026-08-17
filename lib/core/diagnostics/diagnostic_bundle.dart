@@ -6,6 +6,7 @@ import 'app_log.dart';
 import 'card_rules_trace.dart';
 
 import '../../features/proximity/net/ble_radio.dart';
+import '../../features/proximity/net/connection_trace.dart';
 import '../../features/proximity/net/transport_trace.dart';
 
 /// Tout ce qu'il faut pour diagnostiquer, en **un seul** copier-coller.
@@ -217,6 +218,18 @@ class DiagnosticBundle {
   /// trouvées à la main, et pas un seul rapport capable d'en désigner une.
   static String transport() => TransportTrace.report();
 
+  /// Ce que le chemin des CONNEXIONS a fait — demandes et synchronisation.
+  ///
+  /// ⚠️ **Section distincte du transport, et ce n'est pas de la mise en page.**
+  /// Le transport parle de trames et de canaux ; celle-ci parle de demandes
+  /// d'amis et de carnet. Deux domaines, deux durées de vie. Les mélanger, c'est
+  /// ne plus savoir lequel des deux a menti.
+  ///
+  /// Née du 2026-08-17 : Jay a signalé une demande d'ami qui n'arrivait pas, et
+  /// les deux rapports envoyés ce jour-là ne contenaient **pas une seule ligne**
+  /// sur ce chemin.
+  static String connections() => ConnectionTrace.report();
+
   /// Le paquet complet, prêt à coller ou à envoyer.
   ///
   /// Les drapeaux permettent d'en produire une partie seulement — l'écran des
@@ -249,7 +262,9 @@ class DiagnosticBundle {
         ..writeln('\n===== PROXIMITÉ — CE QUE LA RADIO A REÇU =====')
         ..writeln(await proximity())
         ..writeln('\n===== PROXIMITÉ — CE QUE LE TRANSPORT A PERDU =====')
-        ..writeln(transport());
+        ..writeln(transport())
+        ..writeln('\n===== CONNEXIONS — DEMANDES ET SYNCHRONISATION =====')
+        ..writeln(connections());
     }
 
     if (video) {

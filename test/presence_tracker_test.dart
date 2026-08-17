@@ -34,8 +34,12 @@ void main() {
     final t = PresenceTracker();
     t.observe('AA', -70, friend: profil);
 
+    // ⚠️ **On vérifie l'IDENTITÉ, pas le statut.** `PresencePeer.isFriend` a
+    // été supprimé le 2026-08-17 : la présence dit où est quelqu'un et qui il
+    // est, jamais ce qu'il est pour nous. Le statut d'ami se dérive du carnet
+    // au moment du rendu — c'est ce qui l'empêche de diverger.
     expect(t.peers.single.stage, PresenceStage.identified);
-    expect(t.peers.single.isFriend, isTrue);
+    expect(t.peers.single.snapshot?.userId, 'u-1');
     expect(t.isInRange('u-1'), isTrue);
   });
 

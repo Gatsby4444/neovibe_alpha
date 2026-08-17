@@ -91,13 +91,12 @@ class _PingChatScreenState extends ConsumerState<PingChatScreen> {
     // ⚠️ Le pire était l'issue : le déblocage exigeait une réponse, et la
     // réponse était précisément ce que la règle d'en face interdisait. Deux
     // verrous qui se tenaient l'un l'autre.
-    final isFriend =
-        ref
-            .watch(proximityControllerProvider)
-            .value
-            ?.peers
-            .any((p) => p.userId == widget.peerId && p.isFriend) ??
-        false;
+    // ⚠️ **Dérivé du carnet, pas de la présence.** Cette ligne interrogeait
+    // `p.isFriend`, un champ de l'entrée de présence qui n'était écrit que par
+    // le chemin de l'ID rotatif. Entre amis identifiés par poignée de main, la
+    // règle anti-spam s'appliquait donc alors qu'elle ne devait pas — et elle
+    // exigeait une réponse que la règle d'en face interdisait.
+    final isFriend = ref.watch(isFriendProvider(widget.peerId)).value ?? false;
     final blocked =
         !isFriend &&
         (_conversation?.unansweredOutgoing ?? 0) >= PingStore.unansweredLimit;

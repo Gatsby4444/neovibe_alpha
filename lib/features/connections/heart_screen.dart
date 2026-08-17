@@ -8,6 +8,8 @@ import '../../core/models/recommendation.dart';
 import '../../core/models/wave.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/formats.dart';
+import '../proximity/net/proximity_controller.dart';
+import '../proximity/net/proximity_journal.dart';
 import '../proximity/proximity_repository.dart';
 import '../recommendations/recommendation_screens.dart';
 import '../recommendations/recommendations_repository.dart';
@@ -87,10 +89,32 @@ class _RequestsTab extends ConsumerWidget {
     final partial = ref.watch(partialConnectionsProvider);
     final history = ref.watch(requestHistoryProvider);
 
+    // ⚠️ **Les demandes de PROXIMITÉ, qui manquaient ici.**
+    //
+    // Défaut du 2026-08-17 : cet écran ne lisait que la table serveur
+    // `connection_requests`. Une demande arrivée en BLE vit dans un fichier
+    // local (`ProximityJournal`) et n'y arrive **jamais** — c'est voulu, la
+    // co-signature part d'appareil à appareil. Jay a donc cherché sa demande
+    // dans « Demandes & rencontres », n'a rien vu, et a conclu qu'elle était
+    // perdue. Elle était sur l'écran d'à côté.
+    //
+    // Le correctif n'est PAS de fusionner les stockages — ils n'ont ni les
+    // mêmes règles ni la même durée de vie. C'est **une seule vue au-dessus des
+    // deux** : l'écran qui porte le nom de la fonction doit la montrer en
+    // entier.
+    final proximite =
+        ref.watch(proximityControllerProvider).value?.requests ??
+        const <PendingFriendRequest>[];
+
     return RefreshIndicator(
       onRefresh: () async => ref.invalidate(requestHistoryProvider),
       child: ListView(
         children: [
+          if (proximite.isNotEmpty) ...[
+            const _SectionTitle('Rencontrées — en attente de ta réponse'),
+            for (final request in proximite)
+              _ProximityRequestTile(request: request),
+          ],
           if (incoming.isNotEmpty) ...[
             const _SectionTitle('En attente — vous êtes à proximité'),
             for (final request in incoming)
@@ -131,6 +155,100 @@ class _RequestsTab extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+/// Une demande arrivée par **proximité BLE**, co-signée d'appareil à appareil.
+///
+/// ⚠️ **Elle n'a pas de ligne serveur, et c'est la conception.** Répondre exige
+/// donc que la personne soit **de nouveau à portée** : c'est l'appareil d'en
+/// face qui reçoit la contre-signature, pas le serveur. On le DIT plutôt que de
+/// masquer le bouton — un bouton absent est indiscernable d'une fonction qui
+/// n'existe pas (leçon du 2026-08-16).
+class _ProximityRequestTile extends ConsumerWidget {
+  const _ProximityRequestTile({required this.request});
+  final PendingFriendRequest request;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final aPortee = ref.watch(peerInRangeProvider(request.fromUserId));
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '${request.snapshot.displayName} veut se connecter avec toi',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              aPortee
+                  ? 'Rencontré ${vagueTimeAgo(request.receivedAt)} — à portée maintenant'
+                  : 'Rencontré ${vagueTimeAgo(request.receivedAt)} — '
+                        'rapproche-toi pour répondre',
+              style: TextStyle(color: context.muted, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            // Les deux dans des `Expanded` : voir le commentaire de
+            // `_filledStyle()` dans le thème — un `FilledButton` nu dans une
+            // `Row` est peint hors de l'écran, sans erreur en release.
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton(
+                    onPressed: () => _repondre(context, ref, accept: false),
+                    child: const Text('Refuser'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: aPortee
+                        ? () => _repondre(context, ref, accept: true)
+                        : null,
+                    child: const Text('Accepter'),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _repondre(
+    BuildContext context,
+    WidgetRef ref, {
+    required bool accept,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref
+          .read(proximityControllerProvider.notifier)
+          .respondToRequest(request.fromUserId, accept: accept);
+      if (accept) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Vous êtes connectés avec ${request.snapshot.displayName}.',
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Impossible de répondre — la personne n\'est plus à portée. '
+            'La demande est gardée.',
+          ),
+        ),
+      );
+    }
   }
 }
 
