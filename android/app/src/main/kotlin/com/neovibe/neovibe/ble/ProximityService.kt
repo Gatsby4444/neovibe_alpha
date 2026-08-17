@@ -206,7 +206,22 @@ class ProximityService : Service(), BleEngine.Listener {
         // hasSystemFeature.
         "uwb" to packageManager.hasSystemFeature("android.hardware.uwb"),
         "wifiRtt" to packageManager.hasSystemFeature("android.hardware.wifi.rtt"),
-    )
+        // ⚠️ **Les deux transports Wi-Fi, sondes ajoutees le 2026-08-17.**
+        //
+        // Question de Jay : « le Wi-Fi Direct on peut l'utiliser pour les
+        // messages ? Peut-etre que cela sera plus fiable que le BLE ? ».
+        //
+        // `wifiDirect` est present a peu pres partout ; `wifiAware` beaucoup
+        // moins, et c'est pourtant LUI le bon candidat (pas de formation de
+        // groupe, plusieurs pairs, concu pour le voisinage). Plutot que de
+        // supposer d'apres le modele, on DEMANDE au systeme - meme methode que
+        // pour l'UWB, ou la supposition aurait ete fausse dans les deux sens.
+        "wifiDirect" to packageManager.hasSystemFeature("android.hardware.wifi.direct"),
+        "wifiAware" to packageManager.hasSystemFeature("android.hardware.wifi.aware"),
+        // Les chemins physiques ouverts, par role. Voir `BleEngine.pathStats` :
+        // c'est la mesure qui dira si une meme adresse porte DEUX connexions
+        // GATT — hypothese des messages fantomes restants, non encore observee.
+    ) + engine.pathStats
 
     // ------------------------------------------------------------------
     // Écoute du moteur

@@ -8,6 +8,7 @@ import 'presence_tracker.dart';
 import 'proximity_protocol.dart';
 import 'radio_status.dart';
 import 'secure_channel.dart';
+import 'transport_trace.dart';
 
 /// Ce que le réseau constate, une fois les octets devenus du sens.
 ///
@@ -303,6 +304,13 @@ class PeerNetwork {
     final existing = _channels[linkId];
     if (existing != null && existing.stage != ChannelStage.closed) {
       // Déjà en relation avec ce pair : ce lien-ci est un doublon.
+      TransportTrace.drop(
+        DropKind.duplicateLink,
+        linkId,
+        incoming
+            ? 'entrant, canal ${existing.stage.name}'
+            : 'sortant, canal ${existing.stage.name}',
+      );
       return;
     }
     // Un canal fermé laisse derrière lui un transport à refermer proprement,
@@ -314,6 +322,10 @@ class PeerNetwork {
       mtu: mtu,
       sendChunk: radio.send,
       onFrame: (id, frame) => unawaited(_onFrame(id, frame)),
+      // ⚠️ **Ce rappel existait et n'était branché nulle part.** Le
+      // réassembleur savait dire ce qu'il jetait ; personne ne l'écoutait.
+      onDropped: (id, reason) =>
+          TransportTrace.drop(DropKind.reassembly, id, reason),
     );
     final channel = SecureChannel(
       linkId: linkId,
@@ -358,7 +370,8 @@ class PeerNetwork {
   Future<void> _onFrame(String linkId, Uint8List bytes) async {
     try {
       await _handleFrame(linkId, bytes);
-    } catch (_) {
+    } catch (e) {
+      TransportTrace.drop(DropKind.handlerFailed, linkId, '$e');
       _links[linkId]?.close();
       radio.disconnect(linkId);
     }
@@ -366,9 +379,23 @@ class PeerNetwork {
 
   Future<void> _handleFrame(String linkId, Uint8List bytes) async {
     final channel = _channels[linkId];
-    if (channel == null) return;
+    if (channel == null) {
+      // ⚠️ **La signature exacte du message fantôme.** En face, l'envoi a
+      // réussi ; ici, il n'y a plus personne pour l'ouvrir. Si ce compteur
+      // bouge sur un appareil de Jay, c'est qu'une session a été démontée d'un
+      // seul côté — et le journal dit quand.
+      TransportTrace.drop(DropKind.noChannel, linkId, '${bytes.length} octets');
+      return;
+    }
     final frame = WireFrame.decode(bytes);
-    if (frame == null) return;
+    if (frame == null) {
+      TransportTrace.drop(
+        DropKind.undecodable,
+        linkId,
+        '${bytes.length} octets',
+      );
+      return;
+    }
 
     switch (frame) {
       case HelloFrame(
@@ -412,7 +439,18 @@ class PeerNetwork {
 
       case EncryptedFrame():
         final message = await channel.decrypt(frame);
-        if (message != null) await _onMessage(linkId, channel, message);
+        if (message == null) {
+          // Mauvaise clé, compteur rejoué, ou octets modifiés — le canal ne
+          // distingue pas, et c'est voulu. Le compteur de trame, lui, permet
+          // de trancher après coup entre un rejeu et une divergence de clé.
+          TransportTrace.drop(
+            DropKind.decryptRefused,
+            linkId,
+            'compteur ${frame.counter}, canal ${channel.stage.name}',
+          );
+          return;
+        }
+        await _onMessage(linkId, channel, message);
 
       case ByeFrame():
         radio.disconnect(linkId);
@@ -433,7 +471,15 @@ class PeerNetwork {
     // Tout le reste exige de savoir À QUI on parle. Un message reçu avant le
     // profil est ignoré : sans identité, on ne saurait ni l'afficher, ni le
     // ranger, ni décider s'il a le droit d'exister.
-    if (snapshot == null) return;
+    if (snapshot == null) {
+      TransportTrace.drop(
+        DropKind.beforeProfile,
+        linkId,
+        '${message.runtimeType}, présence ${peer?.stage.name ?? 'absente'}',
+      );
+      return;
+    }
+    TransportTrace.noteDelivered();
     _emit(PeerMessageReceived(linkId, snapshot, message));
   }
 
@@ -575,6 +621,13 @@ class PeerNetwork {
     // `sendToUser` visait alors la nouvelle adresse, qui n'avait aucun canal,
     // et rouvrait une connexion là où une session vivante existait déjà.
     for (final address in presence.takeMergedAway()) {
+      if (_channels[address]?.stage == ChannelStage.established) {
+        TransportTrace.drop(
+          DropKind.sessionDropped,
+          address,
+          'fusion d\'adresses',
+        );
+      }
       _links.remove(address)?.close();
       _channels.remove(address)?.close();
       _awaiting.remove(address);
@@ -583,6 +636,17 @@ class PeerNetwork {
 
     final gone = presence.prune();
     for (final peer in gone) {
+      // ⚠️ Ne devrait plus JAMAIS porter un canal établi : `prune` refuse
+      // désormais de faire partir un pair relié. Si ce motif apparaît dans un
+      // rapport, c'est que la garde a été contournée — et le compteur le dira
+      // avant que Jay n'ait à le remarquer à l'usage.
+      if (_channels[peer.address]?.stage == ChannelStage.established) {
+        TransportTrace.drop(
+          DropKind.sessionDropped,
+          peer.address,
+          'pair non entendu, canal pourtant établi',
+        );
+      }
       _links.remove(peer.address)?.close();
       _channels.remove(peer.address)?.close();
       _awaiting.remove(peer.address);

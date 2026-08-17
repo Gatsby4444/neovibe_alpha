@@ -275,4 +275,86 @@ void main() {
     // Sans le correctif, ce message n'arrivait jamais.
     expect(recus.single, 'toujours la ?');
   });
+
+  test('cesser d\'ENTENDRE un pair ne coupe pas la session qui le relie', () async {
+    // ⚠️ **Le message fantôme qui restait après la v0.9.111.**
+    //
+    // Deux mesures indépendantes portent le même nom dans la tête, et ce sont
+    // deux choses différentes :
+    //
+    // - **entendre** un pair, c'est recevoir son annonce — une diffusion non
+    //   fiable, qu'un téléphone en poche, un canal occupé ou un écran éteint
+    //   font manquer plusieurs fois de suite ;
+    // - **être relié** à un pair, c'est tenir une connexion GATT et un canal
+    //   chiffré — qui, lui, ne bouge pas parce qu'une annonce s'est perdue.
+    //
+    // `prune()` traitait la première comme une preuve de la seconde : passée la
+    // période de grâce, il rendait le pair « parti », et `tick()` détruisait le
+    // lien ET le canal — **sans rien couper côté radio**. En face, rien n'avait
+    // changé : le canal restait établi, l'envoi réussissait sans erreur, et la
+    // trame arrivait sur un lien devenu sans canal, où `_handleFrame` la jetait
+    // en silence.
+    //
+    // Émetteur satisfait, destinataire muet : la signature exacte du défaut
+    // décrit par Jay.
+    //
+    // ⚠️ **`hasLiveLink` existait déjà** — posé le 2026-08-16 pour empêcher la
+    // FUSION d'adresses d'abandonner une session vivante. La cause avait donc
+    // été traitée à un endroit sur deux : `prune`, l'autre porte de sortie, ne
+    // le consultait pas.
+    final horloge = HorlogeMobile();
+    final radioP = RadioSimulee('PP');
+    final radioQ = RadioSimulee('QQ');
+    radioP.pair = radioQ;
+    radioQ.pair = radioP;
+
+    // Seul P a une horloge pilotée : c'est LUI qui cesse d'entendre.
+    final p = await Appareil.creer(
+      'P',
+      userId: 'u-p',
+      graine: 7,
+      radio: radioP,
+      horloge: horloge.call,
+    );
+    final q = await Appareil.creer(
+      'Q',
+      userId: 'u-q',
+      graine: 8,
+      radio: radioQ,
+    );
+
+    await p.voit(q);
+    await q.voit(p);
+    await jusqua(
+      () =>
+          p.reseau.presence.identifiedCount == 1 &&
+          q.reseau.presence.identifiedCount == 1,
+    );
+
+    final recus = <String>[];
+    p.reseau.events.listen((e) {
+      if (e is PeerMessageReceived && e.message is ChatMessage) {
+        recus.add((e.message as ChatMessage).text);
+      }
+    });
+
+    // P n'entend plus l'annonce de Q au-delà de la période de grâce. Le lien,
+    // lui, est intact — et Q, qui entend toujours P, n'a aucune raison de s'en
+    // douter.
+    horloge.avance(PresenceTracker.gracePeriod + const Duration(seconds: 5));
+    await p.reseau.tick();
+
+    // L'envoi de Q **réussit** : son canal est établi, son lien est vivant.
+    // C'est précisément ce succès qui rend le défaut invisible des deux côtés.
+    await q.reseau.sendToUser(
+      'u-p',
+      ChatMessage(id: 'm', text: 'tu me reçois ?', sentAt: DateTime.now()),
+    );
+
+    await jusqua(() => recus.isNotEmpty);
+    expect(recus.single, 'tu me reçois ?');
+
+    await p.reseau.dispose();
+    await q.reseau.dispose();
+  });
 }

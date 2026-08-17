@@ -122,6 +122,62 @@ class BleEngine(private val context: Context, private val listener: Listener) {
     var neoScans = 0
         private set
 
+    /**
+     * Les chemins physiques ouverts, **par role**, adresse par adresse.
+     *
+     * ⚠️ **Une adresse peut en porter DEUX a la fois, et le Dart n'en voit
+     * qu'un.** Nous sommes central vers un pair (`clientLinks`) pendant que ce
+     * meme pair est central vers nous (`serverCentrals`) : deux connexions GATT
+     * independantes, deux durees de vie, un seul `linkId` — l'adresse.
+     *
+     * Trois consequences suivent de cette confusion, et aucune ne leve :
+     *
+     * 1. la mort d'UN chemin est annoncee au Dart comme la mort du lien, alors
+     *    que l'autre vit encore ;
+     * 2. [send] prefere toujours le chemin client — il peut donc changer de
+     *    transport en cours de conversation, sans que personne ne le decide ;
+     * 3. [connect] rend un succes **immediat** si un chemin client existe, sans
+     *    emettre le moindre evenement de lien : le Dart attend alors une
+     *    poignee de main qui ne partira jamais.
+     *
+     * ⚠️ **Ce compteur ne corrige rien — il MESURE.** Le cas des deux chemins
+     * simultanes est deduit de la lecture du code, pas observe sur un appareil.
+     * Tant que `bothPaths` reste a zero sur les appareils de Jay, l'hypothese
+     * est fausse et il ne faut rien changer ici. Consigne du projet : ne jamais
+     * livrer un correctif fonde sur une deduction.
+     */
+    val pathStats: Map<String, Any?>
+        get() {
+            val client = clientLinks.keys.toSet()
+            val server = serverCentrals.keys.toSet()
+            val both = client intersect server
+            return mapOf(
+                "clientPaths" to client.size,
+                "serverPaths" to server.size,
+                "bothPaths" to both.size,
+                "bothPathsPeak" to bothPathsPeak,
+            )
+        }
+
+    /**
+     * Le maximum jamais atteint par `bothPaths`.
+     *
+     * ⚠️ **Un instantane ne peut pas prouver un cas transitoire.** Les deux
+     * chemins peuvent coexister trois secondes et disparaitre : releve au
+     * moment ou Jay envoie son rapport, `bothPaths` vaudrait zero et on en
+     * conclurait — a tort — que le cas n'arrive jamais. Ce seau-ci, lui, peut
+     * contenir la preuve du contraire.
+     */
+    @Volatile
+    var bothPathsPeak = 0
+        private set
+
+    /** A appeler apres toute ouverture de chemin, dans l'un ou l'autre role. */
+    private fun notePaths() {
+        val both = (clientLinks.keys intersect serverCentrals.keys).size
+        if (both > bothPathsPeak) bothPathsPeak = both
+    }
+
     // ------------------------------------------------------------------
     // Cycle de vie
     // ------------------------------------------------------------------
@@ -551,6 +607,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         ) {
             if (descriptor.uuid == BleConstants.CCCD_UUID) {
                 serverCentrals[device.address] = device
+                notePaths()
                 val mtu = serverMtus[device.address] ?: BleConstants.DEFAULT_MTU
                 main.post { listener.onLink(device.address, true, mtu, true) }
             }
@@ -684,6 +741,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         ) {
             ready = true
             settle(null)
+            notePaths()
             main.post { listener.onLink(address, true, mtu, false) }
         }
 

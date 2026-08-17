@@ -391,10 +391,36 @@ class PresenceTracker {
   }
 
   /// Retire les pairs qu'on n'a plus vus. Rend ceux qui viennent de partir.
+  ///
+  /// ⚠️ **Un pair RELIÉ n'est jamais « parti », même devenu inaudible.**
+  ///
+  /// Deux instruments mesurent deux choses, et les confondre coûtait des
+  /// messages. L'**annonce** BLE est une diffusion non fiable : ne plus
+  /// l'entendre pendant 25 s ne prouve rien — téléphone en poche, canal occupé,
+  /// écran éteint. La **connexion** GATT, elle, est surveillée par la pile
+  /// Bluetooth, qui la déclare morte quand elle l'est, et le dit
+  /// ([PeerNetwork._onLinkDown]).
+  ///
+  /// Sans cette garde, `prune` détruisait ici un canal parfaitement vivant —
+  /// et **sans rien couper côté radio**. En face, rien ne changeait : le canal
+  /// restait établi, l'envoi réussissait sans erreur, et la trame arrivait sur
+  /// un lien devenu sans canal, où elle était jetée en silence. Émetteur
+  /// satisfait, destinataire muet : le message fantôme signalé par Jay le
+  /// 2026-08-16, reproduit par `test/peer_network_test.dart`.
+  ///
+  /// La règle s'énonce donc positivement : **c'est la mort du lien qui fait
+  /// partir un pair relié**, et l'absence d'annonce qui fait partir les autres.
+  /// Aucun pair ne reste indéfiniment : le lien mort rend [hasLiveLink] faux,
+  /// et le battement suivant emporte le pair.
+  ///
+  /// ⚠️ [hasLiveLink] existait déjà — posé le 2026-08-16 pour empêcher la
+  /// **fusion** d'adresses d'abandonner une session vivante. La cause n'avait
+  /// donc été traitée qu'à une porte de sortie sur deux.
   List<PresencePeer> prune() {
     final now = _now();
     final gone = <PresencePeer>[];
     _peers.removeWhere((_, peer) {
+      if (hasLiveLink?.call(peer.address) ?? false) return false;
       final stale = now.difference(peer.lastSeen) > gracePeriod;
       if (stale) gone.add(peer);
       return stale;

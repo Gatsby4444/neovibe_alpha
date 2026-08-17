@@ -70,7 +70,8 @@ ul{margin:8px 0 8px 20px;padding:0} li{margin:5px 0}
 
 <header>
   <h1>Comment le ping voit les gens autour de toi</h1>
-  <p class="sub">NeoVibe — reconstruction du 2026-08-16. Cours, schémas et simulateurs.</p>
+  <p class="sub">NeoVibe — reconstruction du 2026-08-16, éprouvée sur deux
+  appareils réels. Mis à jour le 2026-08-17. Cours, schémas et simulateurs.</p>
 </header>
 
 <nav>
@@ -81,7 +82,8 @@ ul{margin:8px 0 8px 20px;padding:0} li{margin:5px 0}
   <button data-go="4">5 · La présence</button>
   <button data-go="5">6 · Intention ≠ état</button>
   <button data-go="6">7 · Les couches</button>
-  <button data-go="7">8 · Les bugs, expliqués</button>
+  <button data-go="7">8 · La distance</button>
+  <button data-go="8">9 · Les bugs, expliqués</button>
 </nav>
 
 <main>
@@ -470,10 +472,108 @@ RadioRunning(advertising: false) =&gt; ('Tu n\'es pas annoncé', …)   // ← i
 
 <!-- ================================================================= 8 -->
 <section>
+  <h2>La distance : ce qu'on peut honnêtement en dire</h2>
+
+  <p>Le ping ne mesure pas une distance. Il mesure une <b>puissance reçue</b>, et
+  en déduit une distance. Ces deux phrases sont très différentes, et tout ce
+  chapitre en découle.</p>
+
+  <div class="card bad">
+    <h3>L'erreur d'un facteur 44</h3>
+    <p>Le 2026-08-16, l'app annonçait des distances fausses d'un <b>facteur
+    44</b>. La cause : je traitais la <b>puissance d'émission</b> de l'antenne
+    comme la <b>puissance reçue à un mètre</b>. À 2,4 GHz, il y a 41 dB entre les
+    deux — soit, une fois passé dans la formule, un facteur 44 sur la distance.</p>
+    <p class="tag no">Ce qui rend ce bug intéressant</p>
+    <p class="muted"><b>Tous les tests étaient au vert.</b> Ils ne vérifiaient
+    que des propriétés <i>relatives</i> : « plus près donne une distance plus
+    petite », « la bande monte quand le signal monte ». Une erreur d'échelle
+    traverse un test relatif sans le faire broncher.<br>
+    <b>Il faut un point d'ancrage absolu</b> — un mètre ruban, une valeur
+    connue — sinon on vérifie la cohérence d'un système avec lui-même.</p>
+  </div>
+
+  <h3>Pourquoi le RSSI ne peut pas être précis</h3>
+  <p>La puissance reçue décroît avec la distance, mais elle dépend aussi de
+  tout le reste :</p>
+  <table>
+    <tr><th>Ce qui change la puissance reçue</th><th>Effet typique</th></tr>
+    <tr><td>La distance</td><td>ce qu'on cherche à mesurer</td></tr>
+    <tr><td>Un corps humain entre les deux</td><td>−10 à −20 dB, soit un facteur 3 à 10 sur la distance déduite</td></tr>
+    <tr><td>Le téléphone dans une poche</td><td>−5 à −15 dB</td></tr>
+    <tr><td>L'orientation des deux appareils</td><td>quelques dB, en permanence</td></tr>
+    <tr><td>Le modèle d'antenne</td><td>plusieurs dB, constants mais inconnus</td></tr>
+    <tr><td>Murs, meubles, réflexions</td><td>variable, parfois <i>positif</i></td></tr>
+  </table>
+  <p class="muted">Autrement dit : la distance est <b>une</b> des causes du
+  signal, pas la seule. Remonter du signal à la distance, c'est résoudre une
+  équation à plusieurs inconnues avec une seule mesure.</p>
+
+  <div class="card good">
+    <h3>Ce que le code rend, et pourquoi</h3>
+    <p>Jamais un nombre seul. <code>DistanceEstimate</code> porte :</p>
+    <div class="stack">
+      <div class="layer"><b>une bande</b> <span>— contact / proche / pièce /
+      loin, avec hystérésis sur chaque frontière pour que l'étiquette ne
+      clignote pas</span></div>
+      <div class="layer"><b>une tendance</b> <span>— se rapproche, s'éloigne,
+      stable ; mesurée sur 3 s, soit environ deux pas de marche</span></div>
+      <div class="layer"><b>une fourchette</b> <span>— <code>minMeters</code> à
+      <code>maxMeters</code>. <b>L'écart entre les deux bornes est
+      l'information la plus honnête du fichier</b> : c'est lui qui dit à quel
+      point la valeur centrale ne veut rien dire</span></div>
+      <div class="layer"><b>un drapeau <code>calibrated</code></b> <span>— le
+      pair a-t-il annoncé sa puissance d'émission ? Sinon la fourchette
+      s'élargit encore, et on le dit</span></div>
+    </div>
+    <p class="muted" style="margin-top:8px">La valeur centrale existe, mais son
+    commentaire dit <b>« à ne jamais montrer seule »</b> : elle ne sert qu'aux
+    relevés, le seul usage où un nombre unique est légitime — parce qu'on a la
+    vérité à côté, au mètre ruban.</p>
+  </div>
+
+  <h3>Les technologies qui feraient mieux — et pourquoi elles n'aident pas encore</h3>
+  <p>Trois technologies mesurent un <b>temps de vol</b> plutôt qu'une puissance,
+  ce qui change tout : le temps de vol ne dépend que de la distance.</p>
+  <table>
+    <tr><th>Technologie</th><th>Précision</th><th>Sur nos deux appareils de test</th></tr>
+    <tr><td><b>UWB</b></td><td>~10 cm</td><td class="mono">absent (mesuré)</td></tr>
+    <tr><td><b>Wi-Fi RTT</b></td><td>~1–2 m</td><td class="mono">absent (mesuré)</td></tr>
+    <tr><td><b>BLE Channel Sounding</b> (Bluetooth 6.0)</td><td>~20 cm annoncés</td><td class="mono">matériel bien plus récent</td></tr>
+    <tr><td>BLE RSSI</td><td>« bande », pas mètre</td><td class="mono">le seul disponible</td></tr>
+  </table>
+  <div class="card">
+    <p class="tag">Relevé, pas supposé</p>
+    <p>Le 2026-08-16, une sonde <code>hasSystemFeature</code> a répondu
+    <code class="mono">uwb: false</code> et <code class="mono">wifiRtt: false</code>
+    sur le <b>Xiaomi M2101K6G</b> (Android 13) <i>comme</i> sur la
+    <b>LENOVO TB-X606F</b> (Android 10). On n'a pas lu une fiche technique : on a
+    demandé au système.</p>
+    <p class="muted">Conséquence de méthode : construire aujourd'hui un moteur
+    qui <i>négocie</i> entre plusieurs technologies produirait un sélecteur à
+    <b>une seule branche</b>. L'architecture est juste — c'est d'ailleurs ce
+    qu'Android 16 a fait avec <code>RangingManager</code> — mais elle n'a rien à
+    négocier tant qu'aucun appareil de test ne porte une seconde technologie.</p>
+  </div>
+
+  <div class="card bad">
+    <h3>⚠️ Distance n'est pas position</h3>
+    <p>Savoir que Bob est à 2,17 m ne dit pas <b>où</b> est Bob : il est quelque
+    part sur un cercle de 2,17 m de rayon. Une position en deux dimensions
+    demande <b>plusieurs mesures indépendantes</b> — donc plusieurs appareils, ou
+    une direction en plus de la distance.</p>
+    <p class="muted">Le ping, aujourd'hui, répond à « qui est là, et à peu près à
+    quelle distance ». Il ne répond pas à « où ». Les deux questions n'ont ni la
+    même difficulté, ni le même matériel.</p>
+  </div>
+</section>
+
+<!-- ================================================================= 9 -->
+<section>
   <h2>Les bugs, et ce qu'ils enseignent</h2>
 
-  <p>Six défauts trouvés entre le 2026-08-16 et les tests de Jay. Aucun ne
-  levait d'erreur. Tous produisaient un écran parfaitement calme.</p>
+  <p>Neuf défauts trouvés entre le 2026-08-16 et le 2026-08-17. Aucun ne levait
+  d'erreur. Tous produisaient un écran parfaitement calme.</p>
 
   <div class="card bad">
     <h3>1 · Le pont n'était jamais branché au service</h3>
@@ -540,14 +640,70 @@ RadioRunning(advertising: false) =&gt; ('Tu n\'es pas annoncé', …)   // ← i
     donnait l'illusion que le nettoyage était prévu.</p>
   </div>
 
+  <div class="card bad">
+    <h3>7 · La distance, fausse d'un facteur 44</h3>
+    <p>Puissance d'<b>émission</b> confondue avec puissance <b>reçue à un
+    mètre</b>. 41 dB d'écart à 2,4 GHz. Voir le chapitre 8.</p>
+    <p class="tag no">Leçon</p>
+    <p class="muted">Une erreur d'<b>échelle</b> traverse un test <i>relatif</i>
+    sans le faire broncher. Il faut au moins un point d'ancrage absolu, sinon on
+    ne vérifie que la cohérence du système avec lui-même.</p>
+  </div>
+
+  <div class="card bad">
+    <h3>8 · Messages fantômes — un canal établi écrasé par un second lien</h3>
+    <p>Deux téléphones peuvent se connecter <b>en même temps</b>. Chacun recevait
+    alors deux événements de lien, et le second remplaçait la session déjà
+    négociée. L'émetteur chiffrait avec l'ancienne clé, le destinataire
+    déchiffrait avec la nouvelle : <code>decrypt</code> rendait
+    <code>null</code>, le message disparaissait sans un mot.</p>
+    <p class="tag no">Leçon</p>
+    <p class="muted">Ce cas était <b>rare</b> — jusqu'à ce que j'ajoute le repli
+    passif de 12 s pour corriger un <i>autre</i> défaut. Après un correctif, se
+    demander : <b>quel cas viens-je de rendre fréquent ?</b></p>
+  </div>
+
+  <div class="card bad">
+    <h3>9 · Ne plus <i>entendre</i> quelqu'un n'est pas être <i>déconnecté</i> de lui</h3>
+    <p>Deux mesures indépendantes portaient la même conclusion :</p>
+    <table>
+      <tr><th></th><th>Ce que ça mesure</th><th>Fiabilité</th></tr>
+      <tr><td><b>Entendre</b></td><td>l'annonce BLE</td><td>diffusion non
+      fiable — poche, canal occupé, écran éteint</td></tr>
+      <tr><td><b>Être relié</b></td><td>la connexion GATT</td><td>surveillée par
+      la pile Bluetooth, qui dit quand elle meurt</td></tr>
+    </table>
+    <p>Passées 25 s sans <b>annonce</b>, la présence déclarait le pair parti et
+    l'entretien détruisait le lien <b>et le canal</b> — sans rien couper côté
+    radio. En face, rien n'avait changé : canal établi, <b>envoi réussi sans
+    erreur</b>, et la trame arrivait sur un lien devenu sans canal, où elle était
+    jetée en silence.</p>
+    <p class="muted">Émetteur satisfait, destinataire muet.</p>
+    <p class="tag no">Leçon</p>
+    <p class="muted">La garde qui manquait — <code>hasLiveLink</code> —
+    <b>existait déjà</b>, posée la veille contre le même défaut à un autre
+    endroit (la fusion d'adresses). La cause avait été traitée à <b>une porte de
+    sortie sur deux</b>.<br>
+    Quand on pose une garde, chercher immédiatement <b>les autres endroits qui
+    font la même chose</b>. Ici, il n'y en avait que deux.</p>
+  </div>
+
   <div class="card good">
     <h3>Le fil commun</h3>
-    <p class="big">Aucun de ces six défauts ne lève d'erreur.</p>
+    <p class="big">Aucun de ces neuf défauts ne lève d'erreur.</p>
     <p>Ils produisent tous un système qui a l'air de marcher. C'est pourquoi la
     reconstruction a mis autant d'effort sur une seule idée : <b>l'app doit dire
     ce qui est vrai, y compris quand c'est « je ne sais pas »</b>. Un écran vide
     qui ne distingue pas quatre causes n'est pas neutre — il oriente vers la
     mauvaise.</p>
+    <p class="muted">Corollaire tiré le 2026-08-17 : <b>on ne peut enquêter que
+    sur ce qui est consigné.</b> Les deux rapports envoyés depuis les appareils
+    ne contenaient rien sur les liens, les canaux ni les trames — trois causes
+    ont donc été trouvées à la main, dont deux qui auraient tenu dans une ligne
+    de journal. Un compteur a été posé sur <b>chacun</b> des huit endroits où une
+    trame peut disparaître sans un mot, avec un compteur de <i>livraisons</i> à
+    côté : « 3 trames perdues » ne veut rien dire sur 4 échangées, ni sur
+    4 000.</p>
   </div>
 </section>
 

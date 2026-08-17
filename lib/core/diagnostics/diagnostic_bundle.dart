@@ -6,6 +6,7 @@ import 'app_log.dart';
 import 'card_rules_trace.dart';
 
 import '../../features/proximity/net/ble_radio.dart';
+import '../../features/proximity/net/transport_trace.dart';
 
 /// Tout ce qu'il faut pour diagnostiquer, en **un seul** copier-coller.
 ///
@@ -148,7 +149,20 @@ class DiagnosticBundle {
       //
       // En parcourant la map, un champ ajouté côté natif arrive ici tout seul.
       // La cause est supprimée, pas le symptôme.
-      final ordre = ['device', 'sdk', 'rawScans', 'neoScans', 'uwb', 'wifiRtt'];
+      final ordre = [
+        'device',
+        'sdk',
+        'rawScans',
+        'neoScans',
+        'clientPaths',
+        'serverPaths',
+        'bothPaths',
+        'bothPathsPeak',
+        'uwb',
+        'wifiRtt',
+        'wifiDirect',
+        'wifiAware',
+      ];
       final cles = [
         ...ordre.where(stats.containsKey),
         ...stats.keys.where((k) => !ordre.contains(k)),
@@ -170,11 +184,38 @@ class DiagnosticBundle {
           'L\'écoute marche ; c\'est la diffusion d\'en face qui n\'arrive pas.',
         );
       }
+
+      // ⚠️ **La ligne qui tranche une hypothèse, et rien de plus.** Deux
+      // connexions GATT sur une même adresse sont déduites de la lecture de
+      // `BleEngine.kt`, jamais observées. Ce compteur est là pour que le
+      // prochain rapport dise laquelle des deux lectures est la bonne — sans
+      // qu'on ait à toucher au natif d'ici là.
+      final pic = stats['bothPathsPeak'] as int?;
+      if (pic != null && pic > 0) {
+        buffer.writeln(
+          'LECTURE : une même adresse a porté DEUX connexions GATT à la fois '
+          '(pic $pic). Le lien n\'est donc pas identifiable par la seule '
+          'adresse — voir `BleEngine.pathStats`.',
+        );
+      }
       return buffer.toString();
     } catch (e) {
       return 'indisponible : $e';
     }
   }
+
+  /// Ce que le TRANSPORT a perdu, et ce qu'il a livré.
+  ///
+  /// ⚠️ **Section distincte de la précédente, et ce n'est pas cosmétique.**
+  /// « Ce que la radio a reçu » se demande au natif : des annonces, des
+  /// capacités matérielles. Ce qui suit vit côté Dart et parle de canaux et de
+  /// trames — deux couches, deux sources, deux durées de vie. Les mélanger dans
+  /// une section, c'est se condamner à ne plus savoir laquelle des deux a
+  /// menti.
+  ///
+  /// Cette section est née des messages fantômes du 2026-08-16 : trois causes
+  /// trouvées à la main, et pas un seul rapport capable d'en désigner une.
+  static String transport() => TransportTrace.report();
 
   /// Le paquet complet, prêt à coller ou à envoyer.
   ///
@@ -206,7 +247,9 @@ class DiagnosticBundle {
     if (proximityState) {
       buffer
         ..writeln('\n===== PROXIMITÉ — CE QUE LA RADIO A REÇU =====')
-        ..writeln(await proximity());
+        ..writeln(await proximity())
+        ..writeln('\n===== PROXIMITÉ — CE QUE LE TRANSPORT A PERDU =====')
+        ..writeln(transport());
     }
 
     if (video) {

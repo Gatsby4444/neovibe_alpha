@@ -230,6 +230,12 @@ au remplacement de l'interface.
 - **`BleEngine.kt`** — advertising, scan, serveur et client GATT. **Ne dépend
   d'aucune `Activity`.** Écoute `ACTION_STATE_CHANGED` : le Bluetooth rallumé
   relance tout seul. Files d'écriture dans **les deux sens**.
+  ⚠️ **Deux chemins physiques par adresse** (`clientLinks` quand nous sommes
+  central, `serverCentrals` quand le pair l'est) et **un seul `linkId`, l'adresse**.
+  `pathStats` / `bothPathsPeak` les comptent — mesure ajoutée le 2026-08-17 pour
+  trancher l'hypothèse des messages fantômes restants. **À porter sur iOS avec la
+  même vigilance** : CoreBluetooth a la même dualité central/périphérique, et
+  l'identifiant y est un `CBPeripheral.identifier`, pas une adresse.
 - **`ProximityService.kt`** — service de premier plan qui **possède** le moteur
   et survit à la destruction de l'interface (décision de Jay). Sa notification
   dit l'état vrai.
