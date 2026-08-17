@@ -122,6 +122,26 @@ class PeerNetwork {
 
   final _links = <String, PeerLink>{};
   final _channels = <String, SecureChannel>{};
+
+  /// Qui est au bout de chaque lien, **selon la session elle-même**.
+  ///
+  /// ⚠️ **La livraison demandait cette réponse à la PRÉSENCE, et c'était le
+  /// défaut.** Relevé sur l'appareil de Jay le 2026-08-17 (v0.9.118) :
+  /// `message reçu avant le profil — ChatMessage, présence ABSENTE`. Deux
+  /// messages perdus, alors que le canal déchiffrait parfaitement.
+  ///
+  /// La présence parle de **proximité**, et ses entrées vont et viennent : une
+  /// adresse abandonnée par la fusion (Android renouvelle sa MAC en
+  /// permanence), une remise à zéro quand la radio s'arrête, un élagage. Rien
+  /// de tout ça ne devrait faire disparaître une conversation en cours.
+  ///
+  /// L'identité, elle, est établie une fois par la poignée de main et le profil
+  /// signé — c'est une propriété de la **session**. On la range donc avec la
+  /// session, et la livraison ne consulte plus la présence.
+  ///
+  /// C'est la même règle qu'au petit matin, un cran plus bas : *la présence dit
+  /// OÙ, jamais QUI.*
+  final _identities = <String, PingPeerSnapshot>{};
   final _connecting = <String>{};
 
   /// Adresses pour lesquelles on attend que l'AUTRE ouvre le lien.
@@ -178,6 +198,7 @@ class PeerNetwork {
       channel.close();
     }
     _channels.clear();
+    _identities.clear();
     presence.clear();
     await _events.close();
   }
@@ -262,6 +283,9 @@ class PeerNetwork {
               verified: true,
             ),
     );
+    // La fusion a pu abandonner une adresse à l'instant : on ferme son
+    // transport **maintenant**, pas au battement d'après.
+    _closeMergedAway();
     if (before != presence.byAddress(address)?.stage) {
       _emit(const PresenceChanged());
     }
@@ -371,6 +395,7 @@ class PeerNetwork {
     // sinon ses envois en attente resteraient suspendus pour toujours.
     _links.remove(linkId)?.close();
     _profileSent.remove(linkId);
+    _identities.remove(linkId);
 
     _links[linkId] = PeerLink(
       linkId: linkId,
@@ -407,6 +432,7 @@ class PeerNetwork {
 
   void _onLinkDown(String linkId) {
     _profileSent.remove(linkId);
+    _identities.remove(linkId);
     _links.remove(linkId)?.close();
     _channels.remove(linkId)?.close();
     // Le lien tombe, mais la RADIO peut encore voir le pair : on redescend à
@@ -434,6 +460,7 @@ class PeerNetwork {
       await _handleFrame(linkId, bytes);
     } catch (e) {
       TransportTrace.drop(DropKind.handlerFailed, linkId, '$e');
+      _identities.remove(linkId);
       // ⚠️ **Le canal part avec le lien.** On ne fermait que le lien : le canal
       // restait « établi » sur un transport mort. Deux conséquences, aucune
       // visible — `hasLiveLink` répondait oui, donc l'entretien gardait
@@ -568,8 +595,8 @@ class PeerNetwork {
       await _onProfile(linkId, channel, message);
       return;
     }
-    final peer = presence.byAddress(linkId);
-    final snapshot = peer?.snapshot;
+    // ⚠️ La session, pas la présence. Voir [_identities].
+    final snapshot = _identities[linkId];
     // Tout le reste exige de savoir À QUI on parle. Un message reçu avant le
     // profil est ignoré : sans identité, on ne saurait ni l'afficher, ni le
     // ranger, ni décider s'il a le droit d'exister.
@@ -577,7 +604,7 @@ class PeerNetwork {
       TransportTrace.drop(
         DropKind.beforeProfile,
         linkId,
-        '${message.runtimeType}, présence ${peer?.stage.name ?? 'absente'}',
+        '${message.runtimeType}, profil pas encore reçu',
       );
       return;
     }
@@ -630,6 +657,7 @@ class PeerNetwork {
     }
 
     final snapshot = profile.toSnapshot();
+    _identities[linkId] = snapshot;
     presence.markIdentified(linkId, snapshot);
     _emit(PeerIdentified(linkId, snapshot));
     _emit(const PresenceChanged());
@@ -746,6 +774,38 @@ class PeerNetwork {
   // ------------------------------------------------------------------
   // Entretien
   // ------------------------------------------------------------------
+
+  /// Ferme le transport des adresses que la présence vient d'abandonner.
+  ///
+  /// ⚠️ **Appelé DANS LE MÊME GESTE que l'observation, pas au battement.**
+  ///
+  /// La fusion d'adresses retire l'entrée de présence tout de suite ; la
+  /// fermeture du lien, elle, attendait le battement suivant — jusqu'à **3
+  /// secondes**. Pendant cette fenêtre, l'adresse abandonnée n'avait plus
+  /// d'identité mais gardait un canal parfaitement vivant : tout message qui y
+  /// arrivait était jeté, et le pair d'en face n'en savait rien.
+  ///
+  /// C'est le second versant du défaut relevé le 2026-08-17. Le premier
+  /// (l'identité rangée avec la session) rend la perte impossible ; celui-ci
+  /// supprime la fenêtre — et surtout **prévient le pair**, qui parlait
+  /// jusque-là dans le vide.
+  void _closeMergedAway() {
+    for (final address in presence.takeMergedAway()) {
+      if (_channels[address]?.stage == ChannelStage.established) {
+        TransportTrace.drop(
+          DropKind.sessionDropped,
+          address,
+          "fusion d'adresses",
+        );
+      }
+      _links.remove(address)?.close();
+      _channels.remove(address)?.close();
+      _identities.remove(address);
+      _profileSent.remove(address);
+      _awaiting.remove(address);
+      radio.disconnect(address);
+    }
+  }
 
   /// Battement régulier : rotation de l'index, pairs partis, replis en attente.
   Future<void> tick() async {

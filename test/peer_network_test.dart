@@ -533,6 +533,51 @@ void main() {
     await deux.reseau.dispose();
   });
 
+  test("un message arrive meme si la presence a oublie l'adresse", () async {
+    // ⚠️ **Le defaut du releve de Jay, v0.9.118 :**
+    //
+    //     message recu avant le profil (7C:5F:CF:7B:B0:FF)
+    //         — ChatMessage, presence ABSENTE
+    //
+    // Deux `ChatMessage` perdus. Et « absente », pas « identifying » : il n'y
+    // avait plus **aucune** entree de presence pour cette adresse — alors que
+    // le canal, lui, dechiffrait parfaitement (le message est arrive jusqu'a
+    // `_onMessage`).
+    //
+    // La cause n'est pas le transport : c'est que la livraison demandait a la
+    // PRESENCE qui etait le pair. Or la presence parle de proximite, et ses
+    // entrees vont et viennent — fusion d'adresses quand Android renouvelle sa
+    // MAC, remise a zero quand la radio s'arrete. Une session vivante ne doit
+    // pas dependre de ca.
+    //
+    // Ici on vide la presence par le chemin le plus simple (la radio s'arrete),
+    // ce qui reproduit exactement la condition : **plus d'entree, canal vivant.**
+    final (un, deux) = await paireEtablie(nomInitiateur: 'Un');
+
+    final recus = <String>[];
+    un.reseau.events.listen((e) {
+      if (e is PeerMessageReceived && e.message is ChatMessage) {
+        recus.add((e.message as ChatMessage).text);
+      }
+    });
+
+    // La presence oublie tout. Les liens et les canaux, eux, restent.
+    await un.reseau.onRadioEvent(const RadioStatusEvent(RadioAdapterOff()));
+    expect(un.reseau.presence.length, 0);
+
+    // Deux ecrit sur la session qui existe toujours.
+    await deux.reseau.send(
+      un.radio.adresse,
+      ChatMessage(id: 'm', text: 'toujours la', sentAt: DateTime.now()),
+    );
+
+    await jusqua(() => recus.isNotEmpty);
+    expect(recus.single, 'toujours la');
+
+    await un.reseau.dispose();
+    await deux.reseau.dispose();
+  });
+
   for (final quiReconstruit in ['le même côté', 'l\'autre côté']) {
     test(
       'une session perdue d\'un seul côté se reconstruit — $quiReconstruit',
