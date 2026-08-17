@@ -408,4 +408,114 @@ void main() {
     await p.reseau.dispose();
     await q.reseau.dispose();
   });
+
+  // ------------------------------------------------------------------
+  // Reconstruction d'une session perdue d'un seul côté
+  // ------------------------------------------------------------------
+  //
+  // ⚠️ **La quatrième cause de message fantôme, mesurée le 2026-08-17.**
+  //
+  // Relevé croisé sur les deux appareils de Jay : la tablette ferme une session
+  // ÉTABLIE (fusion d'adresses), et 2 minutes plus tard le smartphone consigne
+  // `second lien ignoré (canal established)` puis **`déchiffrement refusé` aux
+  // compteurs 0 et 1**.
+  //
+  // Les compteurs 0 et 1 sont la signature d'une **session neuve** : le pair
+  // avait reconstruit son canal. Nous, non — et la règle « un canal établi ne
+  // se remplace jamais », posée la veille pour corriger un AUTRE défaut,
+  // interdisait de le suivre.
+  //
+  // Ces deux tests couvrent les deux cas, selon que le côté qui reconstruit
+  // reprend le même rôle ou l'inverse. Sur le terrain, c'est le hasard qui
+  // tranche — d'où un défaut intermittent.
+
+  /// Monte une paire dont les rôles sont CHOISIS, au lieu de dépendre de la
+  /// comparaison des ID rotatifs (qui change à chaque créneau de 15 min).
+  Future<(Appareil, Appareil)> paireEtablie({
+    required String nomInitiateur,
+  }) async {
+    final radio1 = RadioSimulee('11');
+    final radio2 = RadioSimulee('22');
+    radio1.pair = radio2;
+    radio2.pair = radio1;
+    final un = await Appareil.creer(
+      'Un',
+      userId: 'u-1',
+      graine: 11,
+      radio: radio1,
+    );
+    final deux = await Appareil.creer(
+      'Deux',
+      userId: 'u-2',
+      graine: 12,
+      radio: radio2,
+    );
+    // On ouvre le lien À LA MAIN : c'est ce qui rend le rôle déterministe.
+    await (nomInitiateur == 'Un' ? radio1 : radio2).connect(
+      nomInitiateur == 'Un' ? radio2.adresse : radio1.adresse,
+    );
+    await jusqua(
+      () =>
+          un.reseau.presence.identifiedCount == 1 &&
+          deux.reseau.presence.identifiedCount == 1,
+    );
+    return (un, deux);
+  }
+
+  for (final quiReconstruit in ['le même côté', 'l\'autre côté']) {
+    test(
+      'une session perdue d\'un seul côté se reconstruit — $quiReconstruit',
+      () async {
+        final (un, deux) = await paireEtablie(nomInitiateur: 'Un');
+
+        // Un échange normal d'abord : c'est ce qui fait avancer les compteurs,
+        // et donc ce qui rendra la session neuve d'en face inacceptable.
+        final recusUn = <String>[];
+        un.reseau.events.listen((e) {
+          if (e is PeerMessageReceived && e.message is ChatMessage) {
+            recusUn.add((e.message as ChatMessage).text);
+          }
+        });
+        await deux.reseau.sendToUser(
+          'u-1',
+          ChatMessage(id: 'm0', text: 'salut', sentAt: DateTime.now()),
+        );
+        await jusqua(() => recusUn.isNotEmpty);
+
+        // ⚠️ **Deux perd sa session, et Un n'en sait rien.** C'est exactement ce
+        // que fait la fusion d'adresses : elle ferme le canal localement, sans
+        // que le pair l'apprenne.
+        deux.reseau.onRadioEvent(
+          RadioLink(
+            linkId: un.radio.adresse,
+            connected: false,
+            mtu: 0,
+            incoming: false,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        // Deux rouvre. Selon le côté qui rappelle, il reprend le rôle
+        // d'initiateur ou prend celui que l'autre croit encore tenir.
+        if (quiReconstruit == 'le même côté') {
+          await un.radio.connect(deux.radio.adresse);
+        } else {
+          await deux.radio.connect(un.radio.adresse);
+        }
+
+        // Et Deux parle, sur sa session NEUVE (compteur 0).
+        await jusqua(() => deux.reseau.presence.identifiedCount == 1);
+        await deux.reseau.sendToUser(
+          'u-1',
+          ChatMessage(id: 'm1', text: 'tu me lis ?', sentAt: DateTime.now()),
+        );
+
+        await jusqua(() => recusUn.length == 2);
+        expect(recusUn.last, 'tu me lis ?');
+
+        await un.reseau.dispose();
+        await deux.reseau.dispose();
+      },
+    );
+  }
 }

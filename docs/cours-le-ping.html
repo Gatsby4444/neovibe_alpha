@@ -71,7 +71,7 @@ ul{margin:8px 0 8px 20px;padding:0} li{margin:5px 0}
 <header>
   <h1>Comment le ping voit les gens autour de toi</h1>
   <p class="sub">NeoVibe — reconstruction du 2026-08-16, éprouvée sur deux
-  appareils réels. Mis à jour le 2026-08-17. Cours, schémas et simulateurs.</p>
+  appareils réels. Mis à jour le 2026-08-17 (poignée de main sans rôle). Cours, schémas et simulateurs.</p>
 </header>
 
 <nav>
@@ -309,6 +309,47 @@ RadioRunning(advertising: false) =&gt; ('Tu n\'es pas annoncé', …)   // ← i
         <td>Qu'on présente le profil signé d'un autre</td>
         <td>La signature prouve qui a écrit, pas qui est en face</td></tr>
   </table>
+
+  <div class="card bad">
+    <h3>⚠️ Ce qui a changé le 2026-08-17 : la session n'a plus de « rôle »</h3>
+    <p>Chaque côté portait un rôle — <b>initiateur</b> ou <b>répondeur</b> —
+    déduit de <i>qui avait composé le numéro</i>. Le rôle décidait deux choses :
+    ce qui était signé, et le préfixe de nonce qui sépare les deux sens.</p>
+    <p>Or le rôle est un fait de <b>transport</b>, et les deux côtés ne le
+    lisent pas toujours pareil : deux liens qui se croisent, ou une session
+    reconstruite d'un seul côté, et les deux peuvent se croire initiateurs.
+    <b>Mêmes clés, préfixes opposés</b> — AES-GCM refuse tout, et le message
+    disparaît sans un mot.</p>
+    <p class="tag no">La règle qui remplace le rôle</p>
+    <table>
+      <tr><th>Question</th><th>Ce qui y répond</th></tr>
+      <tr><td>Quelle est la session courante ?</td>
+          <td>le <b>couple</b> de clés éphémères</td></tr>
+      <tr><td>Dans quel sens va cette trame ?</td>
+          <td>l'<b>ordre</b> des deux clés éphémères</td></tr>
+      <tr><td>Qui parle en premier ?</td>
+          <td><b>les deux</b> — plus personne n'attend</td></tr>
+    </table>
+    <p class="muted">Les trois se calculent des deux côtés, à l'identique, sans
+    rien avoir à se dire. C'est ça, la propriété qu'un rôle ne pouvait pas
+    donner.</p>
+  </div>
+
+  <div class="card good">
+    <h3>Un <code>hello</code> est une demande de session, et elle l'emporte</h3>
+    <p>Un pair n'envoie un <code>hello</code> que s'il <b>n'a plus de
+    session</b>. Garder la nôtre ne peut alors produire que du silence : il
+    chiffre avec une clé que nous n'avons pas.</p>
+    <p>Reconstruire, c'est donc <b>tout ou rien</b> — nouvelle clé éphémère,
+    nouvelle clé de session, <b>compteurs remis à zéro</b>.</p>
+    <p class="tag no">Le défaut, exactement</p>
+    <p class="muted">La reconstruction se faisait <i>à moitié</i> : la clé
+    suivait, pas les compteurs. Le pair repartait au compteur 0, nous en étions
+    à 5, et <b>toutes</b> ses trames étaient refusées. Ça marchait assez pour ne
+    rien signaler — la pire des façons d'être cassé.</p>
+    <p class="muted">⚠️ Et un <code>hello</code> <b>répété</b> ne reconstruit
+    rien : sinon il suffirait d'en rejouer un pour désarmer l'anti-rejeu.</p>
+  </div>
 </section>
 
 <!-- ================================================================= 5 -->
@@ -572,7 +613,7 @@ RadioRunning(advertising: false) =&gt; ('Tu n\'es pas annoncé', …)   // ← i
 <section>
   <h2>Les bugs, et ce qu'ils enseignent</h2>
 
-  <p>Neuf défauts trouvés entre le 2026-08-16 et le 2026-08-17. Aucun ne levait
+  <p>Dix défauts trouvés entre le 2026-08-16 et le 2026-08-17. Aucun ne levait
   d'erreur. Tous produisaient un écran parfaitement calme.</p>
 
   <div class="card bad">
@@ -688,9 +729,28 @@ RadioRunning(advertising: false) =&gt; ('Tu n\'es pas annoncé', …)   // ← i
     font la même chose</b>. Ici, il n'y en avait que deux.</p>
   </div>
 
+  <div class="card bad">
+    <h3>10 · Le correctif de la veille est devenu la cause du lendemain</h3>
+    <p>Le 16, pour arrêter des messages fantômes, on a posé une règle : <i>un
+    canal établi ne se remplace jamais</i>. Elle était juste — un second lien ne
+    doit pas détruire une session négociée.</p>
+    <p>Le 17, elle est devenue la panne. Un pair qui avait perdu sa session la
+    reconstruisait et redemandait une poignée de main ; nous refusions, puisque
+    notre canal semblait bon. Il chiffrait avec une clé que nous n'avions pas.
+    <b>Troisième fois sur ce chantier</b> qu'un correctif de symptôme fabrique
+    le défaut suivant.</p>
+    <p class="tag no">Leçon</p>
+    <p class="muted">Une règle qui dit « ne jamais changer d'état » n'est
+    complète que si l'on précise <b>ce qui, alors, fait converger les deux
+    côtés</b>. Sans ça, on a seulement déplacé le désaccord — d'un état écrasé
+    vers un état figé, qui est plus difficile à voir.<br>
+    La sortie n'était pas un troisième garde-fou, mais une question : <b>qu'est-ce
+    que les deux côtés peuvent calculer à l'identique ?</b></p>
+  </div>
+
   <div class="card good">
     <h3>Le fil commun</h3>
-    <p class="big">Aucun de ces neuf défauts ne lève d'erreur.</p>
+    <p class="big">Aucun de ces dix défauts ne lève d'erreur.</p>
     <p>Ils produisent tous un système qui a l'air de marcher. C'est pourquoi la
     reconstruction a mis autant d'effort sur une seule idée : <b>l'app doit dire
     ce qui est vrai, y compris quand c'est « je ne sais pas »</b>. Un écran vide

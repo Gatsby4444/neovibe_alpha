@@ -121,6 +121,43 @@ machine à états explicite : `opening` → `established` → `closed`.
 
 Ignore le sens des messages qu'elle chiffre.
 
+#### ⚠️ La session appartient au COUPLE DE CLÉS ÉPHÉMÈRES (2026-08-17)
+
+Elle appartenait à un **rôle** — initiateur ou répondeur — déduit de qui avait
+composé le numéro. C'est ce qui a produit la quatrième cause de message fantôme,
+mesurée sur les deux appareils de Jay.
+
+Le rôle est un fait de **transport**, et les deux côtés ne le lisent pas toujours
+pareil : deux liens qui se croisent, ou une session reconstruite d'un seul côté,
+et les deux peuvent se croire initiateurs. Mêmes clés, **préfixes de nonce
+opposés**, et AES-GCM refuse tout — sans un mot.
+
+Trois règles remplacent le rôle, et chacune est vérifiable des deux côtés sans se
+concerter :
+
+| Question | Ce qui y répond maintenant |
+|---|---|
+| Quelle est la session courante ? | le couple `(ma clé éphémère, la sienne)` |
+| Dans quel sens va cette trame ? | l'**ordre** des deux clés éphémères |
+| Qui parle en premier ? | **les deux** — plus personne n'attend |
+
+Et une quatrième, qui est le correctif proprement dit :
+
+> **Un `hello` reçu est une demande de session, et elle l'emporte toujours.**
+> Un pair ne l'envoie que s'il n'a plus de session. Garder la nôtre ne peut alors
+> produire que du silence.
+
+Reconstruire, c'est **tout ou rien** : nouvelle clé éphémère, nouvelle clé de
+session, **compteurs remis à zéro**. Le défaut relevé était exactement une
+reconstruction à moitié — la clé suivait, pas les compteurs, et toutes les trames
+du pair étaient refusées (`déchiffrement refusé, compteur 0 puis 1`).
+
+⚠️ **Un `hello` répété ne reconstruit rien** (même clé éphémère) : sinon il
+suffirait d'en rejouer un pour désarmer l'anti-rejeu.
+
+⚠️ **Changement de protocole** : les deux appareils doivent être à la même
+version. Un ancien et un nouveau ne se comprendront pas.
+
 ### 4 — Présence (`PresenceTracker`)
 
 **La source de vérité unique de « qui est autour »**, avec un état explicite par

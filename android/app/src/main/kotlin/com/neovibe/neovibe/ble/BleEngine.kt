@@ -796,8 +796,31 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             done("Radio indisponible")
             return
         }
-        if (clientLinks.containsKey(address)) {
-            done(null)
+        // ⚠️ **Un lien deja ouvert doit se REANNONCER, pas juste dire « ok ».**
+        //
+        // Ce bloc rendait un succes immediat, sans emettre le moindre
+        // `onLink`. Or l'appelant Dart demande une connexion precisement parce
+        // qu'il n'a plus de canal : lui repondre « c'est deja fait » sans lui
+        // donner l'evenement dont il a besoin le laisse attendre 8 s, puis
+        // echouer sur « poignee de main impossible » — et l'etat est COLLANT,
+        // tant que la radio ne lache pas d'elle-meme.
+        //
+        // Une fonction qui annonce un succes sans produire l'effet observable
+        // que son appelant attend est un mensonge, meme quand elle dit vrai.
+        val existant = clientLinks[address]
+        if (existant != null) {
+            if (existant.ready) {
+                main.post { listener.onLink(address, true, existant.mtu, false) }
+                done(null)
+            } else {
+                // La connexion est en cours : on se greffe sur son resultat au
+                // lieu d'en ouvrir une seconde.
+                val precedent = existant.onReady
+                existant.onReady = { error ->
+                    precedent?.invoke(error)
+                    done(error)
+                }
+            }
             return
         }
         val device = adapter?.getRemoteDevice(address)

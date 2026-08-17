@@ -219,7 +219,16 @@ class PeerNetwork {
             ? await _onLinkUp(linkId, mtu, incoming)
             : _onLinkDown(linkId);
       case RadioFrame(:final linkId, :final data):
-        _links[linkId]?.receive(data);
+        final link = _links[linkId];
+        if (link == null) {
+          // ⚠️ Arrive normalement : les deux côtés s'ouvrent, et l'un des deux
+          // peut parler avant que notre événement de lien ne soit remonté. Ce
+          // n'est pas grave — notre propre ouverture rattrapera — mais si ce
+          // compteur s'envole, c'est que des liens montent sans être vus.
+          TransportTrace.drop(DropKind.noLink, linkId, '${data.length} octets');
+          return;
+        }
+        link.receive(data);
     }
   }
 
@@ -365,21 +374,27 @@ class PeerNetwork {
       onDropped: (id, reason) =>
           TransportTrace.drop(DropKind.reassembly, id, reason),
     );
-    final channel = SecureChannel(
-      linkId: linkId,
-      initiator: !incoming,
-      identity: _identity,
-    );
+    final channel = SecureChannel(linkId: linkId, identity: _identity);
     _channels[linkId] = channel;
     presence.markIdentifying(linkId);
     _emit(const PresenceChanged());
 
-    // L'initiateur ouvre la poignée de main ; le répondeur attend le `hello`
-    // pour répondre avec le sien — sinon les deux parleraient en même temps et
-    // dériveraient deux clés différentes.
-    if (!incoming) {
-      await _tell(linkId, await channel.hello());
-    }
+    // ⚠️ **Les DEUX ouvrent, et personne n'attend.**
+    //
+    // Seul celui qui avait composé le numéro ouvrait ; l'autre attendait un
+    // `hello`. Deux conséquences, toutes deux silencieuses :
+    //
+    // 1. si ce `hello` se perdait — lien qui bat, réassemblage abandonné — le
+    //    côté passif attendait **indéfiniment** avec un canal sans clé ;
+    // 2. quand un pair reconstruisait sa session sur un lien que nous tenions
+    //    déjà, aucun des deux ne parlait : lui parce qu'il était passif, nous
+    //    parce que notre canal semblait encore bon.
+    //
+    // Ouvrir des deux côtés supprime l'attente au lieu de la surveiller.
+    // `acceptHello` est conçue pour ça : deux ouvertures qui se croisent
+    // aboutissent au **même** couple de clés éphémères, donc à la même session,
+    // et la réponse de trop ne change rien (voir [SecureChannel.sessionSerial]).
+    await _tell(linkId, await channel.open());
   }
 
   void _onLinkDown(String linkId) {
@@ -410,7 +425,16 @@ class PeerNetwork {
       await _handleFrame(linkId, bytes);
     } catch (e) {
       TransportTrace.drop(DropKind.handlerFailed, linkId, '$e');
-      _links[linkId]?.close();
+      // ⚠️ **Le canal part avec le lien.** On ne fermait que le lien : le canal
+      // restait « établi » sur un transport mort. Deux conséquences, aucune
+      // visible — `hasLiveLink` répondait oui, donc l'entretien gardait
+      // indéfiniment un pair qui n'existait plus ; et tout envoi échouait sur
+      // « lien fermé » alors que l'état du canal affirmait le contraire.
+      //
+      // Un état à moitié défait est plus difficile à diagnostiquer qu'un état
+      // franchement cassé.
+      _links.remove(linkId)?.close();
+      _channels.remove(linkId)?.close();
       radio.disconnect(linkId);
     }
   }
@@ -436,25 +460,48 @@ class PeerNetwork {
     }
 
     switch (frame) {
+      // ⚠️ **Une OUVERTURE reçue l'emporte toujours sur la session en cours.**
+      //
+      // Le pair ne l'envoie que s'il n'a plus de session avec nous. Refuser de
+      // le suivre — ce que faisait la règle « un canal établi ne se remplace
+      // jamais » — ne pouvait produire que du silence : il chiffre avec une clé
+      // que nous n'avons pas, nous refusons ses compteurs repartis de zéro, et
+      // personne ne voit rien. (Quatrième cause de message fantôme, mesurée le
+      // 2026-08-17 sur les deux appareils de Jay.)
       case HelloFrame(
         :final version,
         :final ephemeralPublicKey,
         :final devicePublicKey,
         :final signature,
       ):
+        final avantRekeys = channel.rekeys;
+        final avantSession = channel.sessionSerial;
         final refus = await channel.acceptHello(
           version: version,
           peerEphemeral: ephemeralPublicKey,
           peerDeviceKey: devicePublicKey,
           signature: signature,
+          weWillAnswer: true,
         );
         if (refus != null) {
+          TransportTrace.drop(DropKind.handshakeRefused, linkId, refus);
           await _tell(linkId, ByeFrame(refus));
           radio.disconnect(linkId);
           return;
         }
-        await _tell(linkId, await channel.hello());
-        await _sendProfile(linkId, channel);
+        if (channel.rekeys != avantRekeys) {
+          TransportTrace.drop(
+            DropKind.sessionRebuilt,
+            linkId,
+            'le pair avait perdu la sienne (${channel.rekeys}e fois)',
+          );
+        }
+        await _tell(linkId, await channel.answer());
+        // Rien de nouveau : c'est une ouverture qui a croisé la nôtre, et nous
+        // sommes déjà d'accord. Renvoyer le profil serait du trafic pour rien.
+        if (channel.sessionSerial != avantSession) {
+          await _sendProfile(linkId, channel);
+        }
 
       case HelloAckFrame(
         :final version,
@@ -462,18 +509,26 @@ class PeerNetwork {
         :final devicePublicKey,
         :final signature,
       ):
+        final avantAck = channel.sessionSerial;
         final refus = await channel.acceptHello(
           version: version,
           peerEphemeral: ephemeralPublicKey,
           peerDeviceKey: devicePublicKey,
           signature: signature,
+          // Nous ne répondons pas à une réponse : renouveler notre clé
+          // éphémère ici la rendrait inconnue du pair, et les deux côtés
+          // dériveraient des clés différentes.
+          weWillAnswer: false,
         );
         if (refus != null) {
+          TransportTrace.drop(DropKind.handshakeRefused, linkId, refus);
           await _tell(linkId, ByeFrame(refus));
           radio.disconnect(linkId);
           return;
         }
-        await _sendProfile(linkId, channel);
+        if (channel.sessionSerial != avantAck) {
+          await _sendProfile(linkId, channel);
+        }
 
       case EncryptedFrame():
         final message = await channel.decrypt(frame);
@@ -687,6 +742,15 @@ class PeerNetwork {
       _links.remove(peer.address)?.close();
       _channels.remove(peer.address)?.close();
       _awaiting.remove(peer.address);
+      // ⚠️ **On coupe AUSSI côté radio, et c'est le correctif d'un état
+      // collant.** Sans ça, le natif gardait une connexion GATT dont le Dart
+      // avait oublié l'existence. La suite était sans issue : `connect()` rend
+      // un succès **immédiat** quand un lien existe déjà — sans émettre le
+      // moindre événement — donc aucun canal ne pouvait plus être reconstruit
+      // avec ce pair, jusqu'à ce que la radio lâche d'elle-même.
+      //
+      // La règle : *le Dart n'oublie jamais un lien que le natif tient encore.*
+      radio.disconnect(peer.address);
       _emit(PeerLost(peer));
     }
     if (gone.isNotEmpty) _emit(const PresenceChanged());

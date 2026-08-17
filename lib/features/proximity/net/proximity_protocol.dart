@@ -86,10 +86,30 @@ class HelloFrame extends WireFrame {
   /// Signature Ed25519 de [signedPayload].
   final Uint8List signature;
 
-  /// Ce qui est signé. **Le rôle en fait partie** : sans lui, la trame d'un
-  /// initiateur pourrait être rejouée comme celle d'un répondeur.
-  static List<int> signedPayload(Uint8List ephemeral, String role) =>
-      utf8.encode('nv-hs-v$protocolVersion|$role|${base64Encode(ephemeral)}');
+  /// Ce qui est signé : la version et la clé éphémère. **Rien d'autre.**
+  ///
+  /// ⚠️ **Le RÔLE en faisait partie, et il a été retiré le 2026-08-17.**
+  ///
+  /// Il valait `'i'` pour l'initiateur, `'r'` pour le répondeur, et servait à
+  /// empêcher qu'une trame d'initiateur soit rejouée comme une réponse. Mais le
+  /// rôle était déduit de **qui avait composé le numéro** — un fait de
+  /// transport, que les deux côtés peuvent lire différemment quand deux liens
+  /// se croisent ou qu'une session est reconstruite d'un seul côté. Les deux
+  /// pouvaient alors se croire initiateurs : signature refusée, ou pire, clés
+  /// identiques mais **préfixes de nonce opposés** — et un message qui
+  /// disparaît sans un mot.
+  ///
+  /// Ce que le rôle protégeait est désormais assuré autrement, et mieux :
+  ///
+  /// - la **réflexion** (nous renvoyer notre propre clé) est refusée
+  ///   explicitement par `SecureChannel.acceptHello` ;
+  /// - le **sens** de chaque trame chiffrée vient de l'ordre des deux clés
+  ///   éphémères, que les deux côtés calculent à l'identique.
+  ///
+  /// La règle générale : *ce sur quoi les deux côtés doivent s'accorder ne se
+  /// déduit jamais de qui a appelé.*
+  static List<int> signedPayload(Uint8List ephemeral) =>
+      utf8.encode('nv-hs-v$protocolVersion|${base64Encode(ephemeral)}');
 
   @override
   Map<String, dynamic> toJson() => {

@@ -52,28 +52,36 @@ Future<(SecureChannel, SecureChannel)> apparier({
   ProximityIdentity? idA,
   ProximityIdentity? idB,
 }) async {
-  final a = SecureChannel(linkId: 'l', initiator: true, identity: idA);
-  final b = SecureChannel(linkId: 'l', initiator: false, identity: idB);
+  final a = SecureChannel(linkId: 'l', identity: idA);
+  final b = SecureChannel(linkId: 'l', identity: idB);
+  await echanger(a, b);
+  return (a, b);
+}
 
-  final hello = await a.hello() as HelloFrame;
-  final refusB = await b.acceptHello(
+/// Une poignée de main complète : [ouvrant] ouvre, [repondant] répond.
+///
+/// Sert aussi à REJOUER une poignée de main sur des canaux déjà appariés —
+/// c'est ce que fait un pair qui a perdu sa session.
+Future<void> echanger(SecureChannel ouvrant, SecureChannel repondant) async {
+  final hello = await ouvrant.open() as HelloFrame;
+  final refusB = await repondant.acceptHello(
     version: hello.version,
     peerEphemeral: hello.ephemeralPublicKey,
     peerDeviceKey: hello.devicePublicKey,
     signature: hello.signature,
+    weWillAnswer: true,
   );
   expect(refusB, isNull);
 
-  final ack = await b.hello() as HelloAckFrame;
-  final refusA = await a.acceptHello(
+  final ack = await repondant.answer() as HelloAckFrame;
+  final refusA = await ouvrant.acceptHello(
     version: ack.version,
     peerEphemeral: ack.ephemeralPublicKey,
     peerDeviceKey: ack.devicePublicKey,
     signature: ack.signature,
+    weWillAnswer: false,
   );
   expect(refusA, isNull);
-
-  return (a, b);
 }
 
 ChatMessage motMessage(String texte) =>
@@ -115,15 +123,13 @@ void main() {
     () async {
       final a = SecureChannel(
         linkId: 'l',
-        initiator: true,
         identity: await IdentiteMemoire.creer(graine: 1),
       );
       final imposteur = await IdentiteMemoire.creer(graine: 9);
-      final hello = await a.hello() as HelloFrame;
+      final hello = await a.open() as HelloFrame;
 
       final b = SecureChannel(
         linkId: 'l',
-        initiator: false,
         identity: await IdentiteMemoire.creer(graine: 2),
       );
       // La clé éphémère est relayée telle quelle, mais présentée avec la clé
@@ -133,6 +139,7 @@ void main() {
         peerEphemeral: hello.ephemeralPublicKey,
         peerDeviceKey: await imposteur.edPublicKey(),
         signature: hello.signature,
+        weWillAnswer: true,
       );
 
       expect(refus, contains('signature'));
@@ -145,7 +152,6 @@ void main() {
     () async {
       final b = SecureChannel(
         linkId: 'l',
-        initiator: false,
         identity: await IdentiteMemoire.creer(graine: 2),
       );
       final refus = await b.acceptHello(
@@ -153,6 +159,7 @@ void main() {
         peerEphemeral: Uint8List(32),
         peerDeviceKey: Uint8List(32),
         signature: Uint8List(64),
+        weWillAnswer: true,
       );
 
       expect(refus, contains('incompatible'));
@@ -261,5 +268,168 @@ void main() {
   test('une trame illisible rend null au lieu de lever', () {
     expect(WireFrame.decode(Uint8List.fromList([0, 1, 2])), isNull);
     expect(WireFrame.decode(Uint8List.fromList(utf8.encode('{}'))), isNull);
+  });
+
+  // ------------------------------------------------------------------
+  // Reconstruction de session — la quatrième cause de message fantôme
+  // ------------------------------------------------------------------
+
+  test(
+    'un pair qui reconstruit sa session est SUIVI, compteurs compris',
+    () async {
+      final idA = await IdentiteMemoire.creer(graine: 1);
+      final idB = await IdentiteMemoire.creer(graine: 2);
+      final (a, b) = await apparier(idA: idA, idB: idB);
+
+      // Un échange normal : c'est lui qui fait avancer les compteurs, et donc ce
+      // qui rendait la session neuve d'en face inacceptable.
+      expect(await a.decrypt(await b.encrypt(motMessage('un'))), isNotNull);
+      expect(await a.decrypt(await b.encrypt(motMessage('deux'))), isNotNull);
+
+      // B perd tout et repart d'un canal neuf — compteur d'envoi à 0.
+      final bNeuf = SecureChannel(linkId: 'l', identity: idB);
+      await echanger(bNeuf, a);
+
+      // ⚠️ Sans le correctif, A refusait ici : « déchiffrement refusé, compteur
+      // 0 », exactement ce que le journal des appareils de Jay a montré le
+      // 2026-08-17. La clé était bonne ; c'est le compteur qui bloquait.
+      final recu = await a.decrypt(
+        await bNeuf.encrypt(motMessage('tu me lis ?')),
+      );
+      expect((recu! as ChatMessage).text, 'tu me lis ?');
+
+      // Et dans l'autre sens aussi : reconstruire, c'est tout ou rien.
+      final retour = await bNeuf.decrypt(await a.encrypt(motMessage('oui')));
+      expect((retour! as ChatMessage).text, 'oui');
+
+      expect(a.rekeys, 1);
+    },
+  );
+
+  test('un hello RÉPÉTÉ ne remet pas les compteurs à zéro', () async {
+    // ⚠️ Le revers du test précédent, et il compte autant. Si n'importe quel
+    // `hello` remettait les compteurs à zéro, il suffirait d'en rejouer un pour
+    // rouvrir la porte au rejeu de trames — la faille même que le compteur
+    // existe pour fermer.
+    final idA = await IdentiteMemoire.creer(graine: 1);
+    final idB = await IdentiteMemoire.creer(graine: 2);
+    final a = SecureChannel(linkId: 'l', identity: idA);
+    final b = SecureChannel(linkId: 'l', identity: idB);
+
+    final hello = await a.open() as HelloFrame;
+    await b.acceptHello(
+      version: hello.version,
+      peerEphemeral: hello.ephemeralPublicKey,
+      peerDeviceKey: hello.devicePublicKey,
+      signature: hello.signature,
+      weWillAnswer: true,
+    );
+    final ack = await b.answer() as HelloAckFrame;
+    await a.acceptHello(
+      version: ack.version,
+      peerEphemeral: ack.ephemeralPublicKey,
+      peerDeviceKey: ack.devicePublicKey,
+      signature: ack.signature,
+      weWillAnswer: false,
+    );
+
+    final frame = await a.encrypt(motMessage('je te dois 10 euros'));
+    expect(await b.decrypt(frame), isNotNull);
+
+    // Le MÊME hello, rejoué. La clé éphémère n'a pas changé : ce n'est pas une
+    // nouvelle session, donc rien ne bouge.
+    final refus = await b.acceptHello(
+      version: hello.version,
+      peerEphemeral: hello.ephemeralPublicKey,
+      peerDeviceKey: hello.devicePublicKey,
+      signature: hello.signature,
+      weWillAnswer: true,
+    );
+    expect(refus, isNull);
+    expect(b.rekeys, 0);
+
+    // Et la trame rejouée reste refusée.
+    expect(await b.decrypt(frame), isNull);
+  });
+
+  test('on refuse qu\'on nous renvoie notre PROPRE clé éphémère', () async {
+    // La réflexion était écartée par le rôle signé (`i` / `r`). Le rôle a été
+    // retiré — il dépendait de qui avait appelé, ce dont les deux côtés ne
+    // conviennent pas toujours — et la protection est devenue explicite.
+    final id = await IdentiteMemoire.creer(graine: 1);
+    final a = SecureChannel(linkId: 'l', identity: id);
+    final hello = await a.open() as HelloFrame;
+
+    final refus = await a.acceptHello(
+      version: hello.version,
+      peerEphemeral: hello.ephemeralPublicKey,
+      peerDeviceKey: hello.devicePublicKey,
+      signature: hello.signature,
+      weWillAnswer: true,
+    );
+    expect(refus, contains('réfléchie'));
+  });
+
+  test('deux ouvertures qui se CROISENT donnent une seule session', () async {
+    // ⚠️ L'invariant qui remplace les rôles. Les deux côtés ouvrent désormais
+    // la poignée de main — plus personne n'attend que l'autre parle. Il faut
+    // donc que deux ouvertures simultanées aboutissent au même endroit.
+    final idA = await IdentiteMemoire.creer(graine: 1);
+    final idB = await IdentiteMemoire.creer(graine: 2);
+    final a = SecureChannel(linkId: 'l', identity: idA);
+    final b = SecureChannel(linkId: 'l', identity: idB);
+
+    final helloA = await a.open() as HelloFrame;
+    final helloB = await b.open() as HelloFrame;
+
+    // Chacun reçoit l'ouverture de l'autre et y répond.
+    expect(
+      await b.acceptHello(
+        version: helloA.version,
+        peerEphemeral: helloA.ephemeralPublicKey,
+        peerDeviceKey: helloA.devicePublicKey,
+        signature: helloA.signature,
+        weWillAnswer: true,
+      ),
+      isNull,
+    );
+    expect(
+      await a.acceptHello(
+        version: helloB.version,
+        peerEphemeral: helloB.ephemeralPublicKey,
+        peerDeviceKey: helloB.devicePublicKey,
+        signature: helloB.signature,
+        weWillAnswer: true,
+      ),
+      isNull,
+    );
+
+    // Puis chacun reçoit la réponse de l'autre : elle ne doit RIEN changer.
+    final serialA = a.sessionSerial;
+    final ackB = await b.answer() as HelloAckFrame;
+    expect(
+      await a.acceptHello(
+        version: ackB.version,
+        peerEphemeral: ackB.ephemeralPublicKey,
+        peerDeviceKey: ackB.devicePublicKey,
+        signature: ackB.signature,
+        weWillAnswer: false,
+      ),
+      isNull,
+    );
+    expect(a.sessionSerial, serialA, reason: 'même session, rien à refaire');
+
+    // Et les deux se comprennent, dans les deux sens — donc les préfixes de
+    // nonce sont opposés, alors qu'aucun des deux n'a « composé le numéro ».
+    expect(
+      ((await b.decrypt(await a.encrypt(motMessage('a→b'))))! as ChatMessage)
+          .text,
+      'a→b',
+    );
+    expect(
+      ((await a.decrypt(await b.encrypt(motMessage('b→a'))))! as ChatMessage)
+          .text,
+      'b→a',
+    );
   });
 }

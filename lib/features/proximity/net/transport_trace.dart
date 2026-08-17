@@ -44,6 +44,14 @@ abstract final class TransportTrace {
 /// « pas de canal » dans le même rapport, comptés séparément — et deux moitiés
 /// de compteur ne prouvent rien.
 abstract final class DropKind {
+  /// Des octets sont arrivés pour un lien que nous ne connaissons pas.
+  ///
+  /// Attendu en petit nombre : les deux côtés ouvrent la poignée de main, et
+  /// l'un peut parler avant que notre propre événement de lien ne soit remonté.
+  /// Notre ouverture rattrape. **Si ce compteur s'envole**, des liens montent
+  /// sans que le Dart les voie — et là, plus rien ne rattrape.
+  static const noLink = 'trame sur un lien inconnu';
+
   /// Une trame est arrivée sur un lien qui n'a **aucun canal**.
   ///
   /// C'est la signature du message fantôme : l'émetteur a réussi son envoi, le
@@ -74,4 +82,18 @@ abstract final class DropKind {
 
   /// Une session a été fermée par l'entretien, pas par la radio.
   static const sessionDropped = 'session fermée par l\'entretien';
+
+  /// Une poignée de main a été refusée, avec son motif.
+  ///
+  /// Elle l'était déjà — mais en silence côté journal : seul le pair recevait
+  /// le `bye`, et personne ne pouvait dire, en lisant un rapport, si un pair
+  /// avait été écarté ni pourquoi.
+  static const handshakeRefused = 'poignée de main refusée';
+
+  /// Le pair avait perdu sa session : on l'a reconstruite avec lui.
+  ///
+  /// **Ce n'est pas une perte** — c'est même la réparation. Le compter dit à
+  /// quel point les liens sont instables sur le terrain, ce que rien ne disait
+  /// avant le 2026-08-17.
+  static const sessionRebuilt = 'session reconstruite avec le pair';
 }
