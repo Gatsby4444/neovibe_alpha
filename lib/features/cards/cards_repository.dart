@@ -14,6 +14,10 @@ import 'card_media_cache.dart';
 
 /// Cards reçues (livraisons non détruites), temps réel.
 final receivedDeliveriesProvider = StreamProvider<List<CardDelivery>>((ref) {
+  // ⚠️ Fait repartir l'abonnement quand le jeton temps réel est renouvelé.
+  // Sans ça, le socket garde le jeton avec lequel il s'est ouvert et tombe
+  // au bout d'une heure — sans le moindre symptôme (2026-08-17).
+  ref.watch(realtimeEpochProvider);
   final client = ref.watch(supabaseProvider);
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return const Stream.empty();

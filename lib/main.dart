@@ -14,6 +14,7 @@ import 'core/diagnostics/app_log.dart';
 import 'core/diagnostics/app_log_observers.dart';
 import 'core/notifications/notification_service.dart';
 import 'core/prefs.dart';
+import 'core/supabase_providers.dart';
 import 'features/cards/card_capture_screen.dart';
 import 'features/cards/card_media_cache.dart';
 import 'package:rive/rive.dart' as rive;
@@ -91,6 +92,7 @@ Future<void> main() async {
     url: Env.supabaseUrl,
     publishableKey: Env.supabasePublishableKey,
   );
+  _suivreLeJetonDuTempsReel();
   await NotificationService.instance.init();
 
   // Tap sur la notification BeReal → capture contrainte (fenêtre 5 min)
@@ -152,4 +154,46 @@ Future<void> main() async {
       child: NeoVibeApp(),
     ),
   );
+}
+
+/// Donne au socle temps réel le jeton FRAIS à chaque renouvellement.
+///
+/// ⚠️ **Défaut trouvé dans le journal de Jay le 2026-08-17**, et que personne
+/// n'avait identifié comme un bug :
+///
+/// ```
+/// RealtimeSubscribeException — "InvalidJWTToken: Token has expired 4847 seconds ago"
+/// ```
+///
+/// Le jeton d'accès est renouvelé automatiquement pour les appels REST, mais le
+/// **socket temps réel garde celui avec lequel il s'est ouvert**. Au bout d'une
+/// heure d'app allumée, il porte donc un jeton mort — ici depuis **80 minutes**.
+///
+/// **Ce que ça casse, sans le moindre symptôme visible** : les abonnements
+/// temps réel (`connection_requests`, `connections`) tombent en erreur et n'en
+/// sortent plus. Une demande de connexion reçue **n'arrive jamais à l'écran**,
+/// et l'utilisateur voit simplement… rien. C'est exactement la famille de
+/// défauts qu'on passe la journée à chasser : ça marche, puis ça s'arrête, et
+/// aucun écran ne le dit.
+///
+/// ⚠️ **Un `StreamProvider` en erreur y reste.** Même une fois le jeton rafraîchi,
+/// rien ne le relance : le renouvellement ne change ni l'identifiant de
+/// l'utilisateur ni le client, donc Riverpod n'a aucune raison de reconstruire.
+/// D'où le `refresh` explicite ci-dessous — c'est lui qui remet les flux en
+/// marche.
+void _suivreLeJetonDuTempsReel() {
+  final client = Supabase.instance.client;
+  client.auth.onAuthStateChange.listen((state) {
+    final token = state.session?.accessToken;
+    if (token == null) return;
+    if (state.event == AuthChangeEvent.tokenRefreshed ||
+        state.event == AuthChangeEvent.signedIn ||
+        state.event == AuthChangeEvent.initialSession) {
+      client.realtime.setAuth(token);
+      // Et on relance les abonnements : ceux qui étaient tombés ne se
+      // relèveraient pas tout seuls.
+      realtimeEpoch.value++;
+      AppLog.instance.app('jeton temps réel rafraîchi', state.event.name);
+    }
+  });
 }

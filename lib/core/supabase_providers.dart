@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -10,6 +11,29 @@ final supabaseProvider = Provider<SupabaseClient>(
 final authStateProvider = StreamProvider<AuthState>(
   (ref) => ref.watch(supabaseProvider).auth.onAuthStateChange,
 );
+
+/// Compteur de renouvellements du jeton temps réel. **Voir `main.dart`.**
+///
+/// ⚠️ Il n'existe que pour une raison : **un `StreamProvider` en erreur y
+/// reste**. Le renouvellement du jeton ne change ni l'identifiant de
+/// l'utilisateur, ni le client Supabase — Riverpod n'a donc aucune raison de
+/// reconstruire les abonnements, et ceux qui étaient tombés restent tombés.
+final realtimeEpoch = ValueNotifier<int>(0);
+
+/// À **surveiller par tout provider adossé au temps réel.**
+///
+/// Défaut relevé dans le journal de Jay le 2026-08-17 :
+/// `InvalidJWTToken: Token has expired 4847 seconds ago`. Le socle temps réel
+/// gardait le jeton avec lequel il s'était ouvert — mort depuis 80 minutes. Les
+/// demandes de connexion cessaient d'arriver, **sans le moindre symptôme**.
+///
+/// Surveiller ce compteur fait repartir l'abonnement avec le jeton frais.
+final realtimeEpochProvider = Provider<int>((ref) {
+  void bump() => ref.invalidateSelf();
+  realtimeEpoch.addListener(bump);
+  ref.onDispose(() => realtimeEpoch.removeListener(bump));
+  return realtimeEpoch.value;
+});
 
 final currentUserProvider = Provider<User?>((ref) {
   ref.watch(authStateProvider);
