@@ -360,13 +360,20 @@ class VibeTypeChip extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
         decoration: BoxDecoration(
           gradient: type.gradient,
-          border: type.gradient == null ? Border.all(color: type.color) : null,
+          // `displayColor` et non `color` : sur l'habillage clair de l'app, le
+          // jaune de la standard devient illisible. La règle existait et n'était
+          // appliquée nulle part (inventaire des orphelines, 2026-08-17).
+          border: type.gradient == null
+              ? Border.all(color: type.displayColor(context))
+              : null,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           type.tag,
           style: TextStyle(
-            color: type.gradient == null ? type.color : Colors.white,
+            color: type.gradient == null
+                ? type.displayColor(context)
+                : Colors.white,
             fontSize: 14,
             fontWeight: FontWeight.bold,
           ),

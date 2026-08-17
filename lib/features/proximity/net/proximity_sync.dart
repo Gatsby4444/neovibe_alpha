@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/notifications/notification_service.dart';
 import '../../../core/supabase_providers.dart';
 import '../ping_store.dart';
 import '../proximity_identity.dart';
@@ -213,6 +214,22 @@ class ProximitySync {
             ConnectionEvent.outboxAbandoned,
             detail: '${item['type']} après $attempts tentatives — $e',
           );
+          // ⚠️ **Une CONNEXION abandonnée ne peut pas partir en silence.**
+          //
+          // L'utilisateur a lu « Vous êtes connectés » au moment d'accepter :
+          // c'est la promesse la plus forte du produit. Si l'enregistrement
+          // n'atteint jamais le serveur, l'amitié n'existe pas — et personne ne
+          // le lui dit. Les autres types (croisement, wave) sont du confort ;
+          // celui-ci est le mécanisme d'entrée.
+          if (item['type'] == 'connection') {
+            await NotificationService.instance.schedule(
+              NotifChannel.waves,
+              'Connexion non enregistrée',
+              'Une connexion faite en proximité n\'a pas pu être enregistrée. '
+                  'Recroisez-vous pour réessayer.',
+              DateTime.now(),
+            );
+          }
           abandoned++;
           continue;
         }

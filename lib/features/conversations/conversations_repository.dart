@@ -105,14 +105,6 @@ class ConversationsRepository {
     return id as String;
   }
 
-  Future<String> getOrCreateProximity(String peerId) async {
-    final id = await _client.rpc(
-      'get_or_create_proximity_conversation',
-      params: {'peer': peerId},
-    );
-    return id as String;
-  }
-
   /// Crée un groupe.
   ///
   /// Passe par une RPC depuis le 2026-08-10, comme les conversations directes

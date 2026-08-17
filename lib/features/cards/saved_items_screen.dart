@@ -187,8 +187,19 @@ class _SavedTile extends ConsumerWidget {
         ],
       ),
     );
-    if (ok != true) return;
-    await ref.read(savedStoreProvider).remove(item.contentId);
+    if (ok != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(savedStoreProvider).remove(item.contentId);
+    } catch (e) {
+      // ⚠️ Sans ça, l'écran rafraîchissait la liste comme si la suppression
+      // avait eu lieu. L'entrée réapparaissait au rechargement suivant, sans
+      // que rien n'ait jamais dit non.
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Impossible de retirer cet élément.')),
+      );
+      return;
+    }
     ref.invalidate(savedItemsProvider);
     ref.invalidate(isSavedProvider(item.contentId));
   }

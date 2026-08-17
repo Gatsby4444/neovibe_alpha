@@ -481,6 +481,10 @@ class _TuilePair extends ConsumerWidget {
     // Le champ n'existe plus. La question se pose au carnet, au moment du
     // rendu, là où elle ne peut pas se désynchroniser.
     final estAmi = ref.watch(isFriendProvider(snapshot.userId)).value ?? false;
+    final demande = ref
+        .watch(proximityControllerProvider)
+        .value
+        ?.outgoingTo(snapshot.userId);
     return ListTile(
       leading: CircleAvatar(
         child: Text(snapshot.displayName.characters.first.toUpperCase()),
@@ -559,12 +563,43 @@ class _TuilePair extends ConsumerWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // ⚠️ **Trois états, et chacun se voit.**
+          //
+          // Il n'y en avait qu'un : le bouton « demander », réaffiché à
+          // l'identique après un envoi réussi. Jay a donc cliqué plusieurs
+          // fois, et lu « Demande envoyée » à chaque fois — l'app ne gardait
+          // aucune trace de ce qu'elle venait de faire, et ne pouvait donc rien
+          // en dire.
+          //
+          // Une action doit aboutir à un état **visible**, sans quoi
+          // l'utilisateur n'a d'autre choix que de recommencer.
           if (!estAmi)
-            IconButton(
-              icon: const Icon(Icons.person_add_alt),
-              tooltip: 'Demander à se connecter',
-              onPressed: () => _demander(context, ref, snapshot),
-            ),
+            switch (demande) {
+              null => IconButton(
+                icon: const Icon(Icons.person_add_alt),
+                tooltip: 'Demander à se connecter',
+                onPressed: () => _demander(context, ref, snapshot),
+              ),
+              final d when d.isDeclined => IconButton(
+                icon: Icon(Icons.person_off_outlined, color: context.muted),
+                tooltip: 'Demande déclinée — appuie pour oublier',
+                onPressed: () => _oublier(context, ref, snapshot),
+              ),
+              _ => IconButton(
+                icon: Icon(Icons.hourglass_top, color: context.muted),
+                // Désactivé, mais il DIT pourquoi. Un bouton grisé muet est
+                // indiscernable d'une fonction absente (leçon du 2026-08-16).
+                tooltip: 'Demande envoyée — en attente de sa réponse',
+                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Demande déjà envoyée à ${snapshot.displayName}. '
+                      'En attente de sa réponse.',
+                    ),
+                  ),
+                ),
+              ),
+            },
           IconButton(
             icon: const Icon(Icons.chat_bubble_outline),
             tooltip: 'Message ping',
@@ -581,6 +616,35 @@ class _TuilePair extends ConsumerWidget {
     );
   }
 
+  /// Oublie une demande **déclinée**. Geste explicite : une demande refusée ne
+  /// s'efface pas toute seule, sinon l'utilisateur ne saurait jamais qu'on lui
+  /// a dit non — il verrait juste le bouton revenir.
+  Future<void> _oublier(
+    BuildContext context,
+    WidgetRef ref,
+    PingPeerSnapshot snapshot,
+  ) async {
+    try {
+      await ref
+          .read(proximityControllerProvider.notifier)
+          .dismissOutgoing(snapshot.userId);
+    } catch (_) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Impossible d'oublier cette demande.")),
+      );
+      return;
+    }
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${snapshot.displayName} n\'a pas accepté. Tu peux redemander.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _demander(
     BuildContext context,
     WidgetRef ref,
@@ -594,6 +658,12 @@ class _TuilePair extends ConsumerWidget {
       messenger.showSnackBar(
         SnackBar(content: Text('Demande envoyée à ${snapshot.displayName}.')),
       );
+    } on FriendRequestRefused catch (refus) {
+      // ⚠️ **La vraie raison, pas un conseil au hasard.** Tout était attrapé
+      // par un `catch (_)` qui répondait « rapproche-toi » — un conseil FAUX
+      // quand la cause était « vous êtes déjà connectés ». Une réponse fausse
+      // envoie l'utilisateur faire quelque chose d'inutile.
+      messenger.showSnackBar(SnackBar(content: Text(refus.message)));
     } catch (_) {
       // Un envoi raté se DIT. En silence, l'utilisateur croit avoir demandé.
       messenger.showSnackBar(

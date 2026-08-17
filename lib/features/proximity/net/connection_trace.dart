@@ -78,6 +78,9 @@ abstract final class ConnectionEvent {
   /// pair qui l'apporte.
   static const notForUs = 'demande mal adressée';
 
+  /// Un refus reçu alors que nous n'avions rien demandé à cette personne.
+  static const declineWithoutRequest = 'refus sans demande de notre part';
+
   /// L'acceptation n'a pas pu partir : le pair n'était plus joignable. **La
   /// demande reste**, elle sera rejouable.
   static const acceptUndeliverable = 'acceptation non remise';

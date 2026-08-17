@@ -235,32 +235,6 @@ class CardsRepository {
     }
   }
 
-  /// Envoie une Card dans un groupe : un message + livraison à chaque membre.
-  Future<void> sendToGroup(
-    CardModel card,
-    String conversationId,
-    List<String> memberIds,
-  ) async {
-    final me = _client.auth.currentUser!.id;
-    final message = await _client
-        .from('messages')
-        .insert({
-          'conversation_id': conversationId,
-          'sender_id': me,
-          'kind': 'card',
-          'card_id': card.id,
-        })
-        .select()
-        .single();
-    for (final memberId in memberIds.where((id) => id != me)) {
-      await _client.from('card_deliveries').insert({
-        'card_id': card.id,
-        'recipient_id': memberId,
-        'message_id': message['id'],
-      });
-    }
-  }
-
   /// Ma livraison pour une card donnée (état de visionnage).
   Future<CardDelivery?> myDelivery(String cardId) async {
     final me = _client.auth.currentUser!.id;

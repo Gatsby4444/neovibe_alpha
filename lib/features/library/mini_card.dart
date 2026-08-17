@@ -61,12 +61,14 @@ class MiniCard extends ConsumerWidget {
     // à une ou deux faces : la distinction « card » / « photo » a disparu avec
     // la colonne `kind`. Une photo importée est simplement une publication à
     // face unique — même stockage, même règle, même chemin d'affichage.
-    final borderColor = item.cardType.color;
+    // `displayColor` : la vignette se pose sur l'habillage de l'app, pas sur
+    // une photo. En thème clair, `color` y est illisible pour la standard.
+    final borderColor = item.cardType.displayColor(context);
 
     Widget face(Widget child) => _MiniFrame(
       borderColor: borderColor,
       badge: item.cardType.tag,
-      badgeColor: item.cardType.color,
+      badgeColor: item.cardType.displayColor(context),
       showPublic: item.isPublic && mine,
       child: child,
     );

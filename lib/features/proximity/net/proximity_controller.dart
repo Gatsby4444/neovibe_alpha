@@ -19,15 +19,53 @@ import 'proximity_supervisor.dart';
 import 'proximity_sync.dart';
 import 'radio_status.dart';
 
+/// Pourquoi une demande d'ami n'est pas partie.
+///
+/// ⚠️ **Un motif nommé, pas une exception générique.** L'interface attrapait
+/// tout dans un `catch (_)` et affichait « rapproche-toi et réessaie » — un
+/// conseil **faux** quand la vraie raison était « vous êtes déjà connectés » ou
+/// « c'est déjà envoyé ». Une réponse fausse est pire qu'une absence de
+/// réponse : elle envoie l'utilisateur faire quelque chose d'inutile.
+class FriendRequestRefused implements Exception {
+  const FriendRequestRefused.alreadyFriends()
+    : message = 'Vous êtes déjà connectés.';
+  const FriendRequestRefused.alreadySent()
+    : message = 'Demande déjà envoyée — en attente de sa réponse.';
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// Ce que l'interface a besoin de savoir, et rien de plus.
 class ProximityView {
-  const ProximityView({this.peers = const [], this.requests = const []});
+  const ProximityView({
+    this.peers = const [],
+    this.requests = const [],
+    this.outgoing = const [],
+  });
 
   /// Qui est autour, avec son état d'identification.
   final List<PresencePeer> peers;
 
   /// Demandes d'amis en attente — **plusieurs**, et **persistantes**.
   final List<PendingFriendRequest> requests;
+
+  /// Les demandes que **nous** avons envoyées, et où elles en sont.
+  ///
+  /// ⚠️ Sans elles, l'interface ne pouvait rien dire : elle réaffichait le
+  /// bouton « demander » après un envoi réussi, et répondait « Demande
+  /// envoyée » à chaque clic. Une action doit aboutir à un état visible.
+  final List<OutgoingFriendRequest> outgoing;
+
+  /// Notre demande vers cette personne, si elle existe.
+  OutgoingFriendRequest? outgoingTo(String userId) {
+    for (final r in outgoing) {
+      if (r.toUserId == userId) return r;
+    }
+    return null;
+  }
 
   List<PresencePeer> get identified =>
       peers.where((p) => p.stage == PresenceStage.identified).toList();
@@ -116,6 +154,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     return ProximityView(
       peers: _network?.presence.peers ?? const [],
       requests: await _journal.pendingRequests(),
+      outgoing: await _journal.outgoingRequests(),
     );
   }
 
@@ -263,9 +302,24 @@ class ProximityController extends AsyncNotifier<ProximityView> {
         await _onFriendAccept(peer, message);
 
       case FriendDeclineMessage():
-        // ⚠️ Un refus est une INFORMATION. Le taire laissait l'émetteur sur une
-        // demande sans réponse, sans savoir si elle avait été vue ou perdue.
-        await _journal.removeRequest(peer.userId);
+        // ⚠️ **Un refus répond à une demande SORTANTE.**
+        //
+        // Cette ligne appelait `removeRequest`, qui retire une demande
+        // **entrante** : le mauvais magasin. Celui qui avait demandé
+        // n'apprenait donc jamais qu'on lui avait dit non — et si le pair lui
+        // avait *aussi* écrit, c'est sa demande à lui qui disparaissait.
+        //
+        // Le commentaire d'origine affirmait exactement le contraire de ce que
+        // le code faisait.
+        final connue = await _journal.markOutgoingDeclined(peer.userId);
+        if (!connue) {
+          // Un refus sans demande de notre part : on le consigne au lieu de
+          // l'avaler.
+          ConnectionTrace.note(
+            ConnectionEvent.declineWithoutRequest,
+            subject: peer.userId,
+          );
+        }
         _refresh();
 
       case ProfileMessage():
@@ -400,7 +454,15 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     // que d'envoyer une demande qui n'a pas de sens.
     if (await _isFriend(userId)) {
       ConnectionTrace.note(ConnectionEvent.requestToFriend, subject: userId);
-      throw StateError('déjà connectés');
+      throw const FriendRequestRefused.alreadyFriends();
+    }
+
+    // ⚠️ **Une demande déjà partie ne se renvoie pas en boucle.** Jay a cliqué
+    // plusieurs fois et lu « Demande envoyée » à chaque fois : l'app n'avait
+    // aucune mémoire de ce qu'elle venait de faire.
+    final deja = await _journal.outgoingTo(userId);
+    if (deja != null && !deja.isDeclined) {
+      throw const FriendRequestRefused.alreadySent();
     }
 
     final ts = DateTime.now().toUtc().toIso8601String();
@@ -417,9 +479,21 @@ class ProximityController extends AsyncNotifier<ProximityView> {
         broadcastKey: await _identity.broadcastKey(),
       ),
     );
-    // Compté APRÈS l'envoi : `sendToUser` lève si le pair n'est plus joignable,
-    // et une demande qui n'est pas partie n'est pas une demande émise.
+    // ⚠️ **Rangée APRÈS l'envoi, jamais avant.** `sendToUser` lève si le pair
+    // n'est plus joignable : une demande qui n'est pas partie ne doit pas
+    // s'afficher comme envoyée. C'est la même règle que pour les messages.
+    final peer = network.presence.byUser(userId)?.snapshot;
+    if (peer != null) {
+      await _journal.putOutgoing(
+        OutgoingFriendRequest(
+          toUserId: userId,
+          snapshot: peer,
+          sentAt: DateTime.now(),
+        ),
+      );
+    }
     ConnectionTrace.count(ConnectionTrace.requestsSent);
+    _refresh();
   }
 
   Future<void> _onFriendRequest(
@@ -606,11 +680,20 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       ),
     );
     await network.refreshFriends();
+    // La demande a abouti : son état final est « on est amis », et le carnet
+    // le dit. L'entrée sortante n'a plus lieu d'être.
+    await _journal.removeOutgoing(peer.userId);
     await ref.read(pingStoreProvider).enqueue({
       'type': 'connection',
       'record': accept.record,
     });
     unawaited(ref.read(proximitySyncProvider).run());
+    _refresh();
+  }
+
+  /// Oublie une demande sortante refusée — geste explicite de l'utilisateur.
+  Future<void> dismissOutgoing(String userId) async {
+    await _journal.removeOutgoing(userId);
     _refresh();
   }
 
@@ -673,13 +756,17 @@ class ProximityController extends AsyncNotifier<ProximityView> {
   void _refresh() {
     final network = _network;
     if (network == null) return;
-    unawaited(
-      _journal.pendingRequests().then((requests) {
-        state = AsyncData(
-          ProximityView(peers: network.presence.peers, requests: requests),
-        );
-      }),
-    );
+    unawaited(() async {
+      final requests = await _journal.pendingRequests();
+      final outgoing = await _journal.outgoingRequests();
+      state = AsyncData(
+        ProximityView(
+          peers: network.presence.peers,
+          requests: requests,
+          outgoing: outgoing,
+        ),
+      );
+    }());
   }
 
   static String _randomId() {

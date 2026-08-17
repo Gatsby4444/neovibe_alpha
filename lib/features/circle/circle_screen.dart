@@ -304,8 +304,18 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
         ],
       ),
     );
-    if (delete != true) return;
-    await ref.read(categoriesRepositoryProvider).delete(category.id);
+    if (delete != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(categoriesRepositoryProvider).delete(category.id);
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Impossible de supprimer cette catégorie.'),
+        ),
+      );
+      return;
+    }
     if (_customCategoryId == category.id) {
       setState(() => _customCategoryId = null);
     }

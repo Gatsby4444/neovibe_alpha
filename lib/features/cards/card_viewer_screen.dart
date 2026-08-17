@@ -445,9 +445,18 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     if (_sessionEnded) return;
     _sessionEnded = true;
     _gaugeTimer?.cancel();
-    _delivery = await ref
-        .read(cardsRepositoryProvider)
-        .myDelivery(widget.card.id);
+    // ⚠️ **Un échec ici ne doit pas laisser l'écran suspendu.** La session est
+    // déjà marquée finie et le chronomètre arrêté : si cette lecture lève, la
+    // méthode s'interrompt et l'écran reste dans un état sans nom, sans rien
+    // afficher et sans se fermer. On préfère ne pas savoir combien de vues
+    // restent plutôt que de ne plus rien faire du tout.
+    try {
+      _delivery = await ref
+          .read(cardsRepositoryProvider)
+          .myDelivery(widget.card.id);
+    } catch (_) {
+      _delivery = null;
+    }
     // Relu APRÈS coup : c'est ce chiffre, et lui seul, qui dit si le décompte
     // a réellement eu lieu — et une seule fois.
     _rules

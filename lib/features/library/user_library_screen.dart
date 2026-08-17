@@ -205,13 +205,27 @@ class UserLibraryScreen extends ConsumerWidget {
   }
 
   Future<void> _openDirect(BuildContext context, WidgetRef ref) async {
-    final convId = await ref
-        .read(conversationsRepositoryProvider)
-        .getOrCreateDirect(profile.id);
-    if (context.mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => ChatScreen(conversationId: convId)),
+    // ⚠️ **Un appui qui n'aboutit à RIEN est le pire des retours.** Sans ce
+    // garde-fou, un échec de la RPC laissait l'écran exactement dans l'état où
+    // il était : pas de conversation, pas d'erreur, rien. L'utilisateur n'a
+    // alors d'autre hypothèse que « le bouton ne marche pas ».
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final String convId;
+    try {
+      convId = await ref
+          .read(conversationsRepositoryProvider)
+          .getOrCreateDirect(profile.id);
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text("Impossible d'ouvrir la conversation pour l'instant."),
+        ),
       );
+      return;
     }
+    navigator.push(
+      MaterialPageRoute(builder: (_) => ChatScreen(conversationId: convId)),
+    );
   }
 }

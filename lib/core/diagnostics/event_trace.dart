@@ -93,8 +93,6 @@ class EventTrace {
   /// pas contenir la preuve du contraire.
   void count(String kind) => _totals[kind] = (_totals[kind] ?? 0) + 1;
 
-  int totalOf(String kind) => _totals[kind] ?? 0;
-
   List<TraceEvent> get events => List.unmodifiable(_events);
 
   Map<String, int> get counts => Map.unmodifiable(_counts);

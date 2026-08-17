@@ -240,8 +240,22 @@ class _PublicationViewerScreenState
       ),
     );
     if (delete != true || !mounted) return;
-    await ref.read(libraryRepositoryProvider).removeItem(widget.item.id);
-    if (mounted) Navigator.of(context).pop();
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      await ref.read(libraryRepositoryProvider).removeItem(widget.item.id);
+    } catch (_) {
+      // ⚠️ L'écran se fermait dans tous les cas. Fermer, c'est **dire** que
+      // c'est fait : l'utilisateur revenait à sa bibliothèque en croyant la
+      // publication retirée, et l'y retrouvait au rafraîchissement suivant.
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Impossible de retirer cette publication.'),
+        ),
+      );
+      return;
+    }
+    navigator.pop();
   }
 }
 
