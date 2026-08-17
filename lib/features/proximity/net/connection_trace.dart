@@ -67,6 +67,13 @@ abstract final class ConnectionEvent {
   /// La signature de la demande n'est pas valide — la demande est jetée.
   static const badSignature = 'signature de demande invalide';
 
+  /// Une **acceptation** reçue ne correspond à aucune demande de notre part.
+  ///
+  /// ⚠️ **Le motif le plus important de cette liste.** Il ne devrait jamais
+  /// bouger. S'il bouge, quelqu'un essaie de se faire passer pour un ami
+  /// accepté — voir `_onFriendAccept`.
+  static const acceptNotOurs = 'acceptation sans demande de notre part';
+
   /// La demande ne nous est pas adressée, ou son émetteur ne correspond pas au
   /// pair qui l'apporte.
   static const notForUs = 'demande mal adressée';

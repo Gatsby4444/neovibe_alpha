@@ -265,6 +265,8 @@ void main() {
     }
   });
 
+  testsAcceptationAmi();
+
   test('une trame illisible rend null au lieu de lever', () {
     expect(WireFrame.decode(Uint8List.fromList([0, 1, 2])), isNull);
     expect(WireFrame.decode(Uint8List.fromList(utf8.encode('{}'))), isNull);
@@ -430,6 +432,111 @@ void main() {
       ((await a.decrypt(await b.encrypt(motMessage('b→a'))))! as ChatMessage)
           .text,
       'b→a',
+    );
+  });
+}
+
+/// ⚠️ **Une acceptation d'ami ne se croit pas sur parole (2026-08-17).**
+///
+/// `_onFriendAccept` ne vérifiait **rien** : elle rangeait l'émetteur dans le
+/// carnet d'amis sur la seule foi du message. N'importe quel pair ayant abouti
+/// la poignée de main — donc n'importe qui de physiquement à côté — pouvait
+/// s'inscrire lui-même comme ami : affiché comme tel, exempté de la règle
+/// anti-spam, et reconnu en silence à son identifiant rotatif ensuite.
+///
+/// Pour une app dont toute la thèse est qu'**être à côté ne suffit pas à être
+/// ami**, c'était la barrière fondatrice qui tombait, localement et sans bruit.
+void testsAcceptationAmi() {
+  Future<FriendAcceptMessage> acceptation({
+    required ProximityIdentity demandeur,
+    required ProximityIdentity accepteur,
+    required String de,
+    required String vers,
+  }) async {
+    const ts = '2026-08-17T18:00:00.000Z';
+    final demande = FriendRequestMessage(
+      from: de,
+      to: vers,
+      timestamp: ts,
+      signature: await demandeur.sign(
+        FriendRequestMessage.signedPayload(de, vers, ts),
+      ),
+      devicePublicKey: await demandeur.edPublicKey(),
+      broadcastKey: await demandeur.broadcastKey(),
+    );
+    return FriendAcceptMessage(
+      record: {
+        ...demande.record,
+        'sigTo': base64Encode(
+          await accepteur.sign(FriendAcceptMessage.signedPayload(de, vers, ts)),
+        ),
+      },
+      devicePublicKey: await accepteur.edPublicKey(),
+      broadcastKey: await accepteur.broadcastKey(),
+    );
+  }
+
+  test('une acceptation LÉGITIME passe', () async {
+    final moi = await IdentiteMemoire.creer(graine: 1);
+    final lui = await IdentiteMemoire.creer(graine: 2);
+    final accept = await acceptation(
+      demandeur: moi,
+      accepteur: lui,
+      de: 'u-moi',
+      vers: 'u-lui',
+    );
+
+    expect(
+      await accept.refusalFor(
+        me: 'u-moi',
+        peerUserId: 'u-lui',
+        myDeviceKey: await moi.edPublicKey(),
+      ),
+      isNull,
+    );
+  });
+
+  test('une acceptation JAMAIS DEMANDÉE est refusée', () async {
+    // L'attaquant fabrique une demande entière — la nôtre, prétend-il — et
+    // l'accepte lui-même. Tout est bien signé… mais pas par nous.
+    final moi = await IdentiteMemoire.creer(graine: 1);
+    final attaquant = await IdentiteMemoire.creer(graine: 42);
+    final forge = await acceptation(
+      demandeur: attaquant, // ← il signe à notre place
+      accepteur: attaquant,
+      de: 'u-moi',
+      vers: 'u-attaquant',
+    );
+
+    expect(
+      await forge.refusalFor(
+        me: 'u-moi',
+        peerUserId: 'u-attaquant',
+        myDeviceKey: await moi.edPublicKey(),
+      ),
+      contains('jamais émise'),
+      reason: 'un tiers ne peut pas fabriquer NOTRE signature',
+    );
+  });
+
+  test('une acceptation destinée à QUELQU\'UN D\'AUTRE est refusée', () async {
+    // Interceptée sur le fil, puis rejouée vers nous par un troisième.
+    final moi = await IdentiteMemoire.creer(graine: 1);
+    final autre = await IdentiteMemoire.creer(graine: 3);
+    final accept = await acceptation(
+      demandeur: moi,
+      accepteur: autre,
+      de: 'u-moi',
+      vers: 'u-autre',
+    );
+
+    expect(
+      await accept.refusalFor(
+        me: 'u-moi',
+        peerUserId: 'u-intrus',
+        myDeviceKey: await moi.edPublicKey(),
+      ),
+      contains('quelqu\'un d\'autre'),
     );
   });
 }

@@ -1,4 +1,6 @@
 import 'dart:convert';
+
+import '../proximity_identity.dart';
 import 'dart:typed_data';
 
 import '../ping_store.dart';
@@ -448,6 +450,55 @@ class FriendAcceptMessage extends PeerMessage {
 
   static List<int> signedPayload(String from, String to, String ts) =>
       utf8.encode('nv-friend-accept|$from|$to|$ts');
+
+  /// Cette acceptation répond-elle vraiment à une demande que **nous** avons
+  /// signée ? Rend `null` si oui, sinon le motif du refus.
+  ///
+  /// ⚠️ **Rien ne le vérifiait avant le 2026-08-17.** Le contrôleur rangeait
+  /// l'émetteur dans le carnet d'amis sur la seule foi du message : n'importe
+  /// quel pair ayant abouti la poignée de main — donc n'importe qui de
+  /// physiquement à côté — pouvait s'inscrire lui-même comme ami.
+  ///
+  /// Pour une app dont toute la thèse est qu'**être à côté ne suffit pas à être
+  /// ami**, c'était la barrière fondatrice qui tombait, localement et en
+  /// silence.
+  ///
+  /// La vérification décisive ne demande **aucun état nouveau** : le record
+  /// porte **notre propre signature**, et un tiers ne peut pas la fabriquer.
+  /// C'est exactement ce que fait le serveur dans `submit_ble_connection` — on
+  /// ne le faisait simplement pas de notre côté.
+  Future<String?> refusalFor({
+    required String me,
+    required String peerUserId,
+    required Uint8List myDeviceKey,
+  }) async {
+    final from = record['from'] as String?;
+    final to = record['to'] as String?;
+    final ts = record['ts'] as String?;
+    final sigFrom = record['sigFrom'] as String?;
+    final sigTo = record['sigTo'] as String?;
+
+    if (from == null || to == null || ts == null) return 'record incomplet';
+    if (sigFrom == null || sigTo == null) return 'signatures manquantes';
+    if (from != me) return 'la demande n\'est pas la nôtre';
+    if (to != peerUserId) return 'acceptée par quelqu\'un d\'autre';
+
+    if (!await ProximityIdentity.verify(
+      FriendRequestMessage.signedPayload(from, to, ts),
+      base64Decode(sigFrom),
+      myDeviceKey,
+    )) {
+      return 'demande jamais émise par nous';
+    }
+    if (!await ProximityIdentity.verify(
+      signedPayload(from, to, ts),
+      base64Decode(sigTo),
+      devicePublicKey,
+    )) {
+      return 'signature d\'acceptation invalide';
+    }
+    return null;
+  }
 
   @override
   Map<String, dynamic> toJson() => {

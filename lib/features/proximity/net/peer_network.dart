@@ -606,12 +606,25 @@ class PeerNetwork {
       profile.devicePublicKey,
     );
     if (!signatureOk || !channel.isPeerDeviceKey(profile.devicePublicKey)) {
+      // ⚠️ **Un refus d'identité doit laisser une trace CHEZ NOUS.** Seul le
+      // pair recevait le `bye` : côté journal, une tentative d'usurpation et
+      // un pair parti se ressemblaient exactement.
+      TransportTrace.drop(
+        DropKind.profileRefused,
+        linkId,
+        signatureOk
+            ? 'clé différente de la poignée de main'
+            : 'signature invalide',
+      );
       await _tell(linkId, const ByeFrame('profil non authentifié'));
       radio.disconnect(linkId);
       return;
     }
     if (profile.userId == myUserId) {
-      // Notre propre annonce, renvoyée par un relais : rien à en faire.
+      // Notre propre annonce, renvoyée par un relais : rien à en faire. Le
+      // compter dit si ça arrive vraiment sur le terrain — personne ne le
+      // savait.
+      TransportTrace.drop(DropKind.ownProfile, linkId);
       radio.disconnect(linkId);
       return;
     }

@@ -551,12 +551,51 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     _refresh();
   }
 
+  /// ⚠️ **Une acceptation d'ami ne se croit pas sur parole.**
+  ///
+  /// Cette méthode ne vérifiait **rien** : elle rangeait l'émetteur dans le
+  /// carnet d'amis sur la seule foi du message. Or n'importe quel pair ayant
+  /// abouti la poignée de main — donc n'importe qui de physiquement à côté —
+  /// pouvait envoyer une `FriendAcceptMessage` que nous n'avions jamais
+  /// demandée, et **s'inscrire lui-même dans notre carnet**.
+  ///
+  /// Conséquences locales, immédiates : il s'affichait comme ami, la règle
+  /// anti-spam cessait de s'appliquer à lui, et il devenait reconnaissable en
+  /// silence à son identifiant rotatif. Le serveur, lui, aurait refusé la
+  /// connexion — mais le carnet local ne l'apprend qu'à la synchro suivante,
+  /// donc jamais tant qu'on est hors ligne.
+  ///
+  /// **Pour une app dont toute la thèse est qu'être à côté ne suffit pas à être
+  /// ami, c'est la barrière fondatrice qui tombait.**
+  ///
+  /// La vérification décisive tient en une ligne et ne demande aucun état
+  /// nouveau : **le record porte NOTRE propre signature.** On la vérifie avec
+  /// notre clé d'appareil. Un tiers ne peut pas la fabriquer, donc il ne peut
+  /// pas fabriquer une acceptation d'une demande que nous n'avons pas faite.
+  /// C'est exactement ce que fait le serveur dans `submit_ble_connection` ;
+  /// nous ne le faisions simplement pas de notre côté.
   Future<void> _onFriendAccept(
     PingPeerSnapshot peer,
     FriendAcceptMessage accept,
   ) async {
     final network = _network;
-    if (network == null) return;
+    final me = ref.read(currentUserIdProvider);
+    if (network == null || me == null) return;
+
+    final refus = await accept.refusalFor(
+      me: me,
+      peerUserId: peer.userId,
+      myDeviceKey: await _identity.edPublicKey(),
+    );
+    if (refus != null) {
+      ConnectionTrace.note(
+        ConnectionEvent.acceptNotOurs,
+        subject: peer.userId,
+        detail: refus,
+      );
+      return;
+    }
+
     await _keyBook.put(
       FriendKeys(
         userId: peer.userId,

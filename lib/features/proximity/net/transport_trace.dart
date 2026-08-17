@@ -101,6 +101,16 @@ abstract final class DropKind {
   /// avait été écarté ni pourquoi.
   static const handshakeRefused = 'poignée de main refusée';
 
+  /// Le profil du pair a été refusé : signature invalide, ou clé d'appareil
+  /// différente de celle qui a signé la poignée de main.
+  ///
+  /// ⚠️ **Ne devrait jamais bouger.** La seconde branche est une tentative de
+  /// présenter le profil signé de quelqu'un d'autre.
+  static const profileRefused = 'profil du pair refusé';
+
+  /// Notre propre annonce nous est revenue, relayée.
+  static const ownProfile = 'notre propre profil, renvoyé';
+
   /// Le pair avait perdu sa session : on l'a reconstruite avec lui.
   ///
   /// **Ce n'est pas une perte** — c'est même la réparation. Le compter dit à
