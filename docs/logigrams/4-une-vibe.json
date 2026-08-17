@@ -1,0 +1,304 @@
+{
+  "name": "NeoVibe — 4. Une Vibe, de la capture au partage",
+  "nodes": [
+    {
+      "id": "intro4",
+      "type": "note",
+      "label": "La règle : 1 contenu = 1 contexte",
+      "desc": "Une Vibe part vers UN seul endroit. Ce n'est pas une limite technique : c'est ce qui empêche un contenu d'échapper aux règles qu'on lui a données."
+    },
+    {
+      "id": "capture",
+      "type": "client",
+      "label": "Écran de capture",
+      "children": [
+        {
+          "id": "t_choix",
+          "type": "condition",
+          "label": "quel type de Vibe ?"
+        },
+        {
+          "id": "t_std",
+          "type": "action",
+          "label": "Standard",
+          "desc": "une ou deux faces, le verso est facultatif"
+        },
+        {
+          "id": "t_one",
+          "type": "action",
+          "label": "Oneshot",
+          "desc": "avant et arrière d'un seul déclenchement, aucun outil"
+        },
+        {
+          "id": "t_be",
+          "type": "action",
+          "label": "BeReal",
+          "desc": "déclenché par notification, sans retouche"
+        },
+        {
+          "id": "v_faces",
+          "type": "variable",
+          "label": "faces",
+          "dtype": "fichier",
+          "value": "photo ou vidéo"
+        }
+      ]
+    },
+    {
+      "id": "prep",
+      "type": "module",
+      "label": "Préparation avant l'envoi",
+      "children": [
+        {
+          "id": "seal",
+          "type": "transform",
+          "label": "chiffrement par blocs",
+          "desc": "on peut lire le début sans tout télécharger"
+        },
+        {
+          "id": "v_cle4",
+          "type": "variable",
+          "label": "clé du média",
+          "dtype": "secret",
+          "value": "elle ne part PAS avec le fichier"
+        },
+        {
+          "id": "up",
+          "type": "action",
+          "label": "envoi au coffre"
+        }
+      ]
+    },
+    {
+      "id": "dest",
+      "type": "condition",
+      "label": "Où l'envoyer ?",
+      "desc": "choix EXCLUSIF"
+    },
+    {
+      "id": "d_story",
+      "type": "action",
+      "label": "Story",
+      "desc": "visible 24 h"
+    },
+    {
+      "id": "d_pub",
+      "type": "action",
+      "label": "Publication",
+      "desc": "reste dans ma bibliothèque"
+    },
+    {
+      "id": "d_cercle",
+      "type": "action",
+      "label": "Envoi direct",
+      "desc": "à une ou plusieurs personnes choisies"
+    },
+    {
+      "id": "d_biblio",
+      "type": "action",
+      "label": "Bibliothèque de conversation",
+      "desc": "chacun dépose, tout se révèle à 18 h 30"
+    },
+    {
+      "id": "regles",
+      "type": "module",
+      "label": "Les règles attachées au contenu",
+      "children": [
+        {
+          "id": "v_vues",
+          "type": "variable",
+          "label": "nombre de vues",
+          "dtype": "number",
+          "value": "décompté par le SERVEUR, pas par l'app"
+        },
+        {
+          "id": "v_duree",
+          "type": "variable",
+          "label": "durée par face",
+          "dtype": "number"
+        },
+        {
+          "id": "v_save",
+          "type": "variable",
+          "label": "peut être enregistrée ?",
+          "dtype": "boolean"
+        },
+        {
+          "id": "v_ttl",
+          "type": "variable",
+          "label": "expiration",
+          "dtype": "date",
+          "value": "24 h"
+        }
+      ]
+    },
+    {
+      "id": "oneofone",
+      "type": "note",
+      "label": "One of One",
+      "desc": "un seul destinataire et aucune publication : la règle s'applique TOUTE SEULE à l'envoi, ce n'est plus un type à choisir"
+    },
+    {
+      "id": "srv4",
+      "type": "cluster",
+      "label": "Serveur",
+      "children": [
+        {
+          "id": "t_contents",
+          "type": "table",
+          "label": "contents",
+          "desc": "stories et publications"
+        },
+        {
+          "id": "t_cards",
+          "type": "table",
+          "label": "cards",
+          "desc": "vibes envoyées en messagerie"
+        },
+        {
+          "id": "t_lib",
+          "type": "table",
+          "label": "library_vibes",
+          "desc": "bibliothèques de conversation"
+        },
+        {
+          "id": "coffre4",
+          "type": "storage",
+          "label": "coffres de médias",
+          "desc": "octets chiffrés"
+        }
+      ]
+    },
+    {
+      "id": "purge",
+      "type": "trigger",
+      "label": "Ménage automatique (chaque nuit)",
+      "desc": "ce qui a expiré disparaît"
+    }
+  ],
+  "edges": [
+    {
+      "from": "t_choix",
+      "to": "t_std",
+      "kind": "flow"
+    },
+    {
+      "from": "t_choix",
+      "to": "t_one",
+      "kind": "flow"
+    },
+    {
+      "from": "t_choix",
+      "to": "t_be",
+      "kind": "flow"
+    },
+    {
+      "from": "t_std",
+      "to": "seal",
+      "kind": "flow"
+    },
+    {
+      "from": "t_one",
+      "to": "seal",
+      "kind": "flow"
+    },
+    {
+      "from": "t_be",
+      "to": "seal",
+      "kind": "flow"
+    },
+    {
+      "from": "v_faces",
+      "to": "seal",
+      "kind": "data"
+    },
+    {
+      "from": "seal",
+      "to": "v_cle4",
+      "kind": "data",
+      "label": "produit la clé"
+    },
+    {
+      "from": "seal",
+      "to": "up",
+      "kind": "flow"
+    },
+    {
+      "from": "up",
+      "to": "coffre4",
+      "kind": "data",
+      "label": "octets chiffrés"
+    },
+    {
+      "from": "up",
+      "to": "dest",
+      "kind": "flow"
+    },
+    {
+      "from": "dest",
+      "to": "d_story",
+      "kind": "flow"
+    },
+    {
+      "from": "dest",
+      "to": "d_pub",
+      "kind": "flow"
+    },
+    {
+      "from": "dest",
+      "to": "d_cercle",
+      "kind": "flow"
+    },
+    {
+      "from": "dest",
+      "to": "d_biblio",
+      "kind": "flow"
+    },
+    {
+      "from": "d_story",
+      "to": "t_contents",
+      "kind": "data",
+      "label": "INSERT"
+    },
+    {
+      "from": "d_pub",
+      "to": "t_contents",
+      "kind": "data",
+      "label": "INSERT"
+    },
+    {
+      "from": "d_cercle",
+      "to": "t_cards",
+      "kind": "data",
+      "label": "INSERT + 1 livraison par personne"
+    },
+    {
+      "from": "d_biblio",
+      "to": "t_lib",
+      "kind": "data",
+      "label": "INSERT"
+    },
+    {
+      "from": "regles",
+      "to": "d_cercle",
+      "kind": "dep",
+      "label": "s'attachent ici"
+    },
+    {
+      "from": "oneofone",
+      "to": "d_cercle",
+      "kind": "dep"
+    },
+    {
+      "from": "purge",
+      "to": "t_contents",
+      "kind": "flow",
+      "label": "DELETE si expiré"
+    },
+    {
+      "from": "intro4",
+      "to": "dest",
+      "kind": "dep"
+    }
+  ]
+}

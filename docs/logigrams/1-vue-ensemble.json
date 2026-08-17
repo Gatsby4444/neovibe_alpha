@@ -1,0 +1,220 @@
+{
+  "name": "NeoVibe — 1. Vue d'ensemble",
+  "nodes": [
+    {
+      "id": "regle",
+      "type": "note",
+      "label": "La règle qui explique tout le reste",
+      "desc": "On ne devient amis qu'en s'étant VU physiquement (Bluetooth), ou par recommandation d'un ami commun. Toute l'architecture découle de cette barrière."
+    },
+    {
+      "id": "tel",
+      "type": "client",
+      "label": "Ton téléphone",
+      "desc": "Application Flutter (Dart) + code natif Android (Kotlin)",
+      "children": [
+        {
+          "id": "app",
+          "type": "module",
+          "label": "L'app — 5 onglets",
+          "children": [
+            {
+              "id": "t_vibe",
+              "type": "module",
+              "label": "Vibe",
+              "desc": "la caméra : on crée un contenu"
+            },
+            {
+              "id": "t_ping",
+              "type": "module",
+              "label": "Ping",
+              "desc": "qui est physiquement autour de moi"
+            },
+            {
+              "id": "t_cercle",
+              "type": "module",
+              "label": "Cercle",
+              "desc": "mes conversations"
+            },
+            {
+              "id": "t_jeux",
+              "type": "module",
+              "label": "Jeux",
+              "desc": "à construire"
+            },
+            {
+              "id": "t_profil",
+              "type": "module",
+              "label": "Profil",
+              "desc": "moi, mes amis, ma bibliothèque"
+            }
+          ]
+        },
+        {
+          "id": "natif",
+          "type": "container",
+          "label": "Code natif Android (Kotlin)",
+          "desc": "ce que Flutter ne sait pas faire seul",
+          "children": [
+            {
+              "id": "k_ble",
+              "type": "fn",
+              "label": "Bluetooth (BleEngine)"
+            },
+            {
+              "id": "k_cam",
+              "type": "fn",
+              "label": "Caméra double flux (GPU)"
+            },
+            {
+              "id": "k_play",
+              "type": "fn",
+              "label": "Lecteur vidéo chiffré"
+            }
+          ]
+        },
+        {
+          "id": "local",
+          "type": "storage",
+          "label": "Mémoire de l'appareil",
+          "desc": "ce qui ne part JAMAIS sur le serveur",
+          "children": [
+            {
+              "id": "v_carnet",
+              "type": "variable",
+              "label": "carnet d'amis",
+              "dtype": "json",
+              "value": "clés de reconnaissance"
+            },
+            {
+              "id": "v_convping",
+              "type": "variable",
+              "label": "conversations ping",
+              "dtype": "json",
+              "value": "effacées après 12 h"
+            },
+            {
+              "id": "v_medias",
+              "type": "variable",
+              "label": "médias en cache",
+              "dtype": "fichier",
+              "value": "chiffrés, jamais en clair"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "autre",
+      "type": "user",
+      "label": "Une autre personne",
+      "desc": "à quelques mètres de toi",
+      "children": [
+        {
+          "id": "son_tel",
+          "type": "client",
+          "label": "Son téléphone"
+        }
+      ]
+    },
+    {
+      "id": "supa",
+      "type": "cluster",
+      "label": "Supabase — le serveur",
+      "desc": "PostgreSQL + stockage + authentification",
+      "children": [
+        {
+          "id": "auth",
+          "type": "service",
+          "label": "Authentification",
+          "desc": "qui es-tu ?"
+        },
+        {
+          "id": "pg",
+          "type": "db",
+          "label": "Base de données",
+          "desc": "29 tables — voir le schéma 6"
+        },
+        {
+          "id": "coffre",
+          "type": "storage",
+          "label": "Coffres de médias",
+          "desc": "photos et vidéos, TOUJOURS chiffrées"
+        },
+        {
+          "id": "rt",
+          "type": "service",
+          "label": "Temps réel",
+          "desc": "prévient l'app quand quelque chose change"
+        },
+        {
+          "id": "rls",
+          "type": "note",
+          "label": "Sécurité (RLS)",
+          "desc": "71 règles dans la base elle-même : même en trichant, l'app ne peut lire que ce à quoi elle a droit"
+        }
+      ]
+    },
+    {
+      "id": "note_ble",
+      "type": "note",
+      "label": "Pourquoi le Bluetooth ?",
+      "desc": "Il marche sans internet et ne porte qu'à quelques mètres. C'est ce qui prouve qu'on s'est vraiment croisés."
+    }
+  ],
+  "edges": [
+    {
+      "from": "app",
+      "to": "natif",
+      "kind": "call",
+      "label": "caméra, Bluetooth, lecteur"
+    },
+    {
+      "from": "app",
+      "to": "local",
+      "kind": "data",
+      "label": "lit et écrit"
+    },
+    {
+      "from": "k_ble",
+      "to": "son_tel",
+      "kind": "data",
+      "label": "annonce BLE + canal chiffré",
+      "arrow": "both"
+    },
+    {
+      "from": "app",
+      "to": "auth",
+      "kind": "call",
+      "label": "se connecter"
+    },
+    {
+      "from": "app",
+      "to": "pg",
+      "kind": "call",
+      "label": "REST + fonctions SQL"
+    },
+    {
+      "from": "app",
+      "to": "coffre",
+      "kind": "data",
+      "label": "envoie / télécharge"
+    },
+    {
+      "from": "rt",
+      "to": "app",
+      "kind": "event",
+      "label": "ça a changé !"
+    },
+    {
+      "from": "regle",
+      "to": "k_ble",
+      "kind": "dep"
+    },
+    {
+      "from": "note_ble",
+      "to": "k_ble",
+      "kind": "dep"
+    }
+  ]
+}

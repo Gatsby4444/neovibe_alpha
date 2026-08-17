@@ -1,0 +1,348 @@
+{
+  "name": "NeoVibe — 6. Le modèle de données",
+  "nodes": [
+    {
+      "id": "intro6",
+      "type": "note",
+      "label": "29 tables, 7 familles",
+      "desc": "Chaque famille a ses propres règles de durée de vie et d'accès. C'est pour ça qu'elles ne se mélangent pas."
+    },
+    {
+      "id": "g_id",
+      "type": "group",
+      "label": "Qui es-tu",
+      "children": [
+        {
+          "id": "t_profiles",
+          "type": "table",
+          "label": "profiles",
+          "desc": "pseudo, avatar, réglages"
+        },
+        {
+          "id": "t_device",
+          "type": "table",
+          "label": "device_keys",
+          "desc": "clés publiques — lisibles UNIQUEMENT par tes amis"
+        }
+      ]
+    },
+    {
+      "id": "g_lien",
+      "type": "group",
+      "label": "Le lien social",
+      "children": [
+        {
+          "id": "t_conn6",
+          "type": "table",
+          "label": "connections",
+          "desc": "l'amitié"
+        },
+        {
+          "id": "t_req",
+          "type": "table",
+          "label": "connection_requests",
+          "desc": "demandes par recommandation"
+        },
+        {
+          "id": "t_enc",
+          "type": "table",
+          "label": "encounters",
+          "desc": "croisements certifiés (24 h)"
+        },
+        {
+          "id": "t_waves",
+          "type": "table",
+          "label": "waves",
+          "desc": "« le presque »"
+        },
+        {
+          "id": "t_reco",
+          "type": "table",
+          "label": "recommendations",
+          "desc": "A présente B à C"
+        },
+        {
+          "id": "t_blocks",
+          "type": "table",
+          "label": "blocks",
+          "desc": "blocages"
+        }
+      ]
+    },
+    {
+      "id": "g_contenu",
+      "type": "group",
+      "label": "Contenus publiés",
+      "children": [
+        {
+          "id": "t_contents6",
+          "type": "table",
+          "label": "contents",
+          "desc": "le socle : stories + publications"
+        },
+        {
+          "id": "t_stories",
+          "type": "table",
+          "label": "stories",
+          "desc": "24 h"
+        },
+        {
+          "id": "t_items",
+          "type": "table",
+          "label": "library_items",
+          "desc": "ma bibliothèque"
+        },
+        {
+          "id": "t_grants",
+          "type": "table",
+          "label": "content_grants",
+          "desc": "qui a le droit"
+        },
+        {
+          "id": "t_ckeys",
+          "type": "table",
+          "label": "content_media_keys",
+          "desc": "clés"
+        },
+        {
+          "id": "t_views6",
+          "type": "table",
+          "label": "content_views",
+          "desc": "qui a vu"
+        }
+      ]
+    },
+    {
+      "id": "g_vibes",
+      "type": "group",
+      "label": "Vibes envoyées",
+      "children": [
+        {
+          "id": "t_cards6",
+          "type": "table",
+          "label": "cards"
+        },
+        {
+          "id": "t_deliv",
+          "type": "table",
+          "label": "card_deliveries",
+          "desc": "une par destinataire — les vues restantes vivent ici"
+        },
+        {
+          "id": "t_ckeys2",
+          "type": "table",
+          "label": "card_media_keys"
+        }
+      ]
+    },
+    {
+      "id": "g_conv",
+      "type": "group",
+      "label": "Conversations",
+      "children": [
+        {
+          "id": "t_conv6",
+          "type": "table",
+          "label": "conversations"
+        },
+        {
+          "id": "t_members",
+          "type": "table",
+          "label": "conversation_members"
+        },
+        {
+          "id": "t_msg",
+          "type": "table",
+          "label": "messages"
+        },
+        {
+          "id": "t_reads",
+          "type": "table",
+          "label": "message_reads"
+        },
+        {
+          "id": "t_cat",
+          "type": "table",
+          "label": "conversation_categories"
+        },
+        {
+          "id": "t_catm",
+          "type": "table",
+          "label": "conversation_category_members"
+        }
+      ]
+    },
+    {
+      "id": "g_biblio",
+      "type": "group",
+      "label": "Bibliothèques éphémères",
+      "children": [
+        {
+          "id": "t_lv",
+          "type": "table",
+          "label": "library_vibes",
+          "desc": "révélation à 18 h 30"
+        },
+        {
+          "id": "t_lvk",
+          "type": "table",
+          "label": "library_vibe_keys"
+        },
+        {
+          "id": "t_lacc",
+          "type": "table",
+          "label": "library_access"
+        }
+      ]
+    },
+    {
+      "id": "g_mod",
+      "type": "group",
+      "label": "Modération et outils",
+      "children": [
+        {
+          "id": "t_creport",
+          "type": "table",
+          "label": "content_reports"
+        },
+        {
+          "id": "t_preport",
+          "type": "table",
+          "label": "profile_reports"
+        },
+        {
+          "id": "t_dev",
+          "type": "table",
+          "label": "dev_reports",
+          "desc": "diagnostics de test — à retirer avant la prod"
+        }
+      ]
+    },
+    {
+      "id": "note_rls",
+      "type": "note",
+      "label": "La sécurité est DANS la base",
+      "desc": "71 règles : même si l'app était modifiée, PostgreSQL refuserait de rendre ce à quoi on n'a pas droit."
+    },
+    {
+      "id": "note_cle",
+      "type": "note",
+      "label": "Les clés sont rangées à part",
+      "desc": "Les octets d'un média vivent dans un coffre, sa clé dans une table. Obtenir l'un ne donne jamais l'autre."
+    }
+  ],
+  "edges": [
+    {
+      "from": "t_device",
+      "to": "t_conn6",
+      "kind": "dep",
+      "label": "lisible seulement entre amis"
+    },
+    {
+      "from": "t_enc",
+      "to": "t_conn6",
+      "kind": "flow",
+      "label": "10 s de contact → amitié possible"
+    },
+    {
+      "from": "t_reco",
+      "to": "t_req",
+      "kind": "flow",
+      "label": "crée une demande"
+    },
+    {
+      "from": "t_req",
+      "to": "t_conn6",
+      "kind": "flow",
+      "label": "acceptée"
+    },
+    {
+      "from": "t_stories",
+      "to": "t_contents6",
+      "kind": "dep",
+      "label": "une story EST un contenu"
+    },
+    {
+      "from": "t_items",
+      "to": "t_contents6",
+      "kind": "dep"
+    },
+    {
+      "from": "t_grants",
+      "to": "t_contents6",
+      "kind": "dep"
+    },
+    {
+      "from": "t_ckeys",
+      "to": "t_contents6",
+      "kind": "dep"
+    },
+    {
+      "from": "t_views6",
+      "to": "t_contents6",
+      "kind": "dep"
+    },
+    {
+      "from": "t_deliv",
+      "to": "t_cards6",
+      "kind": "dep"
+    },
+    {
+      "from": "t_ckeys2",
+      "to": "t_cards6",
+      "kind": "dep"
+    },
+    {
+      "from": "t_deliv",
+      "to": "t_msg",
+      "kind": "dep",
+      "label": "apparaît dans le fil"
+    },
+    {
+      "from": "t_members",
+      "to": "t_conv6",
+      "kind": "dep"
+    },
+    {
+      "from": "t_msg",
+      "to": "t_conv6",
+      "kind": "dep"
+    },
+    {
+      "from": "t_reads",
+      "to": "t_msg",
+      "kind": "dep"
+    },
+    {
+      "from": "t_lv",
+      "to": "t_conv6",
+      "kind": "dep"
+    },
+    {
+      "from": "t_lvk",
+      "to": "t_lv",
+      "kind": "dep"
+    },
+    {
+      "from": "t_conn6",
+      "to": "t_members",
+      "kind": "dep",
+      "label": "on ne parle qu'à ses amis"
+    },
+    {
+      "from": "note_rls",
+      "to": "t_conn6",
+      "kind": "dep"
+    },
+    {
+      "from": "note_cle",
+      "to": "t_ckeys",
+      "kind": "dep"
+    },
+    {
+      "from": "intro6",
+      "to": "g_id",
+      "kind": "dep"
+    }
+  ]
+}

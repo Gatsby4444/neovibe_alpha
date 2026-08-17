@@ -1,0 +1,357 @@
+{
+  "name": "NeoVibe — 3. Devenir amis (par proximité)",
+  "nodes": [
+    {
+      "id": "intro3",
+      "type": "note",
+      "label": "Le cœur du produit",
+      "desc": "Aucun annuaire, aucune recherche. On ne peut demander qu'à quelqu'un qui est là, maintenant, à quelques mètres."
+    },
+    {
+      "id": "a",
+      "type": "user",
+      "label": "Charles — il demande",
+      "children": [
+        {
+          "id": "btn",
+          "type": "trigger",
+          "label": "Appui sur « demander à se connecter »"
+        },
+        {
+          "id": "c_ami",
+          "type": "condition",
+          "label": "déjà amis ?"
+        },
+        {
+          "id": "c_deja",
+          "type": "condition",
+          "label": "demande déjà envoyée ?"
+        },
+        {
+          "id": "sign",
+          "type": "transform",
+          "label": "signer la demande",
+          "desc": "avec la clé de l'appareil, qui ne sort jamais du téléphone"
+        },
+        {
+          "id": "envoi",
+          "type": "action",
+          "label": "envoyer par le canal chiffré"
+        },
+        {
+          "id": "range_out",
+          "type": "action",
+          "label": "ranger « envoyée »"
+        },
+        {
+          "id": "err1",
+          "type": "error",
+          "label": "« Vous êtes déjà connectés »"
+        },
+        {
+          "id": "err2",
+          "type": "error",
+          "label": "« Demande déjà envoyée »"
+        },
+        {
+          "id": "err3",
+          "type": "error",
+          "label": "« Rapproche-toi et réessaie »",
+          "desc": "si le pair n'est plus à portée"
+        }
+      ]
+    },
+    {
+      "id": "b",
+      "type": "user",
+      "label": "mimi — elle répond",
+      "children": [
+        {
+          "id": "recu",
+          "type": "trigger",
+          "label": "demande reçue"
+        },
+        {
+          "id": "c_sig",
+          "type": "condition",
+          "label": "signature valide ?"
+        },
+        {
+          "id": "c_ami2",
+          "type": "condition",
+          "label": "déjà amis ?"
+        },
+        {
+          "id": "range_in",
+          "type": "action",
+          "label": "ranger la demande"
+        },
+        {
+          "id": "choix",
+          "type": "condition",
+          "label": "elle accepte ?"
+        },
+        {
+          "id": "contre",
+          "type": "transform",
+          "label": "contre-signer",
+          "desc": "le document porte alors LES DEUX signatures"
+        },
+        {
+          "id": "refus",
+          "type": "action",
+          "label": "envoyer un refus"
+        },
+        {
+          "id": "jete",
+          "type": "error",
+          "label": "jetée et consignée"
+        }
+      ]
+    },
+    {
+      "id": "retour",
+      "type": "action",
+      "label": "Charles reçoit la réponse",
+      "children": [
+        {
+          "id": "c_notre",
+          "type": "condition",
+          "label": "cette demande est-elle bien la nôtre ?",
+          "desc": "on vérifie NOTRE propre signature — un tiers ne peut pas la fabriquer"
+        },
+        {
+          "id": "ok",
+          "type": "action",
+          "label": "on est amis : ranger dans le carnet"
+        },
+        {
+          "id": "marque",
+          "type": "action",
+          "label": "marquer « refusée » — visible à l'écran"
+        },
+        {
+          "id": "intrus",
+          "type": "error",
+          "label": "acceptation refusée et consignée"
+        }
+      ]
+    },
+    {
+      "id": "file3",
+      "type": "queue",
+      "label": "File d'envoi",
+      "desc": "on n'a pas besoin d'internet pour tout ça"
+    },
+    {
+      "id": "srv",
+      "type": "cluster",
+      "label": "Serveur",
+      "children": [
+        {
+          "id": "rpc",
+          "type": "api",
+          "label": "submit_ble_connection"
+        },
+        {
+          "id": "c_srv",
+          "type": "condition",
+          "label": "les DEUX signatures sont-elles bonnes ?"
+        },
+        {
+          "id": "t_conn",
+          "type": "table",
+          "label": "connections",
+          "desc": "l'amitié, enfin officielle"
+        },
+        {
+          "id": "refus_srv",
+          "type": "error",
+          "label": "refusé"
+        }
+      ]
+    },
+    {
+      "id": "notif",
+      "type": "trigger",
+      "label": "Notification si ça n'a jamais pu partir",
+      "desc": "on a dit « vous êtes connectés » : si le serveur ne l'apprend jamais, il faut le dire"
+    }
+  ],
+  "edges": [
+    {
+      "from": "btn",
+      "to": "c_ami",
+      "kind": "flow"
+    },
+    {
+      "from": "c_ami",
+      "to": "err1",
+      "kind": "flow",
+      "label": "oui"
+    },
+    {
+      "from": "c_ami",
+      "to": "c_deja",
+      "kind": "flow",
+      "label": "non"
+    },
+    {
+      "from": "c_deja",
+      "to": "err2",
+      "kind": "flow",
+      "label": "oui"
+    },
+    {
+      "from": "c_deja",
+      "to": "sign",
+      "kind": "flow",
+      "label": "non"
+    },
+    {
+      "from": "sign",
+      "to": "envoi",
+      "kind": "flow"
+    },
+    {
+      "from": "envoi",
+      "to": "err3",
+      "kind": "flow",
+      "label": "hors de portée"
+    },
+    {
+      "from": "envoi",
+      "to": "range_out",
+      "kind": "flow",
+      "label": "parti"
+    },
+    {
+      "from": "envoi",
+      "to": "recu",
+      "kind": "data",
+      "label": "par Bluetooth, chiffré"
+    },
+    {
+      "from": "recu",
+      "to": "c_sig",
+      "kind": "flow"
+    },
+    {
+      "from": "c_sig",
+      "to": "jete",
+      "kind": "flow",
+      "label": "non"
+    },
+    {
+      "from": "c_sig",
+      "to": "c_ami2",
+      "kind": "flow",
+      "label": "oui"
+    },
+    {
+      "from": "c_ami2",
+      "to": "jete",
+      "kind": "flow",
+      "label": "déjà amis"
+    },
+    {
+      "from": "c_ami2",
+      "to": "range_in",
+      "kind": "flow",
+      "label": "non"
+    },
+    {
+      "from": "range_in",
+      "to": "choix",
+      "kind": "flow"
+    },
+    {
+      "from": "choix",
+      "to": "contre",
+      "kind": "flow",
+      "label": "accepte"
+    },
+    {
+      "from": "choix",
+      "to": "refus",
+      "kind": "flow",
+      "label": "refuse"
+    },
+    {
+      "from": "contre",
+      "to": "c_notre",
+      "kind": "data",
+      "label": "document co-signé"
+    },
+    {
+      "from": "refus",
+      "to": "c_notre",
+      "kind": "event",
+      "label": "refus"
+    },
+    {
+      "from": "c_notre",
+      "to": "intrus",
+      "kind": "flow",
+      "label": "non"
+    },
+    {
+      "from": "c_notre",
+      "to": "ok",
+      "kind": "flow",
+      "label": "oui + acceptée"
+    },
+    {
+      "from": "c_notre",
+      "to": "marque",
+      "kind": "flow",
+      "label": "oui + refusée"
+    },
+    {
+      "from": "ok",
+      "to": "file3",
+      "kind": "data",
+      "label": "document co-signé"
+    },
+    {
+      "from": "contre",
+      "to": "file3",
+      "kind": "data",
+      "label": "document co-signé"
+    },
+    {
+      "from": "file3",
+      "to": "rpc",
+      "kind": "call",
+      "label": "quand internet revient"
+    },
+    {
+      "from": "rpc",
+      "to": "c_srv",
+      "kind": "flow"
+    },
+    {
+      "from": "c_srv",
+      "to": "refus_srv",
+      "kind": "flow",
+      "label": "non"
+    },
+    {
+      "from": "c_srv",
+      "to": "t_conn",
+      "kind": "data",
+      "label": "oui — INSERT"
+    },
+    {
+      "from": "file3",
+      "to": "notif",
+      "kind": "event",
+      "label": "abandonnée après 8 essais"
+    },
+    {
+      "from": "intro3",
+      "to": "btn",
+      "kind": "dep"
+    }
+  ]
+}

@@ -1,0 +1,234 @@
+{
+  "name": "NeoVibe — 5. Comment un média arrive à l'écran",
+  "nodes": [
+    {
+      "id": "intro5",
+      "type": "note",
+      "label": "Deux barrières, pas une",
+      "desc": "Avoir les octets ne suffit pas : ils sont chiffrés. Avoir la clé ne suffit pas : il faut aussi les octets. Le serveur ne donne la clé qu'à celui qui y a droit — et il en profite pour compter la vue."
+    },
+    {
+      "id": "ecran5",
+      "type": "client",
+      "label": "Visionneuse",
+      "children": [
+        {
+          "id": "ouvre",
+          "type": "trigger",
+          "label": "l'utilisateur ouvre une Vibe"
+        }
+      ]
+    },
+    {
+      "id": "c_cache",
+      "type": "condition",
+      "label": "déjà téléchargé ?"
+    },
+    {
+      "id": "cache",
+      "type": "cache",
+      "label": "Cache local",
+      "children": [
+        {
+          "id": "v_blocs",
+          "type": "variable",
+          "label": "blocs déjà là",
+          "dtype": "array"
+        }
+      ]
+    },
+    {
+      "id": "srv5",
+      "type": "cluster",
+      "label": "Serveur",
+      "children": [
+        {
+          "id": "rpc5",
+          "type": "api",
+          "label": "open_card_media",
+          "desc": "vérifie le droit, DÉCOMPTE une vue et rend la clé — en une seule opération indivisible"
+        },
+        {
+          "id": "c_droit",
+          "type": "condition",
+          "label": "a-t-il le droit ?"
+        },
+        {
+          "id": "c_reste",
+          "type": "condition",
+          "label": "reste-t-il des vues ?"
+        },
+        {
+          "id": "t_keys",
+          "type": "table",
+          "label": "clé du média"
+        },
+        {
+          "id": "url",
+          "type": "action",
+          "label": "URL signée, valable quelques minutes"
+        },
+        {
+          "id": "coffre5",
+          "type": "storage",
+          "label": "coffre"
+        },
+        {
+          "id": "refus5",
+          "type": "error",
+          "label": "refusé"
+        }
+      ]
+    },
+    {
+      "id": "dl",
+      "type": "action",
+      "label": "télécharger par tranches",
+      "desc": "juste ce qu'il faut pour commencer à lire"
+    },
+    {
+      "id": "natif5",
+      "type": "container",
+      "label": "Lecteur natif (Kotlin)",
+      "children": [
+        {
+          "id": "dechiffre",
+          "type": "transform",
+          "label": "déchiffrer bloc par bloc",
+          "desc": "en mémoire, à la volée"
+        },
+        {
+          "id": "lecture",
+          "type": "action",
+          "label": "afficher / lire la vidéo"
+        }
+      ]
+    },
+    {
+      "id": "jamais",
+      "type": "note",
+      "label": "Jamais de clair sur le disque",
+      "desc": "« Ce qui se passe sur NeoVibe reste sur NeoVibe ». Un fichier déchiffré écrit sur le téléphone serait une promesse rompue."
+    },
+    {
+      "id": "vue",
+      "type": "trigger",
+      "label": "après 3 secondes à l'écran",
+      "desc": "c'est là qu'on dit au serveur « il l'a vraiment vue »"
+    },
+    {
+      "id": "t_views",
+      "type": "table",
+      "label": "content_views"
+    }
+  ],
+  "edges": [
+    {
+      "from": "ouvre",
+      "to": "c_cache",
+      "kind": "flow"
+    },
+    {
+      "from": "c_cache",
+      "to": "dechiffre",
+      "kind": "flow",
+      "label": "oui"
+    },
+    {
+      "from": "c_cache",
+      "to": "url",
+      "kind": "flow",
+      "label": "non"
+    },
+    {
+      "from": "ouvre",
+      "to": "rpc5",
+      "kind": "call",
+      "label": "la clé est nécessaire dans tous les cas"
+    },
+    {
+      "from": "rpc5",
+      "to": "c_droit",
+      "kind": "flow"
+    },
+    {
+      "from": "c_droit",
+      "to": "refus5",
+      "kind": "flow",
+      "label": "non"
+    },
+    {
+      "from": "c_droit",
+      "to": "c_reste",
+      "kind": "flow",
+      "label": "oui"
+    },
+    {
+      "from": "c_reste",
+      "to": "refus5",
+      "kind": "flow",
+      "label": "épuisées"
+    },
+    {
+      "from": "c_reste",
+      "to": "t_keys",
+      "kind": "flow",
+      "label": "oui — rend la clé"
+    },
+    {
+      "from": "url",
+      "to": "coffre5",
+      "kind": "call"
+    },
+    {
+      "from": "coffre5",
+      "to": "dl",
+      "kind": "data",
+      "label": "tranches d'octets"
+    },
+    {
+      "from": "dl",
+      "to": "cache",
+      "kind": "data",
+      "label": "range"
+    },
+    {
+      "from": "cache",
+      "to": "dechiffre",
+      "kind": "data",
+      "label": "octets chiffrés"
+    },
+    {
+      "from": "t_keys",
+      "to": "dechiffre",
+      "kind": "data",
+      "label": "la clé"
+    },
+    {
+      "from": "dechiffre",
+      "to": "lecture",
+      "kind": "flow"
+    },
+    {
+      "from": "lecture",
+      "to": "vue",
+      "kind": "flow"
+    },
+    {
+      "from": "vue",
+      "to": "t_views",
+      "kind": "data",
+      "label": "INSERT"
+    },
+    {
+      "from": "jamais",
+      "to": "dechiffre",
+      "kind": "dep"
+    },
+    {
+      "from": "intro5",
+      "to": "rpc5",
+      "kind": "dep"
+    }
+  ]
+}

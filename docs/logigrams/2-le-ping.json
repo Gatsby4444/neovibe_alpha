@@ -1,0 +1,297 @@
+{
+  "name": "NeoVibe — 2. Le Ping, couche par couche",
+  "nodes": [
+    {
+      "id": "intro",
+      "type": "note",
+      "label": "Lire de bas en haut",
+      "desc": "Chaque couche ignore celles du dessus et peut être testée seule. C'est ce qui a permis de trouver 5 causes de messages perdus."
+    },
+    {
+      "id": "c0",
+      "type": "container",
+      "label": "Couche 0 — La radio (Kotlin)",
+      "desc": "le matériel : elle DIT son état réel, elle ne fait plus semblant",
+      "children": [
+        {
+          "id": "f_engine",
+          "type": "fn",
+          "label": "BleEngine",
+          "desc": "annonce, scan, connexions GATT"
+        },
+        {
+          "id": "f_service",
+          "type": "service",
+          "label": "ProximityService",
+          "desc": "service de premier plan : survit à la fermeture de l'app"
+        },
+        {
+          "id": "f_bridge",
+          "type": "module",
+          "label": "ProximityBridge",
+          "desc": "les ORDRES descendent, les CONSTATS remontent — deux canaux"
+        },
+        {
+          "id": "v_statut",
+          "type": "variable",
+          "label": "état de la radio",
+          "dtype": "enum",
+          "value": "éteinte / permission / diffuse / détecte"
+        }
+      ]
+    },
+    {
+      "id": "c1",
+      "type": "module",
+      "label": "Couche 1 — Transport (PeerLink)",
+      "desc": "découpe une trame en morceaux, et la recolle en face",
+      "children": [
+        {
+          "id": "v_mtu",
+          "type": "variable",
+          "label": "taille d'un morceau",
+          "dtype": "number",
+          "value": "~182 octets"
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "type": "module",
+      "label": "Couche 3 — Canal sécurisé (SecureChannel)",
+      "desc": "personne d'autre ne peut lire, ni se glisser au milieu",
+      "children": [
+        {
+          "id": "v_eph",
+          "type": "variable",
+          "label": "clés éphémères",
+          "dtype": "secret",
+          "value": "c'est LEUR COUPLE qui identifie la session"
+        },
+        {
+          "id": "v_cle",
+          "type": "variable",
+          "label": "clé de session",
+          "dtype": "secret",
+          "value": "AES-GCM 256"
+        },
+        {
+          "id": "v_cpt",
+          "type": "variable",
+          "label": "compteur de trames",
+          "dtype": "number",
+          "value": "strictement croissant = anti-rejeu"
+        }
+      ]
+    },
+    {
+      "id": "c4",
+      "type": "module",
+      "label": "Couche 4 — Présence (PresenceTracker)",
+      "desc": "qui est là, et à quelle distance",
+      "children": [
+        {
+          "id": "v_etat",
+          "type": "variable",
+          "label": "état du pair",
+          "dtype": "enum",
+          "value": "détecté / en cours / identifié"
+        },
+        {
+          "id": "v_dist",
+          "type": "variable",
+          "label": "distance estimée",
+          "dtype": "object",
+          "value": "une BANDE et une tendance, jamais un chiffre exact"
+        }
+      ]
+    },
+    {
+      "id": "c5",
+      "type": "module",
+      "label": "Couche 5 — Protocole (WireFrame)",
+      "desc": "le format du fil, déclaré une seule fois"
+    },
+    {
+      "id": "c6",
+      "type": "module",
+      "label": "Couche 6 — Réseau de pairs (PeerNetwork)",
+      "desc": "transforme des octets en « untel est là et te parle »",
+      "children": [
+        {
+          "id": "v_ident",
+          "type": "variable",
+          "label": "identité du pair",
+          "dtype": "object",
+          "value": "rangée avec la SESSION, jamais dans la présence"
+        }
+      ]
+    },
+    {
+      "id": "sup",
+      "type": "service",
+      "label": "Superviseur — intention ≠ état",
+      "desc": "ce que TU veux (persisté) n'est pas ce que le matériel FAIT. C'est ce qui rattrape tout seul : app fermée, Bluetooth coupé…"
+    },
+    {
+      "id": "ctrl",
+      "type": "module",
+      "label": "Contrôleur — les règles du produit",
+      "desc": "quand certifier un croisement, quoi faire d'une demande d'ami"
+    },
+    {
+      "id": "journal",
+      "type": "storage",
+      "label": "Journal local (ProximityJournal)",
+      "children": [
+        {
+          "id": "v_recues",
+          "type": "variable",
+          "label": "demandes reçues",
+          "dtype": "json"
+        },
+        {
+          "id": "v_envoyees",
+          "type": "variable",
+          "label": "demandes envoyées",
+          "dtype": "json",
+          "value": "envoyée / refusée / acceptée"
+        }
+      ]
+    },
+    {
+      "id": "sync",
+      "type": "module",
+      "label": "Couche 7 — Synchronisation",
+      "desc": "ce qui remonte au serveur quand internet revient"
+    },
+    {
+      "id": "file",
+      "type": "queue",
+      "label": "File d'envoi",
+      "desc": "croisements, connexions, waves"
+    },
+    {
+      "id": "ecran",
+      "type": "client",
+      "label": "Écran Ping",
+      "desc": "ne dit jamais « personne » quand il ne sait pas"
+    },
+    {
+      "id": "trace",
+      "type": "note",
+      "label": "Journal des pertes",
+      "desc": "10 endroits où une trame pouvait disparaître sans un mot sont désormais comptés. C'est ce qui a permis de trouver les défauts."
+    },
+    {
+      "id": "regle2",
+      "type": "note",
+      "label": "La règle la plus importante",
+      "desc": "La PRÉSENCE dit OÙ et à quelle distance — jamais QUI. L'identité appartient à la session. Confondre les deux a coûté des messages perdus deux fois."
+    }
+  ],
+  "edges": [
+    {
+      "from": "f_engine",
+      "to": "f_service",
+      "kind": "flow"
+    },
+    {
+      "from": "f_service",
+      "to": "f_bridge",
+      "kind": "flow"
+    },
+    {
+      "from": "f_bridge",
+      "to": "c1",
+      "kind": "data",
+      "label": "octets reçus"
+    },
+    {
+      "from": "f_bridge",
+      "to": "sup",
+      "kind": "event",
+      "label": "état de la radio"
+    },
+    {
+      "from": "c1",
+      "to": "c5",
+      "kind": "flow",
+      "label": "trame complète"
+    },
+    {
+      "from": "c5",
+      "to": "c3",
+      "kind": "flow",
+      "label": "chiffrée ?"
+    },
+    {
+      "from": "c3",
+      "to": "c6",
+      "kind": "data",
+      "label": "message en clair"
+    },
+    {
+      "from": "c6",
+      "to": "c4",
+      "kind": "data",
+      "label": "met à jour la présence"
+    },
+    {
+      "from": "c6",
+      "to": "ctrl",
+      "kind": "event",
+      "label": "untel est identifié / t'écrit"
+    },
+    {
+      "from": "sup",
+      "to": "c6",
+      "kind": "event",
+      "label": "démarre / arrête"
+    },
+    {
+      "from": "ctrl",
+      "to": "journal",
+      "kind": "data",
+      "label": "range"
+    },
+    {
+      "from": "ctrl",
+      "to": "file",
+      "kind": "data",
+      "label": "à envoyer plus tard"
+    },
+    {
+      "from": "file",
+      "to": "sync",
+      "kind": "flow"
+    },
+    {
+      "from": "ctrl",
+      "to": "ecran",
+      "kind": "data",
+      "label": "ce qu'il faut afficher"
+    },
+    {
+      "from": "c4",
+      "to": "ecran",
+      "kind": "data",
+      "label": "qui est autour"
+    },
+    {
+      "from": "regle2",
+      "to": "v_ident",
+      "kind": "dep"
+    },
+    {
+      "from": "trace",
+      "to": "c6",
+      "kind": "dep"
+    },
+    {
+      "from": "intro",
+      "to": "c0",
+      "kind": "dep"
+    }
+  ]
+}
