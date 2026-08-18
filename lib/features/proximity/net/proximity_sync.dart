@@ -33,13 +33,12 @@ class ProximitySync {
 
   final Ref ref;
 
-  final _identity = ProximityIdentity();
-
-  /// ⚠️ **Le carnet vient du provider.** Ce champ valait `FriendKeyBook()` :
-  /// la synchro écrivait alors dans **son** cache et dans le fichier, pendant
-  /// que le contrôleur et le réseau gardaient le leur, chargé au démarrage. Les
-  /// clés téléchargées ici n'atteignaient jamais l'app.
+  /// ⚠️ **Le carnet ET l'identité viennent des providers.** Ces champs valaient
+  /// un `new` local : la synchro écrivait dans **son** cache pendant que le
+  /// contrôleur et le réseau gardaient le leur, et publiait potentiellement au
+  /// serveur une clé de diffusion différente de celle réellement diffusée.
   FriendKeyStore get _keyBook => ref.read(friendBookProvider);
+  ProximityIdentity get _identity => ref.read(proximityIdentityProvider);
 
   var _running = false;
 
@@ -60,11 +59,17 @@ class ProximitySync {
       final me = ref.read(currentUserIdProvider);
       if (me == null) return;
 
-      await client.from('device_keys').upsert({
-        'user_id': me,
-        'ed_pub': base64Encode(await _identity.edPublicKey()),
-        'broadcast_key': base64Encode(await _identity.broadcastKey()),
-      });
+      // ⚠️ **La clé de diffusion tourne, et elle ne tournait pas.**
+      //
+      // Écrite une fois à l'installation, plus jamais régénérée : un ex-ami qui
+      // l'avait téléchargée nous reconnaissait **à vie**, hors ligne et en
+      // silence. La RLS l'empêche de la relire ; elle ne reprend pas ce qu'il a
+      // déjà. Pour une app dont la thèse est le cercle restreint, retirer un ami
+      // ne retirait rien.
+      //
+      // Période : 7 jours (décision de Jay, 2026-08-18).
+      await _identity.rotateBroadcastIfDue();
+      await _publishKeys(client, me);
 
       // ⚠️ **La file d'abord, le carnet ensuite. L'ordre est le correctif.**
       //
@@ -83,6 +88,47 @@ class ProximitySync {
     } finally {
       _running = false;
     }
+  }
+
+  /// Publie nos deux clés de diffusion : la courante et la précédente.
+  ///
+  /// ⚠️ **La précédente n'est pas une commodité.** Sans elle, chaque rotation
+  /// aveuglerait tous nos amis jusqu'à leur prochaine synchronisation : ils
+  /// indexeraient une clé que nous n'utilisons plus, et nous deviendrions un
+  /// inconnu pour tout le monde pendant ce temps. En les publiant toutes les
+  /// deux, la rotation ne se voit pas.
+  ///
+  /// Une **révocation**, elle, jette délibérément la précédente : voir
+  /// [_revokeBroadcast].
+  Future<void> _publishKeys(dynamic client, String me) async {
+    final previous = await _identity.previousBroadcastKey();
+    await client.from('device_keys').upsert({
+      'user_id': me,
+      'ed_pub': base64Encode(await _identity.edPublicKey()),
+      'broadcast_key': base64Encode(await _identity.broadcastKey()),
+      'broadcast_key_prev': previous == null ? null : base64Encode(previous),
+      'rotated_at': (await _identity.broadcastRotatedAt()).toIso8601String(),
+    });
+  }
+
+  /// Quelqu'un a perdu le droit de nous reconnaître : on change de clé **et on
+  /// jette l'ancienne**.
+  ///
+  /// ⚠️ **C'est le seul moyen de reprendre ce qui a déjà été distribué.** Une
+  /// clé de diffusion n'est pas un droit de lecture qu'on révoque côté serveur :
+  /// c'est un secret que l'autre a copié sur son appareil. Tant qu'elle ne
+  /// change pas, aucune politique RLS n'empêche quoi que ce soit.
+  ///
+  /// Contrepartie assumée : nos autres amis ne nous reconnaissent plus jusqu'à
+  /// leur prochaine synchronisation — qui tourne au lancement de l'app et à
+  /// chaque croisement.
+  Future<void> _revokeBroadcast(dynamic client, String me, int partis) async {
+    await _identity.rotateBroadcast(keepPrevious: false);
+    await _publishKeys(client, me);
+    ConnectionTrace.note(
+      ConnectionEvent.friendsRemoved,
+      detail: '$partis retiré(s) — clé de diffusion révoquée',
+    );
   }
 
   /// Rapatrie les clés de reconnaissance des amis — **en deux requêtes**.
@@ -107,13 +153,8 @@ class ProximitySync {
       // réponse — une erreur réseau aurait levé et nous aurait envoyés dans le
       // `catch` de `run()`, qui ne touche pas au carnet.
       final avant = (await _keyBook.all()).length;
-      if (avant > 0) {
-        ConnectionTrace.note(
-          ConnectionEvent.friendsRemoved,
-          detail: '$avant retiré(s), le serveur n\'en renvoie aucun',
-        );
-      }
       await _keyBook.replace(const []);
+      if (avant > 0) await _revokeBroadcast(client, me, avant);
       return;
     }
 
@@ -142,6 +183,7 @@ class ProximitySync {
       // reconnu en silence. Le garder sans clé ferait planter l'index rotatif ;
       // l'omettre le rend simplement invisible jusqu'à sa prochaine connexion.
       if (broadcast == null) continue;
+      final previous = row['broadcast_key_prev'] as String?;
       amis.add(
         FriendKeys(
           userId: row['user_id'] as String,
@@ -152,6 +194,12 @@ class ProximitySync {
             base64Decode(row['ed_pub'] as String),
           ),
           broadcastKey: Uint8List.fromList(base64Decode(broadcast)),
+          // La clé d'avant sa dernière rotation : c'est elle qui fait qu'un ami
+          // qui vient de tourner reste reconnu tant que nous n'avons pas
+          // resynchronisé.
+          previousBroadcastKey: previous == null
+              ? null
+              : Uint8List.fromList(base64Decode(previous)),
         ),
       );
     }
@@ -159,15 +207,14 @@ class ProximitySync {
     final avant = (await _keyBook.all()).keys.toSet();
     final apres = amis.map((a) => a.userId).toSet();
     final partis = avant.difference(apres);
-    if (partis.isNotEmpty) {
-      ConnectionTrace.note(
-        ConnectionEvent.friendsRemoved,
-        detail: '${partis.length} retiré(s)',
-      );
-    }
 
     await _keyBook.replace(amis);
     ConnectionTrace.count(ConnectionTrace.friendsPulled);
+
+    // ⚠️ **Un ami retiré doit cesser de nous reconnaître, et retirer sa ligne
+    // ne suffit pas** : il a déjà notre clé de diffusion sur son appareil. On la
+    // change, et on jette l'ancienne.
+    if (partis.isNotEmpty) await _revokeBroadcast(client, me, partis.length);
   }
 
   /// Vide la file, en distinguant ce qui mérite une nouvelle tentative.

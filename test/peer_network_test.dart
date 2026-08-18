@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/features/proximity/net/peer_network.dart';
-import 'package:neovibe/features/proximity/net/presence_tracker.dart';
+import 'package:neovibe/features/proximity/net/peer_session.dart';
 import 'package:neovibe/features/proximity/net/proximity_protocol.dart';
 import 'package:neovibe/features/proximity/net/radio_status.dart';
 import 'package:neovibe/features/proximity/ping_store.dart';
@@ -20,16 +20,28 @@ import 'support/proximity_doubles.dart';
 /// poignée de main signée, la révélation de profil et le chat tournent en
 /// quelques millisecondes, sur un ordinateur, à chaque `flutter test`.
 class Appareil {
-  Appareil._(this.nom, this.reseau, this.radio, this.identite, this.carnet);
+  Appareil._(
+    this.nom,
+    this.reseau,
+    this.radio,
+    this.identite,
+    this.carnet,
+    this.horloge,
+  );
 
   static Future<Appareil> creer(
     String nom, {
     required String userId,
     required int graine,
     required RadioSimulee radio,
-    DateTime Function()? horloge,
+    HorlogeMobile? horloge,
     Duration profilLent = Duration.zero,
   }) async {
+    // ⚠️ **Chaque appareil a une horloge pilotée.** Les règles de présence se
+    // comptent désormais en secondes (fraîcheur, stabilité, oubli) : sans
+    // horloge maîtrisée, un test devrait ou bien attendre réellement dix
+    // secondes, ou bien ne rien vérifier de ces règles.
+    final montre = horloge ?? HorlogeMobile();
     final identite = await IdentiteMemoire.creer(graine: graine);
     final carnet = CarnetMemoire();
     final reseau = PeerNetwork(
@@ -44,11 +56,11 @@ class Appareil {
       radio: radio,
       identity: identite,
       keyBook: carnet,
-      clock: horloge,
+      clock: montre.call,
     );
     radio.reseau = reseau;
     await reseau.refreshFriends();
-    return Appareil._(nom, reseau, radio, identite, carnet);
+    return Appareil._(nom, reseau, radio, identite, carnet, montre);
   }
 
   final String nom;
@@ -56,16 +68,35 @@ class Appareil {
   final RadioSimulee radio;
   final IdentiteMemoire identite;
   final CarnetMemoire carnet;
+  final HorlogeMobile horloge;
 
-  /// Simule une annonce BLE de [autre] vue par cet appareil.
-  Future<void> voit(Appareil autre, {int rssi = -60}) async {
+  /// Une annonce BLE de [autre], vue une fois.
+  Future<void> voit(Appareil autre, {int rssi = -60, String? depuis}) async {
     await reseau.onRadioEvent(
       RadioScan(
-        address: autre.radio.adresse,
+        address: depuis ?? autre.radio.adresse,
         advertId: await autre.identite.currentRotatingId(),
         rssi: rssi,
       ),
     );
+  }
+
+  /// Un contact **continu** assez long pour que l'on accepte d'ouvrir un lien.
+  ///
+  /// ⚠️ C'est la règle posée le 2026-08-18 : on n'ouvre pas de connexion GATT
+  /// avec un inconnu au premier signe de vie, sinon on la paie pour chaque
+  /// passant et chaque voiture qui s'arrête au feu. Il faut
+  /// [PresenceRules.stableAfter] de contact et [PresenceRules.minSightings]
+  /// annonces.
+  Future<void> voitLongtemps(Appareil autre, {int rssi = -60}) async {
+    final pas =
+        (PresenceRules.stableAfter ~/ PresenceRules.minSightings) +
+        const Duration(seconds: 1);
+    for (var i = 0; i <= PresenceRules.minSightings; i++) {
+      await voit(autre, rssi: rssi);
+      horloge.avance(pas);
+    }
+    await voit(autre, rssi: rssi);
   }
 }
 
@@ -99,9 +130,10 @@ void main() {
   });
 
   test('deux inconnus se découvrent, se révèlent, et se parlent', () async {
-    // Les deux se voient : l'un des deux initie (comparaison des ID diffusés).
-    await a.voit(b);
-    await b.voit(a);
+    // Les deux se voient DURABLEMENT : l'un des deux initie (comparaison des ID
+    // diffusés).
+    await a.voitLongtemps(b);
+    await b.voitLongtemps(a);
 
     await jusqua(
       () =>
@@ -129,6 +161,38 @@ void main() {
     );
     await jusqua(() => recus.isNotEmpty);
     expect(recus.single, 'on se voit ?');
+  });
+
+  test('un passant ne coûte AUCUNE connexion', () async {
+    // ⚠️ **L'objection de Jay du 2026-08-18, en test.**
+    //
+    // Le code ouvrait une connexion GATT dès la PREMIÈRE annonce d'un inconnu :
+    // une poignée de main complète — connexion, négociation de MTU, découverte
+    // de services, deux signatures — pour quelqu'un qui traverse le couloir.
+    //
+    // On voit le pair plusieurs fois, mais brièvement : rien ne doit s'ouvrir.
+    for (var i = 0; i < 3; i++) {
+      await a.voit(b);
+      a.horloge.avance(const Duration(seconds: 1));
+    }
+    expect(a.reseau.presence.length, 1, reason: 'il est bien détecté');
+    expect(radioA.connexions, isEmpty, reason: 'mais il ne coûte rien');
+
+    // Il s'installe : là, on ouvre.
+    //
+    // ⚠️ **Le rôle n'est pas choisissable**, et ce test l'a appris à ses
+    // dépens : l'initiateur vient de la comparaison des ID rotatifs, qui
+    // dépendent du créneau de 15 minutes. Écrit en supposant qu'Alice initie,
+    // ce test était vert dans un créneau et rouge dans le suivant — le piège
+    // que `quel que soit le rôle…` documente depuis le 2026-08-16.
+    await a.voitLongtemps(b);
+    if (radioA.connexions.isEmpty) {
+      a.horloge.avance(
+        PeerNetwork.passiveFallback + const Duration(seconds: 1),
+      );
+      await a.reseau.tick();
+    }
+    await jusqua(() => radioA.connexions.isNotEmpty);
   });
 
   test('un inconnu détecté EXISTE avant d\'être identifié', () async {
@@ -164,11 +228,59 @@ void main() {
     radioB.injoignable = true;
     await a.voit(b);
 
-    // Reconnu, donc identifié — sans le moindre échange. C'est tout l'intérêt
-    // de l'ID rotatif, et c'est ce qui se vérifie ici : une IDENTITÉ.
+    // Reconnu, donc identifié — sans le moindre échange, et **dès la première
+    // annonce** : le seuil anti-passant ne s'applique qu'aux inconnus, puisque
+    // reconnaître un ami ne coûte rien.
     expect(a.reseau.presence.byUser('u-b'), isNotNull);
     expect(a.reseau.presence.byUser('u-b')!.stage, PresenceStage.identified);
     expect(radioA.connexions, isEmpty, reason: 'aucun lien ne doit s\'ouvrir');
+  });
+
+  test('un ami reconnu sous sa CLÉ PRÉCÉDENTE reste un ami', () async {
+    // ⚠️ **La contrepartie de la rotation, en test.**
+    //
+    // La clé de diffusion tourne tous les 7 jours. Si l'index d'en face
+    // n'indexait que la clé courante, chaque rotation rendrait son auteur
+    // invisible à tous ses amis jusqu'à leur prochaine synchronisation.
+    final ancienne = await b.identite.broadcastKey();
+    await b.identite.rotateBroadcast(keepPrevious: true);
+
+    // Nous n'avons pas encore resynchronisé : notre carnet porte l'ANCIENNE en
+    // clé courante, et la nouvelle nous est inconnue.
+    await a.carnet.put(
+      FriendKeys(
+        userId: 'u-b',
+        username: 'Bob',
+        edPublicKey: await b.identite.edPublicKey(),
+        broadcastKey: ancienne,
+      ),
+    );
+    await a.reseau.refreshFriends();
+    radioB.injoignable = true;
+
+    // Bob diffuse désormais avec sa NOUVELLE clé.
+    await a.voit(b);
+    expect(
+      a.reseau.presence.byUser('u-b'),
+      isNull,
+      reason: 'sans la clé neuve, il est bien un inconnu',
+    );
+
+    // La synchro arrive : le carnet porte les deux clés.
+    await a.carnet.put(
+      FriendKeys(
+        userId: 'u-b',
+        username: 'Bob',
+        edPublicKey: await b.identite.edPublicKey(),
+        broadcastKey: await b.identite.broadcastKey(),
+        previousBroadcastKey: ancienne,
+      ),
+    );
+    await a.reseau.refreshFriends();
+
+    // Reconnu sous la neuve…
+    await a.voit(b, depuis: 'CC');
+    expect(a.reseau.presence.byUser('u-b'), isNotNull);
   });
 
   test('des clés arrivées APRÈS le démarrage sont prises en compte', () async {
@@ -178,11 +290,7 @@ void main() {
     // téléchargeait les clés — sans que rien ne le dise. L'index n'était
     // reconstruit qu'au changement de créneau, toutes les 15 minutes, et depuis
     // un cache périmé : donc jamais. Un ami restait un inconnu jusqu'au
-    // prochain lancement de l'app, et l'écran lui proposait « demander à se
-    // connecter ».
-    //
-    // Ici le réseau tourne déjà, le carnet est vide, et les clés arrivent
-    // ensuite — exactement l'ordre réel.
+    // prochain lancement de l'app.
     await a.reseau.start();
     expect(a.reseau.presence.length, 0);
 
@@ -206,9 +314,7 @@ void main() {
       return a.reseau.presence.byUser('u-b')?.stage == PresenceStage.identified;
     });
 
-    // Reconnu à son ID rotatif : l'index a bien été reconstruit après coup.
-    // Et une fois reconnu, un ami n'ouvre plus aucun lien — c'est la propriété
-    // que la reconnaissance silencieuse doit garantir.
+    // Une fois reconnu, un ami n'ouvre plus aucun lien.
     final avant = radioA.connexions.length;
     await a.voit(b);
     expect(
@@ -227,7 +333,6 @@ void main() {
     // de suite, ou qu'il attende, la paire se rencontre. C'est exactement ce
     // que l'ancienne couche ne garantissait pas — le côté passif attendait
     // indéfiniment un rendez-vous qui n'aurait jamais lieu.
-    final horloge = HorlogeMobile();
     final radioP = RadioSimulee('PP');
     final radioQ = RadioSimulee('QQ');
     radioP.pair = radioQ;
@@ -238,7 +343,6 @@ void main() {
       userId: 'u-p',
       graine: 5,
       radio: radioP,
-      horloge: horloge.call,
     );
     final q = await Appareil.creer(
       'Q',
@@ -247,11 +351,13 @@ void main() {
       radio: radioQ,
     );
 
-    await p.voit(q);
+    await p.voitLongtemps(q);
 
     if (radioP.connexions.isEmpty) {
       // P est le côté passif : il a armé son échéance.
-      horloge.avance(PeerNetwork.passiveFallback + const Duration(seconds: 1));
+      p.horloge.avance(
+        PeerNetwork.passiveFallback + const Duration(seconds: 1),
+      );
       await p.reseau.tick();
     }
     expect(radioP.connexions, isNotEmpty);
@@ -260,21 +366,34 @@ void main() {
     await q.reseau.dispose();
   });
 
-  test('la radio qui s\'arrête vide la présence', () async {
-    await a.voit(b);
-    await b.voit(a);
+  test('la radio qui s\'arrête ferme TOUT, présence et transport', () async {
+    // ⚠️ **Le second chemin, jamais soupçonné avant le 2026-08-18.**
+    //
+    // `presence.clear()` vidait la présence **sans fermer les canaux** : il
+    // restait des sessions chiffrées vivantes que plus aucune entrée ne
+    // désignait, et le pair d'en face continuait de parler dans le vide.
+    //
+    // Avec une session unique, arrêter la radio ferme le transport dans le même
+    // geste — il n'y a plus d'état à moitié défait.
+    await a.voitLongtemps(b);
+    await b.voitLongtemps(a);
     await jusqua(() => a.reseau.presence.identifiedCount == 1);
 
     await a.reseau.onRadioEvent(const RadioStatusEvent(RadioAdapterOff()));
 
     expect(a.reseau.presence.length, 0);
+    expect(
+      radioA.coupures,
+      contains(radioB.adresse),
+      reason: 'le Dart n\'oublie jamais un lien que le natif tient encore',
+    );
   });
 
   test(
     'un profil signé par une AUTRE clé que la poignée de main est rejeté',
     () async {
-      await a.voit(b);
-      await b.voit(a);
+      await a.voitLongtemps(b);
+      await b.voitLongtemps(a);
       await jusqua(() => a.reseau.presence.identifiedCount == 1);
 
       // Un imposteur forge un profil parfaitement signé… avec sa propre clé.
@@ -305,10 +424,9 @@ void main() {
     // Le repli passif de 12 s rend ce cas frequent : si l'initiateur tarde,
     // l'autre prend la main - et les deux finissent connectes. Chacun recevait
     // alors DEUX evenements de lien, et le second detruisait la session deja
-    // negociee. L'emetteur chiffrait avec l'ancienne cle, le destinataire
-    // dechiffrait avec la nouvelle, et le message disparaissait sans un mot.
-    await a.voit(b);
-    await b.voit(a);
+    // negociee.
+    await a.voitLongtemps(b);
+    await b.voitLongtemps(a);
     await jusqua(() => a.reseau.presence.identifiedCount == 1);
 
     // On force le second lien, dans l'autre sens, comme si les deux avaient
@@ -333,45 +451,29 @@ void main() {
     expect(recus.single, 'toujours la ?');
   });
 
-  test('cesser d\'ENTENDRE un pair ne coupe pas la session qui le relie', () async {
-    // ⚠️ **Le message fantôme qui restait après la v0.9.111.**
-    //
-    // Deux mesures indépendantes portent le même nom dans la tête, et ce sont
-    // deux choses différentes :
+  test('ne plus ENTENDRE un pair ne coupe pas la session qui le relie', () async {
+    // ⚠️ **Deux mesures qui portaient le même nom, et c'est ce qui a coûté cinq
+    // itérations.**
     //
     // - **entendre** un pair, c'est recevoir son annonce — une diffusion non
-    //   fiable, qu'un téléphone en poche, un canal occupé ou un écran éteint
-    //   font manquer plusieurs fois de suite ;
-    // - **être relié** à un pair, c'est tenir une connexion GATT et un canal
-    //   chiffré — qui, lui, ne bouge pas parce qu'une annonce s'est perdue.
+    //   fiable, qu'un téléphone en poche ou un canal occupé font manquer ;
+    // - **être relié**, c'est tenir une connexion GATT et un canal chiffré.
     //
-    // `prune()` traitait la première comme une preuve de la seconde : passée la
-    // période de grâce, il rendait le pair « parti », et `tick()` détruisait le
-    // lien ET le canal — **sans rien couper côté radio**. En face, rien n'avait
-    // changé : le canal restait établi, l'envoi réussissait sans erreur, et la
-    // trame arrivait sur un lien devenu sans canal, où `_handleFrame` la jetait
-    // en silence.
-    //
-    // Émetteur satisfait, destinataire muet : la signature exacte du défaut
-    // décrit par Jay.
-    //
-    // ⚠️ **`hasLiveLink` existait déjà** — posé le 2026-08-16 pour empêcher la
-    // FUSION d'adresses d'abandonner une session vivante. La cause avait donc
-    // été traitée à un endroit sur deux : `prune`, l'autre porte de sortie, ne
-    // le consultait pas.
-    final horloge = HorlogeMobile();
+    // La règle de 2026-08-18 sépare enfin les deux **sans les faire diverger** :
+    // au bout de [PresenceRules.freshFor] on cesse de dire « il est là », mais
+    // on ne démonte la session qu'à [PresenceRules.forgetAfter]. Entre les deux,
+    // une conversation en cours survit à un trou de radio — et une trame reçue
+    // rafraîchit la présence, parce qu'elle prouve la présence.
     final radioP = RadioSimulee('PP');
     final radioQ = RadioSimulee('QQ');
     radioP.pair = radioQ;
     radioQ.pair = radioP;
 
-    // Seul P a une horloge pilotée : c'est LUI qui cesse d'entendre.
     final p = await Appareil.creer(
       'P',
       userId: 'u-p',
       graine: 7,
       radio: radioP,
-      horloge: horloge.call,
     );
     final q = await Appareil.creer(
       'Q',
@@ -380,8 +482,8 @@ void main() {
       radio: radioQ,
     );
 
-    await p.voit(q);
-    await q.voit(p);
+    await p.voitLongtemps(q);
+    await q.voitLongtemps(p);
     await jusqua(
       () =>
           p.reseau.presence.identifiedCount == 1 &&
@@ -395,45 +497,89 @@ void main() {
       }
     });
 
-    // P n'entend plus l'annonce de Q au-delà de la période de grâce. Le lien,
-    // lui, est intact — et Q, qui entend toujours P, n'a aucune raison de s'en
-    // douter.
-    horloge.avance(PresenceTracker.gracePeriod + const Duration(seconds: 5));
+    // P n'entend plus Q : passé 5 s, P **cesse de dire qu'il est là**…
+    p.horloge.avance(PresenceRules.freshFor + const Duration(seconds: 2));
     await p.reseau.tick();
+    expect(
+      p.reseau.presence.identifiedCount,
+      0,
+      reason:
+          'la présence ne ment plus : sans preuve récente, il n\'est pas là',
+    );
 
-    // L'envoi de Q **réussit** : son canal est établi, son lien est vivant.
-    // C'est précisément ce succès qui rend le défaut invisible des deux côtés.
+    // …mais la session vit encore, donc le message de Q arrive.
     await q.reseau.sendToUser(
       'u-p',
       ChatMessage(id: 'm', text: 'tu me reçois ?', sentAt: DateTime.now()),
     );
-
     await jusqua(() => recus.isNotEmpty);
     expect(recus.single, 'tu me reçois ?');
+
+    // Et cette trame vaut observation : P le redit présent.
+    expect(
+      p.reseau.presence.identifiedCount,
+      1,
+      reason: 'une trame reçue prouve la présence autant qu\'une annonce',
+    );
 
     await p.reseau.dispose();
     await q.reseau.dispose();
   });
 
+  test(
+    'au-delà de l\'oubli, la session est refermée ET la radio coupée',
+    () async {
+      // ⚠️ **La règle : le Dart n'oublie jamais un lien que le natif tient
+      // encore.** L'ancien `prune` détruisait le canal sans rien couper côté
+      // radio : le natif gardait une connexion GATT dont le Dart avait perdu la
+      // trace, et `connect()` rendait ensuite un succès immédiat sans émettre le
+      // moindre événement. L'état était **collant** jusqu'à ce que la radio lâche
+      // d'elle-même.
+      final radioP = RadioSimulee('PP');
+      final radioQ = RadioSimulee('QQ');
+      radioP.pair = radioQ;
+      radioQ.pair = radioP;
+
+      final p = await Appareil.creer(
+        'P',
+        userId: 'u-p',
+        graine: 7,
+        radio: radioP,
+      );
+      final q = await Appareil.creer(
+        'Q',
+        userId: 'u-q',
+        graine: 8,
+        radio: radioQ,
+      );
+
+      await p.voitLongtemps(q);
+      await q.voitLongtemps(p);
+      await jusqua(() => p.reseau.presence.identifiedCount == 1);
+
+      final perdus = <String>[];
+      p.reseau.events.listen((e) {
+        if (e is PeerLost) perdus.add(e.peer.address);
+      });
+
+      p.horloge.avance(PresenceRules.forgetAfter + const Duration(seconds: 1));
+      await p.reseau.tick();
+      // Le flux d'événements est asynchrone : sans ce tour de boucle, on
+      // vérifierait la liste avant que `PeerLost` n'y soit arrivé.
+      await Future<void>.delayed(Duration.zero);
+
+      expect(p.reseau.presence.length, 0);
+      expect(perdus, isNotEmpty, reason: 'le départ se dit');
+      expect(radioP.coupures, contains(radioQ.adresse));
+
+      await p.reseau.dispose();
+      await q.reseau.dispose();
+    },
+  );
+
   // ------------------------------------------------------------------
   // Reconstruction d'une session perdue d'un seul côté
   // ------------------------------------------------------------------
-  //
-  // ⚠️ **La quatrième cause de message fantôme, mesurée le 2026-08-17.**
-  //
-  // Relevé croisé sur les deux appareils de Jay : la tablette ferme une session
-  // ÉTABLIE (fusion d'adresses), et 2 minutes plus tard le smartphone consigne
-  // `second lien ignoré (canal established)` puis **`déchiffrement refusé` aux
-  // compteurs 0 et 1**.
-  //
-  // Les compteurs 0 et 1 sont la signature d'une **session neuve** : le pair
-  // avait reconstruit son canal. Nous, non — et la règle « un canal établi ne
-  // se remplace jamais », posée la veille pour corriger un AUTRE défaut,
-  // interdisait de le suivre.
-  //
-  // Ces deux tests couvrent les deux cas, selon que le côté qui reconstruit
-  // reprend le même rôle ou l'inverse. Sur le terrain, c'est le hasard qui
-  // tranche — d'où un défaut intermittent.
 
   /// Monte une paire dont les rôles sont CHOISIS, au lieu de dépendre de la
   /// comparaison des ID rotatifs (qui change à chaque créneau de 15 min).
@@ -472,23 +618,16 @@ void main() {
     // ⚠️ **Relevé sur l'appareil de Jay le 2026-08-17** :
     // `message reçu avant le profil (CertOfferMessage, présence identifying)`.
     //
-    // Le balayage des certificats tourne toutes les 2 s et n'attend que « canal
-    // établi ». Or l'identité arrive APRÈS la poignée de main : le certificat
-    // pouvait donc doubler notre profil. En face, on ne savait pas encore qui
-    // parlait, et la trame était **jetée**.
-    //
-    // Le coût était pire que la trame perdue : `_certified` était déjà marqué,
-    // donc **aucune nouvelle tentative** — le croisement était perdu pour de
-    // bon, en silence, alors que c'est la fondation des streaks.
-    //
-    // On ne peut pas régler ça en face : c'est l'ordre d'ÉMISSION qui décide.
+    // Le balayage des certificats n'attend que « canal établi ». Or l'identité
+    // arrive APRÈS la poignée de main : le certificat pouvait doubler notre
+    // profil, et en face la trame était **jetée** — alors que `certified` était
+    // déjà marqué, donc plus aucune tentative.
     final radio1 = RadioSimulee('11');
     final radio2 = RadioSimulee('22');
     radio1.pair = radio2;
     radio2.pair = radio1;
-    // ⚠️ **Le profil de Un est LENT** — c'est la reproduction fidèle de ce qui
-    // s'est passé chez Jay : `myProfile()` lit un provider Riverpod, parfois
-    // adossé au réseau. Le canal chiffre bien avant que la réponse n'arrive.
+    // ⚠️ **Le profil de Un est LENT** — reproduction fidèle de ce qui s'est
+    // passé chez Jay : `myProfile()` lit un provider, parfois adossé au réseau.
     final un = await Appareil.creer(
       'Un',
       userId: 'u-1',
@@ -504,8 +643,7 @@ void main() {
     );
 
     // ⚠️ **L'écoute est posée AVANT la connexion.** Sinon l'identification a
-    // déjà eu lieu quand on commence à regarder, et le test ne peut plus voir
-    // l'ordre — il ne pourrait contenir que la moitié de la réponse.
+    // déjà eu lieu quand on commence à regarder.
     final ordre = <String>[];
     deux.reseau.events.listen((e) {
       if (e is PeerIdentified) ordre.add('identité');
@@ -514,8 +652,6 @@ void main() {
 
     await radio1.connect(radio2.adresse);
 
-    // Dès que le canal chiffre, on envoie — c'est exactement ce que fait le
-    // balayage des certificats, qui n'attend rien de plus.
     await jusqua(() => un.reseau.hasEstablishedChannel(radio2.adresse));
     await un.reseau.send(
       radio2.adresse,
@@ -533,50 +669,58 @@ void main() {
     await deux.reseau.dispose();
   });
 
-  test("un message arrive meme si la presence a oublie l'adresse", () async {
-    // ⚠️ **Le defaut du releve de Jay, v0.9.118 :**
-    //
-    //     message recu avant le profil (7C:5F:CF:7B:B0:FF)
-    //         — ChatMessage, presence ABSENTE
-    //
-    // Deux `ChatMessage` perdus. Et « absente », pas « identifying » : il n'y
-    // avait plus **aucune** entree de presence pour cette adresse — alors que
-    // le canal, lui, dechiffrait parfaitement (le message est arrive jusqu'a
-    // `_onMessage`).
-    //
-    // La cause n'est pas le transport : c'est que la livraison demandait a la
-    // PRESENCE qui etait le pair. Or la presence parle de proximite, et ses
-    // entrees vont et viennent — fusion d'adresses quand Android renouvelle sa
-    // MAC, remise a zero quand la radio s'arrete. Une session vivante ne doit
-    // pas dependre de ca.
-    //
-    // Ici on vide la presence par le chemin le plus simple (la radio s'arrete),
-    // ce qui reproduit exactement la condition : **plus d'entree, canal vivant.**
-    final (un, deux) = await paireEtablie(nomInitiateur: 'Un');
+  test(
+    'un changement d\'adresse MAC ne perd ni la session ni les messages',
+    () async {
+      // ⚠️ **La vraie cause du relevé de Jay du 2026-08-17** (`ChatMessage,
+      // présence ABSENTE`) : Android renouvelle périodiquement son adresse MAC.
+      // La présence fusionnait alors deux lignes et **abandonnait** l'une des
+      // deux, en se promettant de refermer son transport au battement suivant —
+      // jusqu'à 3 secondes plus tard. Le correctif d'alors a produit la boucle
+      // `takeMergedAway`, dupliquée à deux endroits qui ont divergé.
+      //
+      // Avec une session unique, une adresse de plus est **une adresse de plus** :
+      // rien n'est abandonné, rien n'est différé.
+      await a.carnet.put(
+        FriendKeys(
+          userId: 'u-b',
+          username: 'Bob',
+          edPublicKey: await b.identite.edPublicKey(),
+          broadcastKey: await b.identite.broadcastKey(),
+        ),
+      );
+      await a.reseau.refreshFriends();
 
-    final recus = <String>[];
-    un.reseau.events.listen((e) {
-      if (e is PeerMessageReceived && e.message is ChatMessage) {
-        recus.add((e.message as ChatMessage).text);
-      }
-    });
+      // Bob est reconnu, puis on ouvre un lien (comme le ferait un certificat).
+      await a.voit(b);
+      await a.reseau.ensureChannel(radioB.adresse);
+      await jusqua(() => a.reseau.presence.identifiedCount == 1);
 
-    // La presence oublie tout. Les liens et les canaux, eux, restent.
-    await un.reseau.onRadioEvent(const RadioStatusEvent(RadioAdapterOff()));
-    expect(un.reseau.presence.length, 0);
+      final recus = <String>[];
+      a.reseau.events.listen((e) {
+        if (e is PeerMessageReceived && e.message is ChatMessage) {
+          recus.add((e.message as ChatMessage).text);
+        }
+      });
 
-    // Deux ecrit sur la session qui existe toujours.
-    await deux.reseau.send(
-      un.radio.adresse,
-      ChatMessage(id: 'm', text: 'toujours la', sentAt: DateTime.now()),
-    );
+      // Bob réapparaît sous une NOUVELLE adresse. Reconnu au même ID rotatif, il
+      // fusionne — et le lien vivant reste sur l'ancienne adresse.
+      await a.voit(b, depuis: 'ZZ');
+      expect(a.reseau.presence.length, 1, reason: 'une personne, une ligne');
+      expect(
+        a.reseau.presence.byUser('u-b')!.addresses,
+        containsAll(<String>['BB', 'ZZ']),
+      );
 
-    await jusqua(() => recus.isNotEmpty);
-    expect(recus.single, 'toujours la');
-
-    await un.reseau.dispose();
-    await deux.reseau.dispose();
-  });
+      // Et la conversation continue, sur la session qui n'a jamais bougé.
+      await b.reseau.send(
+        radioA.adresse,
+        ChatMessage(id: 'm', text: 'toujours moi', sentAt: DateTime.now()),
+      );
+      await jusqua(() => recus.isNotEmpty);
+      expect(recus.single, 'toujours moi');
+    },
+  );
 
   for (final quiReconstruit in ['le même côté', 'l\'autre côté']) {
     test(
@@ -598,9 +742,7 @@ void main() {
         );
         await jusqua(() => recusUn.isNotEmpty);
 
-        // ⚠️ **Deux perd sa session, et Un n'en sait rien.** C'est exactement ce
-        // que fait la fusion d'adresses : elle ferme le canal localement, sans
-        // que le pair l'apprenne.
+        // ⚠️ **Deux perd sa session, et Un n'en sait rien.**
         deux.reseau.onRadioEvent(
           RadioLink(
             linkId: un.radio.adresse,

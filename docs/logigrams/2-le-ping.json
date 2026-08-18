@@ -87,15 +87,29 @@
     {
       "id": "c4",
       "type": "module",
-      "label": "Couche 4 — Présence (PresenceTracker)",
-      "desc": "qui est là, et à quelle distance",
+      "label": "Couche 4 — Présence et sessions (PeerSession)",
+      "desc": "un objet par pair : ses adresses, son lien, son canal, son identité. Le fermer est UN geste, impossible à faire à moitié",
       "children": [
         {
           "id": "v_etat",
           "type": "variable",
           "label": "état du pair",
           "dtype": "enum",
-          "value": "détecté / en cours / identifié"
+          "value": "DÉRIVÉ : détecté / en cours / identifié"
+        },
+        {
+          "id": "v_frais",
+          "type": "variable",
+          "label": "fraîcheur",
+          "dtype": "date",
+          "value": "5 s sans preuve = il n'est plus là. UNE seule définition"
+        },
+        {
+          "id": "v_stable",
+          "type": "variable",
+          "label": "contact continu",
+          "dtype": "date",
+          "value": "10 s avant d'ouvrir un lien : un passant ne coûte rien"
         },
         {
           "id": "v_dist",
@@ -137,7 +151,33 @@
       "id": "ctrl",
       "type": "module",
       "label": "Contrôleur — les règles du produit",
-      "desc": "quand certifier un croisement, quoi faire d'une demande d'ami"
+      "desc": "le seul endroit qui connaisse À LA FOIS les règles du produit et l'état du réseau",
+      "children": [
+        {
+          "id": "fn_cert",
+          "type": "fn",
+          "label": "certificat de croisement",
+          "desc": "10 s de contact continu → les deux appareils co-signent"
+        },
+        {
+          "id": "fn_wave",
+          "type": "fn",
+          "label": "« le presque »",
+          "desc": "un ami est passé tout près : une notification, une seule toutes les 2 h"
+        },
+        {
+          "id": "fn_chat",
+          "type": "fn",
+          "label": "chat de proximité",
+          "desc": "texte seul, effacé au bout de 12 h"
+        },
+        {
+          "id": "fn_ami",
+          "type": "fn",
+          "label": "demandes d'amis",
+          "desc": "envoyer, recevoir, accepter, refuser"
+        }
+      ]
     },
     {
       "id": "journal",

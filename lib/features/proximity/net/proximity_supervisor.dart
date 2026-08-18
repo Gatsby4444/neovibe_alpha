@@ -69,7 +69,13 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
   static const prefsKey = 'proximity_visible';
 
   final _radio = BleRadio();
-  final _identity = ProximityIdentity();
+
+  /// ⚠️ **L'identité vient du provider.** C'est ce superviseur qui démarre la
+  /// radio, donc lui qui calcule l'ID diffusé ; avec sa propre instance, il
+  /// pouvait au tout premier lancement diffuser une clé pendant que la synchro
+  /// en publiait une autre au serveur — et nos amis ne nous reconnaissaient
+  /// jamais.
+  ProximityIdentity get _identity => ref.read(proximityIdentityProvider);
 
   StreamSubscription<RadioEvent>? _events;
   Timer? _rotation;

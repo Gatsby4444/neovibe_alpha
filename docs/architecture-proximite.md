@@ -26,6 +26,26 @@ Tout n'est pas à jeter. **La couche cryptographique est saine** et reste :
 Ces deux-là sont déjà des couches propres : une responsabilité, aucune
 dépendance vers le haut. Elles servent de modèle au reste.
 
+> ⚠️ **Deux corrections sur cette couche le 2026-08-18**, toutes deux invisibles
+> à l'usage et toutes deux graves.
+>
+> **La clé de diffusion ne tournait jamais.** Écrite une fois à l'installation,
+> plus jamais régénérée : un ex-ami qui l'avait téléchargée pouvait nous
+> reconnaître **à vie**, hors ligne et en silence. La politique RLS l'empêche de
+> la relire — elle ne reprend pas ce qu'il a déjà copié sur son appareil. Pour
+> une app dont la thèse est le cercle restreint, retirer un ami ne retirait rien.
+> Elle tourne désormais tous les **7 jours** (décision de Jay), la précédente
+> reste publiée pour qu'une rotation n'aveugle personne, et le retrait d'un ami
+> déclenche une **révocation** qui, elle, jette l'ancienne.
+>
+> **Cinq instances, et une course au premier lancement.** `ProximityIdentity` se
+> construisait avec `new` à cinq endroits, sans verrou d'initialisation :
+> au tout premier démarrage, superviseur et synchro généraient chacun leur clé et
+> l'écrivaient. Mesuré : **quatre clés d'appareil créées au lieu d'une**. On
+> pouvait diffuser un ID dérivé de la clé A pendant que le serveur recevait la
+> clé B. C'est exactement le défaut corrigé pour le carnet d'amis la veille — le
+> raisonnement n'avait jamais été appliqué à l'identité elle-même.
+
 ## Ce qui est refait, et pourquoi
 
 `proximity_service.dart` fait **1040 lignes** et porte à lui seul : cycle de vie
@@ -158,24 +178,61 @@ suffirait d'en rejouer un pour désarmer l'anti-rejeu.
 ⚠️ **Changement de protocole** : les deux appareils doivent être à la même
 version. Un ancien et un nouveau ne se comprendront pas.
 
-### 4 — Présence (`PresenceTracker`)
+### 4 — Présence et sessions (`peer_session.dart`)
 
-**La source de vérité unique de « qui est autour »**, avec un état explicite par
-pair :
+**Un objet par pair, et un seul** : `PeerSession`. Elle porte ses adresses BLE
+(Android renouvelle sa MAC), ses observations, son lien, son canal, son identité
+et ses marqueurs. `PeerRegistry` les tient, et la présence n'est qu'une
+**projection en lecture seule** de ce registre.
+
+> ⚠️ **Refonte du 2026-08-18.** Le réseau tenait **neuf collections indexées par
+> adresse**, à nettoyer ensemble à la main à chaque sortie. Tous les défauts du
+> chantier sont le même : *la collection X a été nettoyée, la Y non* — au point
+> que la boucle de nettoyage des adresses fusionnées existait **en deux
+> exemplaires dont les corps avaient divergé**. Fermer un pair est désormais
+> **un geste** (`release()`), impossible à faire à moitié.
+
+Le stade n'est plus un champ mais un **calcul** — il était écrit par trois
+chemins, dont l'un l'oubliait toujours :
 
 ```
 detected      // vu par la radio, identité inconnue
-identifying   // poignée de main en cours
+identifying   // un lien est ouvert ou en cours
 identified    // profil connu (ami reconnu, ou inconnu révélé)
-lost
 ```
 
-*(Corrige B5 : l'interface peut enfin distinguer « personne » de « quelqu'un, en
-cours ». Aujourd'hui les deux affichent « Personne à proximité ».)*
+#### Les règles de présence, en secondes (`PresenceRules`)
 
-Porte aussi le lissage du RSSI et l'**hystérésis** : un pair ne doit pas
-clignoter dans la liste au gré d'une mesure de puissance qui varie de 10 dB d'une
-seconde à l'autre.
+Il n'y a **qu'une** définition de « il est là », et tout ce qui est visible ou
+irréversible s'y adosse — affichage, envoi d'un message, certificat, barrière du
+produit :
+
+| Règle | Valeur | Ce qu'elle décide |
+|---|---|---|
+| `freshFor` | **5 s** | « il est là maintenant » (décision de Jay, 2026-08-18) |
+| `stableAfter` | **10 s** + 5 annonces | avant d'ouvrir un lien vers un **inconnu**, et avant de certifier un croisement |
+| `forgetAfter` | **30 s** | on oublie la session et on referme son transport |
+
+⚠️ **`freshFor` et `forgetAfter` ne sont pas deux délais de grâce.** Cesser de
+dire « il est là » et démonter une session chiffrée sont deux décisions
+différentes : la première répond à l'utilisateur, la seconde détruit un état
+partagé avec le pair. Les confondre reconstruit le défaut d'origine.
+
+⚠️ **Une trame reçue vaut observation**, au même titre qu'une annonce. C'est ce
+qui rend une fraîcheur de 5 s tenable sans réintroduire une seconde horloge —
+et c'est le désaccord entre ces deux horloges qui avait produit les cinq causes
+de « message fantôme ».
+
+⚠️ **`stableAfter` est une durée, pas un compte d'annonces.** L'intention de Jay
+(« 15 pings en 20 secondes ») est de ne pas payer une poignée de main pour un
+passant ou une voiture qui s'arrête au feu. Mais l'advertising BLE tourne à
+~100 ms : « 15 annonces » est atteint en moins de deux secondes et ne filtre
+rien. Un **ami** reconnu à son ID rotatif n'est pas concerné — le reconnaître ne
+coûte rien.
+
+Cette couche porte aussi le lissage du RSSI et l'**hystérésis** : un pair ne doit
+pas clignoter dans la liste au gré d'une mesure qui varie de 10 dB d'une seconde
+à l'autre.
 
 ### 5 — Protocole (`ProximityProtocol`)
 
@@ -235,9 +292,9 @@ l'utilisateur et le système.*
 | 0 — Radio (natif + `BleRadio`) | ✅ | *(natif : à éprouver sur appareil)* |
 | Intention / superviseur | ✅ | |
 | 1 — Transport (`PeerLink`) | ✅ | **6** |
-| 2 — Identité | ✅ conservée | |
+| 2 — Identité (`ProximityIdentity`) | ✅ *(rotation + verrou, 2026-08-18)* | **7** |
 | 3 — Canal sécurisé (`SecureChannel`) | ✅ | **9** |
-| 4 — Présence (`PresenceTracker`) | ✅ | **10** |
+| 4 — Présence et sessions (`peer_session.dart`) | ✅ *(refondue le 2026-08-18)* | **18** |
 | 5 — Protocole (`ProximityProtocol`) | ✅ | *(couvert par les 9)* |
 | 6 — Réseau (`PeerNetwork`) + fonctions | ✅ | **6** (deux appareils complets) |
 | 7 — Synchronisation (`ProximitySync`) | ✅ | |

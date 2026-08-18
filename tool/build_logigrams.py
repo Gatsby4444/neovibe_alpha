@@ -180,10 +180,16 @@ ping = {
               value="strictement croissant = anti-rejeu"),
         ]),
 
-        n("c4", "module", "Couche 4 — Présence (PresenceTracker)",
-          desc="qui est là, et à quelle distance", children=[
+        n("c4", "module", "Couche 4 — Présence et sessions (PeerSession)",
+          desc="un objet par pair : ses adresses, son lien, son canal, son "
+               "identité. Le fermer est UN geste, impossible à faire à moitié",
+          children=[
             n("v_etat", "variable", "état du pair", dtype="enum",
-              value="détecté / en cours / identifié"),
+              value="DÉRIVÉ : détecté / en cours / identifié"),
+            n("v_frais", "variable", "fraîcheur", dtype="date",
+              value="5 s sans preuve = il n'est plus là. UNE seule définition"),
+            n("v_stable", "variable", "contact continu", dtype="date",
+              value="10 s avant d'ouvrir un lien : un passant ne coûte rien"),
             n("v_dist", "variable", "distance estimée", dtype="object",
               value="une BANDE et une tendance, jamais un chiffre exact"),
         ]),
@@ -202,7 +208,18 @@ ping = {
                "C'est ce qui rattrape tout seul : app fermée, Bluetooth coupé…"),
 
         n("ctrl", "module", "Contrôleur — les règles du produit",
-          desc="quand certifier un croisement, quoi faire d'une demande d'ami"),
+          desc="le seul endroit qui connaisse À LA FOIS les règles du produit "
+               "et l'état du réseau", children=[
+            n("fn_cert", "fn", "certificat de croisement",
+              desc="10 s de contact continu → les deux appareils co-signent"),
+            n("fn_wave", "fn", "« le presque »",
+              desc="un ami est passé tout près : une notification, une seule "
+                   "toutes les 2 h"),
+            n("fn_chat", "fn", "chat de proximité",
+              desc="texte seul, effacé au bout de 12 h"),
+            n("fn_ami", "fn", "demandes d'amis",
+              desc="envoyer, recevoir, accepter, refuser"),
+        ]),
 
         n("journal", "storage", "Journal local (ProximityJournal)", children=[
             n("v_recues", "variable", "demandes reçues", dtype="json"),

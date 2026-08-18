@@ -1,56 +1,23 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:cryptography/cryptography.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/features/proximity/net/proximity_protocol.dart';
 import 'package:neovibe/features/proximity/net/secure_channel.dart';
 import 'package:neovibe/features/proximity/proximity_identity.dart';
 
-/// Identité en mémoire : `ProximityIdentity` écrit dans le Keystore Android,
-/// indisponible en test. On garde **exactement** la même cryptographie — c'est
-/// le stockage qu'on remplace, pas l'algorithme, sans quoi le test ne prouverait
-/// rien de ce qui tourne vraiment.
-class IdentiteMemoire implements ProximityIdentity {
-  IdentiteMemoire._(this._pair, this._pub, this._broadcast);
+import 'support/proximity_doubles.dart';
 
-  static Future<IdentiteMemoire> creer({int graine = 1}) async {
-    final pair = await Ed25519().newKeyPairFromSeed(
-      List<int>.generate(32, (i) => (i + graine) % 256),
-    );
-    final pub = await pair.extractPublicKey();
-    return IdentiteMemoire._(
-      pair,
-      Uint8List.fromList(pub.bytes),
-      Uint8List.fromList(List<int>.generate(32, (i) => (i * graine) % 256)),
-    );
-  }
-
-  final SimpleKeyPair _pair;
-  final Uint8List _pub;
-  final Uint8List _broadcast;
-
-  @override
-  Future<Uint8List> edPublicKey() async => _pub;
-
-  @override
-  Future<Uint8List> broadcastKey() async => _broadcast;
-
-  @override
-  Future<Uint8List> sign(List<int> message) async {
-    final sig = await Ed25519().sign(message, keyPair: _pair);
-    return Uint8List.fromList(sig.bytes);
-  }
-
-  @override
-  Future<Uint8List> currentRotatingId() =>
-      ProximityIdentity.rotatingId(_broadcast, 0);
-}
-
+/// ⚠️ **`IdentiteMemoire` vient de `support/proximity_doubles.dart`.**
+///
+/// Ce fichier en portait une copie, avec d'autres graines et des méthodes qui
+/// avaient divergé de l'autre. Deux doubles d'un même objet finissent toujours
+/// par tester deux choses différentes — et celui-ci ne connaissait ni la
+/// rotation de la clé de diffusion, ni son effacement.
 /// Fait la poignée de main complète entre deux canaux et rend le couple.
 Future<(SecureChannel, SecureChannel)> apparier({
-  ProximityIdentity? idA,
-  ProximityIdentity? idB,
+  required ProximityIdentity idA,
+  required ProximityIdentity idB,
 }) async {
   final a = SecureChannel(linkId: 'l', identity: idA);
   final b = SecureChannel(linkId: 'l', identity: idB);

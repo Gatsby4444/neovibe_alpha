@@ -10,7 +10,7 @@ import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
 import 'net/ble_radio.dart';
 import 'net/distance_estimate.dart';
-import 'net/presence_tracker.dart';
+import 'net/peer_session.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_journal.dart';
 import 'net/proximity_supervisor.dart';

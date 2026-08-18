@@ -10,6 +10,11 @@ import 'package:neovibe/features/proximity/proximity_identity.dart';
 /// dérivation d'ID rotatif. On ne remplace que le **stockage** (le Keystore
 /// Android, indisponible en test). Un double qui simulerait aussi l'algorithme
 /// ne prouverait rien de ce qui tourne vraiment sur l'appareil.
+///
+/// ⚠️ **Un seul exemplaire pour toute la suite de tests.** Il en existait deux —
+/// celui-ci et une copie dans `secure_channel_test.dart` — avec des graines
+/// différentes et des méthodes qui ont divergé. Deux doubles d'un même objet
+/// finissent toujours par tester deux choses différentes.
 class IdentiteMemoire implements ProximityIdentity {
   IdentiteMemoire._(this._pair, this._pub, this._broadcast);
 
@@ -27,13 +32,51 @@ class IdentiteMemoire implements ProximityIdentity {
 
   final SimpleKeyPair _pair;
   final Uint8List _pub;
-  final Uint8List _broadcast;
+  Uint8List _broadcast;
+  Uint8List? _precedente;
+  DateTime _tournee = DateTime(2026, 8, 18);
+
+  /// Combien de fois la clé de diffusion a tourné. Le test s'en sert pour
+  /// vérifier qu'une révocation a bien lieu — et une seule fois.
+  var rotations = 0;
 
   @override
   Future<Uint8List> edPublicKey() async => _pub;
 
   @override
   Future<Uint8List> broadcastKey() async => _broadcast;
+
+  @override
+  Future<Uint8List?> previousBroadcastKey() async => _precedente;
+
+  @override
+  Future<DateTime> broadcastRotatedAt() async => _tournee;
+
+  @override
+  Future<bool> rotateBroadcastIfDue() async {
+    if (DateTime.now().difference(_tournee) <
+        ProximityIdentity.rotationPeriod) {
+      return false;
+    }
+    await rotateBroadcast(keepPrevious: true);
+    return true;
+  }
+
+  @override
+  Future<void> rotateBroadcast({required bool keepPrevious}) async {
+    _precedente = keepPrevious ? _broadcast : null;
+    rotations++;
+    _broadcast = Uint8List.fromList(
+      List<int>.generate(32, (i) => (i * 11 + rotations * 17) % 256),
+    );
+    _tournee = DateTime.now();
+  }
+
+  @override
+  Future<void> forget() async {
+    _precedente = null;
+    _broadcast = Uint8List(32);
+  }
 
   @override
   Future<Uint8List> sign(List<int> message) async {
@@ -88,13 +131,18 @@ class CarnetMemoire implements FriendKeyStore {
     _changes.ping();
   }
 
+  /// Indexe **les deux clés** de chaque ami — courante et précédente — comme le
+  /// vrai carnet. C'est ce qui permet à un ami qui vient de faire tourner sa
+  /// clé de rester reconnu.
   @override
   Future<Map<String, FriendKeys>> rotatingIndex(int slot) async {
     final index = <String, FriendKeys>{};
     for (final ami in _amis.values) {
-      for (final s in [slot - 1, slot, slot + 1]) {
-        final id = await ProximityIdentity.rotatingId(ami.broadcastKey, s);
-        index[id.map((b) => b.toRadixString(16).padLeft(2, '0')).join()] = ami;
+      for (final cle in ami.broadcastKeys) {
+        for (final s in [slot - 1, slot, slot + 1]) {
+          final id = await ProximityIdentity.rotatingId(cle, s);
+          index[FriendKeyBook.hex(id)] = ami;
+        }
       }
     }
     return index;
@@ -120,6 +168,9 @@ class RadioSimulee implements RadioCommands {
   /// Adresses vers lesquelles on a tenté d'ouvrir un lien.
   final connexions = <String>[];
 
+  /// Adresses qu'on a demandé de couper.
+  final coupures = <String>[];
+
   @override
   Future<int> connect(String address) async {
     connexions.add(address);
@@ -129,11 +180,9 @@ class RadioSimulee implements RadioCommands {
     }
     // ⚠️ **Le RÉCEPTEUR est prévenu en premier, et l'ordre n'est pas un
     // détail.** Sur la vraie pile, le périphérique voit l'abonnement à sa
-    // caractéristique (`onDescriptorWriteRequest`) AVANT que le central ne
-    // reçoive la confirmation d'écriture (`onDescriptorWrite`). Prévenir
-    // l'initiateur d'abord le faisait envoyer son `hello` à un pair qui n'avait
-    // pas encore de canal : la trame tombait dans le vide, et la poignée de
-    // main n'aboutissait jamais.
+    // caractéristique AVANT que le central ne reçoive la confirmation
+    // d'écriture. Prévenir l'initiateur d'abord le faisait envoyer son `hello`
+    // à un pair qui n'avait pas encore de canal.
     await autre.reseau?.onRadioEvent(
       RadioLink(linkId: adresse, connected: true, mtu: 185, incoming: true),
     );
@@ -150,6 +199,7 @@ class RadioSimulee implements RadioCommands {
 
   @override
   void disconnect(String linkId) {
+    coupures.add(linkId);
     final autre = pair;
     reseau?.onRadioEvent(
       RadioLink(linkId: linkId, connected: false, mtu: 0, incoming: false),
@@ -171,8 +221,18 @@ class RadioSimulee implements RadioCommands {
 }
 
 /// Horloge pilotée, pour les échéances.
+///
+/// ⚠️ **Elle part de l'instant RÉEL, et ce n'est pas un détail.** L'ID rotatif
+/// est dérivé du créneau de 15 minutes : `HMAC(clé, créneau)`. Si l'horloge du
+/// réseau était figée à une date arbitraire pendant que l'identité qui émet
+/// utilise l'horloge système, l'index couvrirait des créneaux sans rapport avec
+/// les identifiants diffusés — et **aucun ami ne serait jamais reconnu**, pour
+/// une raison qui n'a rien à voir avec le code testé.
+///
+/// Partir de maintenant garde les deux dans le même créneau ; les avances de
+/// quelques secondes des tests n'en sortent pas.
 class HorlogeMobile {
-  DateTime instant = DateTime(2026, 8, 16, 12);
+  DateTime instant = DateTime.now();
   DateTime call() => instant;
   void avance(Duration d) => instant = instant.add(d);
 }

@@ -11,7 +11,7 @@ import '../ping_store.dart';
 import '../proximity_identity.dart';
 import 'connection_trace.dart';
 import 'peer_network.dart';
-import 'presence_tracker.dart';
+import 'peer_session.dart';
 import 'proximity_journal.dart';
 import 'proximity_protocol.dart';
 import 'ble_radio.dart';
@@ -89,26 +89,19 @@ class ProximityController extends AsyncNotifier<ProximityView> {
   Timer? _certificates;
 
   final _journal = ProximityJournal();
-  final _identity = ProximityIdentity();
 
-  /// ⚠️ **Le carnet vient du provider, il ne se construit pas ici.**
+  /// ⚠️ **Le carnet ET l'identité viennent des providers.**
   ///
-  /// Ce champ valait `FriendKeyBook()`. La synchronisation en avait un autre, et
-  /// `PeerNetwork` un troisième par défaut — trois caches mémoire sur un seul
-  /// fichier. Les clés téléchargées n'arrivaient jamais jusqu'ici.
+  /// Les deux valaient un `new` local. Trois carnets coexistaient le
+  /// 2026-08-17 ; cinq identités le 2026-08-18, avec une course au premier
+  /// lancement capable de faire diverger la clé diffusée de celle publiée au
+  /// serveur. Un objet à état partagé n'a qu'un point de construction.
   FriendKeyStore get _keyBook => ref.read(friendBookProvider);
-
-  /// Croisement VALIDÉ = contact continu pendant ce délai (décision de Jay,
-  /// 2026-07-13). En dessous, c'est un « presque » — un wave.
-  static const certificateAfter = Duration(seconds: 10);
+  ProximityIdentity get _identity => ref.read(proximityIdentityProvider);
 
   /// Un seul wave par personne et par fenêtre. **Persisté** depuis le
   /// 2026-08-16 : en mémoire, redémarrer l'app suffisait à renotifier.
   static const waveCooldown = Duration(hours: 2);
-
-  /// Croisements déjà certifiés dans cette session de présence, pour ne pas
-  /// recommencer à chaque battement.
-  final _certified = <String>{};
 
   /// Le compte auquel le local du ping appartient actuellement.
   String? _boundUserId;
@@ -190,11 +183,32 @@ class ProximityController extends AsyncNotifier<ProximityView> {
   }
 
   /// Efface tout ce que le ping garde en local, pour le compte qui s'en va.
+  ///
+  /// ⚠️ **L'identité de l'appareil en fait partie, et personne ne l'effaçait.**
+  ///
+  /// La clé de diffusion ne dépendait pas du compte connecté : après une
+  /// déconnexion, l'appareil continuait de diffuser l'ID rotatif du compte
+  /// précédent. Les amis de A voyaient donc « A est là » pendant que B utilisait
+  /// le téléphone — et B signait ses poignées de main avec la clé d'appareil
+  /// publiée sous le nom de A.
+  ///
+  /// C'est la même fuite que le carnet d'amis non effacé, corrigée le
+  /// 2026-08-17, mais une couche plus bas : on avait nettoyé ce qui permet de
+  /// **reconnaître les autres**, pas ce qui permet de **nous** reconnaître.
   Future<void> _forgetLocalPing() async {
-    _certified.clear();
     await _journal.clear();
     await _keyBook.clear();
+    await _identity.forget();
     await ref.read(pingStoreProvider).wipe();
+
+    // ⚠️ **Et on redémarre la radio, sinon l'oubli ne s'entend pas.**
+    //
+    // Le natif continue de diffuser l'identifiant qu'on lui a passé au
+    // démarrage. Sans ce rappel, l'appareil annoncerait encore l'ID rotatif du
+    // compte précédent jusqu'au prochain changement de créneau — **jusqu'à
+    // quinze minutes**. Effacer une clé sans cesser de l'émettre ne l'efface
+    // pas.
+    await ref.read(proximitySupervisorProvider.notifier).retry();
   }
 
   Future<void> _ensureNetwork(String me) async {
@@ -256,8 +270,10 @@ class ProximityController extends AsyncNotifier<ProximityView> {
         _refresh();
       case PeerMessageReceived(:final address, :final snapshot, :final message):
         await _onMessage(address, snapshot, message);
-      case PeerLost(:final peer):
-        _certified.remove(peer.address);
+      case PeerLost():
+        // Rien à nettoyer ici : le marqueur de certification vit sur la
+        // session, qui vient d'être détruite. C'est tout l'intérêt de n'avoir
+        // qu'un objet par pair.
         _refresh();
     }
   }
@@ -366,22 +382,24 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     final me = ref.read(currentUserIdProvider);
     if (me == null) return;
 
-    for (final peer in network.presence.peers) {
-      final userId = peer.userId;
-      if (userId == null || _certified.contains(peer.address)) continue;
-      if (network.presence.contactDuration(peer.address) < certificateAfter) {
-        continue;
-      }
+    final now = DateTime.now();
+    for (final session in network.presence.sessions.toList()) {
+      final userId = session.userId;
+      if (userId == null || session.certified) continue;
+      // ⚠️ **Le même seuil que l'ouverture d'un lien** : un croisement certifié
+      // et « ce n'est pas un passant » sont la même question. Une constante en
+      // moins, et deux réponses qui ne peuvent plus diverger.
+      if (!session.isFresh(now) || !session.isStable(now)) continue;
       // Un seul des deux propose, sinon on obtient deux certificats pour un
       // même croisement. L'ordre des identifiants tranche, et il est stable.
       if (me.compareTo(userId) >= 0) continue;
 
-      _certified.add(peer.address);
+      session.certified = true;
       try {
-        await network.ensureChannel(peer.address);
+        await network.ensureChannel(session.address);
         final ts = DateTime.now().toUtc().toIso8601String();
         await network.send(
-          peer.address,
+          session.address,
           CertOfferMessage(
             a: me,
             b: userId,
@@ -394,8 +412,8 @@ class ProximityController extends AsyncNotifier<ProximityView> {
         );
       } catch (_) {
         // Le pair est reparti ou le lien a échoué : on réessaiera au prochain
-        // croisement. On retire le verrou pour que ce soit possible.
-        _certified.remove(peer.address);
+        // battement. On retire le verrou pour que ce soit possible.
+        session.certified = false;
       }
     }
   }
@@ -428,9 +446,10 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       'edPubB': base64Encode(await _identity.edPublicKey()),
     };
     await network.send(address, CertFinalMessage(certificate));
-    _certified.add(address);
+    final session = network.presence.byAddress(address);
+    session?.certified = true;
 
-    final peer = network.presence.byAddress(address)?.snapshot;
+    final peer = session?.snapshot;
     if (peer != null) await _storeEncounter(peer, certificate);
   }
 
@@ -724,8 +743,22 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     _rejections.remove(userId);
     final network = _network;
     if (network == null) throw StateError('proximité inactive');
+
+    // ⚠️ **« Il est là » se mesure, il ne se suppose pas.**
+    //
+    // Cette garde vérifiait seulement qu'une entrée de présence existait. Or
+    // une entrée survivait 25 secondes sans la moindre annonce — et
+    // indéfiniment tant qu'un lien GATT tenait, puisque l'élagage refusait de
+    // faire partir un pair relié. On pouvait donc écrire à quelqu'un parti
+    // depuis plusieurs minutes, et le message se perdait sans un mot.
+    //
+    // La règle du produit (Jay, 2026-08-18) : on n'écrit qu'à quelqu'un dont on
+    // a une preuve d'observation récente. Il n'y a qu'une définition, et elle
+    // vaut aussi pour l'affichage et pour le certificat.
     final peer = network.presence.byUser(userId);
-    if (peer?.snapshot == null) throw StateError('pair hors de portée');
+    if (peer?.snapshot == null || !network.presence.isPresent(userId)) {
+      throw StateError('pair hors de portée');
+    }
 
     final now = DateTime.now();
     final id = _randomId();
@@ -817,8 +850,17 @@ class _RadioAdapter implements RadioCommands {
 /// Vrai si [userId] est à portée **maintenant**.
 ///
 /// Point d'entrée unique pour tout ce qui exige la présence physique — la
-/// barrière fondatrice du produit. Il ne doit jamais s'appuyer sur un souvenir :
-/// c'est la présence vivante qui répond, pas un historique.
+/// barrière fondatrice du produit.
+///
+/// ⚠️ **Ce commentaire promettait déjà « jamais un souvenir », et le code ne le
+/// tenait pas.** La liste qu'il interroge tolérait 25 secondes d'absence
+/// d'annonce, et l'infini pour un pair encore relié. C'était le troisième
+/// commentaire de ce chantier à affirmer une règle que son code n'appliquait
+/// pas.
+///
+/// Elle est désormais vraie par construction : `ProximityView.peers` ne contient
+/// que les pairs frais au sens de [PresenceRules.freshFor], parce que le
+/// registre refuse d'en projeter d'autres.
 final peerInRangeProvider = Provider.family<bool, String>((ref, userId) {
   final view = ref.watch(proximityControllerProvider).value;
   return view?.identified.any((p) => p.userId == userId) ?? false;

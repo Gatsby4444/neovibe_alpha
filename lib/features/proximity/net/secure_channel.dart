@@ -40,8 +40,20 @@ enum ChannelStage {
 /// qui ne se voient ni au test fonctionnel ni à l'usage, puisque tout marche
 /// parfaitement tant que personne n'attaque.
 class SecureChannel {
-  SecureChannel({required this.linkId, ProximityIdentity? identity})
-    : _identity = identity ?? ProximityIdentity();
+  /// ⚠️ **[identity] est OBLIGATOIRE.**
+  ///
+  /// Il valait `identity ?? ProximityIdentity()`, donc **une identité neuve par
+  /// canal**, c'est-à-dire par lien. Chacune relisait le Keystore de son côté et
+  /// gardait son propre cache — le même défaut que les trois carnets d'amis du
+  /// 2026-08-17, appliqué cette fois à la clé qui signe la poignée de main.
+  ///
+  /// Un défaut commode qui fabrique un état partagé est un défaut qui finira
+  /// par diverger : on ferme la porte au lieu de la surveiller.
+  SecureChannel({required this.linkId, required ProximityIdentity identity})
+    // Le champ est privé : un paramètre formel initialisant l'exposerait sous
+    // son nom privé, que les appelants ne peuvent pas nommer.
+    // ignore: prefer_initializing_formals
+    : _identity = identity;
 
   final String linkId;
 

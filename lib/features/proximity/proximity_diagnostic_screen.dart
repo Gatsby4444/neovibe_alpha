@@ -6,7 +6,7 @@ import 'dart:async';
 
 import 'net/ble_radio.dart';
 import 'net/distance_estimate.dart';
-import 'net/presence_tracker.dart';
+import 'net/peer_session.dart';
 import 'ping_store.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_supervisor.dart';
