@@ -40,11 +40,11 @@ button.act{background:var(--panel);color:var(--ink);border:1px solid var(--line)
   padding:8px 14px;border-radius:9px;cursor:pointer;font-size:14px}
 button.act:hover{border-color:var(--ink)}
 button.act.on{background:var(--ink);color:#0d0d12;font-weight:600}
-.sw{display:inline-flex;align-items:center;gap:8px;background:var(--panel);
+.sw,.sw2{display:inline-flex;align-items:center;gap:8px;background:var(--panel);
   border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer;
   font-size:13px;user-select:none}
-.sw .dot{width:11px;height:11px;border-radius:50%;background:var(--no)}
-.sw.on .dot{background:var(--ok)}
+.sw .dot,.sw2 .dot{width:11px;height:11px;border-radius:50%;background:var(--no)}
+.sw.on .dot,.sw2.on .dot{background:var(--ok)}
 table{width:100%;border-collapse:collapse;margin:12px 0;font-size:14px}
 th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 th{color:var(--muted);font-weight:600;font-size:13px}
@@ -71,7 +71,9 @@ ul{margin:8px 0 8px 20px;padding:0} li{margin:5px 0}
 <header>
   <h1>Comment le ping voit les gens autour de toi</h1>
   <p class="sub">NeoVibe — reconstruction du 2026-08-16, éprouvée sur deux
-  appareils réels. Mis à jour le 2026-08-17 (poignée de main sans rôle). Cours, schémas et simulateurs.</p>
+  appareils réels. Mis à jour le 2026-08-18 : <b>une session par pair</b>, et une
+  seule définition de « il est là » (onglet 10). Cours, schémas et
+  simulateurs.</p>
 </header>
 
 <nav>
@@ -84,6 +86,7 @@ ul{margin:8px 0 8px 20px;padding:0} li{margin:5px 0}
   <button data-go="6">7 · Les couches</button>
   <button data-go="7">8 · La distance</button>
   <button data-go="8">9 · Les bugs, expliqués</button>
+  <button data-go="9">10 · La refonte du 18</button>
 </nav>
 
 <main>
@@ -767,6 +770,197 @@ RadioRunning(advertising: false) =&gt; ('Tu n\'es pas annoncé', …)   // ← i
   </div>
 </section>
 
+<!-- ================================================================ 10 -->
+<section>
+  <h2>La refonte du 18 août : un objet par pair</h2>
+
+  <p>Les dix défauts de l'onglet précédent ont été corrigés un par un, chacun par
+  une garde de plus. Le onzième a montré qu'on corrigeait le mauvais niveau.</p>
+
+  <div class="card bad">
+    <h3>Le fil qu'on n'avait pas vu</h3>
+    <p class="big">Ce n'était pas dix bugs. C'était une conception qui en
+    fabriquait un nouveau à chaque correction.</p>
+    <p>Le réseau tenait <b>neuf collections indexées par adresse</b> — présence,
+    liens, canaux, identités, connexions en cours, replis armés, profils envoyés,
+    croisements certifiés, plus le catalogue natif. Chaque défaut est le
+    même : <b>la collection X a été nettoyée, la Y non</b>. Le canal survit au
+    lien, l'identité survit au canal, le natif garde une connexion que le Dart a
+    oubliée.</p>
+    <p class="tag no">La preuve, dans le fichier</p>
+    <p class="muted">La boucle de nettoyage des adresses fusionnées existait
+    <b>en deux exemplaires</b> — une méthode, et une copie recollée dans
+    l'entretien — et <b>leurs corps avaient déjà divergé</b> : l'une retirait
+    l'identité et le marqueur de profil, l'autre non. Écrites à quelques jours
+    d'intervalle, invisibles l'une à l'autre à la relecture.</p>
+  </div>
+
+  <div class="card good">
+    <h3>Ce qui remplace : une session, un geste</h3>
+    <p>Un pair est désormais <b>un objet</b> qui porte tout : ses adresses BLE,
+    ses observations, son lien, son canal, son identité, ses marqueurs. Le
+    fermer, c'est <b>un appel</b> — <code>release()</code> — et il n'existe aucun
+    autre chemin pour le faire.</p>
+    <table>
+      <tr><th></th><th>Avant</th><th>Après</th></tr>
+      <tr><td>Un pair, c'est…</td>
+          <td>9 entrées dans 9 collections</td>
+          <td><b>1 objet</b></td></tr>
+      <tr><td>Le fermer</td>
+          <td>9 retraits, dans le bon ordre, à ne pas oublier</td>
+          <td><b>1 geste, impossible à faire à moitié</b></td></tr>
+      <tr><td>Son état (détecté / en cours / identifié)</td>
+          <td>un champ, écrit par 3 chemins — dont un l'oubliait toujours</td>
+          <td><b>calculé</b> depuis ce que la session possède</td></tr>
+      <tr><td>Changement d'adresse MAC</td>
+          <td>2 lignes, une « abandonnée », son transport refermé
+              <b>3 s plus tard</b></td>
+          <td>2 adresses, <b>même objet</b> — rien à abandonner</td></tr>
+      <tr><td>« Redessine l'écran »</td>
+          <td>émis à la main en 7 endroits — et jamais quand un pair
+              s'éteint</td>
+          <td><b>calculé</b> : l'écran serait-il différent&nbsp;?</td></tr>
+    </table>
+    <p class="muted">Résultat mesuré : <b>252 lignes de moins</b>, et
+    <b>156 tests</b> qui passent.</p>
+  </div>
+
+  <h3>Une seule définition de « il est là »</h3>
+
+  <p>C'est le cœur du changement, et la réponse à une objection de Jay : le code
+  ouvrait une connexion complète <b>dès la première annonce</b> d'un inconnu —
+  donc pour chaque passant, chaque voiture arrêtée au feu.</p>
+
+  <table>
+    <tr><th>Règle</th><th>Valeur</th><th>Ce qu'elle décide</th></tr>
+    <tr><td><b>Fraîcheur</b></td><td class="mono">5 s</td>
+        <td>« il est là <b>maintenant</b> » : affichage, envoi d'un message,
+        certificat, barrière du produit</td></tr>
+    <tr><td><b>Stabilité</b></td><td class="mono">10 s + 5 annonces</td>
+        <td>avant d'ouvrir un lien vers un <b>inconnu</b>, et avant de certifier
+        un croisement</td></tr>
+    <tr><td><b>Oubli</b></td><td class="mono">30 s</td>
+        <td>on referme la session <b>et on coupe la radio</b></td></tr>
+  </table>
+
+  <div class="card">
+    <h3>Pourquoi une durée, et pas « 15 pings en 20 secondes »</h3>
+    <p>L'intention de Jay était juste : ne pas payer une poignée de main pour
+    quelqu'un qui traverse le couloir. Mais le <b>compte d'annonces</b> est le
+    mauvais instrument — l'advertising BLE tourne à <b>~100 ms</b>, pas à la
+    seconde. « 15 pings » est atteint en <b>moins de deux secondes</b> et ne
+    filtre rien du tout.</p>
+    <p>La mesure retenue est donc une <b>durée de contact continu</b>, avec la
+    <b>même valeur que le certificat de croisement</b> décidé le 13 juillet : un
+    seul seuil dit « ce n'est pas un passant », et il sert aux deux.
+    <b>Un réglage en moins, pas un de plus.</b></p>
+    <p class="muted">Un <b>ami</b> reconnu à son identifiant rotatif n'est pas
+    concerné : le reconnaître ne coûte rien, donc il apparaît immédiatement.</p>
+  </div>
+
+  <div class="lab">
+    <h3>Simulateur — depuis combien de temps ne l'as-tu pas entendu ?</h3>
+    <div class="row" style="margin-bottom:10px">
+      <div class="col">
+        <input type="range" id="frT" min="0" max="40" value="0" step="1"
+               style="width:100%">
+        <div class="faint">Silence radio : <b><span id="frTv">0</span> s</b></div>
+      </div>
+      <div class="col">
+        <span class="sw2 on" data-sw2="lien"><span class="dot"></span>un lien GATT
+        est ouvert</span>
+      </div>
+    </div>
+    <div class="row">
+      <div class="col card bad" style="margin:6px 0">
+        <div class="faint">Ancien système</div>
+        <div id="frOld"></div>
+      </div>
+      <div class="col card good" style="margin:6px 0">
+        <div class="faint">Depuis le 18 août</div>
+        <div id="frNew"></div>
+      </div>
+    </div>
+    <div class="legend">Garde le lien ouvert et pousse le curseur à fond :
+    l'ancien système répond <b>« il est là »</b> indéfiniment, et acceptait
+    d'envoyer un message à quelqu'un parti depuis des minutes. Coupe le lien :
+    il tenait encore <b>25 secondes</b> sur un souvenir.</div>
+  </div>
+
+  <div class="card bad">
+    <h3>Le commentaire disait déjà la règle. Le code ne l'appliquait pas.</h3>
+    <pre>/// Il ne doit jamais s'appuyer sur un souvenir :
+/// c'est la présence vivante qui répond, pas un historique.
+final peerInRangeProvider = …   // ← 25 s de souvenir, infini si relié</pre>
+    <p class="tag no">Leçon</p>
+    <p class="muted"><b>Troisième commentaire de ce chantier</b> à affirmer une
+    règle que son code n'appliquait pas. Un commentaire n'est pas une garantie —
+    et celui qui énonce une règle est le plus dangereux de tous, parce qu'il
+    dissuade d'aller vérifier.</p>
+  </div>
+
+  <h3>Deux défauts que personne n'aurait signalés</h3>
+
+  <div class="row top">
+    <div class="col card bad">
+      <h3>La clé de diffusion ne tournait jamais</h3>
+      <p>Écrite une fois à l'installation, <b>plus jamais</b> régénérée — pas
+      même par la remise à zéro du ping.</p>
+      <p>Or c'est le secret qui engendre l'identifiant rotatif. Un ami qui l'a
+      téléchargée peut te reconnaître <b>à vie</b>, hors ligne et en silence. La
+      règle serveur l'empêche de la <i>relire</i> après une rupture — elle ne
+      reprend pas ce qu'il a déjà copié sur son téléphone.</p>
+      <p class="big">Retirer un ami ne retirait rien.</p>
+      <p class="muted">Corrigé : rotation tous les <b>7 jours</b>, la précédente
+      reste publiée pour qu'une rotation n'aveugle personne, et retirer un ami
+      déclenche une <b>révocation</b> qui, elle, jette l'ancienne.</p>
+    </div>
+    <div class="col card bad">
+      <h3>Cinq identités, et une course au démarrage</h3>
+      <p>L'objet qui porte la clé d'appareil se construisait avec
+      <code>new</code> à <b>cinq endroits</b>, sans verrou. Deux
+      <code>await</code> séparaient le constat « rien en mémoire » de
+      l'écriture.</p>
+      <p>Au <b>tout premier lancement</b>, deux d'entre eux partent en
+      parallèle, aucun ne trouve de clé, et <b>les deux en créent une</b>.</p>
+      <p class="tag no">Mesuré, pas déduit</p>
+      <p class="muted"><b>4 clés d'appareil créées au lieu d'une.</b> On pouvait
+      diffuser un identifiant dérivé de la clé A pendant que le serveur recevait
+      la clé B — donc n'être <i>jamais</i> reconnu par ses amis. Le verrou a été
+      retiré exprès pour reproduire la panne avant de la corriger.</p>
+    </div>
+  </div>
+
+  <div class="card good">
+    <h3>Ce que le fil commun devient</h3>
+    <p>L'onglet précédent finissait sur : <i>aucun de ces dix défauts ne lève
+    d'erreur</i>. Celui-ci ajoute la marche d'après.</p>
+    <p class="big">Quand le troisième correctif fabrique le troisième défaut,
+    ce n'est plus le correctif qu'il faut changer.</p>
+    <p>Une garde de plus se maintient, se comprend et se contourne par mégarde.
+    Une cause supprimée ne coûte plus rien. Neuf collections qu'il fallait penser
+    à nettoyer ensemble sont devenues un objet qu'on ferme d'un geste : le
+    défaut n'est pas <i>corrigé</i>, il est devenu <b>impossible à écrire</b>.</p>
+    <p class="muted">C'est la règle de <code>CLAUDE.md</code>, appliquée un
+    niveau plus haut que d'habitude : <b>la fiabilité vient de l'architecture,
+    pas du rebouchage des failles.</b></p>
+  </div>
+
+  <div class="card">
+    <h3>⚠️ Ce qui n'est pas prouvé</h3>
+    <p>Tout ce qui précède est vérifié par <b>156 tests</b> qui font tourner deux
+    piles complètes — mais <b>rien n'a encore tourné sur un téléphone</b>.</p>
+    <p>Les trois durées (5 / 10 / 30 s) sont <b>raisonnées, pas mesurées</b>. Le
+    raisonnement — « 5 s de silence, c'est cinquante annonces manquées d'affilée »
+    — suppose un <b>scan continu</b>, et c'est précisément ce qu'Android ne
+    garantit pas <b>écran éteint</b>. Si le scan est bridé, la liste clignotera
+    toutes les 5 secondes.</p>
+    <p class="muted">C'est le premier point à confronter au terrain, avec les
+    compteurs <code>rawScans</code> / <code>neoScans</code> que le diagnostic
+    expose déjà.</p>
+  </div>
+</section>
+
 </main>
 
 <script>
@@ -1022,6 +1216,64 @@ if (kill) {
   };
   drawSup();
 }
+
+/* --------------------------------------- 10 · la règle de fraîcheur */
+/* Les valeurs sont celles de `PresenceRules`, à la seconde près : un
+   simulateur qui arrondirait n'illustrerait plus la règle, il en montrerait
+   une autre. */
+const FRESH_FOR = 5, FORGET_AFTER = 30, OLD_GRACE = 25;
+const SW2 = {lien: 1};
+document.querySelectorAll('.sw2').forEach(el => {
+  el.onclick = () => {
+    const k = el.dataset.sw2;
+    SW2[k] = SW2[k] ? 0 : 1;
+    el.classList.toggle('on', !!SW2[k]);
+    drawFresh();
+  };
+});
+const frT = document.getElementById('frT');
+function ligne(label, ok, detail) {
+  return `<div style="margin:6px 0">${label} ` +
+    `<span class="tag ${ok ? 'ok' : 'no'}">${ok ? 'oui' : 'non'}</span>` +
+    (detail ? `<div class="faint" style="margin-top:2px">${detail}</div>` : '') +
+    `</div>`;
+}
+function drawFresh() {
+  if (!frT) return;
+  const t = +frT.value, lien = !!SW2.lien;
+  document.getElementById('frTv').textContent = t;
+
+  /* ANCIEN : la présence tolérait 25 s d'absence d'annonce — et refusait de
+     faire partir un pair encore relié, donc indéfiniment. L'envoi ne
+     vérifiait rien de plus que « une entrée existe ». */
+  const vieuxPresent = lien || t <= OLD_GRACE;
+  document.getElementById('frOld').innerHTML =
+    ligne('Affiché comme présent', vieuxPresent,
+      lien ? 'un pair relié n\'était jamais élagué' :
+             `souvenir toléré jusqu'à ${OLD_GRACE} s`) +
+    ligne('On accepte de lui écrire', vieuxPresent,
+      vieuxPresent && t > FRESH_FOR
+        ? '⚠️ il peut être parti depuis longtemps — le message se perd sans un mot'
+        : '') +
+    ligne('Session ouverte', lien || t <= OLD_GRACE,
+      lien ? 'jamais refermée, même après des heures de silence' : '');
+
+  /* NOUVEAU : une seule définition de la présence ; démonter la session est
+     une décision différente, et plus tardive. */
+  const frais = t <= FRESH_FOR;
+  const session = t <= FORGET_AFTER;
+  document.getElementById('frNew').innerHTML =
+    ligne('Affiché comme présent', frais,
+      frais ? `preuve d'observation de moins de ${FRESH_FOR} s`
+            : 'plus de preuve récente — on ne le prétend pas') +
+    ligne('On accepte de lui écrire', frais,
+      frais ? '' : 'refusé, et l\'utilisateur le voit') +
+    ligne('Session ouverte', session,
+      session
+        ? (frais ? '' : 'gardée : un trou de radio ne vaut pas un démontage')
+        : 'refermée, et la radio coupée avec');
+}
+if (frT) { frT.oninput = drawFresh; drawFresh(); }
 </script>
 </body>
 </html>
