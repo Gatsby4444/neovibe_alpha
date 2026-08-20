@@ -391,7 +391,7 @@ class FriendRequestMessage extends PeerMessage {
     required this.timestamp,
     required this.signature,
     required this.devicePublicKey,
-    required this.broadcastKey,
+    required this.x25519PublicKey,
   });
 
   final String from;
@@ -402,7 +402,9 @@ class FriendRequestMessage extends PeerMessage {
 
   /// Clé de diffusion de l'émetteur : c'est elle qui permettra de le reconnaître
   /// silencieusement plus tard, sans serveur.
-  final Uint8List broadcastKey;
+  /// Clé PUBLIQUE X25519 : de quoi dériver le secret de notre paire, et rien
+  /// d'autre. Elle ne vaut rien sans la clé privée d'en face.
+  final Uint8List x25519PublicKey;
 
   static List<int> signedPayload(String from, String to, String ts) =>
       utf8.encode('nv-friend|$from|$to|$ts');
@@ -422,7 +424,7 @@ class FriendRequestMessage extends PeerMessage {
     'ts': timestamp,
     'sigFrom': base64Encode(signature),
     'edPubFrom': base64Encode(devicePublicKey),
-    'broadcastFrom': base64Encode(broadcastKey),
+    'x25519From': base64Encode(x25519PublicKey),
   };
 
   factory FriendRequestMessage.fromJson(Map<String, dynamic> map) =>
@@ -432,7 +434,7 @@ class FriendRequestMessage extends PeerMessage {
         timestamp: map['ts'] as String,
         signature: base64Decode(map['sigFrom'] as String),
         devicePublicKey: base64Decode(map['edPubFrom'] as String),
-        broadcastKey: base64Decode(map['broadcastFrom'] as String),
+        x25519PublicKey: base64Decode(map['x25519From'] as String),
       );
 }
 
@@ -441,12 +443,15 @@ class FriendAcceptMessage extends PeerMessage {
   const FriendAcceptMessage({
     required this.record,
     required this.devicePublicKey,
-    required this.broadcastKey,
+    required this.x25519PublicKey,
   });
 
   final Map<String, dynamic> record;
   final Uint8List devicePublicKey;
-  final Uint8List broadcastKey;
+
+  /// Clé PUBLIQUE X25519 : de quoi dériver le secret de notre paire, et rien
+  /// d'autre. Elle ne vaut rien sans la clé privée d'en face.
+  final Uint8List x25519PublicKey;
 
   static List<int> signedPayload(String from, String to, String ts) =>
       utf8.encode('nv-friend-accept|$from|$to|$ts');
@@ -505,18 +510,18 @@ class FriendAcceptMessage extends PeerMessage {
     't': 'friendAccept',
     ...record,
     'edPubTo': base64Encode(devicePublicKey),
-    'broadcastTo': base64Encode(broadcastKey),
+    'x25519To': base64Encode(x25519PublicKey),
   };
 
   factory FriendAcceptMessage.fromJson(Map<String, dynamic> map) {
     final record = Map<String, dynamic>.from(map)
       ..remove('t')
       ..remove('edPubTo')
-      ..remove('broadcastTo');
+      ..remove('x25519To');
     return FriendAcceptMessage(
       record: record,
       devicePublicKey: base64Decode(map['edPubTo'] as String),
-      broadcastKey: base64Decode(map['broadcastTo'] as String),
+      x25519PublicKey: base64Decode(map['x25519To'] as String),
     );
   }
 }

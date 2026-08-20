@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../ping_store.dart';
 import '../proximity_identity.dart';
+import 'advert_plan.dart';
 import 'ble_radio.dart';
 import 'radio_status.dart';
 
@@ -76,6 +79,35 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
   /// en publiait une autre au serveur — et nos amis ne nous reconnaissaient
   /// jamais.
   ProximityIdentity get _identity => ref.read(proximityIdentityProvider);
+
+  /// ⚠️ **Le carnet vient du provider, jamais d'un `new` local.** Cinq
+  /// instances coexistaient jadis, chacune avec son cache — le superviseur
+  /// aurait planifié sur une liste d'amis différente de celle que le réseau
+  /// utilise pour reconnaître. C'est le défaut déjà payé deux fois sur ce
+  /// chantier (carnet le 2026-08-17, identité le 2026-08-18).
+  FriendKeyStore get _keyBook => ref.read(friendBookProvider);
+
+  /// Version de la table de reconnaissance actuellement déposée au natif.
+  var _tableId = 0;
+
+  /// La table déposée, **avec sa clé de lecture des rangs**.
+  ///
+  /// ⚠️ C'est la seule façon de savoir qui est le « rang 3 » d'un constat natif.
+  /// Elle vit ici, à côté de l'envoi, et pas ailleurs : deux copies de cet ordre
+  /// finiraient par diverger, et un constat serait alors attribué à la mauvaise
+  /// personne — sans erreur, sans trace.
+  NativeRecognitionTable? _recognition;
+
+  /// Traduit un constat du natif en identifiant d'ami.
+  ///
+  /// Rend `null` si le constat vient d'une table périmée : on **jette** plutôt
+  /// que d'attribuer au hasard. Un croisement faux vaut moins que pas de
+  /// croisement.
+  String? friendOfSighting(int tableId, int index) {
+    final table = _recognition;
+    if (table == null || table.tableId != tableId) return null;
+    return table.friendAt(index);
+  }
 
   StreamSubscription<RadioEvent>? _events;
   Timer? _rotation;
@@ -162,19 +194,106 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
       state = state.copyWith(status: const RadioStarting());
     }
     _slot = ProximityIdentity.slotIndex(DateTime.now());
-    await _radio.start(await _identity.currentRotatingId());
+    // Le démarrage a besoin d'un identifiant tout de suite ; le plan complet
+    // arrive juste après et prend le relais.
+    await _radio.start(await _identity.currentPublicPingId());
+    await refreshPlan();
     _rotation?.cancel();
-    // Une minute : le créneau dure 15 min, on veut juste ne pas le rater de
-    // beaucoup. Un réveil par minute sur un service déjà vivant ne coûte rien.
-    _rotation = Timer.periodic(const Duration(minutes: 1), (_) => _rotate());
+    // ⚠️ **Ce minuteur ne pousse plus d'identifiant, il RENOUVELLE le plan.**
+    //
+    // C'est toute la différence avec l'ancien code : si ce minuteur ne tourne
+    // pas — parce qu'Android a détruit l'activité — le natif continue d'émettre
+    // juste pendant des heures. Avant, l'identifiant se figeait à la seconde où
+    // le Dart mourait (audit du 2026-08-19, point H).
+    //
+    // Toutes les heures : le plan couvre 12 h, donc il faudrait rater douze
+    // renouvellements d'affilée pour qu'il expire.
+    _rotation = Timer.periodic(const Duration(hours: 1), (_) => refreshPlan());
   }
 
-  Future<void> _rotate() async {
-    final slot = ProximityIdentity.slotIndex(DateTime.now());
-    if (slot == _slot) return;
-    _slot = slot;
+  /// Recalcule et redépose le plan d'émission.
+  ///
+  /// À appeler quand le carnet d'amis change (un ami ajouté ou **retiré** — sa
+  /// révocation est immédiate et locale), quand le mode ping bascule, et
+  /// régulièrement pour repousser l'horizon.
+  Future<void> refreshPlan() async {
+    if (!state.wantsVisible) return;
+    final now = DateTime.now();
+    _slot = ProximityIdentity.slotIndex(now);
     try {
-      await _radio.updateAdvert(await _identity.currentRotatingId());
+      final friends = await _keyBook.all();
+      final secrets = await _identity.pairSecrets({
+        for (final f in friends.values) f.userId: f.x25519PublicKey,
+      });
+
+      // ⚠️ **Le mode ping est ce qui ajoute l'identifiant PUBLIC, et rien
+      // d'autre.** Les jetons d'amis, eux, partent toujours : croiser un ami et
+      // se rendre découvrable d'inconnus sont deux fonctions distinctes qui
+      // partagent la même radio (consigne de Jay, 2026-08-20).
+      final plan = await const AdvertPlanner().plan(
+        secrets: secrets,
+        fromSlot: _slot,
+        slots:
+            planHorizon.inMilliseconds ~/
+            ProximityIdentity.slotDuration.inMilliseconds,
+        pingSeed: _identity.pingSeed(),
+      );
+
+      if (plan.isEmpty) {
+        // Aucun ami et pas de ping : rien à crier. On le dit plutôt que de
+        // laisser une annonce périmée tourner.
+        return;
+      }
+
+      final perSlot = plan.forSlot(_slot).length;
+      final flat = Uint8List(
+        plan.tokens.length * ProximityIdentity.tokenLength,
+      );
+      for (var i = 0; i < plan.tokens.length; i++) {
+        flat.setRange(
+          i * ProximityIdentity.tokenLength,
+          (i + 1) * ProximityIdentity.tokenLength,
+          plan.tokens[i].bytes,
+        );
+      }
+
+      await _radio.setAdvertPlan(
+        tokens: flat,
+        fromSlot: plan.fromSlot,
+        slotMillis: ProximityIdentity.slotDuration.inMilliseconds,
+        slotCount: plan.toSlot - plan.fromSlot + 1,
+        perSlot: perSlot,
+        tokenLength: ProximityIdentity.tokenLength,
+      );
+
+      // ⚠️ **Et la table de reconnaissance, sinon le natif diffuse en aveugle.**
+      //
+      // Le plan l'a rendu autonome pour ÉMETTRE ; sans table, il reste incapable
+      // de VOIR. L'appareil serait alors vu sans voir — exactement le défaut
+      // qu'on corrige. Les deux se déposent donc ensemble, toujours.
+      if (secrets.isNotEmpty) {
+        _tableId++;
+        final table = await const AdvertPlanner().nativeTable(
+          secrets: secrets,
+          fromSlot: _slot,
+          slots:
+              planHorizon.inMilliseconds ~/
+              ProximityIdentity.slotDuration.inMilliseconds,
+          tableId: _tableId,
+        );
+        _recognition = table;
+        await _radio.setRecognitionTable(
+          tableId: table.tableId,
+          tokens: table.tokens,
+          fromSlot: table.fromSlot,
+          slotMillis: ProximityIdentity.slotDuration.inMilliseconds,
+          slotCount: table.slotCount,
+          perSlot: table.perSlot,
+          tokenLength: ProximityIdentity.tokenLength,
+        );
+      } else {
+        _recognition = null;
+      }
     } catch (_) {
       // ⚠️ **L'échec dit quelque chose : le service n'est plus là.**
       //

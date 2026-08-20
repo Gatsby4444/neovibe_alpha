@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/features/proximity/proximity_identity.dart';
@@ -92,8 +90,8 @@ void main() {
 
     final resultats = await Future.wait([
       identite.edPublicKey(),
-      identite.broadcastKey(),
-      identite.currentRotatingId(),
+      identite.x25519PublicKey(),
+      identite.currentPublicPingId(),
       identite.edPublicKey(),
     ]);
 
@@ -103,85 +101,72 @@ void main() {
       reason: 'la clé d\'appareil ne doit être créée qu\'une fois',
     );
     expect(
-      keystore.ecritures.where((k) => k == 'nv_broadcast_v2').length,
+      keystore.ecritures.where((k) => k == 'nv_x25519_seed').length,
       1,
-      reason: 'la clé de diffusion ne doit être créée qu\'une fois',
+      reason: "la clé X25519 ne doit être créée qu'une fois",
     );
-
-    // Et la clé rendue est bien celle qui a été stockée.
-    final stockee = base64Decode(
-      jsonDecode(keystore.valeurs['nv_broadcast_v2']!)['key'] as String,
-    );
-    expect(resultats[1], stockee);
+    expect(resultats[0], resultats[3]);
   });
 
-  test(
-    'la clé de diffusion est stable tant qu\'elle n\'a pas 7 jours',
-    () async {
-      final identite = ProximityIdentity();
-      final premiere = await identite.broadcastKey();
+  test('les vestiges de la clé de diffusion sont EFFACÉS au chargement', () async {
+    // ⚠️ **Un secret orphelin reste un secret.** La clé de diffusion n'a plus
+    // aucun usage depuis le 2026-08-20, mais la laisser dormir dans le Keystore
+    // reviendrait à garder un secret que plus rien ne protège, ne fait tourner
+    // ni ne révoque. On le supprime, on ne se contente pas de l'ignorer.
+    keystore.valeurs['nv_broadcast_key'] = 'AAAA';
+    keystore.valeurs['nv_broadcast_v2'] = '{"key":"AAAA"}';
 
-      expect(await identite.rotateBroadcastIfDue(), isFalse);
-      expect(await identite.broadcastKey(), premiere);
-      expect(await identite.previousBroadcastKey(), isNull);
-    },
-  );
+    await ProximityIdentity().edPublicKey();
 
-  test('passé 7 jours elle tourne, et l\'ancienne reste publiée', () async {
-    // On écrit directement une clé datée d'il y a huit jours : c'est la seule
-    // façon de vieillir l'identité sans horloge injectable, et c'est fidèle —
-    // c'est exactement ce que le Keystore contiendra au bout d'une semaine.
-    final ancienne = List<int>.generate(32, (i) => i);
-    keystore.valeurs['nv_broadcast_v2'] = jsonEncode({
-      'key': base64Encode(ancienne),
-      'at': DateTime.now()
-          .toUtc()
-          .subtract(const Duration(days: 8))
-          .toIso8601String(),
-    });
+    expect(keystore.valeurs.containsKey('nv_broadcast_key'), isFalse);
+    expect(keystore.valeurs.containsKey('nv_broadcast_v2'), isFalse);
+  });
 
-    final identite = ProximityIdentity();
-    expect(await identite.rotateBroadcastIfDue(), isTrue);
+  test('deux appareils dérivent LE MÊME secret de paire', () async {
+    // ⚠️ **La propriété qui remplace toute la distribution de clés.** Aucun
+    // secret ne circule : chacun combine sa clé privée avec la clé publique de
+    // l'autre, et les deux tombent sur la même valeur. C'est ce qui supprime le
+    // trou de 7 jours — il n'y a plus rien à synchroniser.
+    final alice = ProximityIdentity();
+    final pubA = await alice.x25519PublicKey();
 
-    expect(await identite.broadcastKey(), isNot(ancienne));
+    keystore.valeurs.clear();
+    keystore.ecritures.clear();
+    final bob = ProximityIdentity();
+    final pubB = await bob.x25519PublicKey();
+
+    expect(pubA, isNot(pubB));
+    expect(await alice.pairSecret(pubB), await bob.pairSecret(pubA));
+  });
+
+  test("un jeton de paire n'est lisible que par le couple", () async {
+    final alice = ProximityIdentity();
+    final pubA = await alice.x25519PublicKey();
+    keystore.valeurs.clear();
+    final bob = ProximityIdentity();
+    final pubB = await bob.x25519PublicKey();
+    keystore.valeurs.clear();
+    final carole = ProximityIdentity();
+    final pubC = await carole.x25519PublicKey();
+
+    final slot = ProximityIdentity.slotIndex(DateTime.now());
+    final aliceBob = await ProximityIdentity.pairToken(
+      await alice.pairSecret(pubB),
+      slot,
+    );
+    final aliceCarole = await ProximityIdentity.pairToken(
+      await alice.pairSecret(pubC),
+      slot,
+    );
+
+    // Bob retrouve le jeton qu'Alice lui destine...
     expect(
-      await identite.previousBroadcastKey(),
-      ancienne,
-      reason:
-          'sans elle, la rotation nous rendrait invisible à tous nos amis '
-          'jusqu\'à leur prochaine synchronisation',
+      await ProximityIdentity.pairToken(await bob.pairSecret(pubA), slot),
+      aliceBob,
     );
+    // ...et Carole, amie d'Alice elle aussi, n'y voit rien.
+    expect(aliceBob, isNot(aliceCarole));
   });
-
-  test('une RÉVOCATION jette l\'ancienne clé', () async {
-    final identite = ProximityIdentity();
-    final avant = await identite.broadcastKey();
-
-    await identite.rotateBroadcast(keepPrevious: false);
-
-    // ⚠️ **C'est le seul moyen de reprendre ce qui a déjà été distribué.** Une
-    // clé de diffusion n'est pas un droit de lecture qu'on révoque côté serveur :
-    // c'est un secret copié sur l'appareil de l'autre. Garder la précédente
-    // laisserait l'ex-ami nous reconnaître — donc annulerait la révocation.
-    expect(await identite.broadcastKey(), isNot(avant));
-    expect(await identite.previousBroadcastKey(), isNull);
-  });
-
-  test(
-    'l\'ancien format de clé est repris sans faire tourner le parc',
-    () async {
-      final ancienne = List<int>.generate(32, (i) => (i * 3) % 256);
-      keystore.valeurs['nv_broadcast_key'] = base64Encode(ancienne);
-
-      final identite = ProximityIdentity();
-
-      // La clé en place reste valable : la faire tourner au premier lancement de
-      // cette version aurait rendu tout le monde invisible en même temps.
-      expect(await identite.broadcastKey(), ancienne);
-      expect(keystore.valeurs.containsKey('nv_broadcast_key'), isFalse);
-      expect(keystore.valeurs.containsKey('nv_broadcast_v2'), isTrue);
-    },
-  );
 
   test(
     'oublier l\'identité efface le Keystore, et la suite en recrée une neuve',
@@ -201,16 +186,19 @@ void main() {
     },
   );
 
-  test('l\'ID rotatif change de créneau en créneau, et se recalcule', () async {
+  test("l'identifiant PUBLIC change de créneau en créneau", () async {
+    // Il ne sert qu'au mode ping, et n'est reconnu par personne : il rend
+    // découvrable, il n'identifie pas. Sa seule propriété exigible est de ne
+    // pas permettre de suivre celui qui l'émet.
     final identite = ProximityIdentity();
-    final cle = await identite.broadcastKey();
+    final graine = identite.pingSeed();
 
     final slot = ProximityIdentity.slotIndex(DateTime.now());
-    final ici = await ProximityIdentity.rotatingId(cle, slot);
-    final apres = await ProximityIdentity.rotatingId(cle, slot + 1);
+    final ici = await ProximityIdentity.publicPingId(graine, slot);
+    final apres = await ProximityIdentity.publicPingId(graine, slot + 1);
 
-    expect(await identite.currentRotatingId(), ici);
+    expect(await identite.currentPublicPingId(), ici);
     expect(ici, isNot(apres), reason: 'sinon le pistage serait trivial');
-    expect(ici.length, 16, reason: 'la place dans l\'annonce BLE est comptée');
+    expect(ici.length, 16, reason: "la place dans l'annonce BLE est comptée");
   });
 }

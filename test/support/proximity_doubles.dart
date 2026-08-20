@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
 import 'package:neovibe/features/proximity/net/peer_network.dart';
@@ -16,66 +18,86 @@ import 'package:neovibe/features/proximity/proximity_identity.dart';
 /// différentes et des méthodes qui ont divergé. Deux doubles d'un même objet
 /// finissent toujours par tester deux choses différentes.
 class IdentiteMemoire implements ProximityIdentity {
-  IdentiteMemoire._(this._pair, this._pub, this._broadcast);
+  IdentiteMemoire._(this._pair, this._pub, this._x, this._xPub, this._pingSeed);
 
   static Future<IdentiteMemoire> creer({int graine = 1}) async {
     final pair = await Ed25519().newKeyPairFromSeed(
       List<int>.generate(32, (i) => (i * 7 + graine) % 256),
     );
     final pub = await pair.extractPublicKey();
+    // ⚠️ **Une VRAIE paire X25519, pas un tableau d'octets quelconque.** Tout
+    // l'intérêt du secret par paire est que les deux côtés obtiennent la même
+    // valeur ; un double qui inventerait le partage ne prouverait rien.
+    final x = await X25519().newKeyPairFromSeed(
+      List<int>.generate(32, (i) => (i * 13 + graine * 5) % 256),
+    );
+    final xPub = await x.extractPublicKey();
     return IdentiteMemoire._(
       pair,
       Uint8List.fromList(pub.bytes),
+      x,
+      Uint8List.fromList(xPub.bytes),
       Uint8List.fromList(List<int>.generate(32, (i) => (i * graine + 3) % 256)),
     );
   }
 
   final SimpleKeyPair _pair;
   final Uint8List _pub;
-  Uint8List _broadcast;
-  Uint8List? _precedente;
-  DateTime _tournee = DateTime(2026, 8, 18);
+  final SimpleKeyPair _x;
+  final Uint8List _xPub;
+  Uint8List _pingSeed;
 
-  /// Combien de fois la clé de diffusion a tourné. Le test s'en sert pour
-  /// vérifier qu'une révocation a bien lieu — et une seule fois.
-  var rotations = 0;
+  final _secrets = <String, Uint8List>{};
 
   @override
   Future<Uint8List> edPublicKey() async => _pub;
 
   @override
-  Future<Uint8List> broadcastKey() async => _broadcast;
+  Future<Uint8List> x25519PublicKey() async => _xPub;
 
   @override
-  Future<Uint8List?> previousBroadcastKey() async => _precedente;
-
-  @override
-  Future<DateTime> broadcastRotatedAt() async => _tournee;
-
-  @override
-  Future<bool> rotateBroadcastIfDue() async {
-    if (DateTime.now().difference(_tournee) <
-        ProximityIdentity.rotationPeriod) {
-      return false;
-    }
-    await rotateBroadcast(keepPrevious: true);
-    return true;
+  Future<Uint8List> pairSecret(Uint8List friendX25519Pub) async {
+    final cle = ProximityIdentity.hex(friendX25519Pub);
+    final connu = _secrets[cle];
+    if (connu != null) return connu;
+    final partage = await X25519().sharedSecretKey(
+      keyPair: _x,
+      remotePublicKey: SimplePublicKey(
+        friendX25519Pub,
+        type: KeyPairType.x25519,
+      ),
+    );
+    final derive = await Hkdf(
+      hmac: Hmac.sha256(),
+      outputLength: 32,
+    ).deriveKey(secretKey: partage, info: utf8.encode('nv-pair-v3'));
+    return _secrets[cle] = Uint8List.fromList(await derive.extractBytes());
   }
 
   @override
-  Future<void> rotateBroadcast({required bool keepPrevious}) async {
-    _precedente = keepPrevious ? _broadcast : null;
-    rotations++;
-    _broadcast = Uint8List.fromList(
-      List<int>.generate(32, (i) => (i * 11 + rotations * 17) % 256),
-    );
-    _tournee = DateTime.now();
+  Future<Map<String, Uint8List>> pairSecrets(
+    Map<String, Uint8List> friendPublicKeys,
+  ) async {
+    final out = <String, Uint8List>{};
+    for (final e in friendPublicKeys.entries) {
+      out[e.key] = await pairSecret(e.value);
+    }
+    return out;
+  }
+
+  @override
+  Uint8List pingSeed({bool renew = false}) {
+    if (renew) {
+      _pingSeed = Uint8List.fromList(
+        List<int>.generate(32, (i) => (i * 29 + 7) % 256),
+      );
+    }
+    return _pingSeed;
   }
 
   @override
   Future<void> forget() async {
-    _precedente = null;
-    _broadcast = Uint8List(32);
+    _secrets.clear();
   }
 
   @override
@@ -85,10 +107,24 @@ class IdentiteMemoire implements ProximityIdentity {
   }
 
   @override
-  Future<Uint8List> currentRotatingId() => ProximityIdentity.rotatingId(
-    _broadcast,
+  Future<Uint8List> currentPublicPingId() => ProximityIdentity.publicPingId(
+    _pingSeed,
     ProximityIdentity.slotIndex(DateTime.now()),
   );
+
+  /// Le jeton que **cet appareil** émet à l'intention de [destinataire].
+  ///
+  /// ⚠️ **C'est le cœur du nouveau protocole, et ça ne se simule pas.** Le
+  /// secret est réellement dérivé des deux vraies paires X25519 : si la
+  /// dérivation ne donnait pas la même valeur des deux côtés, le test
+  /// échouerait — ce qui est exactement ce qu'on veut qu'il prouve.
+  Future<Uint8List> jetonPour(IdentiteMemoire destinataire, {int? slot}) async {
+    final secret = await pairSecret(await destinataire.x25519PublicKey());
+    return ProximityIdentity.pairToken(
+      secret,
+      slot ?? ProximityIdentity.slotIndex(DateTime.now()),
+    );
+  }
 }
 
 /// Carnet d'amis en mémoire — même logique d'index rotatif que le vrai.
@@ -129,23 +165,6 @@ class CarnetMemoire implements FriendKeyStore {
   Future<void> clear() async {
     _amis.clear();
     _changes.ping();
-  }
-
-  /// Indexe **les deux clés** de chaque ami — courante et précédente — comme le
-  /// vrai carnet. C'est ce qui permet à un ami qui vient de faire tourner sa
-  /// clé de rester reconnu.
-  @override
-  Future<Map<String, FriendKeys>> rotatingIndex(int slot) async {
-    final index = <String, FriendKeys>{};
-    for (final ami in _amis.values) {
-      for (final cle in ami.broadcastKeys) {
-        for (final s in [slot - 1, slot, slot + 1]) {
-          final id = await ProximityIdentity.rotatingId(cle, s);
-          index[FriendKeyBook.hex(id)] = ami;
-        }
-      }
-    }
-    return index;
   }
 }
 

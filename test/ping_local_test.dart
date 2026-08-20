@@ -20,22 +20,22 @@ void main() {
   test('l\'ID diffusé change à chaque créneau de 15 min', () async {
     final key = Uint8List.fromList(List.generate(32, (i) => i));
     final slot = ProximityIdentity.slotIndex(DateTime.now());
-    final now = await ProximityIdentity.rotatingId(key, slot);
-    final next = await ProximityIdentity.rotatingId(key, slot + 1);
-    final again = await ProximityIdentity.rotatingId(key, slot);
+    final now = await ProximityIdentity.pairToken(key, slot);
+    final next = await ProximityIdentity.pairToken(key, slot + 1);
+    final again = await ProximityIdentity.pairToken(key, slot);
 
     expect(now.length, 16);
     expect(now, isNot(equals(next)), reason: 'un tiers ne doit pas pister');
     expect(again, equals(now), reason: 'même créneau = même ID (amis)');
   });
 
-  test('deux clés différentes ne collident pas sur le même créneau', () async {
+  test('deux secrets de paire ne collident pas sur le même créneau', () async {
     final a = Uint8List.fromList(List.generate(32, (i) => i));
     final b = Uint8List.fromList(List.generate(32, (i) => 31 - i));
     final slot = ProximityIdentity.slotIndex(DateTime.now());
     expect(
-      await ProximityIdentity.rotatingId(a, slot),
-      isNot(equals(await ProximityIdentity.rotatingId(b, slot))),
+      await ProximityIdentity.pairToken(a, slot),
+      isNot(equals(await ProximityIdentity.pairToken(b, slot))),
     );
   });
 

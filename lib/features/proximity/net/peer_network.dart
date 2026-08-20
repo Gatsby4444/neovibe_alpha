@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../ping_store.dart';
 import '../proximity_identity.dart';
+import 'advert_plan.dart';
 import 'peer_link.dart';
 import 'peer_session.dart';
 import 'proximity_protocol.dart';
@@ -105,6 +106,16 @@ class PeerNetwork {
   final FriendKeyStore _keyBook;
   final DateTime Function() _clock;
 
+  /// **L'heure de la proximité.** Une seule autorité pour toute la
+  /// fonctionnalité : le registre expire les sessions contre cette horloge, et
+  /// tout ce qui juge une session doit la lire ici.
+  ///
+  /// ⚠️ Le balayage des certificats appelait `DateTime.now()` directement
+  /// (audit du 2026-08-18, point G). Sans effet en production — les deux
+  /// valaient la même chose — mais sous horloge simulée, le registre et le
+  /// balayage n'étaient plus au même instant, et ce chemin devenait intestable.
+  DateTime now() => _clock();
+
   /// Le registre des pairs. Nommé `presence` parce que c'est la question qu'on
   /// lui pose ; il possède aussi le transport, qui n'intéresse que ce fichier.
   late final PeerRegistry presence;
@@ -119,18 +130,25 @@ class PeerNetwork {
   /// Au-delà, on considère que le lien ne s'ouvrira pas.
   static const connectTimeout = Duration(seconds: 15);
 
-  /// Index ID rotatif → ami, reconstruit à chaque créneau.
-  Map<String, FriendKeys> _friendIndex = {};
+  /// Table jeton reçu → ami, reconstruite à chaque créneau.
+  ///
+  /// ⚠️ **Elle ne contient plus de clés, seulement des jetons attendus.** Le
+  /// carnet range des clés publiques ; `AdvertPlanner` en dérive ce qu'on
+  /// s'attend à recevoir. Le réseau, lui, ne fait que comparer.
+  RecognitionTable _recognition = const RecognitionTable(
+    fromSlot: 0,
+    toSlot: -1,
+    byToken: {},
+  );
+  Map<String, FriendKeys> _friends = {};
   int _slot = -1;
+
+  static const _planner = AdvertPlanner();
 
   final _events = StreamController<PeerEvent>.broadcast();
   Stream<PeerEvent> get events => _events.stream;
 
   Timer? _housekeeping;
-
-  /// Signature du groupe de pairs **présents**, pour ne redessiner que sur
-  /// changement réel.
-  String _freshSignature = '';
 
   Future<void> start() async {
     // On s'abonne au carnet, on ne le relit pas à heure fixe : peu importe qui
@@ -145,24 +163,53 @@ class PeerNetwork {
 
   void _onBookChanged() => unawaited(refreshFriends());
 
+  /// ⚠️ **Fermer le réseau doit COUPER LA RADIO, pas seulement oublier.**
+  ///
+  /// Cette méthode se contentait de `session.release()` : le Dart oubliait, le
+  /// natif gardait ses liens GATT. C'est exactement le piège que le transport
+  /// documente ailleurs — `connect()` rend un succès **immédiat et sans le
+  /// moindre événement** quand un lien existe déjà. Le `PeerNetwork` suivant
+  /// attendait donc un événement qui ne viendrait jamais, et ce pair devenait
+  /// injoignable pour toute la vie du service, sans erreur ni trace.
+  ///
+  /// Elle passe donc par [_closeTransport], comme les deux autres chemins de
+  /// fermeture (`_close` et la branche « la radio s'est arrêtée » de
+  /// [onRadioEvent]). Trois chemins, une seule règle.
+  ///
+  /// Relevé à l'audit du 2026-08-18 (point B), corrigé le 2026-08-20.
   Future<void> dispose() async {
     _keyBook.changes.removeListener(_onBookChanged);
     _housekeeping?.cancel();
     _housekeeping = null;
     for (final session in presence.drain()) {
-      session.release();
+      _closeTransport(session);
     }
     await _events.close();
   }
 
   /// Y a-t-il un canal capable de chiffrer avec cette adresse ?
+  ///
+  /// ⚠️ **Point d'observation de test : aucun appelant dans `lib/`.** Vérifié à
+  /// l'audit du 2026-08-18 (point E). Conservé délibérément — il permet aux
+  /// tests de transport d'affirmer l'état du canal sans ouvrir la session — mais
+  /// **à retirer avant la mise en production** avec les autres accès de test
+  /// (`RAPPELS.md`). Ne pas l'appeler depuis du code de production : ce serait
+  /// lire l'état du transport depuis une couche qui n'a pas à le connaître.
   bool hasEstablishedChannel(String address) =>
       presence.byAddress(address)?.hasChannel ?? false;
 
-  /// Recharge le carnet d'amis et son index rotatif.
+  /// Recharge le carnet d'amis et la table de reconnaissance du créneau.
+  ///
+  /// ⚠️ **Le coût est ici, et il est borné.** Un X25519 par ami (mis en cache
+  /// par l'identité), puis trois HMAC par ami. Ce qui coûtait le double avant —
+  /// la clé « précédente » doublait l'indexation sans changer aucun résultat.
   Future<void> refreshFriends() async {
     _slot = ProximityIdentity.slotIndex(_clock());
-    _friendIndex = await _keyBook.rotatingIndex(_slot);
+    _friends = await _keyBook.all();
+    final secrets = await _identity.pairSecrets({
+      for (final f in _friends.values) f.userId: f.x25519PublicKey,
+    });
+    _recognition = await _planner.table(secrets: secrets, slot: _slot);
   }
 
   // ------------------------------------------------------------------
@@ -224,7 +271,7 @@ class PeerNetwork {
     int txPower,
   ) async {
     final hex = FriendKeyBook.hex(advertId);
-    final friend = _friendIndex[hex];
+    final friend = _friends[_recognition.match(advertId)];
 
     var session = presence.observe(address, rssi, txPower: txPower);
 
@@ -274,7 +321,11 @@ class PeerNetwork {
     final now = _clock();
     if (!session.isStable(now)) return;
 
-    final myHex = FriendKeyBook.hex(await _identity.currentRotatingId());
+    // ⚠️ **On compare avec notre identifiant PUBLIC**, pas avec un jeton d'ami :
+    // ce chemin ne concerne que les inconnus, et un jeton d'ami n'est de toute
+    // façon pas le même selon l'ami. Il faut une valeur unique et partagée par
+    // les deux côtés pour que le départage soit stable.
+    final myHex = FriendKeyBook.hex(await _identity.currentPublicPingId());
     final iInitiate = myHex.compareTo(peerHex) < 0;
 
     if (!iInitiate) {
@@ -306,9 +357,14 @@ class PeerNetwork {
       // rappel natif se perd, pour toujours.
       await radio.connect(address).timeout(connectTimeout);
     } catch (_) {
-      _publish();
+      // Rien ici : le stade affiché dérive de `connecting`, qui vaut ENCORE
+      // `true` à cet instant. Un `_publish()` posé dans ce `catch` calculait
+      // donc une signature inchangée et ne publiait rien — une ligne qui
+      // mentait sur son intention (audit du 2026-08-18, point D).
     } finally {
+      // L'état ne change qu'ici, donc c'est ici qu'on publie.
       session.connecting = false;
+      _publish();
     }
   }
 
@@ -714,27 +770,34 @@ class PeerNetwork {
     _publish();
   }
 
-  /// Redessine si — et seulement si — ce que l'interface verrait a changé.
+  /// Publie le constat de présence. **Un seul chemin vers « la présence a
+  /// bougé ».**
   ///
-  /// ## ⚠️ Un seul chemin vers « redessine »
+  /// ## ⚠️ Un seul chemin, et une seule responsabilité
   ///
   /// Sept endroits émettaient `PresenceChanged` à la main, chacun quand son
   /// auteur y pensait : une observation, une connexion en cours, un lien qui
-  /// monte, un lien qui tombe, un profil accepté… Deux conséquences opposées, et
-  /// toutes deux réelles — des rafraîchissements en double sur un même
-  /// changement, et **aucun** quand un pair cesse simplement d'être frais,
-  /// puisque personne n'émet pour un non-événement.
+  /// monte, un lien qui tombe, un profil accepté… D'où des rafraîchissements en
+  /// double sur un même changement, et **aucun** quand un pair cessait
+  /// simplement d'être frais — personne n'émet pour un non-événement.
   ///
-  /// La question n'est donc plus « qui doit prévenir ? » mais « est-ce que
-  /// l'écran serait différent ? ». Elle se calcule, elle ne se décide pas.
-  void _publish() {
-    final signature = presence.peers
-        .map((p) => '${p.address}:${p.stage.index}')
-        .join('|');
-    if (signature == _freshSignature) return;
-    _freshSignature = signature;
-    _emit(const PresenceChanged());
-  }
+  /// ## ⚠️ Ce qui a changé le 2026-08-20 — règle de dissociation de Jay
+  ///
+  /// Cette méthode filtrait sur une signature `adresse:stade`, c'est-à-dire
+  /// qu'**une couche d'acquisition décidait à la place de l'affichage** si
+  /// l'écran devait se redessiner. Deux conséquences :
+  ///
+  /// - la bande, la tendance et la distance ne se rafraîchissaient jamais pour
+  ///   un pair identifié et immobile (audit du 2026-08-18, point C) ;
+  /// - toute nouveauté visible à l'écran obligeait à venir modifier **ce
+  ///   fichier**, qui n'a aucune raison de connaître les champs d'une tuile.
+  ///
+  /// Le réseau publie donc ce qu'il constate, fidèlement. C'est
+  /// `presence_feed.dart` qui compare, avec sa propre définition de
+  /// « différent » — l'égalité de ce qu'une tuile affiche. Le chemin est bon
+  /// marché de bout en bout : ni disque, ni réseau, rien qu'une comparaison de
+  /// valeurs.
+  void _publish() => _emit(const PresenceChanged());
 
   void _emit(PeerEvent event) {
     if (!_events.isClosed) _events.add(event);

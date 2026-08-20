@@ -210,12 +210,12 @@ void main() {
         timestamp: 'ts',
         signature: Uint8List.fromList([1]),
         devicePublicKey: Uint8List.fromList([2]),
-        broadcastKey: Uint8List.fromList([3]),
+        x25519PublicKey: Uint8List.fromList([3]),
       ),
       FriendAcceptMessage(
         record: const {'from': 'u1', 'to': 'u2', 'ts': 'x', 'sigFrom': 'y'},
         devicePublicKey: Uint8List.fromList([4]),
-        broadcastKey: Uint8List.fromList([5]),
+        x25519PublicKey: Uint8List.fromList([5]),
       ),
       const FriendDeclineMessage(),
     ];
@@ -429,7 +429,7 @@ void testsAcceptationAmi() {
         FriendRequestMessage.signedPayload(de, vers, ts),
       ),
       devicePublicKey: await demandeur.edPublicKey(),
-      broadcastKey: await demandeur.broadcastKey(),
+      x25519PublicKey: await demandeur.x25519PublicKey(),
     );
     return FriendAcceptMessage(
       record: {
@@ -439,7 +439,7 @@ void testsAcceptationAmi() {
         ),
       },
       devicePublicKey: await accepteur.edPublicKey(),
-      broadcastKey: await accepteur.broadcastKey(),
+      x25519PublicKey: await accepteur.x25519PublicKey(),
     );
   }
 

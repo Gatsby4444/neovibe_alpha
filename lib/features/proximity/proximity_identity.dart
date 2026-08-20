@@ -13,11 +13,30 @@ import 'package:path_provider/path_provider.dart';
 /// - **Clé d'appareil Ed25519** : signe les certificats de croisement, les
 ///   demandes d'amis co-signées, la poignée de main et le mini-profil. Le seed
 ///   vit dans le Keystore Android.
-/// - **Clé de diffusion** : secret 32 octets qui engendre l'ID ROTATIF diffusé
-///   en BLE — `ID = HMAC-SHA256(clé, créneau de 15 min)` tronqué à 16 octets.
-///   Un tiers qui scanne voit un code qui change 4×/heure. Les AMIS reçoivent
-///   la clé (table `device_keys`, RLS restreinte aux connexions) et
-///   reconnaissent l'ID **hors ligne, sans serveur ni poignée de main**.
+/// - **Clé X25519** : elle ne sert jamais à chiffrer directement. Elle sert à
+///   DÉRIVER, avec chaque ami, un secret propre à la paire :
+///
+///       S_AB = X25519(ma privée, sa publique) = X25519(sa privée, ma publique)
+///
+///   Les deux appareils obtiennent le même secret **sans que le secret ne
+///   circule jamais**. Le serveur ne transporte que des clés publiques.
+///
+/// ## ⚠️ Ce qui a disparu le 2026-08-20, et pourquoi (décision de Jay)
+///
+/// Il y avait ici une **clé de diffusion** : un secret unique, partagé avec
+/// **tous** les amis à la fois, qui engendrait l'ID rotatif diffusé en BLE.
+/// Tout le reste en découlait mécaniquement — il fallait la distribuer (serveur
+/// + synchronisation), la remplacer quand un ami partait (rotation), et
+/// attendre que tout le monde l'apprenne (**le trou**).
+///
+/// Trois défauts en sont nés : le trou de 7 jours, une `broadcast_key_prev` qui
+/// ne changeait **aucun** résultat de reconnaissance (audit du 2026-08-18,
+/// point A), et une révocation qui aveuglait tous les autres amis.
+///
+/// Un secret par paire supprime la cause : il n'y a plus rien à distribuer,
+/// donc plus rien à rater. Retirer un ami devient une opération **locale** —
+/// on efface son secret, on cesse d'émettre son jeton — sans effet sur
+/// personne d'autre.
 ///
 /// ## ⚠️ Deux défauts corrigés le 2026-08-18
 ///
@@ -38,33 +57,55 @@ import 'package:path_provider/path_provider.dart';
 /// l'identité elle-même. D'où [proximityIdentityProvider] et le verrou de
 /// [_ensureLoaded].
 ///
-/// **2. La clé de diffusion ne tournait JAMAIS.** Écrite une fois, plus jamais
-/// régénérée — pas même par la remise à zéro du ping. Un ex-ami qui l'avait
-/// téléchargée nous reconnaissait **à vie**, hors ligne et en silence : la RLS
-/// l'empêche de la relire, elle ne reprend pas ce qu'il a déjà. Pour une app
-/// dont la thèse est le cercle restreint, retirer un ami ne retirait rien.
+/// **2. La clé de diffusion ne tournait JAMAIS.** Défaut réel, corrigé le
+/// 2026-08-18 par une rotation de 7 jours — puis rendu **sans objet** le
+/// 2026-08-20 : il n'y a plus de secret partagé à faire tourner.
 class ProximityIdentity {
   ProximityIdentity();
 
   static const _storage = FlutterSecureStorage();
   static const _seedKey = 'nv_ed25519_seed';
 
-  /// Ancien format : la clé de diffusion nue, sans date ni précédente.
-  static const _legacyBroadcastKey = 'nv_broadcast_key';
+  /// Graine de la clé X25519 (secret par paire).
+  static const _x25519Key = 'nv_x25519_seed';
 
-  /// Format courant : `{"key":…,"prev":…,"at":…}`.
-  static const _broadcastKey = 'nv_broadcast_v2';
+  /// ⚠️ **Vestiges de la clé de diffusion, effacés au chargement.**
+  /// Ce ne sont plus des clés, ce sont des secrets orphelins : les laisser dans
+  /// le Keystore, c'est garder un secret que plus rien ne protège ni ne fait
+  /// tourner. On les supprime, on ne se contente pas de les ignorer.
+  static const _deadBroadcastKeys = ['nv_broadcast_key', 'nv_broadcast_v2'];
 
-  /// Durée d'un créneau de rotation de l'ID diffusé (~15 min).
+  /// Durée d'un créneau de rotation des jetons diffusés (~15 min).
+  ///
+  /// ⚠️ **Le créneau reste, même sans clé partagée.** Un jeton sans créneau
+  /// serait constant à vie, donc un identifiant fixe — exactement le mouchard
+  /// que tout ce mécanisme existe pour éviter. C'est aussi pourquoi le
+  /// « point H » (l'identifiant qui se fige quand Android tue l'activité)
+  /// survit au changement d'architecture : il vient du créneau, pas de la clé.
   static const slotDuration = Duration(minutes: 15);
 
-  /// Durée de vie d'une clé de diffusion (décision de Jay, 2026-08-18).
-  static const rotationPeriod = Duration(days: 7);
+  /// Version du protocole d'annonce, portée dans chaque annonce.
+  ///
+  /// ⚠️ **Un octet aujourd'hui, une migration entière si on l'oublie.** Sans
+  /// lui, deux versions qui ne se comprennent pas ne se voient simplement
+  /// **pas** — sans erreur, sans trace, et sans que personne puisse le
+  /// diagnostiquer. Avec lui, une version future peut décider de parler
+  /// l'ancienne langue au lieu de disparaître.
+  ///
+  /// 3 = secret par paire (2026-08-20). 2 = clé de diffusion + rotation.
+  static const protocolVersion = 3;
 
   SimpleKeyPair? _keyPair;
-  Uint8List? _broadcast;
-  Uint8List? _previous;
-  DateTime? _rotatedAt;
+  SimpleKeyPair? _x25519Pair;
+
+  /// Secrets de paire déjà dérivés, indexés par clé publique de l'ami (hex).
+  ///
+  /// ⚠️ **Indexé par la CLÉ, pas par l'identifiant de l'ami.** C'est ce qui rend
+  /// la réinstallation d'un ami indolore : sa nouvelle clé publique est une
+  /// autre entrée, donc le secret se redérive tout seul. Rien à invalider,
+  /// rien à penser à mettre à jour — un cache indexé par l'identifiant aurait
+  /// servi l'ancien secret pour toujours, en silence.
+  final _pairSecrets = <String, Uint8List>{};
 
   /// ⚠️ **Le verrou, et c'est tout le correctif de la course.**
   ///
@@ -99,51 +140,31 @@ class ProximityIdentity {
       _keyPair = pair;
     }
 
-    final stored = await _storage.read(key: _broadcastKey);
-    if (stored != null) {
-      final map = jsonDecode(stored) as Map<String, dynamic>;
-      _broadcast = base64Decode(map['key'] as String);
-      final prev = map['prev'] as String?;
-      _previous = prev == null ? null : base64Decode(prev);
-      _rotatedAt = DateTime.parse(map['at'] as String);
-      return;
+    final x = X25519();
+    final storedX = await _storage.read(key: _x25519Key);
+    if (storedX != null) {
+      _x25519Pair = await x.newKeyPairFromSeed(base64Decode(storedX));
+    } else {
+      final pair = await x.newKeyPair();
+      final seed = await pair.extractPrivateKeyBytes();
+      await _storage.write(key: _x25519Key, value: base64Encode(seed));
+      _x25519Pair = pair;
     }
 
-    // Reprise de l'ancien format : la clé en place reste valable, on lui donne
-    // seulement une date de naissance. La dater d'aujourd'hui plutôt que de
-    // l'inconnu évite de faire tourner tout le parc au premier lancement de
-    // cette version.
-    final legacy = await _storage.read(key: _legacyBroadcastKey);
-    if (legacy != null) {
-      _broadcast = base64Decode(legacy);
-      _previous = null;
-      _rotatedAt = DateTime.now().toUtc();
-      await _persistBroadcast();
-      await _storage.delete(key: _legacyBroadcastKey);
-      return;
+    // Les vestiges de la clé de diffusion : voir [_deadBroadcastKeys].
+    for (final dead in _deadBroadcastKeys) {
+      await _storage.delete(key: dead);
     }
-
-    _broadcast = _freshSecret();
-    _previous = null;
-    _rotatedAt = DateTime.now().toUtc();
-    await _persistBroadcast();
   }
 
-  static Uint8List _freshSecret() {
-    final rnd = Random.secure();
-    return Uint8List.fromList(List.generate(32, (_) => rnd.nextInt(256)));
-  }
-
-  Future<void> _persistBroadcast() async {
-    await _storage.write(
-      key: _broadcastKey,
-      value: jsonEncode({
-        'key': base64Encode(_broadcast!),
-        if (_previous != null) 'prev': base64Encode(_previous!),
-        'at': _rotatedAt!.toIso8601String(),
-      }),
-    );
-  }
+  /// Graine aléatoire de l'identifiant PUBLIC du mode ping.
+  ///
+  /// ⚠️ **En mémoire seulement, et c'est délibéré.** Elle ne se persiste pas :
+  /// un redémarrage change donc tous les identifiants publics émis, ce qui
+  /// coupe net toute tentative de suivi d'une session à l'autre. Personne n'a
+  /// besoin de la retrouver — l'identifiant public n'est justement reconnu par
+  /// personne, il sert à se faire découvrir par poignée de main.
+  Uint8List? _pingSeed;
 
   Future<Uint8List> edPublicKey() async {
     await _ensureLoaded();
@@ -151,54 +172,72 @@ class ProximityIdentity {
     return Uint8List.fromList(pub.bytes);
   }
 
-  Future<Uint8List> broadcastKey() async {
+  /// Ma clé PUBLIQUE X25519 — celle qui part au serveur et à mes amis.
+  Future<Uint8List> x25519PublicKey() async {
     await _ensureLoaded();
-    return _broadcast!;
+    final pub = await _x25519Pair!.extractPublicKey();
+    return Uint8List.fromList(pub.bytes);
   }
 
-  /// La clé précédente, tant qu'elle vaut encore.
+  /// Le secret que je partage avec CET ami, et lui seul.
   ///
-  /// ⚠️ **Sans elle, chaque rotation aveuglerait tous nos amis** jusqu'à leur
-  /// prochaine synchronisation : ils indexeraient une clé que nous n'utilisons
-  /// plus. On publie donc les deux, et l'index d'en face couvre les deux.
-  Future<Uint8List?> previousBroadcastKey() async {
+  /// Ni lui ni moi ne l'avons jamais envoyé : chacun le calcule de son côté à
+  /// partir de sa propre clé privée et de la clé publique de l'autre. Un
+  /// observateur qui a vu passer les deux clés publiques ne peut pas le
+  /// retrouver — c'est toute la propriété de Diffie-Hellman.
+  ///
+  /// Le passage par HKDF n'est pas décoratif : le résultat brut d'un X25519
+  /// n'est pas uniformément distribué, et on ne dérive jamais un jeton
+  /// directement dessus. Même construction que [SecureChannel].
+  Future<Uint8List> pairSecret(Uint8List friendX25519Pub) async {
     await _ensureLoaded();
-    return _previous;
+    final key = hex(friendX25519Pub);
+    final cached = _pairSecrets[key];
+    if (cached != null) return cached;
+
+    final shared = await X25519().sharedSecretKey(
+      keyPair: _x25519Pair!,
+      remotePublicKey: SimplePublicKey(
+        friendX25519Pub,
+        type: KeyPairType.x25519,
+      ),
+    );
+    final derived = await Hkdf(
+      hmac: Hmac.sha256(),
+      outputLength: 32,
+    ).deriveKey(secretKey: shared, info: utf8.encode('nv-pair-v3'));
+    final bytes = Uint8List.fromList(await derived.extractBytes());
+    return _pairSecrets[key] = bytes;
   }
 
-  Future<DateTime> broadcastRotatedAt() async {
-    await _ensureLoaded();
-    return _rotatedAt!;
-  }
-
-  /// Fait tourner la clé si elle a dépassé [rotationPeriod]. Rend `true` si
-  /// elle a tourné.
-  Future<bool> rotateBroadcastIfDue() async {
-    await _ensureLoaded();
-    if (DateTime.now().toUtc().difference(_rotatedAt!) < rotationPeriod) {
-      return false;
+  /// Les secrets de tous mes amis, en un passage.
+  ///
+  /// ⚠️ **C'est ici que se paie la dérivation, et nulle part ailleurs.** Les
+  /// jetons se calculent ensuite par HMAC, qui est bon marché ; un X25519 par
+  /// créneau et par ami serait, lui, hors de prix. D'où le cache — voir
+  /// [_pairSecrets] pour pourquoi il est indexé par la clé et non par l'ami.
+  Future<Map<String, Uint8List>> pairSecrets(
+    Map<String, Uint8List> friendPublicKeys,
+  ) async {
+    final out = <String, Uint8List>{};
+    for (final entry in friendPublicKeys.entries) {
+      out[entry.key] = await pairSecret(entry.value);
     }
-    await rotateBroadcast(keepPrevious: true);
-    return true;
+    return out;
   }
 
-  /// Fait tourner la clé maintenant.
+  /// La graine de l'identifiant public du mode ping, créée à la demande.
   ///
-  /// [keepPrevious] décide de ce qu'on abandonne :
-  ///
-  /// - `true` (rotation périodique) : on continue de publier l'ancienne, donc
-  ///   **aucun ami ne nous perd**, même s'il n'a pas encore synchronisé ;
-  /// - `false` (**révocation**) : l'ancienne est jetée. Celui qui vient de
-  ///   perdre le droit de nous reconnaître devient aveugle immédiatement — et
-  ///   nos autres amis aussi, jusqu'à leur prochaine synchronisation. C'est le
-  ///   prix, et il est assumé : la synchro tourne au lancement de l'app et à
-  ///   chaque croisement.
-  Future<void> rotateBroadcast({required bool keepPrevious}) async {
-    await _ensureLoaded();
-    _previous = keepPrevious ? _broadcast : null;
-    _broadcast = _freshSecret();
-    _rotatedAt = DateTime.now().toUtc();
-    await _persistBroadcast();
+  /// [renew] à l'activation du mode ping : on repart d'une graine neuve, donc
+  /// d'une identité publique sans lien avec la précédente.
+  Uint8List pingSeed({bool renew = false}) {
+    if (renew || _pingSeed == null) {
+      final rnd = Random.secure();
+      _pingSeed = Uint8List.fromList(
+        List.generate(32, (_) => rnd.nextInt(256)),
+      );
+    }
+    return _pingSeed!;
   }
 
   /// Oublie **toute** l'identité de cet appareil.
@@ -219,12 +258,15 @@ class ProximityIdentity {
     }
     _loading = null;
     _keyPair = null;
-    _broadcast = null;
-    _previous = null;
-    _rotatedAt = null;
+    _x25519Pair = null;
+    _pingSeed = null;
+    // ⚠️ Les secrets dérivés aussi : ils valent les clés dont ils sortent.
+    _pairSecrets.clear();
     await _storage.delete(key: _seedKey);
-    await _storage.delete(key: _broadcastKey);
-    await _storage.delete(key: _legacyBroadcastKey);
+    await _storage.delete(key: _x25519Key);
+    for (final dead in _deadBroadcastKeys) {
+      await _storage.delete(key: dead);
+    }
   }
 
   /// Signe [message] avec la clé d'appareil.
@@ -251,20 +293,46 @@ class ProximityIdentity {
   static int slotIndex(DateTime at) =>
       at.toUtc().millisecondsSinceEpoch ~/ slotDuration.inMilliseconds;
 
-  /// ID rotatif d'un créneau pour une clé de diffusion donnée.
-  static Future<Uint8List> rotatingId(Uint8List broadcastKey, int slot) async {
+  /// Longueur d'un jeton diffusé, en octets.
+  static const tokenLength = 16;
+
+  /// Le jeton qu'un ami donné doit voir pour ce créneau.
+  ///
+  /// ⚠️ **`nv-pair-` et `nv-ping-` ne sont pas décoratifs.** Deux usages
+  /// différents d'une même fonction doivent partir de textes différents, sinon
+  /// rien n'interdit qu'un jeton d'un contexte soit accepté dans l'autre. Ce
+  /// n'est pas une précaution théorique : c'est ce qui garantit qu'un jeton
+  /// d'ami ne pourra jamais être confondu avec un identifiant public.
+  static Future<Uint8List> pairToken(Uint8List secret, int slot) async {
     final mac = await Hmac.sha256().calculateMac(
-      utf8.encode('nv-slot-$slot'),
-      secretKey: SecretKey(broadcastKey),
+      utf8.encode('nv-pair-$slot'),
+      secretKey: SecretKey(secret),
     );
-    return Uint8List.fromList(mac.bytes.sublist(0, 16));
+    return Uint8List.fromList(mac.bytes.sublist(0, tokenLength));
   }
 
-  /// MON ID rotatif pour le créneau courant.
-  Future<Uint8List> currentRotatingId() async {
-    await _ensureLoaded();
-    return rotatingId(_broadcast!, slotIndex(DateTime.now()));
+  /// L'identifiant PUBLIC du mode ping pour ce créneau.
+  ///
+  /// ⚠️ **Il n'est reconnu par personne, et c'est son rôle.** Le mode ping sert
+  /// à se rendre découvrable d'inconnus ; l'identité se révèle ensuite dans la
+  /// poignée de main chiffrée, pas dans l'annonce. Le faire dériver d'un secret
+  /// partagé n'apporterait rien et rendrait l'émetteur traçable.
+  static Future<Uint8List> publicPingId(Uint8List seed, int slot) async {
+    final mac = await Hmac.sha256().calculateMac(
+      utf8.encode('nv-ping-$slot'),
+      secretKey: SecretKey(seed),
+    );
+    return Uint8List.fromList(mac.bytes.sublist(0, tokenLength));
   }
+
+  /// Mon identifiant public pour le créneau courant.
+  Future<Uint8List> currentPublicPingId() async {
+    await _ensureLoaded();
+    return publicPingId(pingSeed(), slotIndex(DateTime.now()));
+  }
+
+  static String hex(List<int> bytes) =>
+      [for (final b in bytes) b.toRadixString(16).padLeft(2, '0')].join();
 }
 
 /// **L'** identité de l'appareil. Une seule, comme le carnet d'amis.
@@ -283,8 +351,12 @@ abstract class FriendKeyStore {
   Future<void> put(FriendKeys keys);
   Future<void> remove(String userId);
 
-  /// Table ID rotatif (hex) → ami, pour le créneau [slot] et ses voisins.
-  Future<Map<String, FriendKeys>> rotatingIndex(int slot);
+  /// ⚠️ **Le carnet RANGE, il ne CALCULE pas.** `rotatingIndex` vivait ici :
+  /// le magasin dérivait lui-même les identifiants attendus, donc il fallait
+  /// lui donner accès à l'identité de l'appareil, et toute évolution du format
+  /// d'annonce venait modifier un magasin de fichiers. C'est la règle de
+  /// dissociation de Jay (2026-08-20) : la table de reconnaissance se calcule
+  /// dans `advert_plan.dart`, à partir de ce que ce carnet expose.
 
   /// Remplace **tout** le carnet.
   ///
@@ -372,28 +444,6 @@ class FriendKeyBook implements FriendKeyStore {
     _changes.ping();
   }
 
-  /// Table de correspondance ID rotatif (hex) → ami, pour les créneaux
-  /// `[slot-1, slot, slot+1]` (tolérance d'horloge) **et pour les DEUX clés**
-  /// de chaque ami — la courante et la précédente.
-  ///
-  /// ⚠️ La clé précédente est ce qui rend une rotation indolore : un ami qui a
-  /// changé de clé il y a une heure reste reconnu même si nous n'avons pas
-  /// encore synchronisé.
-  @override
-  Future<Map<String, FriendKeys>> rotatingIndex(int slot) async {
-    final friends = await all();
-    final index = <String, FriendKeys>{};
-    for (final friend in friends.values) {
-      for (final key in friend.broadcastKeys) {
-        for (final s in [slot - 1, slot, slot + 1]) {
-          final id = await ProximityIdentity.rotatingId(key, s);
-          index[hex(id)] = friend;
-        }
-      }
-    }
-    return index;
-  }
-
   @override
   Future<void> clear() async {
     _cache = {};
@@ -423,22 +473,25 @@ class FriendKeys {
     this.tagName,
     this.avatarUrl,
     required this.edPublicKey,
-    required this.broadcastKey,
-    this.previousBroadcastKey,
+    required this.x25519PublicKey,
   });
 
   final String userId;
   final String username;
   final String? tagName;
   final String? avatarUrl;
+
+  /// Sa clé de signature : certificats, demandes d'amis, poignée de main.
   final Uint8List edPublicKey;
-  final Uint8List broadcastKey;
 
-  /// La clé d'avant sa dernière rotation, si elle vaut encore.
-  final Uint8List? previousBroadcastKey;
-
-  /// Les clés sous lesquelles cet ami peut se présenter.
-  List<Uint8List> get broadcastKeys => [broadcastKey, ?previousBroadcastKey];
+  /// Sa clé PUBLIQUE X25519 : avec ma privée, elle donne le secret de la paire.
+  ///
+  /// ⚠️ **Ce carnet ne contient plus aucun secret d'ami.** Avant, il stockait
+  /// la clé de diffusion — un secret qu'il fallait obtenir, garder à jour et
+  /// remplacer. Ici il n'y a que des clés publiques, et le secret se **calcule**
+  /// (voir `ProximityIdentity.pairSecret`). Un carnet volé ne permet de
+  /// reconnaître personne sans la clé privée de cet appareil.
+  final Uint8List x25519PublicKey;
 
   Map<String, dynamic> toJson() => {
     'userId': userId,
@@ -446,9 +499,7 @@ class FriendKeys {
     'tagName': tagName,
     'avatarUrl': avatarUrl,
     'edPub': base64Encode(edPublicKey),
-    'broadcast': base64Encode(broadcastKey),
-    if (previousBroadcastKey != null)
-      'broadcastPrev': base64Encode(previousBroadcastKey!),
+    'x25519Pub': base64Encode(x25519PublicKey),
   };
 
   factory FriendKeys.fromJson(Map<String, dynamic> json) => FriendKeys(
@@ -457,10 +508,7 @@ class FriendKeys {
     tagName: json['tagName'] as String?,
     avatarUrl: json['avatarUrl'] as String?,
     edPublicKey: base64Decode(json['edPub'] as String),
-    broadcastKey: base64Decode(json['broadcast'] as String),
-    previousBroadcastKey: json['broadcastPrev'] == null
-        ? null
-        : base64Decode(json['broadcastPrev'] as String),
+    x25519PublicKey: base64Decode(json['x25519Pub'] as String),
   );
 
   /// Même contenu ? Sert à `replace` pour ne pas annoncer un changement qui
@@ -471,8 +519,7 @@ class FriendKeys {
       tagName == other.tagName &&
       avatarUrl == other.avatarUrl &&
       _sameBytes(edPublicKey, other.edPublicKey) &&
-      _sameBytes(broadcastKey, other.broadcastKey) &&
-      _sameBytes(previousBroadcastKey, other.previousBroadcastKey);
+      _sameBytes(x25519PublicKey, other.x25519PublicKey);
 
   static bool _sameBytes(Uint8List? a, Uint8List? b) {
     if (a == null || b == null) return a == null && b == null;

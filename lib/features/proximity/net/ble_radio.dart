@@ -53,6 +53,97 @@ class BleRadio {
   Future<void> updateAdvert(Uint8List advertId) =>
       _methods.invokeMethod('updateAdvert', {'advertId': advertId});
 
+  /// Dépose **plusieurs heures de jetons d'avance** dans le service natif.
+  ///
+  /// ⚠️ **C'est la correction du point H, et elle est structurelle.** Le jeton
+  /// à émettre dépend du créneau de 15 min ; c'était un minuteur Dart qui
+  /// poussait le suivant. Or le Dart meurt avec l'interface pendant que le
+  /// service survit : l'identifiant se figeait, et l'appareil devenait
+  /// invisible pour tous ses amis sans qu'aucune erreur ne soit levée.
+  ///
+  /// Ici le natif n'a plus besoin de nous : il lit l'heure et choisit. Les
+  /// jetons ne sont **pas** des secrets — ce sont des identifiants déjà
+  /// calculés, inutilisables pour en fabriquer d'autres.
+  ///
+  /// Les jetons voyagent **à plat** (un seul `Uint8List`) et non en liste de
+  /// listes : à 48 créneaux × 50 amis, c'est 2400 objets contre un seul tampon
+  /// de 38 Ko.
+  ///
+  /// Rend l'instant jusqu'auquel le plan tient, en millisecondes.
+  Future<int> setAdvertPlan({
+    required Uint8List tokens,
+    required int fromSlot,
+    required int slotMillis,
+    required int slotCount,
+    required int perSlot,
+    required int tokenLength,
+  }) async {
+    final res = await _methods
+        .invokeMapMethod<String, dynamic>('setAdvertPlan', {
+          'tokens': tokens,
+          'fromSlot': fromSlot,
+          'slotMillis': slotMillis,
+          'slotCount': slotCount,
+          'perSlot': perSlot,
+          'tokenLength': tokenLength,
+        });
+    return (res?['validUntil'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Dépose la table de reconnaissance : le natif voit alors **par lui-même**.
+  ///
+  /// ⚠️ **C'est ce qui rend le croisement possible app fermée.** Le plan
+  /// d'émission avait rendu le natif autonome pour *diffuser* ; il restait
+  /// aveugle, parce que l'appariement jeton → ami vivait en Dart. L'appareil
+  /// était donc **vu sans voir** — or le cas qui compte pour un croisement,
+  /// c'est le téléphone dans la poche.
+  ///
+  /// ⚠️ **La table ne contient AUCUNE identité** : des jetons et des rangs
+  /// (0, 1, 2…). Seul le Dart sait à qui correspond le rang 3, et il le sait
+  /// pour **cette** table — d'où [tableId], renvoyé avec chaque constat. Si le
+  /// carnet a changé entre-temps, les constats de l'ancienne table sont jetés
+  /// au lieu d'être attribués à la mauvaise personne.
+  Future<void> setRecognitionTable({
+    required int tableId,
+    required Uint8List tokens,
+    required int fromSlot,
+    required int slotMillis,
+    required int slotCount,
+    required int perSlot,
+    required int tokenLength,
+  }) => _methods.invokeMethod('setRecognitionTable', {
+    'tableId': tableId,
+    'tokens': tokens,
+    'fromSlot': fromSlot,
+    'slotMillis': slotMillis,
+    'slotCount': slotCount,
+    'perSlot': perSlot,
+    'tokenLength': tokenLength,
+  });
+
+  /// Récupère ce que le service a constaté **pendant que le Dart était absent**.
+  ///
+  /// Vide le tampon natif au passage : à partir de là, le Dart en est seul
+  /// responsable. Garder une copie des deux côtés ferait deux vérités à
+  /// réconcilier.
+  Future<List<Map<String, dynamic>>> takeSightings() async {
+    final raw = await _methods.invokeListMethod<Object?>('takeSightings');
+    return [
+      for (final item in raw ?? const [])
+        Map<String, dynamic>.from(item as Map),
+    ];
+  }
+
+  /// Ce que la radio sait faire en matière d'annonces simultanées.
+  ///
+  /// ⚠️ **On demande à l'appareil, on ne déduit pas du modèle** — même
+  /// raisonnement que pour l'UWB et le Wi-Fi RTT. C'est ce qui permet à
+  /// l'émission de s'adapter au matériel (consigne de Jay, 2026-08-20) au lieu
+  /// de supposer le pire partout.
+  Future<Map<String, dynamic>> advertCapabilities() async =>
+      await _methods.invokeMapMethod<String, dynamic>('advertCapabilities') ??
+      const {};
+
   /// Ouvre un lien sortant. Rend le MTU négocié, ou lève.
   Future<int> connect(String address) async {
     final res = await _methods.invokeMapMethod<String, dynamic>('connect', {
@@ -63,13 +154,6 @@ class BleRadio {
 
   Future<void> disconnect(String linkId) =>
       _methods.invokeMethod('disconnect', {'linkId': linkId});
-
-  /// Ouvre les réglages de LOCALISATION du système.
-  ///
-  /// Pas ceux de l'app : sur Android ≤ 11, c'est le **service** qu'il faut
-  /// allumer, et aucune permission accordée ne le remplace.
-  Future<void> openLocationSettings() =>
-      _methods.invokeMethod('openLocationSettings');
 
   /// Ce que la radio a reçu depuis le dernier démarrage.
   ///

@@ -70,12 +70,30 @@ class Appareil {
   final CarnetMemoire carnet;
   final HorlogeMobile horloge;
 
-  /// Une annonce BLE de [autre], vue une fois.
+  /// Une annonce BLE **publique** de [autre] — ce que voit un inconnu.
+  ///
+  /// ⚠️ Depuis le 2026-08-20, un appareil n'émet plus un identifiant unique
+  /// pour tout le monde : il émet un jeton PAR AMI, plus un identifiant public
+  /// quand le mode ping est actif. Simuler « je vois quelqu'un » demande donc
+  /// de choisir **lequel des deux** — et c'est une bonne chose : le test ne
+  /// peut plus confondre les deux publics.
   Future<void> voit(Appareil autre, {int rssi = -60, String? depuis}) async {
     await reseau.onRadioEvent(
       RadioScan(
         address: depuis ?? autre.radio.adresse,
-        advertId: await autre.identite.currentRotatingId(),
+        advertId: await autre.identite.currentPublicPingId(),
+        rssi: rssi,
+      ),
+    );
+  }
+
+  /// L'annonce que [autre] émet **à mon intention**, parce qu'il me compte
+  /// parmi ses amis. Personne d'autre au monde ne peut la reconnaître.
+  Future<void> voitAmi(Appareil autre, {int rssi = -60, String? depuis}) async {
+    await reseau.onRadioEvent(
+      RadioScan(
+        address: depuis ?? autre.radio.adresse,
+        advertId: await autre.identite.jetonPour(identite, slot: null),
         rssi: rssi,
       ),
     );
@@ -211,22 +229,22 @@ void main() {
     );
   });
 
-  test('un ami est reconnu à son ID rotatif, SANS aucun échange', () async {
-    // Chacun a la clé de diffusion de l'autre : c'est ce que fait la synchro
-    // serveur quand les deux sont amis.
+  test('un ami est reconnu à son jeton de paire, SANS aucun échange', () async {
+    // Chacun a la clé PUBLIQUE de l'autre : c'est tout ce que la synchro
+    // serveur transporte désormais. Le secret, lui, se dérive des deux côtés.
     await a.carnet.put(
       FriendKeys(
         userId: 'u-b',
         username: 'Bob',
         edPublicKey: await b.identite.edPublicKey(),
-        broadcastKey: await b.identite.broadcastKey(),
+        x25519PublicKey: await b.identite.x25519PublicKey(),
       ),
     );
     await a.reseau.refreshFriends();
 
     // La radio d'en face est morte : aucun lien ne peut s'ouvrir.
     radioB.injoignable = true;
-    await a.voit(b);
+    await a.voitAmi(b);
 
     // Reconnu, donc identifié — sans le moindre échange, et **dès la première
     // annonce** : le seuil anti-passant ne s'applique qu'aux inconnus, puisque
@@ -236,51 +254,124 @@ void main() {
     expect(radioA.connexions, isEmpty, reason: 'aucun lien ne doit s\'ouvrir');
   });
 
-  test('un ami reconnu sous sa CLÉ PRÉCÉDENTE reste un ami', () async {
-    // ⚠️ **La contrepartie de la rotation, en test.**
+  test("le jeton d'un ami n'est lisible QUE par lui", () async {
+    // ⚠️ **La propriété qui remplace toute la mécanique de rotation.**
     //
-    // La clé de diffusion tourne tous les 7 jours. Si l'index d'en face
-    // n'indexait que la clé courante, chaque rotation rendrait son auteur
-    // invisible à tous ses amis jusqu'à leur prochaine synchronisation.
-    final ancienne = await b.identite.broadcastKey();
-    await b.identite.rotateBroadcast(keepPrevious: true);
+    // Avec une clé de diffusion unique, tout ami pouvait reconnaître l'annonce
+    // — donc la retirer à l'un obligeait à la changer pour tous. Ici, le jeton
+    // que Bob émet à l'intention d'Alice ne veut rien dire pour Carole, même si
+    // Carole est aussi son amie.
+    final radioC = RadioSimulee('CC');
+    final c = await Appareil.creer(
+      'Carole',
+      userId: 'u-c',
+      graine: 9,
+      radio: radioC,
+    );
 
-    // Nous n'avons pas encore resynchronisé : notre carnet porte l'ANCIENNE en
-    // clé courante, et la nouvelle nous est inconnue.
     await a.carnet.put(
       FriendKeys(
         userId: 'u-b',
         username: 'Bob',
         edPublicKey: await b.identite.edPublicKey(),
-        broadcastKey: ancienne,
+        x25519PublicKey: await b.identite.x25519PublicKey(),
       ),
     );
+    await c.carnet.put(
+      FriendKeys(
+        userId: 'u-b',
+        username: 'Bob',
+        edPublicKey: await b.identite.edPublicKey(),
+        x25519PublicKey: await b.identite.x25519PublicKey(),
+      ),
+    );
+    await a.reseau.refreshFriends();
+    await c.reseau.refreshFriends();
+
+    // Bob émet le jeton destiné à Alice. Carole le capte aussi — la radio est
+    // publique — mais il ne lui dit rien.
+    final pourAlice = await b.identite.jetonPour(a.identite);
+    await c.reseau.onRadioEvent(
+      RadioScan(address: 'BB', advertId: pourAlice, rssi: -60),
+    );
+    expect(
+      c.reseau.presence.byUser('u-b'),
+      isNull,
+      reason: 'le jeton destiné à Alice ne doit rien apprendre à Carole',
+    );
+
+    // Alice, elle, le reconnaît.
+    await a.reseau.onRadioEvent(
+      RadioScan(address: 'BB', advertId: pourAlice, rssi: -60),
+    );
+    expect(a.reseau.presence.byUser('u-b'), isNotNull);
+  });
+
+  test('retirer un ami le rend aveugle SANS toucher aux autres', () async {
+    // ⚠️ **Le gain principal du secret par paire.**
+    //
+    // Avant, révoquer voulait dire faire tourner l'unique clé de diffusion —
+    // donc rendre l'appareil méconnaissable pour TOUS les amis jusqu'à leur
+    // prochaine synchronisation (RAPPELS #46 ②). Ici, on retire une entrée du
+    // carnet, et rien d'autre ne bouge.
+    final radioC = RadioSimulee('CC');
+    final c = await Appareil.creer(
+      'Carole',
+      userId: 'u-c',
+      graine: 9,
+      radio: radioC,
+    );
+    for (final ami in [
+      FriendKeys(
+        userId: 'u-b',
+        username: 'Bob',
+        edPublicKey: await b.identite.edPublicKey(),
+        x25519PublicKey: await b.identite.x25519PublicKey(),
+      ),
+      FriendKeys(
+        userId: 'u-c',
+        username: 'Carole',
+        edPublicKey: await c.identite.edPublicKey(),
+        x25519PublicKey: await c.identite.x25519PublicKey(),
+      ),
+    ]) {
+      await a.carnet.put(ami);
+    }
     await a.reseau.refreshFriends();
     radioB.injoignable = true;
 
-    // Bob diffuse désormais avec sa NOUVELLE clé.
-    await a.voit(b);
-    expect(
-      a.reseau.presence.byUser('u-b'),
-      isNull,
-      reason: 'sans la clé neuve, il est bien un inconnu',
-    );
+    await a.voitAmi(b);
+    expect(a.reseau.presence.byUser('u-b'), isNotNull);
 
-    // La synchro arrive : le carnet porte les deux clés.
-    await a.carnet.put(
-      FriendKeys(
-        userId: 'u-b',
-        username: 'Bob',
-        edPublicKey: await b.identite.edPublicKey(),
-        broadcastKey: await b.identite.broadcastKey(),
-        previousBroadcastKey: ancienne,
-      ),
-    );
+    // Bob est retiré. Carole ne doit rien perdre au passage.
+    await a.carnet.remove('u-b');
     await a.reseau.refreshFriends();
 
-    // Reconnu sous la neuve…
-    await a.voit(b, depuis: 'CC');
-    expect(a.reseau.presence.byUser('u-b'), isNotNull);
+    await a.reseau.onRadioEvent(
+      RadioScan(
+        address: 'DD',
+        advertId: await b.identite.jetonPour(a.identite),
+        rssi: -60,
+      ),
+    );
+    expect(
+      a.reseau.presence.byAddress('DD')?.snapshot,
+      isNull,
+      reason: 'Bob retiré ne doit plus être reconnu, immédiatement',
+    );
+
+    await a.reseau.onRadioEvent(
+      RadioScan(
+        address: 'EE',
+        advertId: await c.identite.jetonPour(a.identite),
+        rssi: -60,
+      ),
+    );
+    expect(
+      a.reseau.presence.byUser('u-c'),
+      isNotNull,
+      reason: "Carole n'est pas concernée par le retrait de Bob",
+    );
   });
 
   test('des clés arrivées APRÈS le démarrage sont prises en compte', () async {
@@ -300,7 +391,7 @@ void main() {
         userId: 'u-b',
         username: 'Bob',
         edPublicKey: await b.identite.edPublicKey(),
-        broadcastKey: await b.identite.broadcastKey(),
+        x25519PublicKey: await b.identite.x25519PublicKey(),
       ),
     );
 
@@ -310,13 +401,13 @@ void main() {
     // ce qu'elle dit, pas que quelqu'un l'appelle au bon moment.
     radioB.injoignable = true;
     await jusqua(() {
-      unawaited(a.voit(b));
+      unawaited(a.voitAmi(b));
       return a.reseau.presence.byUser('u-b')?.stage == PresenceStage.identified;
     });
 
     // Une fois reconnu, un ami n'ouvre plus aucun lien.
     final avant = radioA.connexions.length;
-    await a.voit(b);
+    await a.voitAmi(b);
     expect(
       radioA.connexions.length,
       avant,
@@ -686,13 +777,13 @@ void main() {
           userId: 'u-b',
           username: 'Bob',
           edPublicKey: await b.identite.edPublicKey(),
-          broadcastKey: await b.identite.broadcastKey(),
+          x25519PublicKey: await b.identite.x25519PublicKey(),
         ),
       );
       await a.reseau.refreshFriends();
 
       // Bob est reconnu, puis on ouvre un lien (comme le ferait un certificat).
-      await a.voit(b);
+      await a.voitAmi(b);
       await a.reseau.ensureChannel(radioB.adresse);
       await jusqua(() => a.reseau.presence.identifiedCount == 1);
 
@@ -705,7 +796,7 @@ void main() {
 
       // Bob réapparaît sous une NOUVELLE adresse. Reconnu au même ID rotatif, il
       // fusionne — et le lien vivant reste sur l'ancienne adresse.
-      await a.voit(b, depuis: 'ZZ');
+      await a.voitAmi(b, depuis: 'ZZ');
       expect(a.reseau.presence.length, 1, reason: 'une personne, une ligne');
       expect(
         a.reseau.presence.byUser('u-b')!.addresses,
