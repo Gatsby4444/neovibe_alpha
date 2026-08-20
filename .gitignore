@@ -35,3 +35,9 @@ lib/core/config/env.dart
 # C'etait une discipline manuelle jusqu'au 2026-08-12 ; un `git add -A`
 # aurait suffi a y faire entrer des binaires.
 docdev/
+
+# Cache Python des scripts de tool/ : regenere a chaque execution, et deux .pyc
+# etaient suivis jusqu'au 2026-08-20 (l'un figurait meme au diff de la refonte
+# du ping). Un binaire genere n'a rien a faire dans l'historique.
+__pycache__/
+*.pyc

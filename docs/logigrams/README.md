@@ -1,6 +1,6 @@
 # Les logigrammes de NeoVibe
 
-Six schémas à importer dans **Logigram** (`C:\Charles\logigram\index.html`) :
+Huit schémas à importer dans **Logigram** (`C:\Charles\logigram\index.html`) :
 *Importer → **Remplacer le schéma*** avec le contenu d'un fichier `.json`.
 
 Un schéma par fichier, **à ouvrir un par un** — pas tous ensemble. C'est délibéré :
@@ -16,6 +16,14 @@ l'outil recommande 15 à 40 blocs par schéma, et au-delà on ne voit plus rien.
 | 4 | `4-une-vibe.json` | Ce qui arrive à une photo, de la capture au partage | 28 |
 | 5 | `5-livraison-media.json` | Pourquoi un média ne peut pas fuiter | 21 |
 | 6 | `6-modele-de-donnees.json` | Les 29 tables, rangées par famille | 39 |
+| 7 | `7-reconnaissance-et-cles.json` | Comment un ami me reconnaît sans internet — et les deux trous de la clé de diffusion | 40 |
+| 8 | `8-proposition-secret-par-paire.json` | Le secret par paire — **implémenté le 2026-08-20** ; le 7 devient l'histoire | 32 |
+
+Le 7 et le 8 se lisent **ensemble et dans cet ordre** : le 7 est l'architecture
+d'AVANT le 2026-08-20 (gardée parce qu'elle explique pourquoi le 8 existe), le 8
+est celle en place. ⚠️ Deux réserves sur le 8 : le natif diffuse seul mais ne
+reconnaît pas encore, et l'émission multi-annonces reste à écrire (`RAPPELS.md`
+#54, #55).
 
 Les schémas 1 à 3 se lisent d'affilée. Le 4 et le 5 vont ensemble (créer, puis
 consulter). Le 6 est une carte de référence, à garder ouverte à côté des autres.

@@ -1,0 +1,422 @@
+{
+  "name": "NeoVibe — 7. Reconnaissance : la clé de diffusion, et ses deux trous",
+  "nodes": [
+    {
+      "id": "moi",
+      "type": "group",
+      "label": "MON TÉLÉPHONE",
+      "desc": "celui qui émet et qui écoute",
+      "children": [
+        {
+          "id": "ident",
+          "type": "module",
+          "label": "ProximityIdentity",
+          "desc": "mon identité d'appareil — un seul exemplaire dans toute l'app",
+          "children": [
+            {
+              "id": "k_cur",
+              "type": "variable",
+              "label": "broadcast_key (courante)",
+              "dtype": "secret",
+              "value": "32 octets aléatoires"
+            },
+            {
+              "id": "k_prev",
+              "type": "variable",
+              "label": "broadcast_key_prev",
+              "dtype": "secret",
+              "value": "l'ancienne, gardée après rotation"
+            },
+            {
+              "id": "rot_at",
+              "type": "variable",
+              "label": "rotated_at",
+              "dtype": "date",
+              "value": "date de la dernière rotation"
+            }
+          ]
+        },
+        {
+          "id": "calc",
+          "type": "transform",
+          "label": "currentRotatingId()",
+          "desc": "HMAC(clé, « nv-slot-N ») → 16 octets. N'utilise QUE la clé courante"
+        },
+        {
+          "id": "sup",
+          "type": "service",
+          "label": "ProximitySupervisor",
+          "desc": "vit en Dart : meurt avec l'interface",
+          "children": [
+            {
+              "id": "tick",
+              "type": "trigger",
+              "label": "minuteur — chaque minute"
+            },
+            {
+              "id": "cond_slot",
+              "type": "condition",
+              "label": "créneau de 15 min changé ?"
+            },
+            {
+              "id": "push",
+              "type": "action",
+              "label": "updateAdvert(nouvel ID)"
+            }
+          ]
+        },
+        {
+          "id": "natif",
+          "type": "container",
+          "label": "ProximityService (Kotlin)",
+          "desc": "service de premier plan : possède la radio, survit à l'interface",
+          "children": [
+            {
+              "id": "adv",
+              "type": "action",
+              "label": "advertising BLE",
+              "desc": "crie l'ID toutes les ~100 ms. Ne le calcule JAMAIS lui-même"
+            },
+            {
+              "id": "scan",
+              "type": "trigger",
+              "label": "scan BLE",
+              "desc": "détecte les annonces alentour"
+            }
+          ]
+        },
+        {
+          "id": "sync",
+          "type": "service",
+          "label": "ProximitySync.run()",
+          "desc": "le SEUL chemin vers le serveur. Aucun minuteur : que des déclencheurs",
+          "children": [
+            {
+              "id": "s_rot",
+              "type": "condition",
+              "label": "clé vieille de 7 jours ?"
+            },
+            {
+              "id": "s_new",
+              "type": "action",
+              "label": "rotation : K1 devient « prev », K2 devient courante"
+            },
+            {
+              "id": "s_pub",
+              "type": "action",
+              "label": "_publishKeys — upsert device_keys"
+            },
+            {
+              "id": "s_pull",
+              "type": "action",
+              "label": "_pullFriendKeys — remplace tout le carnet"
+            }
+          ]
+        },
+        {
+          "id": "trig",
+          "type": "trigger",
+          "label": "6 déclencheurs de la synchro",
+          "desc": "ouverture de l'app · croisement certifié · ami accepté (x2) · wave · reset dev"
+        },
+        {
+          "id": "book",
+          "type": "cache",
+          "label": "FriendKeyBook",
+          "desc": "carnet local : reconnaître un ami hors ligne, sans poignée de main",
+          "children": [
+            {
+              "id": "f_key",
+              "type": "variable",
+              "label": "broadcastKey (de l'ami)",
+              "dtype": "secret"
+            },
+            {
+              "id": "f_prev",
+              "type": "variable",
+              "label": "previousBroadcastKey (de l'ami)",
+              "dtype": "secret"
+            }
+          ]
+        },
+        {
+          "id": "index",
+          "type": "transform",
+          "label": "rotatingIndex(slot)",
+          "desc": "2 clés × 3 créneaux par ami → table ID(hex) → ami. Le double de travail"
+        },
+        {
+          "id": "onscan",
+          "type": "fn",
+          "label": "PeerNetwork._onScan"
+        },
+        {
+          "id": "cond_known",
+          "type": "condition",
+          "label": "cet ID est-il dans ma table ?"
+        },
+        {
+          "id": "vu",
+          "type": "action",
+          "label": "« X est là » — reconnu hors ligne, sans rien lui demander"
+        }
+      ]
+    },
+    {
+      "id": "sb",
+      "type": "cluster",
+      "label": "Supabase",
+      "desc": "n'intervient QUE quand l'app tourne et qu'il y a du réseau",
+      "children": [
+        {
+          "id": "tbl",
+          "type": "table",
+          "label": "device_keys",
+          "children": [
+            {
+              "id": "c_key",
+              "type": "variable",
+              "label": "broadcast_key",
+              "dtype": "string"
+            },
+            {
+              "id": "c_prev",
+              "type": "variable",
+              "label": "broadcast_key_prev",
+              "dtype": "string"
+            },
+            {
+              "id": "c_rot",
+              "type": "variable",
+              "label": "rotated_at",
+              "dtype": "date"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ami",
+      "type": "group",
+      "label": "TÉLÉPHONE DE L'AMI",
+      "desc": "il ne reçoit rien tant qu'il n'ouvre pas son app",
+      "children": [
+        {
+          "id": "a_sync",
+          "type": "service",
+          "label": "sa synchro",
+          "desc": "part quand IL ouvre son app — pas quand JE tourne ma clé"
+        },
+        {
+          "id": "a_book",
+          "type": "cache",
+          "label": "son carnet de clés"
+        },
+        {
+          "id": "a_index",
+          "type": "transform",
+          "label": "son index rotatif"
+        },
+        {
+          "id": "a_cond",
+          "type": "condition",
+          "label": "l'ID qu'il capte est-il dans son index ?"
+        },
+        {
+          "id": "a_ok",
+          "type": "action",
+          "label": "il me voit",
+          "desc": "il a resynchronisé : il a K2"
+        },
+        {
+          "id": "a_ko",
+          "type": "error",
+          "label": "il ne me voit plus — en silence",
+          "desc": "il n'a pas resynchronisé : il n'a que K1 et K0"
+        }
+      ]
+    },
+    {
+      "id": "note_a",
+      "type": "note",
+      "label": "POINT A — la clé précédente ne sert à personne",
+      "desc": "Dès la rotation je n'émets QUE K2. Celui qui a resynchronisé a K2 : la précédente ne lui sert à rien. Celui qui n'a pas resynchronisé n'a ni K2 ni la publication de K1 : elle ne lui parvient pas. Elle coûte une colonne, un champ et le DOUBLE de l'indexation, pour zéro effet."
+    },
+    {
+      "id": "note_h",
+      "type": "note",
+      "label": "POINT H (à vérifier sur appareil) — l'ID émis peut se figer",
+      "desc": "Le minuteur du créneau vit en Dart. Si Android détruit l'activité, plus personne ne pousse de nouvel ID : le natif rejoue le dernier reçu. Passé ~30 min il sort de la fenêtre slot-1 / slot / slot+1 et PLUS AUCUN ami ne me reconnaît, même avec la bonne clé."
+    }
+  ],
+  "edges": [
+    {
+      "from": "trig",
+      "to": "sync",
+      "kind": "flow",
+      "label": "déclenche"
+    },
+    {
+      "from": "sync",
+      "to": "s_rot",
+      "kind": "flow"
+    },
+    {
+      "from": "s_rot",
+      "to": "s_new",
+      "kind": "flow",
+      "label": "oui"
+    },
+    {
+      "from": "s_rot",
+      "to": "s_pub",
+      "kind": "flow",
+      "label": "non"
+    },
+    {
+      "from": "s_new",
+      "to": "s_pub",
+      "kind": "flow"
+    },
+    {
+      "from": "s_new",
+      "to": "k_cur",
+      "kind": "data",
+      "label": "écrit K2"
+    },
+    {
+      "from": "s_new",
+      "to": "k_prev",
+      "kind": "data",
+      "label": "écrit K1"
+    },
+    {
+      "from": "s_new",
+      "to": "rot_at",
+      "kind": "data",
+      "label": "now()"
+    },
+    {
+      "from": "s_pub",
+      "to": "tbl",
+      "kind": "data",
+      "label": "upsert des 2 clés"
+    },
+    {
+      "from": "tbl",
+      "to": "s_pull",
+      "kind": "data",
+      "label": "SELECT les clés de mes amis"
+    },
+    {
+      "from": "s_pull",
+      "to": "book",
+      "kind": "data",
+      "label": "replace() — remplace TOUT"
+    },
+    {
+      "from": "k_cur",
+      "to": "calc",
+      "kind": "dep",
+      "label": "SEULE la courante"
+    },
+    {
+      "from": "k_prev",
+      "to": "c_prev",
+      "kind": "dep",
+      "label": "publiée… mais jamais émise"
+    },
+    {
+      "from": "tick",
+      "to": "cond_slot",
+      "kind": "flow"
+    },
+    {
+      "from": "cond_slot",
+      "to": "calc",
+      "kind": "flow",
+      "label": "oui"
+    },
+    {
+      "from": "calc",
+      "to": "push",
+      "kind": "flow",
+      "label": "ID du créneau (16 octets)"
+    },
+    {
+      "from": "push",
+      "to": "adv",
+      "kind": "call",
+      "label": "updateAdvert"
+    },
+    {
+      "from": "book",
+      "to": "index",
+      "kind": "dep",
+      "label": "les 2 clés de chaque ami"
+    },
+    {
+      "from": "index",
+      "to": "cond_known",
+      "kind": "dep",
+      "label": "table ID → ami"
+    },
+    {
+      "from": "scan",
+      "to": "onscan",
+      "kind": "event",
+      "label": "adresse + ID + RSSI"
+    },
+    {
+      "from": "onscan",
+      "to": "cond_known",
+      "kind": "flow"
+    },
+    {
+      "from": "cond_known",
+      "to": "vu",
+      "kind": "flow",
+      "label": "oui"
+    },
+    {
+      "from": "adv",
+      "to": "a_cond",
+      "kind": "data",
+      "label": "mon ID rotatif, en clair dans l'air"
+    },
+    {
+      "from": "tbl",
+      "to": "a_sync",
+      "kind": "data",
+      "label": "SELECT ma clé — seulement s'il ouvre l'app"
+    },
+    {
+      "from": "a_sync",
+      "to": "a_book",
+      "kind": "data",
+      "label": "replace()"
+    },
+    {
+      "from": "a_book",
+      "to": "a_index",
+      "kind": "dep"
+    },
+    {
+      "from": "a_index",
+      "to": "a_cond",
+      "kind": "dep"
+    },
+    {
+      "from": "a_cond",
+      "to": "a_ok",
+      "kind": "flow",
+      "label": "oui — il a K2"
+    },
+    {
+      "from": "a_cond",
+      "to": "a_ko",
+      "kind": "flow",
+      "label": "non — il en est resté à K1"
+    }
+  ]
+}

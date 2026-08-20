@@ -391,4 +391,9 @@ if __name__ == "__main__":
     ok &= ecrire(vibe, "4-une-vibe.json")
     ok &= ecrire(livraison, "5-livraison-media.json")
     ok &= ecrire(donnees, "6-modele-de-donnees.json")
+
+    from logigrams_part3 import reconnaissance, par_paire
+
+    ok &= ecrire(reconnaissance, "7-reconnaissance-et-cles.json")
+    ok &= ecrire(par_paire, "8-proposition-secret-par-paire.json")
     sys.exit(0 if ok else 1)
