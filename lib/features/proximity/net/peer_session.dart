@@ -271,6 +271,12 @@ class PeerSession {
   bool isExpired(DateTime now) =>
       now.difference(lastHeard) > PresenceRules.forgetAfter;
 
+  /// Depuis combien de temps ce pair est en contact continu.
+  ///
+  /// ⚠️ **Point d'observation de test : aucun appelant dans `lib/`.** Vérifié à
+  /// l'audit du 2026-08-18 (point E). La règle d'ouverture de lien, elle, mesure
+  /// la durée directement contre [PresenceRules.stableAfter] — elle ne passe pas
+  /// par ici. **À retirer avant la mise en production** (`RAPPELS.md`).
   Duration contactDuration(DateTime now) => now.difference(firstHeard);
 
   // ------------------------------------------------------------- mise à jour
@@ -421,6 +427,12 @@ class PeerRegistry {
     return list;
   }
 
+  /// Combien de pairs sont identifiés à cet instant.
+  ///
+  /// ⚠️ **Point d'observation de test : aucun appelant dans `lib/`.** Vérifié à
+  /// l'audit du 2026-08-18 (point E). L'écran compte lui-même à partir de
+  /// `view.peers` — il ne lit pas le registre. **À retirer avant la mise en
+  /// production** (`RAPPELS.md`).
   int get identifiedCount =>
       peers.where((p) => p.stage == PresenceStage.identified).length;
 

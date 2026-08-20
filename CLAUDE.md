@@ -10,6 +10,8 @@ NeoVibe est un réseau social qui cherche à **retrouver de l'authenticité et d
 
 **Ajout du 2026-08-13 — « l'Apple des réseaux sociaux »** : interface **claire et épurée mais qui reste cool**, et **contrôle total de l'écosystème** — *« ce qui se passe sur NeoVibe reste sur NeoVibe »*. C'est la raison d'être du chiffrement et de la livraison sécurisée des médias : ce ne sont pas des précautions d'ingénieur, c'est cette phrase rendue vraie. Conséquence directe : **un média déchiffré écrit en clair sur le disque est un manquement à la promesse**, pas un détail d'implémentation. Corollaire de méthode : la bonne réponse est **le défaut juste, pas l'option supplémentaire** — sans quoi « contrôle total » et « épuré » se contredisent. Détail dans `docs/vision-produit.md` §1.
 
+⚠️ **Périmètre de cette phrase — précision de Jay, 2026-08-20.** Elle désigne **la difficulté de faire fuiter du CONTENU NeoVibe vers l'extérieur** : format card, anti-capture, livraison scellée. Ce n'est **pas** un argument sur les métadonnées côté serveur (qui croise qui, qui parle à qui). Ne pas la ressortir pour peser sur un arbitrage de ce type — les arbitrages sur les métadonnées se posent pour eux-mêmes, avec leur coût réel et leur rétention.
+
 Grille de décision, à appliquer à toute fonctionnalité : **soit elle passe par la présence physique, soit elle augmente la valeur d'une relation existante.** Si elle ne fait ni l'un ni l'autre, c'est du remplissage — exactement le mal qu'on combat. En cas de doute, trancher en faveur de l'authenticité de la relation, même si c'est moins pratique à développer.
 
 La vision complète (mécaniques fondatrices, ce qui reste à construire, points de vigilance) est dans **`docs/vision-produit.md`** — à relire en début de session avec `RAPPELS.md` et les derniers rapports.
@@ -99,6 +101,47 @@ Ce qui en découle, à appliquer avant d'écrire la moindre ligne :
   pointer vers `profiles`. En reconstruisant une table, relever les contraintes
   de l'ancienne au lieu de les réécrire de mémoire. La convention du projet est
   `owner_id references public.profiles(id)`. *(Même panne.)*
+
+---
+
+## Règle impérative : dissocier l'ACQUISITION de l'USAGE
+
+*Consigne de Jay, 2026-08-20 — impérative, applicable à tout chantier.*
+
+> « Lorsque tu codes, tu dois totalement dissocier le code qui se charge
+> d'acquérir des données du code qui utilise ces données. Avoir une base solide,
+> cela veut dire avoir un système d'acquisition et de transmission de données
+> robuste, dissocié et indépendant, de sorte à pouvoir ensuite brancher
+> n'importe quelle fonctionnalité utilisant ces données. Sinon, à chaque
+> modification d'une fonctionnalité on doit toucher à des fonctions qui cassent
+> d'autres fonctionnalités. Il faut un code compartimenté et localement
+> indépendant. »
+
+C'est le prolongement direct de la règle d'architecture (« la fiabilité vient de
+l'architecture, pas du colmatage ») appliquée au **sens de circulation** des
+données. Ce qui en découle, à appliquer avant d'écrire la moindre ligne :
+
+1. **Une couche d'acquisition publie ce qu'elle constate, fidèlement, et ne
+   décide de rien d'autre.** Elle ne sait pas qui la lit, ni ce qu'il en fera,
+   ni s'il faut redessiner un écran. Dès qu'elle filtre « pour économiser », elle
+   prend une décision d'affichage qu'elle n'a pas les moyens de prendre.
+2. **Qui consomme décide de ce qui l'intéresse**, avec sa propre définition de
+   « différent ». Le coût d'une publication trop fréquente se règle **du côté
+   consommateur**, par une comparaison de valeurs — jamais en amont.
+3. **Deux sources qui ne changent pas au même rythme ne partagent pas le même
+   objet d'état.** Les mélanger impose le rythme de la plus rapide au coût de la
+   plus lente : une donnée radio à 10 Hz forçait deux lectures de fichier à
+   10 Hz. *(C'est exactement le défaut du 2026-08-18, point C.)*
+4. **Le test de la règle** : « si j'ajoute un champ à cet écran, dois-je toucher
+   au code qui parle à la radio / au réseau / au disque ? » Si oui, la
+   séparation n'est pas faite.
+5. **Ce type de défaut ne lève aucune erreur.** L'écran affiche la bonne chose,
+   les tests passent, seul le coût explose. Il ne se voit qu'en **comptant** —
+   les notifications, les lectures disque, les reconstructions. Un test qui
+   compte vaut mieux qu'un commentaire qui promet. Exemple de référence :
+   `test/presence_feed_test.dart`.
+
+Mise en œuvre de référence dans le projet : `lib/features/proximity/presence_feed.dart`.
 
 ---
 
