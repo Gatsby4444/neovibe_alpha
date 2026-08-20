@@ -695,10 +695,13 @@ git -C <extrait>\neovibe_alpha log --oneline -3
 git -C <extrait>\neovibe_alpha fsck --connectivity-only
 ```
 
-Repère de volume au **2026-08-13** : **3 072 entrées, 13,8 Mo** — dont **2 721
-entrées pour `.git` seul**, et ~9 Mo pour `docdev/seed-media/` (trois vidéos
-libres de droits, retéléchargeables mais sans intérêt à exclure).
-*(Repère précédent, 2026-07-26 : 1 828 entrées, 4,0 Mo.)*
+Repère de volume au **2026-08-20** : **4 699 entrées, 30,6 Mo** — dont **4 226
+entrées et 25,5 Mo pour `.git` seul**. La croissance depuis le 13 août
+(13,8 Mo) est **entièrement** l'historique git accumulé : rien d'anormal, rien à
+exclure. Le reste : `docdev/` 4 Mo, `design/` 2,1 Mo, `android/` et `lib/`
+1,4 Mo chacun.
+*(Repères précédents : 2026-08-13, 3 072 entrées, 13,8 Mo · 2026-07-26,
+1 828 entrées, 4,0 Mo.)*
 
 Si le compte tombe à quelques centaines d'entrées ou si le zip fait moins d'un
 mégaoctet, **`.git` manque** — c'est exactement la signature du piège n°1.
@@ -712,7 +715,7 @@ tester :
 $names = $zip.Entries | ForEach-Object { $_.FullName -replace '\\','/' }
 ```
 
-**Contrôles à passer sur l'extrait** (tous verts le 2026-08-13) : branche
+**Contrôles à passer sur l'extrait** (tous verts le 2026-08-20) : branche
 `master` suivant `origin/master`, dernier commit du jour, `fsck` sans erreur
 (un `dangling tag` est bénin), tag de la version courante présent, et les
 **quatre** fichiers hors-dépôt : `lib/core/config/env.dart`,
