@@ -8,16 +8,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/notifications/notification_service.dart';
 import '../../../core/supabase_providers.dart';
 import '../ping_store.dart';
+import '../presence_feed.dart';
 import '../proximity_identity.dart';
 import 'connection_trace.dart';
 import 'peer_network.dart';
 import 'peer_session.dart';
 import 'proximity_journal.dart';
-import 'proximity_protocol.dart';
 import 'ble_radio.dart';
+import 'distance_estimate.dart';
+import 'proximity_protocol.dart';
 import 'proximity_supervisor.dart';
 import 'proximity_sync.dart';
 import 'radio_status.dart';
+import 'sighting_log.dart';
 
 /// Pourquoi une demande d'ami n'est pas partie.
 ///
@@ -39,15 +42,14 @@ class FriendRequestRefused implements Exception {
 }
 
 /// Ce que l'interface a besoin de savoir, et rien de plus.
+/// Ce qui vient du **disque** : les demandes d'amis, reçues et envoyées.
+///
+/// ⚠️ **La présence n'est plus ici** (2026-08-20, règle de dissociation de Jay).
+/// Elle a son propre flux, `presenceProvider`, qui ne touche pas au disque.
+/// Les deux vivaient dans cet objet, donc chaque annonce BLE relisait deux
+/// fichiers et redessinait toute la page — voir `presence_feed.dart`.
 class ProximityView {
-  const ProximityView({
-    this.peers = const [],
-    this.requests = const [],
-    this.outgoing = const [],
-  });
-
-  /// Qui est autour, avec son état d'identification.
-  final List<PresencePeer> peers;
+  const ProximityView({this.requests = const [], this.outgoing = const []});
 
   /// Demandes d'amis en attente — **plusieurs**, et **persistantes**.
   final List<PendingFriendRequest> requests;
@@ -66,9 +68,6 @@ class ProximityView {
     }
     return null;
   }
-
-  List<PresencePeer> get identified =>
-      peers.where((p) => p.stage == PresenceStage.identified).toList();
 }
 
 /// Le chef d'orchestre : il branche la radio sur le réseau, et le réseau sur
@@ -144,8 +143,8 @@ class ProximityController extends AsyncNotifier<ProximityView> {
 
     if (me != null) await _ensureNetwork(me);
 
+    _publishPresence();
     return ProximityView(
-      peers: _network?.presence.peers ?? const [],
       requests: await _journal.pendingRequests(),
       outgoing: await _journal.outgoingRequests(),
     );
@@ -161,6 +160,10 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     _certificates = null;
     final network = _network;
     _network = null; // ← la ligne qui manquait
+    // Le flux de présence appartient au réseau : sans réseau, il n'y a pas de
+    // constat, et un constat périmé présenté comme une observation est
+    // exactement ce que ce chantier supprime partout.
+    ref.read(presenceProvider.notifier).clear();
     unawaited(network?.dispose());
   }
 
@@ -179,7 +182,8 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     await _forgetLocalPing();
     await _network?.refreshFriends();
     unawaited(ref.read(proximitySyncProvider).run());
-    _refresh();
+    _publishPresence();
+    _refreshJournal();
   }
 
   /// Efface tout ce que le ping garde en local, pour le compte qui s'en va.
@@ -238,10 +242,16 @@ class ProximityController extends AsyncNotifier<ProximityView> {
 
     _radioFeed = supervisor.events.listen(network.onRadioEvent);
     _peerFeed = network.events.listen(_onPeerEvent);
-    _certificates = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) => unawaited(_sweepCertificates()),
-    );
+    _certificates = Timer.periodic(const Duration(seconds: 2), (_) {
+      // ⚠️ **Deux balayages distincts, appelés par le même battement.**
+      // Ils ne répondent pas à la même question : l'un CONSTATE (sans réseau,
+      // sans lien), l'autre tente une preuve co-signée qui exige une connexion
+      // vivante. Les fondre ferait dépendre le constat de la réussite du lien —
+      // c'est-à-dire perdre exactement les croisements que la réciprocité
+      // serveur existe pour rattraper.
+      unawaited(_sweepSightings());
+      unawaited(_sweepCertificates());
+    });
   }
 
   Future<PingPeerSnapshot> _mySnapshot() async {
@@ -261,22 +271,37 @@ class ProximityController extends AsyncNotifier<ProximityView> {
 
   Future<void> _onPeerEvent(PeerEvent event) async {
     switch (event) {
+      // ⚠️ **Les trois événements de PRÉSENCE ne touchent pas au disque.**
+      // C'est le chemin chaud : il part à la fréquence des annonces BLE. Y
+      // remettre une lecture de fichier, c'est refaire le défaut du point C.
       case PresenceChanged():
-        _refresh();
+        _publishPresence();
       case PeerIdentified(:final snapshot):
         // Le réseau dit QUI ; c'est ici, au-dessus de la frontière, qu'on sait
         // ce que cette personne est pour nous.
         if (await _isFriend(snapshot.userId)) await _maybeWave(snapshot);
-        _refresh();
+        _publishPresence();
       case PeerMessageReceived(:final address, :final snapshot, :final message):
         await _onMessage(address, snapshot, message);
       case PeerLost():
         // Rien à nettoyer ici : le marqueur de certification vit sur la
         // session, qui vient d'être détruite. C'est tout l'intérêt de n'avoir
         // qu'un objet par pair.
-        _refresh();
+        _publishPresence();
     }
   }
+
+  /// Le canal natif, pour récupérer ce que le service a constaté seul.
+  /// Un seul exemplaire : `BleRadio` est sans état, mais en construire un à
+  /// chaque battement de 2 s serait payer une allocation pour rien.
+  final _radio = BleRadio();
+
+  /// Les constats en attente d'envoi.
+  ///
+  /// ⚠️ **Vit ici et pas dans le réseau.** Le réseau constate une présence ; ce
+  /// qu'on en fait — savoir qui est un ami, décider d'en informer le serveur —
+  /// est une décision produit, et elle n'a rien à faire sous la frontière radio.
+  final _sightings = SightingLog();
 
   /// Pairs qui ont refusé notre dernier message (règle anti-spam).
   ///
@@ -316,12 +341,12 @@ class ProximityController extends AsyncNotifier<ProximityView> {
             // Le lien est tombé : l'émetteur le saura autrement.
           }
         }
-        _refresh();
+        _refreshJournal();
 
       case ChatRejectedMessage():
         // Notre message a été refusé par la règle anti-spam d'en face.
         _rejections.add(peer.userId);
-        _refresh();
+        _refreshJournal();
 
       case CertOfferMessage():
         await _counterSign(address, message);
@@ -354,10 +379,112 @@ class ProximityController extends AsyncNotifier<ProximityView> {
             subject: peer.userId,
           );
         }
-        _refresh();
+        _refreshJournal();
 
       case ProfileMessage():
         break; // traité par le réseau, qui vérifie les signatures.
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Constats de croisement (réciprocité serveur)
+  // ------------------------------------------------------------------
+
+  /// Note qui est là, et fait partir les constats quand il y en a de nouveaux.
+  ///
+  /// ## ⚠️ Le même seuil que le certificat, et c'est voulu
+  ///
+  /// On ne constate que les pairs **frais et stables** — la même règle que
+  /// « ce n'est pas un passant ». Sans elle, une annonce isolée captée à
+  /// cinquante mètres suffirait à fabriquer un croisement, et « vous vous êtes
+  /// croisés » ne voudrait plus rien dire.
+  ///
+  /// ## ⚠️ Pourquoi ce balayage ne coûte presque rien
+  ///
+  /// Le journal déduplique par `(personne, créneau)`. Un ami immobile produit
+  /// donc **un** constat par quart d'heure, pas un par annonce — sinon ce
+  /// serait ~9 000 par créneau. Et le journal ne devient non vide que quand
+  /// quelque chose de neuf est arrivé : les envois sont rares par construction.
+  Future<void> _sweepSightings() async {
+    final network = _network;
+    if (network == null) return;
+    if (ref.read(currentUserIdProvider) == null) return;
+
+    await _collectNativeSightings();
+
+    final now = network.now();
+    for (final session in network.presence.sessions) {
+      final userId = session.userId;
+      if (userId == null) continue;
+      if (!session.isFresh(now) || !session.isStable(now)) continue;
+      // Un inconnu identifié par poignée de main n'est pas un ami : le serveur
+      // refuserait le constat, autant ne pas l'envoyer.
+      if (!await _isFriend(userId)) continue;
+      _sightings.observe(userId, now, band: session.toPresence().band);
+    }
+
+    if (_sightings.length == 0) return;
+    final lot = _sightings.drain();
+    await ref.read(pingStoreProvider).enqueue({
+      'type': 'sightings',
+      'items': [for (final s in lot) s.toJson()],
+    });
+    unawaited(ref.read(proximitySyncProvider).run());
+  }
+
+  /// Récupère ce que le SERVICE NATIF a constaté pendant que le Dart dormait.
+  ///
+  /// ## ⚠️ C'est ce qui rend le croisement possible app fermée
+  ///
+  /// Le natif diffuse tout seul depuis le plan d'émission, et reconnaît tout
+  /// seul depuis la table. Mais il ne sait ni qui est qui, ni parler au serveur.
+  /// Ce qu'il a vu attend donc ici, et repart dans le même journal que les
+  /// constats faits en direct — un seul chemin vers le serveur, une seule règle.
+  ///
+  /// ## ⚠️ Un rang d'une table périmée est JETÉ
+  ///
+  /// Le natif rend « le rang 3 est passé au créneau S ». Ce rang n'a de sens
+  /// que pour la table qui l'a produit : si le carnet a changé depuis, le rang 3
+  /// désigne peut-être quelqu'un d'autre. On jette plutôt que d'attribuer au
+  /// hasard — un croisement faux vaut moins que pas de croisement.
+  Future<void> _collectNativeSightings() async {
+    final supervisor = ref.read(proximitySupervisorProvider.notifier);
+    final List<Map<String, dynamic>> bruts;
+    try {
+      bruts = await _radio.takeSightings();
+    } catch (_) {
+      // Le service ne tourne pas : il n'a rien constaté, et ce n'est pas une
+      // panne — c'est l'état normal quand la visibilité est coupée.
+      return;
+    }
+    if (bruts.isEmpty) return;
+
+    var jetes = 0;
+    for (final brut in bruts) {
+      final userId = supervisor.friendOfSighting(
+        (brut['tableId'] as num?)?.toInt() ?? -1,
+        (brut['index'] as num?)?.toInt() ?? -1,
+      );
+      if (userId == null) {
+        jetes++;
+        continue;
+      }
+      _sightings.note(
+        Sighting(
+          peerId: userId,
+          slot: (brut['slot'] as num).toInt(),
+          // La bande se calcule ICI, pas dans le natif : dupliquer le modèle de
+          // distance en Kotlin, c'est se garantir qu'un jour les deux ne
+          // diront plus la même chose.
+          band: DistanceModel.bandFor((brut['rssi'] as num).toDouble(), null),
+        ),
+      );
+    }
+    if (jetes > 0) {
+      ConnectionTrace.note(
+        ConnectionEvent.syncOffline,
+        detail: "$jetes constat(s) natif(s) d'une table périmée, jetés",
+      );
     }
   }
 
@@ -382,7 +509,9 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     final me = ref.read(currentUserIdProvider);
     if (me == null) return;
 
-    final now = DateTime.now();
+    // L'heure vient du réseau, pas de `DateTime.now()` : c'est la même horloge
+    // que celle qui expire les sessions (audit du 2026-08-18, point G).
+    final now = network.now();
     for (final session in network.presence.sessions.toList()) {
       final userId = session.userId;
       if (userId == null || session.certified) continue;
@@ -463,7 +592,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     );
     await store.enqueue({'type': 'encounter', 'certificate': certificate});
     unawaited(ref.read(proximitySyncProvider).run());
-    _refresh();
+    _refreshJournal();
   }
 
   // ------------------------------------------------------------------
@@ -513,7 +642,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
           FriendRequestMessage.signedPayload(me, userId, ts),
         ),
         devicePublicKey: await _identity.edPublicKey(),
-        broadcastKey: await _identity.broadcastKey(),
+        x25519PublicKey: await _identity.x25519PublicKey(),
       ),
     );
     // ⚠️ **Rangée APRÈS l'envoi, jamais avant.** `sendToUser` lève si le pair
@@ -530,7 +659,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       );
     }
     ConnectionTrace.count(ConnectionTrace.requestsSent);
-    _refresh();
+    _refreshJournal();
   }
 
   Future<void> _onFriendRequest(
@@ -583,7 +712,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
         receivedAt: DateTime.now(),
       ),
     );
-    _refresh();
+    _refreshJournal();
   }
 
   /// Répond à une demande.
@@ -613,7 +742,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       } catch (_) {}
       await _journal.removeRequest(fromUserId);
       ConnectionTrace.count(ConnectionTrace.declined);
-      _refresh();
+      _refreshJournal();
       return;
     }
 
@@ -638,7 +767,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       FriendAcceptMessage(
         record: record,
         devicePublicKey: await _identity.edPublicKey(),
-        broadcastKey: await _identity.broadcastKey(),
+        x25519PublicKey: await _identity.x25519PublicKey(),
       ),
     );
 
@@ -648,7 +777,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
         username: pending.snapshot.username,
         tagName: pending.snapshot.tagName,
         edPublicKey: request.devicePublicKey,
-        broadcastKey: request.broadcastKey,
+        x25519PublicKey: request.x25519PublicKey,
       ),
     );
     await network.refreshFriends();
@@ -659,7 +788,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
     unawaited(ref.read(proximitySyncProvider).run());
     await _journal.removeRequest(fromUserId);
     ConnectionTrace.count(ConnectionTrace.accepted);
-    _refresh();
+    _refreshJournal();
   }
 
   /// ⚠️ **Une acceptation d'ami ne se croit pas sur parole.**
@@ -713,7 +842,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
         username: peer.username,
         tagName: peer.tagName,
         edPublicKey: accept.devicePublicKey,
-        broadcastKey: accept.broadcastKey,
+        x25519PublicKey: accept.x25519PublicKey,
       ),
     );
     await network.refreshFriends();
@@ -725,13 +854,13 @@ class ProximityController extends AsyncNotifier<ProximityView> {
       'record': accept.record,
     });
     unawaited(ref.read(proximitySyncProvider).run());
-    _refresh();
+    _refreshJournal();
   }
 
   /// Oublie une demande sortante refusée — geste explicite de l'utilisateur.
   Future<void> dismissOutgoing(String userId) async {
     await _journal.removeOutgoing(userId);
-    _refresh();
+    _refreshJournal();
   }
 
   // ------------------------------------------------------------------
@@ -776,7 +905,7 @@ class ProximityController extends AsyncNotifier<ProximityView> {
           peer: peer!.snapshot!,
           message: PingMessage(id: id, mine: true, text: text, at: now),
         );
-    _refresh();
+    _refreshJournal();
   }
 
   Future<void> _maybeWave(PingPeerSnapshot friend) async {
@@ -804,19 +933,29 @@ class ProximityController extends AsyncNotifier<ProximityView> {
 
   // ------------------------------------------------------------------
 
-  void _refresh() {
-    final network = _network;
-    if (network == null) return;
+  /// **Acquisition** : ce que la radio constate, publié tel quel.
+  ///
+  /// Synchrone, sans disque, sans réseau. C'est ce qui permet de l'appeler à la
+  /// fréquence des annonces. Décider si l'interface doit se redessiner n'est pas
+  /// son travail : `presence_feed.dart` compare, avec la définition de
+  /// « différent » qui appartient à l'affichage.
+  void _publishPresence() {
+    ref
+        .read(presenceProvider.notifier)
+        .publish(_network?.presence.peers ?? const []);
+  }
+
+  /// **Usage** : ce qui vient du disque, et qui ne change que sur action.
+  ///
+  /// ⚠️ **À n'appeler que quand le journal a vraiment changé** — une demande
+  /// reçue, acceptée, refusée, oubliée. L'appeler sur un événement de présence
+  /// remettrait deux lectures de fichier sur le chemin d'une annonce BLE, ce
+  /// qu'on vient précisément d'en retirer.
+  void _refreshJournal() {
     unawaited(() async {
       final requests = await _journal.pendingRequests();
       final outgoing = await _journal.outgoingRequests();
-      state = AsyncData(
-        ProximityView(
-          peers: network.presence.peers,
-          requests: requests,
-          outgoing: outgoing,
-        ),
-      );
+      state = AsyncData(ProximityView(requests: requests, outgoing: outgoing));
     }());
   }
 
@@ -858,13 +997,15 @@ class _RadioAdapter implements RadioCommands {
 /// commentaire de ce chantier à affirmer une règle que son code n'appliquait
 /// pas.
 ///
-/// Elle est désormais vraie par construction : `ProximityView.peers` ne contient
+/// Elle est désormais vraie par construction : le flux de présence ne contient
 /// que les pairs frais au sens de [PresenceRules.freshFor], parce que le
 /// registre refuse d'en projeter d'autres.
-final peerInRangeProvider = Provider.family<bool, String>((ref, userId) {
-  final view = ref.watch(proximityControllerProvider).value;
-  return view?.identified.any((p) => p.userId == userId) ?? false;
-});
+///
+/// ⚠️ Alias de `isNearbyProvider` : **un seul calcul de la présence**, exposé
+/// sous le nom que le reste du produit utilise déjà.
+final peerInRangeProvider = Provider.family<bool, String>(
+  (ref, userId) => ref.watch(isNearbyProvider(userId)),
+);
 
 final proximityControllerProvider =
     AsyncNotifierProvider<ProximityController, ProximityView>(
