@@ -5,9 +5,10 @@ Deux parties : la **partie 1 est pour Jay** (ce qu'il fait à la main), la
 **partie 2 est pour Claude Code** (ce qu'il vérifie et reconstruit tout seul
 à la première session sur la nouvelle machine).
 
-Dernière mise à jour : **2026-08-14**, état du projet : **v0.9.71**
-(chantier livraison terminé pour l'essentiel ; **la refonte UI démarre** et
-**Rive vient d'être adopté** — voir §2.4).
+Dernière mise à jour : **2026-08-20**, état du projet : **v0.9.121**
+(la proximité vient d'être refondue de fond en comble : secret par paire,
+émission autonome du natif, réciprocité serveur — **et rien n'a encore tourné
+sur un téléphone**. Voir §2.3 et §2.4).
 
 ---
 
@@ -57,7 +58,7 @@ elle vit hors du dossier projet (voir §1.5).
 | Sur la clé | À remettre où, sur la nouvelle machine |
 |---|---|
 | `neovibe_alpha.zip` | Décompresser dans `C:\Charles\` → doit donner `C:\Charles\neovibe_alpha` |
-| `memory\` (**28 fichiers** au 2026-08-13) | `C:\Users\<TON_PROFIL>\.claude\projects\C--Charles-neovibe-alpha\memory\` |
+| `memory\` (**41 fichiers** au 2026-08-20 : 40 mémoires + `MEMORY.md`) | `C:\Users\<TON_PROFIL>\.claude\projects\C--Charles-neovibe-alpha\memory\` |
 | *(optionnel)* `dev\` | `C:\Charles\dev\` — évite de retélécharger 6,4 Go de toolchain |
 
 > ⚠️ **Le chemin `C:\Charles\neovibe_alpha` n'est pas cosmétique.** Claude Code
@@ -212,15 +213,20 @@ Tu reprends un projet en cours. **Ne recommence rien, ne réorganise rien.**
 3. `RAPPELS.md` — avant-prod, chantiers promis, décisions en attente, bugs
    connus, décisions à ne pas reproposer.
 4. Les **2 ou 3 derniers rapports** de `rapports-de-sessions/`. Le plus récent :
-   **`2026-08-13_21-46.md`** — quatre bugs invisibles au diff, remise à zéro de
-   la base, photos de profil, et l'**étude Rive**. Puis `2026-08-13_14-10.md`
-   (chantier mesure et préchargement, très long) et `2026-08-12_18-45.md`
-   (lecture native directe, streaming par intervalles).
-5. **`docs/cours-livraison-des-medias.html`** — le cours écrit pour Jay le
+   **`2026-08-19_23-56.md`** — c'est le plus important, et de loin : il décrit
+   **toute la refonte de la proximité** du 2026-08-20 (secret par paire,
+   émission autonome du natif, réciprocité serveur, reconnaissance native,
+   `minSdk` à 31), avec pour chaque décision le **motif** et ce qui a été
+   vérifié. Puis `2026-08-18_08-28.md` (l'audit qui a tout déclenché) et
+   `2026-08-18_04-16.md` (la refonte du ping, une session par pair).
+5. **`docs/logigrams/`** — huit schémas à ouvrir dans Logigram. Le **7** montre
+   la reconnaissance telle qu'elle était et **pourquoi elle a changé**, le **8**
+   celle en place. À lire dans cet ordre avant de toucher à la proximité.
+6. **`docs/cours-livraison-des-medias.html`** — le cours écrit pour Jay le
    2026-08-13 : stockage objet, HTTP, URL signée, clé, format par blocs, qui
    compte quoi, et les options de préchargement. **À lire avant de toucher au
    chemin des médias.**
-6. `git log --oneline -15` pour l'état réel du code.
+7. `git log --oneline -15` pour l'état réel du code.
 
 ### 2.2 Vérifications d'environnement (à faire, pas à supposer)
 
@@ -255,10 +261,39 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
   test de la base de dev n'y sera plus : le signaler à Jay plutôt que d'en créer
   un sans lui demander.
 
-### 2.3 État du projet à la bascule (2026-08-14, v0.9.71)
+### 2.3 État du projet à la bascule (2026-08-20, v0.9.121)
 
-- **`pubspec.yaml` en `0.9.71+161`**, dernière release **v0.9.71**, working tree
-  propre, `master` aligné sur `origin/master`.
+- **`pubspec.yaml` en `0.9.121+211`**, dernière release **v0.9.121**, working
+  tree propre, `master` aligné sur `origin/master`.
+
+#### ⚠️ Ce qu'il faut savoir AVANT toute chose
+
+**La proximité a été refondue le 2026-08-20, et RIEN n'a tourné sur un
+téléphone.** Tout est vérifié en test (188 Dart + 11 Kotlin), en base, ou à la
+compilation — jamais sur appareil. Cinq mesures attendent, listées en §2.4.
+
+**Le protocole d'annonce est passé en version 3.** Les deux téléphones de test
+doivent être mis à jour **ensemble**, sinon ils ne se voient pas — c'est voulu,
+et c'est visible au diagnostic (`otherVersionScans`).
+
+**Trois changements structurants**, chacun détaillé dans `RAPPELS.md` :
+
+| Quoi | Où |
+|---|---|
+| Le **secret par paire** (X25519) remplace la clé de diffusion partagée | #51, #53 |
+| Le natif **émet et reconnaît seul** (plan de 12 h + table de reconnaissance) | #53, #56 |
+| Un croisement n'existe que si **les deux** se sont vus (réciprocité serveur) | #55 |
+
+**Deux migrations appliquées sur le projet de dev le 2026-08-20**, toutes deux
+dans le dépôt — **ne pas les rejouer** : `20260820120000_pairwise_secret` et
+`20260820180000_mutual_sightings`. Un job cron s'ajoute :
+`neovibe_purge_sightings` (jobid 10).
+
+**`minSdk` est passé à 31** (Android 12). Ce n'est pas une contrainte de
+compilation, c'est une décision — lire `RAPPELS.md` #57 avant d'y toucher.
+
+**Une règle impérative s'ajoute à `CLAUDE.md`** : dissocier l'ACQUISITION de
+l'USAGE. Jay a demandé un **checkup complet du code** à son aune (#52).
 - **⚠️ Quatorze versions publiées les 2026-08-13/14** (v0.9.58 → v0.9.71).
   Toutes ont un APK sur GitHub et des notes de test détaillées. **Lire les notes
   de release** est le moyen le plus rapide de comprendre l'enchaînement.
@@ -459,7 +494,31 @@ la mémoire `feedback-read-the-measurement-not-the-instrument`.
 
 ### 2.4 Ce qui attend (par priorité, à confirmer avec Jay)
 
-0. **🎨 LA REFONTE UI — le chantier annoncé, et le suivant.** Jay fournit ses
+0. **📱 UN BUILD À TESTER, et c'est le seul point bloquant.** Toute la refonte
+   de la proximité (secret par paire, émission autonome, réciprocité serveur,
+   reconnaissance native) est écrite, testée et compilée — **jamais exécutée sur
+   un téléphone**. On empile depuis plusieurs sessions sans retour du terrain.
+
+   ⚠️ **Les deux téléphones ensemble** : protocole en version 3.
+
+   **Cinq mesures à relever au premier test à deux appareils.** Elles décident
+   de valeurs aujourd'hui *raisonnées*, pas mesurées :
+
+   | Quoi | Ce que ça décide |
+   |---|---|
+   | `rawScans` / `neoScans`, écran allumé **puis éteint** | les trois durées de `PresenceRules` (#47) |
+   | un appareil laissé une heure app fermée, écran éteint | que le point H est bien corrigé (#49) |
+   | période de renouvellement de l'adresse BLE | elle plafonne toute la vie privée du créneau |
+   | coût d'un redémarrage d'advertising | la valeur de `cycleMillis` (400 ms) |
+   | `advertCapabilities` sur l'appareil de Jay | s'il y a lieu d'écrire le multi-annonces (#54 ①) |
+
+0. bis **🔬 LE CHECKUP DEMANDÉ PAR JAY** (`RAPPELS.md` #52) : passer tout le code
+   à l'aune de la règle de dissociation acquisition / usage. Question de
+   contrôle : *« si j'ajoute un champ à cet écran, dois-je toucher au code qui
+   parle à la radio / au réseau / au disque ? »*. Résultat à rendre **chiffré**
+   (reconstructions, lectures disque) — ce défaut n'affiche jamais rien de faux.
+
+0. ter **🎨 LA REFONTE UI — toujours en attente de ses vues.** Jay fournit ses
    vues dans `docs/`. **Ne rien entreprendre avant.** Lire `RAPPELS.md` #27
    (dont le cadrage de Jay : l'authoring visuel lui revient, l'intégration et le
    **système de mouvement** me reviennent), #26 (tout sur Rive) et #25 (le piège
@@ -572,15 +631,16 @@ la mémoire `feedback-read-the-measurement-not-the-instrument`.
 ### 2.5 Premier message à Jay
 
 Résumer en quelques phrases : ce qui a été vérifié, ce qui manque le cas échéant
-(`env.dart`, mémoire, `docdev/`, MCP, tags), l'état du projet — puis se mettre à
-sa disposition sur **la refonte UI** (§2.4 point 0), qui est le chantier qu'il a
-annoncé.
+(`env.dart`, mémoire, `docdev/`, MCP, tags), l'état du projet — puis lui proposer
+**un build à tester** (§2.4 point 0), qui est le seul point bloquant.
 
 Y joindre trois choses, sans en faire un catalogue :
-- lui demander **ses vues** et s'il veut qu'on pose d'abord le **système de
-  mouvement** ;
-- lui rappeler que le **relevé de mesures vidéo** n'a toujours pas été fait ;
-- lui proposer l'**APK par architecture** (~22 Mo au lieu de 60,9).
+- lui rappeler que **les deux téléphones doivent être mis à jour ensemble**
+  (protocole en version 3) et qu'aucune ligne de la refonte proximité n'a tourné
+  sur un appareil ;
+- lui redemander le **checkup dissociation acquisition / usage** qu'il a
+  commandé (#52) — c'est lui qui l'a réclamé, pas moi qui le propose ;
+- lui rappeler que le **relevé de mesures vidéo** n'a toujours pas été fait.
 
 **Ne pas se lancer dans un chantier sans son feu vert.** Et ne pas engager
 l'option 3 (lecteur préparé d'avance) avant d'avoir ses chiffres : c'est

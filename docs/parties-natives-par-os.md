@@ -216,13 +216,17 @@ et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
 |---|---|---|
 | `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `updateAdvert`, `connect`, `disconnect`, `send`, `stats`, `openLocationSettings` |
 | `neovibe/proximity/events` | natif → Dart | les **constats** : `status`, `scan`, `link`, `frame` |
+| `setAdvertPlan` | Dart → natif | *(2026-08-20)* dépose des heures de jetons d'avance — correction du point H |
+| `advertCapabilities` | Dart → natif | *(2026-08-20)* ce que la radio sait faire en annonces simultanées — architecture adaptative |
+| `setRecognitionTable` | Dart → natif | *(2026-08-20)* jetons attendus → rangs, pour reconnaître sans le Dart |
+| `takeSightings` | Dart → natif | *(2026-08-20)* récupère et vide ce que le service a constaté seul |
 
 L'ancien code faisait remonter les événements par `invokeMethod` sur le canal de
 commandes. Un flux qui remonte n'a pas les mêmes règles qu'un ordre qui descend —
 il n'attend pas de réponse, il peut n'avoir aucun auditeur, et il doit survivre
 au remplacement de l'interface.
 
-**Android (fait, 2026-08-16)** — trois fichiers dans `ble/` :
+**Android (fait, 2026-08-16 ; plan d'émission et reconnaissance ajoutés le 2026-08-20)** — six fichiers dans `ble/` :
 
 - **`RadioStatus.kt`** — l'**état réel** de la radio, et le calcul des
   permissions réellement exigées selon la version d'Android. C'est le cœur du
@@ -241,9 +245,50 @@ au remplacement de l'interface.
   dit l'état vrai.
 - **`ProximityBridge.kt`** — le pont vers Dart. **Jetable** : il naît et meurt
   avec l'activité, le service reste.
+- **`AdvertSchedule.kt`** — *(nouveau, 2026-08-20)* le **plan d'émission** :
+  plusieurs heures de jetons calculés d'avance par le Dart, que le service
+  déroule tout seul. C'est la correction du **point H** : le jeton dépend du
+  créneau de 15 min, et tant que c'était un minuteur Dart qui poussait le
+  suivant, l'identifiant se figeait dès qu'Android détruisait l'activité —
+  l'appareil criait alors en permanence sans que personne ne le reconnaisse, et
+  sans qu'aucune erreur ne soit levée.
+  ⚠️ **Aucun secret ici, et aucune cryptographie.** Les jetons sont des
+  identifiants déjà calculés : les dérober ne permet ni de suivre demain, ni
+  d'en fabriquer d'autres. Toute la cryptographie reste en Dart.
+  ⚠️ **Plan épuisé = silence**, jamais un jeton périmé rejoué : une annonce
+  que plus personne n'attend est indiscernable d'une radio saine.
+- **`SightingBook.kt`** — *(nouveau, 2026-08-20)* la **reconnaissance sans le
+  Dart** : `RecognitionTable` (jeton attendu → rang) et `SightingBuffer` (les
+  constats accumulés en attendant le retour du Dart). Sans lui, le service
+  diffusait seul mais restait aveugle — l'appareil était **vu sans voir**, et le
+  croisement, fait pour le téléphone dans la poche, ne se produisait jamais.
+  ⚠️ **Le natif n'apprend AUCUNE identité** : la table associe un jeton à un
+  **rang** (0, 1, 2…). Seul le Dart sait qui est le rang 3, et il le sait pour
+  *cette* table — d'où le `tableId` renvoyé avec chaque constat, qui fait jeter
+  les constats d'une table périmée au lieu de les attribuer au hasard.
+  ⚠️ **Un jeton rejoué hors de son créneau est refusé** : sans cette fenêtre, il
+  suffirait d'enregistrer une annonce le matin pour fabriquer un croisement le
+  soir.
+  ⚠️ **Logique volontairement PURE** (aucune dépendance Android) : c'est ce qui
+  la rend vérifiable sur la JVM — 11 tests dans `SightingBookTest.kt`. Du code
+  qui tourne quand l'interface est morte ne peut pas être validé « à l'usage ».
+  ⚠️ **Les constats vivent en mémoire seulement.** Si Android tue le
+  *processus* (et pas seulement l'interface), ils sont perdus — assumé : les
+  écrire sur le disque depuis le natif poserait hors du Dart une trace de qui a
+  été croisé, pour rattraper un cas rare.
 
 ⚠️ Déclarer le service au manifeste avec
 `android:foregroundServiceType="connectedDevice"`.
+
+⚠️ **`minSdk = 31` depuis le 2026-08-20, et c'est une décision, pas une
+contrainte de compilation.** Sous Android 12, un scan BLE exige une permission de
+localisation, et le système ne considère l'app comme « au premier plan » pour la
+localisation que si le service a le type `location` — le nôtre est
+`connectedDevice`. Interface fermée, le scan n'aurait rien remonté, **sans erreur
+ni trace**. À partir d'Android 12, `BLUETOOTH_SCAN` avec `neverForLocation`
+dispense de toute permission de localisation : il n'y en a plus **aucune** dans
+le manifeste fusionné. L'état `LocationOff` a été retiré de bout en bout dans la
+foulée — voir `RAPPELS.md` #57 avant d'y toucher.
 
 **iOS (à faire)** — **CoreBluetooth**, et il faudra concevoir un **mode
 dégradé** :
@@ -260,6 +305,19 @@ dégradé** :
 - ⚠️ **Ce qui se porte tel quel, en revanche** : tout ce qui est au-dessus de la
   radio est en Dart pur et sans dépendance Android — transport, canal sécurisé,
   protocole, présence, fonctions. Seule la couche 0 est à réécrire.
+- ⚠️ **`SightingBook` non plus.** Reconnaître sans le Dart suppose un processus
+  qui scanne en continu et garde un état — iOS ne le donne pas. Mais la logique
+  est pure et sans dépendance Android : elle se transpose en Swift telle quelle,
+  c'est **quand** elle tourne qui change.
+- ⚠️ **`AdvertSchedule` n'a PAS d'équivalent iOS évident.** Le plan suppose un
+  processus qui survit à l'interface et qui peut changer son annonce tout seul —
+  exactement ce qu'iOS ne donne pas. Le calcul du plan, lui, est en Dart pur
+  (`advert_plan.dart`) et se porte sans rien changer : c'est **l'exécution** qui
+  est à repenser, pas le contenu.
+- ⚠️ **Depuis le 2026-08-20, l'appareil émet N jetons différents** (un par ami)
+  au lieu d'un identifiant unique. Sur iOS, où l'advertising en arrière-plan ne
+  transporte pas les données de fabricant, cette contrainte s'ajoute à celles
+  déjà listées.
 
 ---
 
