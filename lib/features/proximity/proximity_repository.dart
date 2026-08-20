@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/connection_request.dart';
 import '../../core/supabase_providers.dart';
-import 'net/proximity_controller.dart';
+import 'presence_feed.dart';
 
 /// Demandes de connexion SERVEUR : depuis le chantier BLE (2026-07-13), les
 /// demandes de proximité passent d'appareil à appareil (co-signées, cf.
@@ -66,12 +66,11 @@ class ProximityRepository {
   late final Timer _heartbeat;
 
   Future<void> _refresh() async {
-    final view = ref.read(proximityControllerProvider).value;
+    final nearby = ref.read(nearbyUserIdsProvider);
     final outgoing = ref.read(outgoingRequestsProvider).value ?? [];
     final client = ref.read(supabaseProvider);
     for (final request in outgoing) {
-      final inRange =
-          view?.identified.any((p) => p.userId == request.receiverId) ?? false;
+      final inRange = nearby.contains(request.receiverId);
       if (inRange) {
         await client
             .from('connection_requests')

@@ -5,7 +5,6 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
-import android.location.LocationManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import java.util.UUID
@@ -22,8 +21,20 @@ object BleConstants {
     const val MANUFACTURER_ID = 0xFFFF
     val MAGIC = byteArrayOf(0x4E, 0x56) // "NV"
 
-    /** Taille attendue d'une trame d'advertising : 2 octets "NV" + 16 d'ID. */
-    const val ADVERT_PAYLOAD_SIZE = 18
+    /**
+     * Version du protocole d'annonce, portee dans chaque annonce.
+     *
+     * ⚠️ **Un octet aujourd'hui, une migration entiere si on l'oublie.** Sans
+     * lui, deux versions qui ne se comprennent pas ne se voient simplement pas,
+     * sans erreur ni trace. Doit rester egal a
+     * `ProximityIdentity.protocolVersion` cote Dart.
+     *
+     * 3 = un jeton par PAIRE (2026-08-20). 2 = cle de diffusion partagee.
+     */
+    const val PROTOCOL_VERSION: Byte = 3
+
+    /** 2 octets "NV" + 1 de version + 16 d'identifiant. */
+    const val ADVERT_PAYLOAD_SIZE = 19
 
     val SERVICE_UUID: UUID = UUID.fromString("53d70001-8a3f-4f95-9b6c-4e656f566962")
     val RX_UUID: UUID = UUID.fromString("53d70002-8a3f-4f95-9b6c-4e656f566962")
@@ -68,33 +79,20 @@ sealed class RadioStatus {
     /** Le Bluetooth est éteint. L'utilisateur doit l'allumer. */
     object AdapterOff : RadioStatus()
 
-    /**
-     * Le service de LOCALISATION du téléphone est éteint — et sur Android ≤ 11,
-     * cela suffit à rendre tout scan BLE aveugle.
-     *
-     * ## Pourquoi ce cas existe, et pourquoi il a coûté une journée
-     *
-     * Jusqu'à Android 11 inclus, le système considère qu'écouter les
-     * identifiants Bluetooth des environs revient à se localiser. Il exige donc
-     * **deux choses distinctes**, qu'on confond facilement :
-     *
-     * 1. la **permission** `ACCESS_FINE_LOCATION` accordée à l'app ;
-     * 2. le **service de localisation** allumé sur l'appareil.
-     *
-     * La première était vérifiée. La seconde, non. Or sans elle `startScan`
-     * **réussit** — pas d'exception, pas de code d'erreur, `onScanFailed` n'est
-     * jamais appelé — et ne livre **jamais aucun résultat**.
-     *
-     * C'est le défaut constaté par Jay le 2026-08-16 : sa tablette Android 10
-     * affichait diffusion ET détection au vert, et zéro appareil, pendant que
-     * son téléphone (Android 12+) voyait la tablette. **L'asymétrie ne venait
-     * ni du code ni de la puce : elle venait de la version d'Android.**
-     *
-     * ⚠️ À partir d'Android 12, `BLUETOOTH_SCAN` avec `neverForLocation` remplace
-     * cette exigence — d'où un appareil récent qui marche et un ancien qui ne
-     * marche pas, avec exactement le même code.
-     */
-    object LocationOff : RadioStatus()
+    // ⚠️ **`LocationOff` a été SUPPRIMÉ le 2026-08-20, avec `minSdk = 31`.**
+    //
+    // Il disait « la localisation du téléphone est éteinte, donc le scan BLE ne
+    // rend rien » — le défaut constaté par Jay le 2026-08-16 sur sa tablette
+    // Android 10 : diffusion et détection au vert, zéro appareil, pendant que
+    // son téléphone Android 12 voyait la tablette.
+    //
+    // À partir d'Android 12, `BLUETOOTH_SCAN` avec `neverForLocation` remplace
+    // cette exigence : l'état ne peut plus se produire, et le garder ferait
+    // croire qu'il le peut.
+    //
+    // ⚠️ S'il fallait un jour redescendre sous Android 12, ce n'est pas ce seul
+    // état qu'il faudrait rétablir : voir `RAPPELS.md` #57 pour la chaîne
+    // entière (permission de fond, type du service de premier plan, invite).
 
     /** Tout est possible, mais personne n'a demandé à être visible. */
     object Idle : RadioStatus()
@@ -116,7 +114,6 @@ sealed class RadioStatus {
         is Unsupported -> mapOf("type" to "unsupported")
         is PermissionsMissing -> mapOf("type" to "permissionsMissing", "missing" to missing)
         is AdapterOff -> mapOf("type" to "adapterOff")
-        is LocationOff -> mapOf("type" to "locationOff")
         is Idle -> mapOf("type" to "idle")
         is Starting -> mapOf("type" to "starting")
         is Running -> mapOf(
@@ -129,31 +126,34 @@ sealed class RadioStatus {
 }
 
 /**
- * Ce que le système exige VRAIMENT, en fonction de la version d'Android.
+ * Ce que le système exige VRAIMENT pour la radio.
  *
- * ⚠️ **`ACCESS_FINE_LOCATION` sur Android ≤ 11 n'est pas une formalité** : sans
- * elle, `startScan` réussit et ne renvoie **jamais** le moindre résultat. Aucune
- * exception, aucun code d'erreur — une liste vide, pour toujours. L'ancienne
- * couche Dart demandait cette permission puis **jetait le résultat** (défaut A2
- * du diagnostic). C'est pour ça que ce calcul vit ici, en natif : c'est le seul
- * endroit qui connaît la version réelle du système.
+ * ⚠️ **Ce calcul vit en natif, et il doit y rester.** L'ancienne couche Dart
+ * demandait les permissions puis **jetait le résultat** (défaut A2 du
+ * diagnostic) : elle décidait de ce qu'Android exige sans le lui demander. Ici,
+ * c'est le système qui répond.
+ *
+ * ⚠️ **Une permission refusée ne se voit pas.** `startScan` réussit sans elle —
+ * aucune exception, aucun code d'erreur — et ne renvoie jamais le moindre
+ * résultat. Une liste vide, pour toujours. D'où le contrôle explicite avant de
+ * démarrer, plutôt qu'un échec qu'on attendrait en vain.
  */
 object BlePermissions {
 
-    fun required(): List<String> =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            listOf(
-                Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.BLUETOOTH_CONNECT,
-            )
-        } else {
-            listOf(
-                Manifest.permission.BLUETOOTH,
-                Manifest.permission.BLUETOOTH_ADMIN,
-                Manifest.permission.ACCESS_FINE_LOCATION,
-            )
-        }
+    // ⚠️ **Une seule liste depuis `minSdk = 31`** (2026-08-20). Il y avait une
+    // branche pour Android <= 11 qui exigeait `ACCESS_FINE_LOCATION` : elle est
+    // devenue inatteignable, et une branche morte finit toujours par être lue
+    // comme une branche vivante.
+    //
+    // ⚠️ Aucune permission de localisation, et c'est délibéré : `BLUETOOTH_SCAN`
+    // est déclarée avec `neverForLocation`, donc nous affirmons ne dériver
+    // aucune position des annonces captées. En demander une contredirait cette
+    // déclaration.
+    fun required(): List<String> = listOf(
+        Manifest.permission.BLUETOOTH_SCAN,
+        Manifest.permission.BLUETOOTH_ADVERTISE,
+        Manifest.permission.BLUETOOTH_CONNECT,
+    )
 
     fun missing(context: Context): List<String> = required().filter {
         ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
@@ -179,29 +179,8 @@ fun evaluateRadio(context: Context): RadioStatus? {
 
     if (!adapter.isEnabled) return RadioStatus.AdapterOff
 
-    // ⚠️ Sur Android <= 11 SEULEMENT. Au-delà, `BLUETOOTH_SCAN` suffit et
-    // exiger la localisation serait une demande abusive.
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && !isLocationEnabled(context)) {
-        return RadioStatus.LocationOff
-    }
+    // ⚠️ **Plus aucun contrôle de localisation ici.** Il n'avait de sens que sous
+    // Android 12, et `minSdk = 31` rend ce cas inatteignable (2026-08-20).
     return null
 }
 
-/**
- * Le service de localisation est-il allumé ?
- *
- * `isLocationEnabled` existe depuis l'API 28 ; en dessous, on lit le mode dans
- * les réglages. Les deux appareils de test sont au-dessus, mais un `when` qui
- * couvre tout coûte trois lignes et évite un plantage sur un appareil plus
- * ancien.
- */
-private fun isLocationEnabled(context: Context): Boolean {
-    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        ?: return false
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        manager.isLocationEnabled
-    } else {
-        manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-            manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-    }
-}

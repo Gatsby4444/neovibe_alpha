@@ -28,8 +28,6 @@ sealed class RadioStatus {
         );
       case 'adapterOff':
         return const RadioAdapterOff();
-      case 'locationOff':
-        return const RadioLocationOff();
       case 'idle':
         return const RadioIdle();
       case 'starting':
@@ -77,18 +75,17 @@ class RadioAdapterOff extends RadioStatus {
   const RadioAdapterOff();
 }
 
-/// Le service de localisation de l'appareil est éteint.
-///
-/// ⚠️ **Sur Android ≤ 11 seulement, et ça suffit à tout aveugler.** Le système
-/// considère alors qu'écouter les identifiants Bluetooth des environs revient à
-/// se localiser : sans le service allumé, `startScan` réussit et ne renvoie
-/// **jamais** de résultat, sans la moindre erreur.
-///
-/// La permission accordée ne remplace pas le service allumé — ce sont deux
-/// choses distinctes, et les confondre a coûté une journée le 2026-08-16.
-class RadioLocationOff extends RadioStatus {
-  const RadioLocationOff();
-}
+// ⚠️ **`RadioLocationOff` a été SUPPRIMÉ le 2026-08-20, avec `minSdk = 31`.**
+//
+// Il disait « le service de localisation du téléphone est éteint, donc le scan
+// BLE ne rend rien » — vrai jusqu'à Android 11, où le système considérait
+// qu'écouter les identifiants Bluetooth des environs revenait à se localiser.
+// À partir d'Android 12, `BLUETOOTH_SCAN` avec `neverForLocation` remplace
+// cette exigence : l'état est devenu inatteignable.
+//
+// Le natif ne l'émet plus non plus. Un état que rien ne produit mais que
+// l'interface sait afficher est pire qu'inutile : il fait croire à un cas qui
+// n'existe pas. Voir `RAPPELS.md` #57.
 
 class RadioIdle extends RadioStatus {
   const RadioIdle();

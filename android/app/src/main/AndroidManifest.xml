@@ -4,13 +4,11 @@
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- Android ≤ 11 : le scan BLE exige la localisation -->
-    <uses-permission android:name="android.permission.BLUETOOTH"
-        android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
-        android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="30" />
+    <!-- ⚠️ AUCUNE permission de localisation, et c'est tout l'intérêt de
+         minSdk 31. Avant Android 12, un scan BLE en exigeait une ;
+         `neverForLocation` ci-dessus déclare que nous n'en dérivons aucune
+         position, et Android nous dispense alors de la demander. Ne rien
+         rajouter ici sans relire `RAPPELS.md` #57. -->
 
     <!-- Cards : capture recto/verso (photo + vidéo avec son) -->
     <uses-permission android:name="android.permission.CAMERA" />

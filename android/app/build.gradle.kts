@@ -21,7 +21,25 @@ android {
         applicationId = "com.neovibe.neovibe"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = 26 // BLE stable + canaux de notification (Android 8+)
+        // ⚠️ **31 (Android 12), décision de Jay du 2026-08-20.**
+        //
+        // C'était 26 (Android 8). Sur Android 10 et 11, un scan BLE exige
+        // `ACCESS_FINE_LOCATION`, et le système ne considère l'app comme « au
+        // premier plan » pour la localisation que si son service de premier plan
+        // a le type `location` — le nôtre est `connectedDevice`. Interface
+        // fermée, `onScanResult` n'aurait donc rien remonté, **sans erreur ni
+        // trace**, et tout le travail de reconnaissance native aurait été
+        // inutile sur ces versions.
+        //
+        // Les alternatives revenaient à demander « Autoriser la localisation
+        // tout le temps » — l'invite la plus dissuasive d'Android, sur une app
+        // dont la thèse est la confiance. On supprime la cause : à partir
+        // d'Android 12, `BLUETOOTH_SCAN` + `neverForLocation` dispense de toute
+        // permission de localisation.
+        //
+        // ⚠️ Ne pas redescendre sans relire `RAPPELS.md` #57 : ce nombre porte
+        // une décision, pas une contrainte de compilation.
+        minSdk = 31
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

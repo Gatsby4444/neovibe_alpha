@@ -96,6 +96,37 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      */
     private var desiredAdvertId: ByteArray? = null
 
+    /** Annonces NeoVibe ecartees parce qu'elles parlaient une autre version. */
+    var otherVersionScans = 0
+        private set
+
+    /**
+     * Ce que la radio sait faire en matiere d'annonces simultanees.
+     *
+     * ⚠️ **On DEMANDE au systeme, on ne deduit pas du modele** - meme
+     * raisonnement que pour l'UWB et le Wi-Fi RTT. C'est ce qui permet a
+     * l'architecture de s'adapter a l'appareil (consigne de Jay, 2026-08-20)
+     * plutot que de supposer le pire partout.
+     */
+    fun advertCapabilities(): Map<String, Any?> {
+        val a = adapter
+        return mapOf(
+            "multipleAdvertisement" to (a?.isMultipleAdvertisementSupported ?: false),
+            "extendedAdvertising" to
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    (a?.isLeExtendedAdvertisingSupported ?: false)),
+            "maxAdvertisingDataLength" to
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    a?.leMaximumAdvertisingDataLength ?: 31
+                } else {
+                    31
+                },
+            "periodicAdvertising" to
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    (a?.isLePeriodicAdvertisingSupported ?: false)),
+        )
+    }
+
     private var lastPublished: RadioStatus? = null
 
     /**
@@ -239,6 +270,18 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         publish(currentStatus())
     }
 
+    /**
+     * Cesse d'annoncer, sans arreter le scan.
+     *
+     * Utilise quand le plan d'emission est epuise : on prefere le silence a un
+     * jeton perime, qui serait indiscernable d'un fonctionnement normal tout en
+     * ne se faisant reconnaitre par personne.
+     */
+    fun pauseAdvertising() {
+        stopAdvertising()
+        publish(currentStatus())
+    }
+
     fun updateAdvert(advertId: ByteArray) {
         desiredAdvertId = advertId
         if (evaluateRadio(context) != null) return
@@ -358,7 +401,10 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             return
         }
         val data = AdvertiseData.Builder()
-            .addManufacturerData(BleConstants.MANUFACTURER_ID, BleConstants.MAGIC + advertId)
+            .addManufacturerData(
+                BleConstants.MANUFACTURER_ID,
+                BleConstants.MAGIC + byteArrayOf(BleConstants.PROTOCOL_VERSION) + advertId,
+            )
             .setIncludeDeviceName(false)
             // ⚠️ **La puissance d'emission voyage avec l'annonce.**
             //
@@ -401,7 +447,18 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             if (payload.size != BleConstants.ADVERT_PAYLOAD_SIZE) return
             if (payload[0] != BleConstants.MAGIC[0] || payload[1] != BleConstants.MAGIC[1]) return
             neoScans++
-            val id = payload.copyOfRange(2, BleConstants.ADVERT_PAYLOAD_SIZE)
+            // ⚠️ **Une version differente se COMPTE, elle ne disparait pas.**
+            //
+            // Sans cet octet, deux versions qui ne se comprennent pas ne se
+            // voient simplement pas - sans erreur, sans trace, et sans que
+            // personne puisse diagnostiquer autre chose qu'« il ne me voit
+            // pas ». Ici, l'annonce est ecartee mais l'ecart est visible au
+            // diagnostic.
+            if (payload[2] != BleConstants.PROTOCOL_VERSION) {
+                otherVersionScans++
+                return
+            }
+            val id = payload.copyOfRange(3, BleConstants.ADVERT_PAYLOAD_SIZE)
             // `txPower` vaut TX_POWER_NOT_PRESENT (127) si l'emetteur ne
             // l'annonce pas - un appareil sur une version anterieure, par
             // exemple. On transmet tel quel : c'est au-dessus de decider quoi

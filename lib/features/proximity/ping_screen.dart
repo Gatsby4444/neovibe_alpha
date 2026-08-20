@@ -8,15 +8,14 @@ import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
-import 'net/ble_radio.dart';
 import 'net/distance_estimate.dart';
-import 'net/peer_session.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_journal.dart';
 import 'net/proximity_supervisor.dart';
 import 'net/radio_status.dart';
 import 'ping_chat_screen.dart';
 import 'ping_store.dart';
+import 'presence_feed.dart';
 
 /// Le Ping — découverte 100 % locale, chiffrée d'appareil à appareil.
 ///
@@ -71,20 +70,18 @@ class _PingScreenState extends ConsumerState<PingScreen> {
   @override
   Widget build(BuildContext context) {
     final view = ref.watch(proximityControllerProvider).value;
+    // ⚠️ **On observe la COMPOSITION de la liste, pas son contenu.** Le contenu
+    // d'une tuile est observé par la tuile elle-même (`peerViewProvider`), donc
+    // un pair qui se rapproche ne reconstruit que sa ligne — pas la barre de
+    // stories, pas l'interrupteur, pas les autres tuiles. Règle de dissociation
+    // de Jay, 2026-08-20 ; détail dans `presence_feed.dart`.
+    final keys = ref.watch(presenceKeysProvider);
+    final nearbyIds = ref.watch(nearbyUserIdsProvider);
     // ⚠️ L'état de la radio se lit **au superviseur**, jamais à l'instantané du
     // contrôleur : c'est le superviseur qui en est l'autorité, et son état
     // change plus souvent que la liste des pairs. Le lire ailleurs, c'est
     // rouvrir l'écart entre ce qu'on affiche et ce qui est vrai.
     final runtime = ref.watch(proximitySupervisorProvider);
-    final peers = view?.peers ?? const <PresencePeer>[];
-    final identified = peers
-        .where((p) => p.stage == PresenceStage.identified)
-        .toList();
-    final enCours = peers.length - identified.length;
-    final nearbyIds = identified
-        .map((p) => p.userId)
-        .whereType<String>()
-        .toSet();
 
     return Scaffold(
       appBar: AppBar(centerTitle: true, title: const Text('Ping')),
@@ -131,7 +128,7 @@ class _PingScreenState extends ConsumerState<PingScreen> {
               _CarteDemande(request: request),
 
             const _TitreSection('Autour de toi'),
-            ..._autourDeToi(runtime, identified, enCours),
+            ..._autourDeToi(runtime, keys),
 
             if (_conversations.any((c) => nearbyIds.contains(c.peerId))) ...[
               const _TitreSection('Conversations ping'),
@@ -187,11 +184,7 @@ class _PingScreenState extends ConsumerState<PingScreen> {
   }
 
   /// La liste, et surtout **ce qu'on dit quand elle est vide**.
-  List<Widget> _autourDeToi(
-    ProximityRuntime runtime,
-    List<PresencePeer> identified,
-    int enCours,
-  ) {
+  List<Widget> _autourDeToi(ProximityRuntime runtime, PresenceKeys keys) {
     if (!runtime.wantsVisible) {
       return const [
         _Vide(
@@ -214,8 +207,10 @@ class _PingScreenState extends ConsumerState<PingScreen> {
       ];
     }
     return [
-      for (final peer in identified) _TuilePair(peer: peer),
-      if (enCours > 0)
+      // La tuile ne reçoit qu'une ADRESSE : elle va chercher elle-même ce
+      // qu'elle affiche, et ne se reconstruit que quand cela change.
+      for (final address in keys.identified) _TuilePair(address: address),
+      if (keys.pending > 0)
         ListTile(
           leading: const SizedBox(
             width: 24,
@@ -223,15 +218,15 @@ class _PingScreenState extends ConsumerState<PingScreen> {
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
           title: Text(
-            enCours == 1
+            keys.pending == 1
                 ? 'Un appareil détecté'
-                : '$enCours appareils détectés',
+                : '${keys.pending} appareils détectés',
           ),
           // ⚠️ C'est exactement le cas que l'ancienne version affichait comme
           // « Personne à proximité » : deux téléphones en train de se parler.
           subtitle: const Text('Vérification chiffrée en cours…'),
         ),
-      if (identified.isEmpty && enCours == 0)
+      if (keys.identified.isEmpty && keys.pending == 0)
         const _Vide(
           icon: Icons.radar,
           text:
@@ -269,15 +264,6 @@ class _BandeauEtat extends ConsumerWidget {
             'qu\'il est coupé — et tout repartira tout seul quand tu '
             'l\'allumeras.',
         'Ouvrir les réglages',
-      ),
-      RadioLocationOff() => (
-        'Localisation de l\'appareil éteinte',
-        'Sur Android 11 et avant, le système exige que la localisation soit '
-            'allumée pour détecter les appareils Bluetooth autour de toi. '
-            'Ce n\'est pas une permission à accorder : c\'est l\'interrupteur '
-            'de localisation du téléphone. Sans lui, la détection tourne dans '
-            'le vide, sans aucune erreur.',
-        'Ouvrir les réglages de localisation',
       ),
       RadioPermissionsMissing() => (
         'Permission manquante',
@@ -342,16 +328,17 @@ class _BandeauEtat extends ConsumerWidget {
   }
 
   Future<void> _agir(WidgetRef ref, RadioStatus status) async {
-    if (status is RadioLocationOff) {
-      // ⚠️ Les réglages de LOCALISATION du système, pas ceux de l'app : c'est
-      // le service qu'il faut allumer, et aucune permission ne le remplace.
-      await BleRadio().openLocationSettings();
-    } else if (status is RadioPermissionsMissing) {
+    if (status is RadioPermissionsMissing) {
+      // ⚠️ **Aucune permission de localisation ici, et c'est délibéré**
+      // (2026-08-20, `minSdk = 31`). `BLUETOOTH_SCAN` est déclarée avec
+      // `neverForLocation` : nous affirmons ne dériver aucune position des
+      // annonces captées. En demander une contredirait cette déclaration, et
+      // l'invite qui va avec est la plus dissuasive d'Android — sur une app
+      // dont la thèse est la confiance.
       await [
         Permission.bluetoothScan,
         Permission.bluetoothAdvertise,
         Permission.bluetoothConnect,
-        Permission.locationWhenInUse,
         Permission.notification,
       ].request();
     } else if (status is RadioAdapterOff) {
@@ -464,11 +451,19 @@ class _CarteDemande extends ConsumerWidget {
 }
 
 class _TuilePair extends ConsumerWidget {
-  const _TuilePair({required this.peer});
-  final PresencePeer peer;
+  const _TuilePair({required this.address});
+
+  /// ⚠️ **Une adresse, pas un pair.** La tuile s'abonne à `peerViewProvider`,
+  /// donc elle se reconstruit quand — et seulement quand — ce qu'ELLE affiche
+  /// change. Lui passer l'objet complet reviendrait à la faire dépendre de
+  /// l'écran parent, et donc à reconstruire toute la page à chaque annonce.
+  final String address;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final peer = ref.watch(peerViewProvider(address));
+    // Il vient de partir entre la composition de la liste et ce build.
+    if (peer == null || peer.snapshot == null) return const SizedBox.shrink();
     final snapshot = peer.snapshot!;
     // ⚠️ **Le statut d'ami se DÉRIVE ici, il ne vient pas de la présence.**
     //
@@ -555,7 +550,7 @@ class _TuilePair extends ConsumerWidget {
           // une régression, c'est la décision que les mesures auront dictée.
           const SizedBox(width: 10),
           Text(
-            '≈ ${peer.distance.metersLabel}',
+            '≈ ${peer.distanceLabel}',
             style: TextStyle(color: context.faint, fontSize: 12),
           ),
         ],

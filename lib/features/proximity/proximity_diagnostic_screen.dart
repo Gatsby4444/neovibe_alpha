@@ -8,7 +8,7 @@ import 'net/ble_radio.dart';
 import 'net/distance_estimate.dart';
 import 'net/peer_session.dart';
 import 'ping_store.dart';
-import 'net/proximity_controller.dart';
+import 'presence_feed.dart';
 import 'net/proximity_supervisor.dart';
 import 'net/radio_status.dart';
 
@@ -67,8 +67,7 @@ class _ProximityDiagnosticScreenState
   @override
   Widget build(BuildContext context) {
     final runtime = ref.watch(proximitySupervisorProvider);
-    final view = ref.watch(proximityControllerProvider).value;
-    final peers = view?.peers ?? const <PresencePeer>[];
+    final peers = ref.watch(presenceProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Diagnostic proximité')),
@@ -199,7 +198,6 @@ class _ProximityDiagnosticScreenState
     RadioPermissionsMissing(:final missing) =>
       'permissionsMissing ${missing.join(", ")}',
     RadioAdapterOff() => 'adapterOff',
-    RadioLocationOff() => 'locationOff (Android <= 11)',
     RadioIdle() => 'idle',
     RadioStarting() => 'starting',
     RadioRunning(:final advertising, :final scanning) =>
