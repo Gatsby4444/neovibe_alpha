@@ -61,9 +61,41 @@ elle vit hors du dossier projet (voir §1.5).
 | `memory\` (**41 fichiers** au 2026-08-20 : 40 mémoires + `MEMORY.md`) | `C:\Users\<TON_PROFIL>\.claude\projects\C--Charles-neovibe-alpha\memory\` |
 | *(optionnel)* `dev\` | `C:\Charles\dev\` — évite de retélécharger 6,4 Go de toolchain |
 
-> ⚠️ **Le chemin `C:\Charles\neovibe_alpha` n'est pas cosmétique.** Claude Code
-> range sa mémoire dans un dossier nommé d'après le chemin du projet
-> (`C--Charles-neovibe-alpha`). Un autre chemin = mémoire repartie de zéro.
+> ⚠️ **Le chemin n'est PAS imposé — mais il doit être cohérent avec le nom du
+> dossier de mémoire.** *(Correction du 2026-08-20 : ce document affirmait que
+> `C:\Charles\neovibe_alpha` était obligatoire. C'est faux, et Jay a eu raison
+> de le contester — ses dossiers sont sur `D:` sur l'autre machine.)*
+>
+> **Rien dans le code ne dépend du chemin** : `C:\Charles` n'apparaît que dans ce
+> document et trois vieux rapports. Trois choses seulement en dépendent :
+>
+> **① Le nom du dossier de mémoire.** Claude Code le dérive du chemin du projet
+> en remplaçant **chaque caractère non alphanumérique par un tiret**, la casse
+> étant conservée. Vérifié sur les cinq dossiers présents au 2026-08-20 :
+>
+> | Chemin du projet | Dossier de mémoire |
+> |---|---|
+> | `C:\Charles\neovibe_alpha` | `C--Charles-neovibe-alpha` |
+> | `C:\projets\IngoWeb` | `C--projets-IngoWeb` |
+> | `c:\Users\…\projets (2)\…` | `c--Users-…-projets--2--…` |
+> | `D:\Projets\neovibe_alpha` | `D--Projets-neovibe-alpha` |
+>
+> Le `:`, le `\`, le `_`, l'espace et les parenthèses deviennent tous `-`. Le
+> dossier `.claude\projects\` reste dans le profil Windows, sur `C:` — c'est
+> seulement son **nom** qui encode le chemin du projet.
+>
+> **② `android\local.properties`** porte `flutter.sdk` et `sdk.dir` en dur. Il
+> arrive dans le zip et pointera vers un dossier inexistant sur l'autre machine :
+> **le supprimer**, Flutter le recrée au premier build.
+>
+> **③ Cinq entrées de `.claude\settings.local.json`** autorisent
+> `C:/Charles/dev/flutter/bin/flutter.bat` et compagnie. Toolchain ailleurs =
+> elles ne correspondent plus, et Claude redemande l'autorisation à chaque
+> commande. Pénible, pas cassant.
+>
+> **La toolchain non plus n'est pas imposée** dans `C:\Charles\dev\` : elle y est
+> parce qu'elle y a été installée. Si elle bouge, le dire à Claude en première
+> session — il met ce document et sa mémoire à jour.
 
 > ⚠️ Le dossier `memory\` contient les **identifiants du compte de test** de la
 > base de dev. C'est le seul endroit où ils sont écrits — ils ne sont **pas**
