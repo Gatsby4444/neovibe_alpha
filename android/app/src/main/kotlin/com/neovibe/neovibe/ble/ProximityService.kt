@@ -123,6 +123,114 @@ class ProximityService : Service(), BleEngine.Listener {
     private val pendingScans = ConcurrentLinkedQueue<BufferedScan>()
     private val scanBufferMax = 200
 
+    // ------------------------------------------------------------------
+    // Le plan d'emission — la correction du point H
+    // ------------------------------------------------------------------
+
+    /**
+     * Ce que le Dart nous a laisse a crier, et pour combien de temps.
+     *
+     * ⚠️ **C'est ce qui rend ce service independant du Dart.** Avant, le Dart
+     * poussait un identifiant a chaque changement de creneau ; s'il mourait,
+     * l'identifiant se figeait et l'appareil devenait invisible pour tous ses
+     * amis sans que rien ne le signale. Ici le Dart depose des heures d'avance,
+     * et nous choisissons nous-memes.
+     */
+    @Volatile
+    private var schedule: AdvertSchedule? = null
+
+    private var cursor = 0
+    private val cycleHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /**
+     * Cadence de rotation a l'interieur d'un creneau.
+     *
+     * Chaque changement d'annonce coute un arret/relance de l'advertising. A un
+     * seul jeu d'annonces, il faut donc arbitrer entre « chaque ami me voit
+     * vite » et « la radio ne passe pas son temps a redemarrer ».
+     *
+     * ⚠️ **Valeur RAISONNEE, pas mesuree** (2026-08-20) : le cout reel d'un
+     * redemarrage d'advertising n'a pas ete releve sur appareil. A confronter au
+     * terrain avant de la figer.
+     */
+    private val cycleMillis = 400L
+
+    private val cycleTick = object : Runnable {
+        override fun run() {
+            emitNext()
+            val plan = schedule
+            // Un seul jeton par creneau : inutile de se reveiller souvent, il
+            // suffit d'etre la au changement de creneau.
+            val delay = if (plan == null || plan.cycleLength <= 1) 30_000L else cycleMillis
+            cycleHandler.postDelayed(this, delay)
+        }
+    }
+
+    private fun emitNext() {
+        val plan = schedule ?: return
+        val token = plan.tokenAt(System.currentTimeMillis(), cursor)
+        if (token == null) {
+            // ⚠️ **Plan epuise : on se TAIT.** Reemettre le dernier jeton connu
+            // serait indiscernable d'un fonctionnement normal, alors que plus
+            // personne ne nous reconnaitrait. Le silence, lui, se constate — et
+            // il se dit.
+            engine.pauseAdvertising()
+            onStatus(
+                RadioStatus.Failed(
+                    "planExpired",
+                    "Le plan d'emission est epuise : rouvre l'app pour le renouveler.",
+                ),
+            )
+            return
+        }
+        cursor++
+        engine.updateAdvert(token)
+    }
+
+    /** Le Dart depose un nouveau plan. Il remplace entierement le precedent. */
+    fun setAdvertSchedule(plan: AdvertSchedule) {
+        schedule = plan
+        cursor = 0
+        cycleHandler.removeCallbacks(cycleTick)
+        if (!plan.isEmpty) {
+            emitNext()
+            cycleHandler.postDelayed(cycleTick, if (plan.cycleLength <= 1) 30_000L else cycleMillis)
+        }
+    }
+
+    /** Jusqu'a quand le plan courant tient, pour que le Dart sache le renouveler. */
+    fun scheduleValidUntil(): Long = schedule?.validUntilMillis ?: 0L
+
+    // ------------------------------------------------------------------
+    // La reconnaissance sans le Dart
+    // ------------------------------------------------------------------
+
+    @Volatile
+    private var recognition: RecognitionTable? = null
+
+    private val sightings = SightingBuffer()
+
+    /** Duree d'un creneau, deposee avec la table. */
+    @Volatile
+    private var slotMillis = 900_000L
+
+    /**
+     * Le Dart depose la table de reconnaissance. Elle remplace la precedente.
+     *
+     * ⚠️ Elle ne contient **aucune identite** : des jetons et des rangs. Seul le
+     * Dart sait a qui correspond le rang 3, et il le sait pour CETTE table —
+     * d'ou le `tableId` renvoye avec chaque constat.
+     */
+    fun setRecognitionTable(table: RecognitionTable, slotDurationMillis: Long) {
+        recognition = table
+        slotMillis = slotDurationMillis
+    }
+
+    /** Rend les constats accumules et vide le tampon. */
+    fun takeSightings(): List<NativeSighting> = sightings.drain()
+
+    fun sightingCount(): Int = sightings.size
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -171,6 +279,16 @@ class ProximityService : Service(), BleEngine.Listener {
     }
 
     override fun onDestroy() {
+        // Le minuteur du plan appartient a ce service : le laisser tourner apres
+        // sa mort, c'est exactement le genre de noeud orphelin que ce projet
+        // passe son temps a chasser.
+        cycleHandler.removeCallbacks(cycleTick)
+        schedule = null
+        // La table et les constats appartiennent a ce service : les laisser
+        // derriere serait garder une trace de qui a ete croise, sans personne
+        // pour la reclamer.
+        recognition = null
+        sightings.clear()
         engine.detach()
         instance = null
         super.onDestroy()
@@ -183,6 +301,7 @@ class ProximityService : Service(), BleEngine.Listener {
     // ------------------------------------------------------------------
 
     fun updateAdvert(advertId: ByteArray) = engine.updateAdvert(advertId)
+    fun advertCapabilities(): Map<String, Any?> = engine.advertCapabilities()
     fun connect(address: String, done: (String?) -> Unit) = engine.connect(address, done)
     fun disconnect(linkId: String) = engine.disconnect(linkId)
     fun send(linkId: String, data: ByteArray): Boolean = engine.send(linkId, data)
@@ -234,6 +353,34 @@ class ProximityService : Service(), BleEngine.Listener {
     }
 
     override fun onScan(address: String, advertId: ByteArray, rssi: Int, txPower: Int) {
+        // ⚠️ **On reconnait TOUJOURS, que le Dart soit la ou non.**
+        //
+        // C'est le point de tout ce fichier : avant, l'appariement jeton -> ami
+        // vivait en Dart, qui meurt avec l'interface. App fermee, l'appareil
+        // etait donc **vu sans voir**, et le croisement — fait pour le telephone
+        // dans la poche — ne se produisait jamais.
+        //
+        // Le faire ici ET quand le Dart est present n'est pas une redondance :
+        // c'est ce qui evite d'avoir deux comportements selon que l'interface
+        // est ouverte ou non. Le Dart deduplique de toute facon par
+        // (ami, creneau).
+        val table = recognition
+        if (table != null) {
+            val now = System.currentTimeMillis()
+            val rang = table.match(advertId, now)
+            if (rang != null) {
+                sightings.note(
+                    NativeSighting(
+                        tableId = table.tableId,
+                        friendIndex = rang,
+                        slot = now / slotMillis,
+                        rssi = rssi,
+                        txPower = txPower,
+                    ),
+                )
+            }
+        }
+
         val target = bridge
         if (target != null) {
             target.onScan(address, advertId, rssi, txPower)
@@ -332,8 +479,6 @@ class ProximityService : Service(), BleEngine.Listener {
                 else if (status.scanning) "Détection active — tu n'es pas annoncé"
                 else "En veille — la diffusion a échoué"
             is RadioStatus.AdapterOff -> "En pause — le Bluetooth est éteint"
-            is RadioStatus.LocationOff ->
-                "En pause — la localisation de l'appareil est éteinte"
             is RadioStatus.PermissionsMissing -> "En pause — permission manquante"
             is RadioStatus.Unsupported -> "Indisponible sur cet appareil"
             is RadioStatus.Failed -> "En pause — ${status.message}"

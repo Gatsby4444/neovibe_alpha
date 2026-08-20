@@ -72,18 +72,6 @@ class ProximityBridge(
                     result.success(null)
                 }
 
-                // Ouvre les reglages de LOCALISATION du systeme - pas ceux de
-                // l'app. Sur Android <= 11, c'est le service lui-meme qu'il faut
-                // allumer, et aucune permission accordee ne le remplace.
-                "openLocationSettings" -> {
-                    context.startActivity(
-                        android.content.Intent(
-                            android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS,
-                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
-                    )
-                    result.success(null)
-                }
-
                 "stats" -> {
                     val service = ProximityService.instance
                     result.success(
@@ -113,6 +101,107 @@ class ProximityBridge(
                         service.updateAdvert(advertId)
                         result.success(null)
                     }
+                }
+
+                // ⚠️ **Le PLAN d'emission : la correction du point H.**
+                //
+                // Le Dart depose plusieurs heures de jetons d'avance, et le
+                // service choisit lui-meme. Avant, le Dart poussait un
+                // identifiant a chaque changement de creneau ; s'il mourait,
+                // l'identifiant se figeait et l'appareil devenait invisible pour
+                // tous ses amis, sans erreur ni trace.
+                //
+                // Les jetons ne sont PAS des secrets : ce sont des identifiants
+                // deja calcules. Aucune cryptographie ne descend ici.
+                "setAdvertPlan" -> {
+                    val tokens = call.argument<ByteArray>("tokens")
+                        ?: return result.error("ARG", "tokens manquants", null)
+                    val fromSlot = (call.argument<Number>("fromSlot")
+                        ?: return result.error("ARG", "fromSlot manquant", null)).toLong()
+                    val slotMillis = (call.argument<Number>("slotMillis")
+                        ?: return result.error("ARG", "slotMillis manquant", null)).toLong()
+                    val slotCount = call.argument<Int>("slotCount")
+                        ?: return result.error("ARG", "slotCount manquant", null)
+                    val perSlot = call.argument<Int>("perSlot")
+                        ?: return result.error("ARG", "perSlot manquant", null)
+                    val tokenLength = call.argument<Int>("tokenLength")
+                        ?: return result.error("ARG", "tokenLength manquant", null)
+                    val service = ProximityService.instance
+                    if (service == null) {
+                        result.error("NO_SERVICE", "Le service de proximite ne tourne pas", null)
+                    } else {
+                        service.setAdvertSchedule(
+                            AdvertSchedule(
+                                fromSlot = fromSlot,
+                                slotMillis = slotMillis,
+                                slotCount = slotCount,
+                                perSlot = perSlot,
+                                tokens = tokens,
+                                tokenLength = tokenLength,
+                            ),
+                        )
+                        result.success(mapOf("validUntil" to service.scheduleValidUntil()))
+                    }
+                }
+
+                // ⚠️ **La table de reconnaissance : le natif voit enfin par
+                // lui-meme.** Elle ne contient aucune identite — des jetons et
+                // des rangs. Le `tableId` revient avec chaque constat pour que
+                // le Dart jette ceux d'une table perimee au lieu de les
+                // attribuer a la mauvaise personne.
+                "setRecognitionTable" -> {
+                    val tokens = call.argument<ByteArray>("tokens")
+                        ?: return result.error("ARG", "tokens manquants", null)
+                    val tableId = call.argument<Int>("tableId")
+                        ?: return result.error("ARG", "tableId manquant", null)
+                    val fromSlot = (call.argument<Number>("fromSlot")
+                        ?: return result.error("ARG", "fromSlot manquant", null)).toLong()
+                    val slotMillis = (call.argument<Number>("slotMillis")
+                        ?: return result.error("ARG", "slotMillis manquant", null)).toLong()
+                    val slotCount = call.argument<Int>("slotCount")
+                        ?: return result.error("ARG", "slotCount manquant", null)
+                    val perSlot = call.argument<Int>("perSlot")
+                        ?: return result.error("ARG", "perSlot manquant", null)
+                    val tokenLength = call.argument<Int>("tokenLength")
+                        ?: return result.error("ARG", "tokenLength manquant", null)
+                    val service = ProximityService.instance
+                    if (service == null) {
+                        result.error("NO_SERVICE", "Le service de proximite ne tourne pas", null)
+                    } else {
+                        service.setRecognitionTable(
+                            RecognitionTable(
+                                tableId = tableId,
+                                fromSlot = fromSlot,
+                                slotMillis = slotMillis,
+                                slotCount = slotCount,
+                                perSlot = perSlot,
+                                tokens = tokens,
+                                tokenLength = tokenLength,
+                            ),
+                            slotMillis,
+                        )
+                        result.success(null)
+                    }
+                }
+
+                // Ce que le service a constate pendant que le Dart etait absent.
+                "takeSightings" -> {
+                    val service = ProximityService.instance
+                    result.success(
+                        service?.takeSightings()?.map {
+                            mapOf(
+                                "tableId" to it.tableId,
+                                "index" to it.friendIndex,
+                                "slot" to it.slot,
+                                "rssi" to it.rssi,
+                                "txPower" to it.txPower,
+                            )
+                        } ?: emptyList<Map<String, Any?>>(),
+                    )
+                }
+
+                "advertCapabilities" -> {
+                    result.success(ProximityService.instance?.advertCapabilities() ?: mapOf<String, Any?>())
                 }
 
                 "connect" -> {
