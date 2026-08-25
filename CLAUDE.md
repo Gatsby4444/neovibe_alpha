@@ -145,6 +145,72 @@ Mise en œuvre de référence dans le projet : `lib/features/proximity/presence_
 
 ---
 
+## Règle impérative : ON SÉPARE TOUT CE QUI PEUT L'ÊTRE
+
+*Consigne de Jay, 2026-08-25 — impérative, applicable à tout le code, sans
+exception ni cas particulier.*
+
+> « On sépare tout ce qui peut l'être dans notre code, et on code intelligemment
+> et de manière scalable. **On ne mélange plus backend et frontend. On ne mélange
+> plus cuisine, serveurs et clients.** »
+
+C'est la généralisation des deux règles précédentes — « la fiabilité vient de
+l'architecture » et « dissocier l'acquisition de l'usage » — érigée en principe
+par défaut. **Les deux règles ci-dessus en sont désormais des cas particuliers,
+pas des exceptions.**
+
+### L'image de référence, à garder en tête
+
+| Rôle | Ce qu'il fait | Ce qu'il ne fait JAMAIS |
+|---|---|---|
+| **La cuisine** (acquisition, dépôts, natif, SQL) | prépare et publie fidèlement | décider qui est servi, ni quand redessiner |
+| **Le serveur** (vues dérivées, providers) | choisit ce qui l'intéresse, à son rythme | aller cuisiner lui-même |
+| **Le client** (widgets, écrans) | affiche | aller en cuisine chercher son plat |
+
+**Le test, à s'appliquer avant d'écrire une ligne** : *pour changer la
+présentation, dois-je toucher à ce qui prépare la donnée ?* Si oui, la séparation
+n'est pas faite.
+
+### Ce qui en découle
+
+1. **Un écran ne parle jamais au réseau, au disque ou au natif.** Il demande à un
+   dépôt. Une requête écrite dans un fichier d'écran n'est réutilisable par
+   personne, et se retrouve dupliquée — *constaté le 2026-08-25 :
+   `chat_screen.dart` avait sa propre copie de `cardByIdProvider`, mot pour mot,
+   avec son propre cache.*
+2. **L'invalidation de cache appartient à l'ÉCRITURE, jamais à l'appelant.** Deux
+   écrans qui écrivent la même table doivent laisser le lecteur dans le même
+   état ; sinon l'un affiche du périmé et l'autre non, selon lequel a servi.
+3. **Le temps est une SOURCE, pas une commodité.** Tout filtre qui appelle
+   `DateTime.now()` dépend d'une donnée qu'il n'observe pas. On s'y abonne
+   (`core/clock.dart`) ou on assume l'instantané **en l'écrivant**.
+4. **Un chemin, une donnée.** Deux chemins vers la même chose, c'est deux caches
+   et un désaccord futur que rien ne signalera.
+5. **Scalable veut dire : le coût d'ajouter le prochain cas.** Une solution qui
+   marche pour deux écrans mais demande d'en toucher cinq au troisième n'est pas
+   une solution, c'est une dette. Compter le nombre d'endroits à modifier
+   *avant* de choisir.
+6. **Ce défaut ne lève aucune erreur** — il ne se voit qu'en **comptant**.
+   Un test qui compte vaut mieux qu'un commentaire qui promet.
+
+### Les outils du projet, à utiliser plutôt qu'à réinventer
+
+| Besoin | Outil |
+|---|---|
+| une vue dérivée **sans paramètre** qui ne réveille que si son résultat change | `DerivedList` / `DerivedSet` (`core/derived_list.dart`) |
+| une vue dérivée **paramétrée** (idem) | `ValueList<T>` (`core/derived_list.dart`) |
+| tout ce qui **périme** | `expiryClockProvider` (`core/clock.dart`) |
+
+⚠️ **Ces outils sont inopérants en silence si le type de l'élément n'a pas
+d'égalité de valeur.** Tout modèle placé dans une liste dérivée doit porter son
+`==` — c'est ce qui manquait à **tous** les modèles avant le 2026-08-25.
+
+Audit fondateur et état avant/après : **`docs/checkup-acquisition-usage.md`**.
+Tests de référence : `test/derived_list_test.dart`,
+`test/dissociation_connections_test.dart`, `test/presence_feed_test.dart`.
+
+---
+
 ## Règle impérative : rapport de session
 
 **À chaque nouvelle session**, créer un rapport dans le dossier `rapports-de-sessions/` à la racine du repo.
