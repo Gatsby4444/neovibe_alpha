@@ -41,3 +41,8 @@ docdev/
 # du ping). Un binaire genere n'a rien a faire dans l'historique.
 __pycache__/
 *.pyc
+
+# Reglages Claude Code propres a la machine (chemins de toolchain,
+# autorisations locales) : designe hors depot des le transfert, mais rien
+# ne le protegeait — un `git add -A` suffisait a l'y faire entrer.
+.claude/settings.local.json

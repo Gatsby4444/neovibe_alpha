@@ -5,7 +5,10 @@ Deux parties : la **partie 1 est pour Jay** (ce qu'il fait à la main), la
 **partie 2 est pour Claude Code** (ce qu'il vérifie et reconstruit tout seul
 à la première session sur la nouvelle machine).
 
-Dernière mise à jour : **2026-08-20**, état du projet : **v0.9.121**
+Dernière mise à jour : **2026-08-25** — *la bascule a été faite.* Le projet vit
+désormais dans `D:\projets\neovibe_alpha` et la toolchain sur `D:` (voir §1.2) ;
+tous les chemins de ce document ont été réécrits en conséquence. Aucun
+changement de code depuis le 2026-08-20. État du projet : **v0.9.121**
 (la proximité vient d'être refondue de fond en comble : secret par paire,
 émission autonome du natif, réciprocité serveur — **et rien n'a encore tourné
 sur un téléphone**. Voir §2.3 et §2.4).
@@ -57,9 +60,9 @@ elle vit hors du dossier projet (voir §1.5).
 
 | Sur la clé | À remettre où, sur la nouvelle machine |
 |---|---|
-| `neovibe_alpha.zip` | Décompresser dans `C:\Charles\` → doit donner `C:\Charles\neovibe_alpha` |
-| `memory\` (**41 fichiers** au 2026-08-20 : 40 mémoires + `MEMORY.md`) | `C:\Users\<TON_PROFIL>\.claude\projects\C--Charles-neovibe-alpha\memory\` |
-| *(optionnel)* `dev\` | `C:\Charles\dev\` — évite de retélécharger 6,4 Go de toolchain |
+| `neovibe_alpha.zip` | Décompresser dans `D:\projets\` → doit donner `D:\projets\neovibe_alpha` |
+| `memory\` (**41 fichiers** au 2026-08-20 : 40 mémoires + `MEMORY.md`) | `C:\Users\<TON_PROFIL>\.claude\projects\D--projets-neovibe-alpha\memory\` |
+| *(optionnel)* `dev\` | la toolchain — évite de retélécharger 6,4 Go |
 
 > ⚠️ **Le chemin n'est PAS imposé — mais il doit être cohérent avec le nom du
 > dossier de mémoire.** *(Correction du 2026-08-20 : ce document affirmait que
@@ -75,10 +78,10 @@ elle vit hors du dossier projet (voir §1.5).
 >
 > | Chemin du projet | Dossier de mémoire |
 > |---|---|
-> | `C:\Charles\neovibe_alpha` | `C--Charles-neovibe-alpha` |
+> | `D:\projets\neovibe_alpha` *(machine actuelle)* | `D--projets-neovibe-alpha` |
+> | `C:\Charles\neovibe_alpha` *(ancienne machine)* | `C--Charles-neovibe-alpha` |
 > | `C:\projets\IngoWeb` | `C--projets-IngoWeb` |
 > | `c:\Users\…\projets (2)\…` | `c--Users-…-projets--2--…` |
-> | `D:\Projets\neovibe_alpha` | `D--Projets-neovibe-alpha` |
 >
 > Le `:`, le `\`, le `_`, l'espace et les parenthèses deviennent tous `-`. Le
 > dossier `.claude\projects\` reste dans le profil Windows, sur `C:` — c'est
@@ -88,14 +91,15 @@ elle vit hors du dossier projet (voir §1.5).
 > arrive dans le zip et pointera vers un dossier inexistant sur l'autre machine :
 > **le supprimer**, Flutter le recrée au premier build.
 >
-> **③ Cinq entrées de `.claude\settings.local.json`** autorisent
-> `C:/Charles/dev/flutter/bin/flutter.bat` et compagnie. Toolchain ailleurs =
+> **③ Les entrées de `.claude\settings.local.json`** autorisent
+> `D:/flutter/bin/flutter.bat` et compagnie. Toolchain ailleurs =
 > elles ne correspondent plus, et Claude redemande l'autorisation à chaque
 > commande. Pénible, pas cassant.
 >
-> **La toolchain non plus n'est pas imposée** dans `C:\Charles\dev\` : elle y est
-> parce qu'elle y a été installée. Si elle bouge, le dire à Claude en première
-> session — il met ce document et sa mémoire à jour.
+> **La toolchain non plus n'est pas imposée** : elle est là où elle a été
+> installée. Si elle bouge, le dire à Claude en première session — il met ce
+> document et sa mémoire à jour. *(C'est exactement ce qui s'est passé le
+> 2026-08-25 : les trois points ci-dessus ont été corrigés à la main.)*
 
 > ⚠️ Le dossier `memory\` contient les **identifiants du compte de test** de la
 > base de dev. C'est le seul endroit où ils sont écrits — ils ne sont **pas**
@@ -122,57 +126,91 @@ elle vit hors du dossier projet (voir §1.5).
 
 ### 1.2 La toolchain (Flutter, JDK, Android SDK)
 
-Tout est installé dans `C:\Charles\dev\`, **hors du PATH système** — garde
-exactement cette organisation, tous les scripts et la mémoire de Claude s'y
-réfèrent :
+Sur la machine actuelle, les trois outils sont sur `D:` et **l'environnement est
+posé de façon persistante** (variables utilisateur + PATH machine, valables dans
+tout nouveau terminal) — plus besoin de préfixer les commandes :
 
-| Outil | Version exacte (vérifiée le 2026-07-26) | Chemin attendu | Taille |
+| Outil | Version exacte (vérifiée le 2026-08-25) | Chemin | Environnement |
 |---|---|---|---|
-| Flutter | 3.44.6 stable (Dart 3.12.2) | `C:\Charles\dev\flutter` | 3,0 Go |
-| JDK Temurin | 17.0.19 | `C:\Charles\dev\jdk17` | 0,3 Go |
-| Android SDK | platforms 34/35/36, build-tools 35.0.0 + 36.0.0 | `C:\Charles\dev\android-sdk` | 3,1 Go |
+| Flutter | 3.44.6 stable (Dart 3.12.2) | `D:\flutter` | `D:\flutter\bin` sur le PATH |
+| JDK Temurin | 17.0.19 | `D:\jdk17` | `JAVA_HOME` + `D:\jdk17\bin` sur le PATH |
+| Android SDK | platforms 29/33/34/35/36, build-tools 34→37, NDK 28.2.13676358 | `D:\Android\Sdk` | `ANDROID_HOME` + `ANDROID_SDK_ROOT` |
+
+> ⚠️ **Deux pièges de résolution du JDK, propres à cette machine.**
+> Les deux sont **corrigés** depuis le 2026-08-25 ; gardés ici parce qu'ils se
+> reproduiront sur toute nouvelle machine.
+>
+> **① `java` tout court n'était pas le JDK 17 — corrigé le 2026-08-25.**
+> `C:\ProgramData\Oracle\Java\javapath` — un stub vers le vieux **JRE 1.8** —
+> était en position #1 du PATH **machine**, et Windows résout toujours le PATH
+> machine avant le PATH utilisateur : `D:\jdk17\bin`, posé côté utilisateur, ne
+> pouvait pas gagner. Réglé en session **administrateur** en lançant
+> `docdev\fix-java-path.ps1`, qui place `D:\jdk17\bin` en tête du PATH machine
+> **sans rien supprimer** — `javapath` reste juste derrière, le JRE 1.8 demeure
+> donc accessible aux applications qui en dépendent.
+> `java -version` répond aujourd'hui `openjdk 17.0.19` (Temurin 17.0.19+10).
+> Sauvegarde de l'ancien PATH machine :
+> `docdev\machine-path-backup-2026-08-25_03-08-01.txt` (procédure de retour
+> arrière décrite en fin de script). L'entrée `D:\jdk17\bin` qui avait été posée
+> côté **utilisateur** en dépannage a été retirée dans la foulée : le PATH
+> machine est désormais la seule source (sauvegarde
+> `docdev\user-path-backup-2026-08-25_03-17-00.txt`).
+> Contrôle de l'ensemble : `docdev\check-env.ps1`.
+>
+> **② Flutter ignore `JAVA_HOME`.** Son ordre de préférence place le JDK embarqué
+> d'Android Studio (`D:\AndroidStudio\jbr`, **Java 21**) *avant* `JAVA_HOME`. Il
+> compilait donc en 21, pas en 17. Réglé le 2026-08-25 par
+> `flutter config --jdk-dir "D:\jdk17"` (réglage **global** Flutter, hors dépôt :
+> à refaire sur toute nouvelle machine). Contrôle :
+> `flutter doctor -v` → la ligne « Java binary at » doit dire `D:\jdk17\bin\java`.
+
+> Rappel de l'ancienne machine (2026-07-26), au cas où tu retombes dessus :
+> `C:\Charles\dev\flutter`, `C:\Charles\dev\jdk17`, `C:\Charles\dev\android-sdk`,
+> tous hors PATH, avec `JAVA_HOME` posé à chaque commande.
 
 **Deux façons, au choix :**
 
-- **Copier `C:\Charles\dev\` depuis l'ancienne machine** (6,4 Go) : les trois
-  outils sont relocatables, ça marche tel quel et ça garantit des versions
+- **Copier le dossier de toolchain depuis l'ancienne machine** (6,4 Go) : les
+  trois outils sont relocatables, ça marche tel quel et ça garantit des versions
   identiques. C'est le plus sûr si la clé est assez grande.
 - **Réinstaller** : Flutter (https://docs.flutter.dev/get-started/install/windows,
-  dézipper dans `C:\Charles\dev\flutter`) · JDK 17
+  dézipper où tu veux) · JDK 17
   (https://adoptium.net/temurin/releases/?version=17) · Android SDK via Android
-  Studio, en pointant le SDK sur `C:\Charles\dev\android-sdk`.
+  Studio. Puis **dire les trois chemins à Claude** : il corrige
+  `android\local.properties`, `.claude\settings.local.json` et ce document.
 
-*Optionnel* : le cache des paquets Dart
-(`C:\Users\<PROFIL>\AppData\Local\Pub\Cache`, 643 Mo) peut être copié lui aussi
-pour éviter un long `pub get` au premier build. Sans lui, ça marche quand même,
-c'est juste plus lent une fois.
+*Optionnel* : le cache des paquets Dart peut être copié lui aussi pour éviter un
+long `pub get` au premier build. Sans lui, ça marche quand même, c'est juste
+plus lent une fois. **Sur la machine actuelle il est déplacé en `D:\pub-cache`**
+(et non à l'emplacement par défaut `%LOCALAPPDATA%\Pub\Cache`) — c'est la
+variable d'environnement `PUB_CACHE` qui le décide.
 
-> ⚠️ **Piège connu** (déjà rencontré) : sans `JAVA_HOME` posé explicitement,
-> Gradle échoue immédiatement. Claude le pose lui-même dans ses commandes, mais
-> si tu compiles à la main :
+> ⚠️ **Piège connu** (rencontré sur l'ancienne machine) : sans `JAVA_HOME`,
+> Gradle échoue immédiatement. **Sur la machine actuelle c'est réglé** — les
+> variables sont persistantes. Si tu te retrouves malgré tout dans un terminal
+> sans elles, ou sur une machine neuve :
 > ```powershell
-> $env:JAVA_HOME="C:\Charles\dev\jdk17"
-> $env:ANDROID_HOME="C:\Charles\dev\android-sdk"
-> $env:Path="C:\Charles\dev\flutter\bin;C:\Charles\dev\jdk17\bin;$env:Path"
+> $env:JAVA_HOME="D:\jdk17"
+> $env:ANDROID_HOME="D:\Android\Sdk"
+> $env:Path="D:\flutter\bin;D:\jdk17\bin;$env:Path"
 > ```
 
 ### 1.3 Récupérer le projet
 
-**Option A (zip)** : décompresser dans `C:\Charles\`. Vérifier qu'on obtient
-bien `C:\Charles\neovibe_alpha\pubspec.yaml` (et non un dossier imbriqué en
+**Option A (zip)** : décompresser dans `D:\projets\`. Vérifier qu'on obtient
+bien `D:\projets\neovibe_alpha\pubspec.yaml` (et non un dossier imbriqué en
 double). Puis, une fois `git` installé :
 
 ```powershell
-cd C:\Charles\neovibe_alpha
-git fetch --tags       # recupere les tags v0.9.33 / v0.9.34 crees par gh
+cd D:\projets\neovibe_alpha
+git fetch --tags       # recupere les tags crees par gh, absents du zip
 git status             # doit etre propre, sur master
 ```
 
 **Option B (clone)** :
 
 ```powershell
-mkdir C:\Charles
-cd C:\Charles
+cd D:\projets
 gh repo clone Gatsby4444/neovibe_alpha
 ```
 
@@ -196,12 +234,14 @@ ton profil utilisateur, pas dans le projet.
 Sur **l'ancienne** machine, copier tout le dossier :
 
 ```
-C:\Users\Utilisateur\.claude\projects\C--Charles-neovibe-alpha\memory\
+C:\Users\<PROFIL>\.claude\projects\<CHEMIN-DU-PROJET-ENCODÉ>\memory\
 ```
 
 Sur la **nouvelle**, le coller au même endroit — le nom d'utilisateur Windows
-peut changer, l'important est
-`<TON_PROFIL>\.claude\projects\C--Charles-neovibe-alpha\memory\`.
+peut changer, et le nom du dossier encode le **nouveau** chemin du projet.
+Sur la machine actuelle :
+`C:\Users\USER\.claude\projects\D--projets-neovibe-alpha\memory\`
+(sur l'ancienne c'était `C--Charles-neovibe-alpha`).
 
 > Si tu ne le fais pas : rien de bloquant, Claude reconstruira le contexte
 > depuis `CLAUDE.md`, `RAPPELS.md`, `docs/` et les rapports de session — mais il
@@ -221,7 +261,7 @@ proposera d'activer les serveurs à la première session.
 
 ### 1.7 Vérifier que tout marche
 
-Ouvre Claude Code dans `C:\Charles\neovibe_alpha` et dis-lui simplement :
+Ouvre Claude Code dans `D:\projets\neovibe_alpha` et dis-lui simplement :
 
 > « Reprends le contexte, on change de machine — lis RSUNA.md et fais la
 > vérification de reprise. »
@@ -263,19 +303,26 @@ Tu reprends un projet en cours. **Ne recommence rien, ne réorganise rien.**
 ### 2.2 Vérifications d'environnement (à faire, pas à supposer)
 
 ```bash
-# Toolchain (chemins hors PATH — les prefixer systematiquement)
-ls C:/Charles/dev/flutter/bin/flutter.bat
-ls C:/Charles/dev/jdk17
-ls C:/Charles/dev/android-sdk
+# Toolchain (machine actuelle : environnement persistant, pas de prefixe requis)
+ls D:/flutter/bin/flutter.bat
+ls D:/jdk17
+ls D:/Android/Sdk
+
+# Quel JDK Flutter utilise-t-il REELLEMENT ? (il ignore JAVA_HOME - voir §1.2)
+flutter doctor -v | grep "Java binary"   # doit dire D:\jdk17\bin\java
 
 # Le fichier de config local existe-t-il ? (gitignore, absent d'un clone frais)
 ls lib/core/config/env.dart
 
+# Dependances resolues ? (obligatoire au premier passage sur une machine neuve,
+# sinon "analyze" crache des centaines d'erreurs "Target of URI doesn't exist")
+"D:/flutter/bin/flutter.bat" pub get
+
 # L'analyse est-elle propre ?
-"C:/Charles/dev/flutter/bin/flutter.bat" analyze
+"D:/flutter/bin/flutter.bat" analyze
 
 # Compilation (JAVA_HOME est OBLIGATOIRE, sinon Gradle echoue immediatement)
-JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build apk --release
+JAVA_HOME="D:/jdk17" "D:/flutter/bin/flutter.bat" build apk --release
 ```
 
 - **Si `lib/core/config/env.dart` manque** : ne pas inventer de clé. Le recréer
@@ -301,8 +348,15 @@ JAVA_HOME="C:/Charles/dev/jdk17" "C:/Charles/dev/flutter/bin/flutter.bat" build 
 #### ⚠️ Ce qu'il faut savoir AVANT toute chose
 
 **La proximité a été refondue le 2026-08-20, et RIEN n'a tourné sur un
-téléphone.** Tout est vérifié en test (188 Dart + 11 Kotlin), en base, ou à la
+téléphone.** Tout est vérifié en test (188 Dart + 26 Kotlin), en base, ou à la
 compilation — jamais sur appareil. Cinq mesures attendent, listées en §2.4.
+
+> *Le « 11 Kotlin » écrit ici jusqu'au 2026-08-25 ne comptait que
+> `SightingBookTest`. La suite Kotlin complète en fait **26** :
+> `SightingBookTest` 11, `PartialStreamingTest` 8, `Mp4FastStartTest` 4,
+> `SealedChunkReaderTest` 3. Elle se lance par
+> `cd android && .\gradlew.bat :app:testDebugUnitTest` — il n'existe **pas** de
+> `testReleaseUnitTest` dans ce projet.*
 
 **Le protocole d'annonce est passé en version 3.** Les deux téléphones de test
 doivent être mis à jour **ensemble**, sinon ils ne se voient pas — c'est voulu,
@@ -717,6 +771,12 @@ Copy-Item $mem "$root\memory" -Recurse -Force
    justifie le transfert manuel.
 3. **Construire le zip en DERNIER**, après toute mise à jour de `RSUNA.md`, des
    rapports ou de `RAPPELS.md`.
+4. **Un `_stage\` resté sur place = génération interrompue.** *(Constaté le
+   2026-08-24 : le paquet du 20/08 contenait `LISEZ-MOI.txt` à jour et
+   `memory\` complet, mais **aucun zip** — la séquence s'était arrêtée entre le
+   robocopy et `CreateFromDirectory`, et rien ne le signalait.)* Premier
+   contrôle du paquet, avant tout le reste : **le zip existe-t-il, et `_stage\`
+   a-t-il bien disparu ?**
 
 **Vérifier le zip livré, pas le dossier de préparation** — décompresser ailleurs
 et contrôler sur place :
@@ -727,13 +787,13 @@ git -C <extrait>\neovibe_alpha log --oneline -3
 git -C <extrait>\neovibe_alpha fsck --connectivity-only
 ```
 
-Repère de volume au **2026-08-20** : **4 699 entrées, 30,6 Mo** — dont **4 226
-entrées et 25,5 Mo pour `.git` seul**. La croissance depuis le 13 août
-(13,8 Mo) est **entièrement** l'historique git accumulé : rien d'anormal, rien à
-exclure. Le reste : `docdev/` 4 Mo, `design/` 2,1 Mo, `android/` et `lib/`
-1,4 Mo chacun.
-*(Repères précédents : 2026-08-13, 3 072 entrées, 13,8 Mo · 2026-07-26,
-1 828 entrées, 4,0 Mo.)*
+Repère de volume au **2026-08-24** : **4 706 entrées, 30,7 Mo** — dont **4 232
+entrées pour `.git` seul**, qui pèse à lui seul l'essentiel de l'archive. La
+croissance depuis le 13 août (13,8 Mo) est **entièrement** l'historique git
+accumulé : rien d'anormal, rien à exclure. Le reste : `docdev/` 4 Mo,
+`design/` 2,1 Mo, `android/` et `lib/` 1,4 Mo chacun.
+*(Repères précédents : 2026-08-20, 4 699 entrées, 30,6 Mo · 2026-08-13,
+3 072 entrées, 13,8 Mo · 2026-07-26, 1 828 entrées, 4,0 Mo.)*
 
 Si le compte tombe à quelques centaines d'entrées ou si le zip fait moins d'un
 mégaoctet, **`.git` manque** — c'est exactement la signature du piège n°1.
