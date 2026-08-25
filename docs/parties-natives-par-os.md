@@ -214,7 +214,7 @@ et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
 
 | Canal | Sens | Contenu |
 |---|---|---|
-| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `updateAdvert`, `connect`, `disconnect`, `send`, `stats`, `openLocationSettings` |
+| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `setAdvertPlan`, `setRecognitionTable`, `takeSightings`, `advertCapabilities`, `connect`, `disconnect`, `send`, `stats`, `openLocationSettings`. ⚠️ **`updateAdvert` a été supprimé le 2026-08-25** : second chemin vers l'émission, sans appelant depuis le plan d'annonces, et incapable de porter le TYPE du jeton. |
 | `neovibe/proximity/events` | natif → Dart | les **constats** : `status`, `scan`, `link`, `frame` |
 | `setAdvertPlan` | Dart → natif | *(2026-08-20)* dépose des heures de jetons d'avance — correction du point H |
 | `advertCapabilities` | Dart → natif | *(2026-08-20)* ce que la radio sait faire en annonces simultanées — architecture adaptative |
@@ -298,6 +298,16 @@ faisait apparaître un ami à cinq amis comme **six appareils différents**.
 ⚠️ **Le natif ne DÉDUIT pas le type** : il le reçoit du Dart avec le plan
 (`setAdvertPlan`, paramètre `types`). Savoir lequel est public est une règle
 produit, elle vit d'un seul côté.
+
+⚠️ **Trois compteurs de diagnostic remontent par `stats()`** et doivent rester
+visibles même à zéro — le jour où ils montent, ils expliquent une détection
+fantôme que rien d'autre n'expliquerait :
+
+| Compteur | Ce qu'il dit |
+|---|---|
+| `otherVersionScans` | des annonces d'une **autre version** du protocole : les appareils ne sont pas à jour ensemble |
+| `selfScans` | on capte **sa propre** annonce — sans filtre, on se reconnaîtrait comme l'ami à qui on crie |
+| `foreignTokenScans` | des jetons privés **destinés à quelqu'un d'autre**, écartés |
 
 ⚠️ **Auto-filtre obligatoire** (`BleEngine.ownTokens`) : le jeton de paire est
 **symétrique**, donc celui qu'on émet pour un ami est celui qu'on attend de lui.
