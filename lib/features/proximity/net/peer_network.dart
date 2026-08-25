@@ -150,6 +150,14 @@ class PeerNetwork {
 
   Timer? _housekeeping;
 
+  /// Jetons privés captés qui ne nous sont pas destinés, écartés.
+  ///
+  /// ⚠️ **Doit rester visible même à zéro.** C'est ce chiffre qui dit combien
+  /// de fausses détections l'ancien format produisait — et, s'il repart, que
+  /// quelque chose a rouvert ce chemin.
+  int _foreignTokens = 0;
+  int get foreignTokenScans => _foreignTokens;
+
   Future<void> start() async {
     // On s'abonne au carnet, on ne le relit pas à heure fixe : peu importe qui
     // arrive en premier, du réseau ou des clés téléchargées.
@@ -236,8 +244,9 @@ class PeerNetwork {
         :final advertId,
         :final rssi,
         :final txPower,
+        :final type,
       ):
-        await _onScan(address, advertId, rssi, txPower);
+        await _onScan(address, advertId, rssi, txPower, type);
       case RadioLink(
         :final linkId,
         :final connected,
@@ -264,14 +273,33 @@ class PeerNetwork {
     }
   }
 
+  /// **Deux formats d'annonce, deux traitements. Jamais un seul.**
+  ///
+  /// ⚠️ **Consigne de Jay, 2026-08-25.** Le code affirmait déjà que « croiser un
+  /// ami et se rendre découvrable d'inconnus sont deux fonctions distinctes »
+  /// (`proximity_supervisor.dart`), mais les deux arrivaient ici comme 16 octets
+  /// indifférenciés. Conséquence mesurée au premier test à deux appareils : un
+  /// ami qui crie **un jeton par ami** apparaissait une fois comme ami et
+  /// **autant de fois comme inconnu** qu'il avait d'autres amis. Jay a vu
+  /// « 13 détections » là où il ne pouvait y en avoir qu'une.
   Future<void> _onScan(
     String address,
     Uint8List advertId,
     int rssi,
     int txPower,
+    AdvertType type,
   ) async {
     final hex = FriendKeyBook.hex(advertId);
     final friend = _friends[_recognition.match(advertId)];
+
+    // ⚠️ **Un jeton PRIVÉ qu'on ne reconnaît pas n'est PAS un inconnu.** C'est
+    // le jeton d'une autre paire, capté au passage. L'afficher comme une
+    // découverte, c'est inventer des gens qui n'existent pas — et ouvrir des
+    // connexions vers eux.
+    if (type == AdvertType.friend && friend == null) {
+      _foreignTokens++;
+      return;
+    }
 
     var session = presence.observe(address, rssi, txPower: txPower);
 
@@ -297,6 +325,12 @@ class PeerNetwork {
     // Un ami reconnu n'a PAS besoin d'un lien pour être affiché. Il en faudra
     // un pour le certificat de croisement — c'est `tick` qui le décidera.
     if (session.snapshot != null) return;
+
+    // ⚠️ **Seul l'identifiant PUBLIC ouvre un lien vers un inconnu.** Un jeton
+    // privé reconnu appartient à un ami, déjà identifié juste au-dessus ; un
+    // jeton privé non reconnu est reparti plus haut. Il ne reste donc ici que
+    // le mode ping — la fonction « se rendre découvrable », et elle seule.
+    if (type != AdvertType.public) return;
 
     await _maybeOpenLink(session, hex);
   }

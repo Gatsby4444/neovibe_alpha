@@ -146,6 +146,7 @@ sealed class RadioEvent {
           advertId: map['advertId'] as Uint8List,
           rssi: map['rssi'] as int,
           txPower: map['txPower'] as int? ?? RadioScan.txPowerUnknown,
+          type: AdvertType.fromWire(map['advertType'] as int?),
         );
       case 'link':
         return RadioLink(
@@ -167,13 +168,39 @@ class RadioStatusEvent extends RadioEvent {
   final RadioStatus status;
 }
 
+/// **Ce qu'une annonce EST : publique, ou privée.**
+///
+/// ⚠️ **Consigne de Jay, 2026-08-25 : deux formats, deux chemins.** Jusqu'au
+/// protocole v3, l'identifiant public du mode ping et les jetons privés d'amis
+/// partaient comme 16 octets indifférenciés. Un ami recevait donc les jetons
+/// destinés aux **autres** amis de l'émetteur sans pouvoir les distinguer d'un
+/// inconnu : avec cinq amis, un seul appareil apparaissait une fois comme ami
+/// et **cinq fois comme un inconnu**.
+enum AdvertType {
+  /// Destiné aux inconnus. **Reconnu par personne, et c'est son rôle.**
+  public,
+
+  /// Destiné à **un** ami précis.
+  ///
+  /// ⚠️ Un jeton de ce type qu'on ne reconnaît pas **n'est pas un inconnu** :
+  /// c'est le jeton privé de quelqu'un d'autre. Il se jette.
+  friend;
+
+  static AdvertType fromWire(int? value) =>
+      value == 2 ? AdvertType.friend : AdvertType.public;
+}
+
 class RadioScan extends RadioEvent {
   const RadioScan({
     required this.address,
     required this.advertId,
     required this.rssi,
+    required this.type,
     this.txPower = txPowerUnknown,
   });
+
+  /// Publique ou privée — voir [AdvertType].
+  final AdvertType type;
 
   /// Valeur d'Android quand l'émetteur n'annonce pas sa puissance.
   static const txPowerUnknown = 127;

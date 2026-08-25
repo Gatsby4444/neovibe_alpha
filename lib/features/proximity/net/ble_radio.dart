@@ -58,8 +58,10 @@ class BleRadio {
   Future<void> openLocationSettings() =>
       _methods.invokeMethod('openLocationSettings');
 
-  Future<void> updateAdvert(Uint8List advertId) =>
-      _methods.invokeMethod('updateAdvert', {'advertId': advertId});
+  // ⚠️ **`updateAdvert` a été SUPPRIMÉ le 2026-08-25** : aucun appelant depuis
+  // que le plan d'annonces pilote l'émission (2026-08-20), et il ne pouvait pas
+  // porter le TYPE du jeton. Un second chemin vers la radio qui en sait moins
+  // que le premier finit toujours par gagner une fois, en silence.
 
   /// Dépose **plusieurs heures de jetons d'avance** dans le service natif.
   ///
@@ -78,8 +80,13 @@ class BleRadio {
   /// de 38 Ko.
   ///
   /// Rend l'instant jusqu'auquel le plan tient, en millisecondes.
+  /// [types] porte, dans le **même ordre**, le type de chaque jeton : public
+  /// ou privé. ⚠️ **Il ne se déduit pas côté natif** — savoir lequel est
+  /// l'identifiant public est une règle produit (« le mode ping est ce qui
+  /// l'ajoute »), et une règle vit d'un seul côté.
   Future<int> setAdvertPlan({
     required Uint8List tokens,
+    required Uint8List types,
     required int fromSlot,
     required int slotMillis,
     required int slotCount,
@@ -89,6 +96,7 @@ class BleRadio {
     final res = await _methods
         .invokeMapMethod<String, dynamic>('setAdvertPlan', {
           'tokens': tokens,
+          'types': types,
           'fromSlot': fromSlot,
           'slotMillis': slotMillis,
           'slotCount': slotCount,

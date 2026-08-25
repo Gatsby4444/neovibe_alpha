@@ -68,7 +68,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
          * [txPower] est la puissance d'emission annoncee par le pair, en dBm,
          * ou [TX_POWER_UNKNOWN] s'il ne l'annonce pas.
          */
-        fun onScan(address: String, advertId: ByteArray, rssi: Int, txPower: Int)
+        fun onScan(address: String, advertId: ByteArray, rssi: Int, txPower: Int, type: Byte)
         fun onLink(linkId: String, connected: Boolean, mtu: Int, incoming: Boolean)
         fun onFrame(linkId: String, data: ByteArray)
     }
@@ -95,9 +95,29 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * sans que l'utilisateur ait à toucher quoi que ce soit.
      */
     private var desiredAdvertId: ByteArray? = null
+    private var desiredAdvertType: Byte = BleConstants.TYPE_PUBLIC
 
     /** Annonces NeoVibe ecartees parce qu'elles parlaient une autre version. */
     var otherVersionScans = 0
+        private set
+
+    /**
+     * Nos PROPRES annonces, captees et ecartees.
+     *
+     * ⚠️ **Ce compteur doit rester visible meme s'il vaut toujours zero** : le
+     * jour ou il monte, il explique un ami fantome que rien d'autre n'explique.
+     */
+    var selfScans = 0
+        private set
+
+    /**
+     * Jetons d'ami PRIVES qui ne nous sont pas destines, ecartes.
+     *
+     * Ce sont les jetons que l'emetteur crie pour ses AUTRES amis. Les compter
+     * plutot que les ignorer : c'est ce chiffre qui dit combien de fausses
+     * detections l'ancien format produisait.
+     */
+    var foreignTokenScans = 0
         private set
 
     /**
@@ -253,7 +273,8 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         publish(RadioStatus.Starting)
         return try {
             startServer()
-            startAdvertising(advertId)
+            rememberOwnToken(advertId)
+            startAdvertising(advertId, desiredAdvertType)
             startScanning()
             publish(currentStatus())
             true
@@ -282,13 +303,45 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         publish(currentStatus())
     }
 
-    fun updateAdvert(advertId: ByteArray) {
+    fun updateAdvert(advertId: ByteArray, type: Byte) {
         desiredAdvertId = advertId
+        desiredAdvertType = type
+        rememberOwnToken(advertId)
         if (evaluateRadio(context) != null) return
         stopAdvertising()
-        startAdvertising(advertId)
+        startAdvertising(advertId, type)
         publish(currentStatus())
     }
+
+    /**
+     * **Ce que nous crions nous-memes, pour ne pas nous reconnaitre nous-memes.**
+     *
+     * ⚠️ Le jeton d'ami est **symetrique** : il derive du secret Diffie-Hellman,
+     * identique des deux cotes. Le jeton que nous EMETTONS pour un ami est donc
+     * exactement celui que nous ATTENDONS de lui. Sans ce filtre, un appareil
+     * qui capte sa propre annonce — par reflexion, par un relais, ou parce que
+     * sa puce la lui remonte — se reconnait comme cet ami. C'est ce qui
+     * affichait « mimi tout pres » alors que le telephone de mimi etait eteint
+     * (constate par Jay le 2026-08-25).
+     *
+     * Borne a [OWN_TOKENS_MAX] : un plan couvre plusieurs heures et plusieurs
+     * amis, on ne garde que ce qui vient d'etre crie.
+     */
+    private val ownTokens = LinkedHashSet<String>()
+
+    private companion object {
+        const val OWN_TOKENS_MAX = 64
+    }
+
+    private fun rememberOwnToken(token: ByteArray) {
+        ownTokens.add(token.joinToString("") { "%02x".format(it) })
+        while (ownTokens.size > OWN_TOKENS_MAX) {
+            ownTokens.remove(ownTokens.first())
+        }
+    }
+
+    private fun isOwnToken(token: ByteArray): Boolean =
+        ownTokens.contains(token.joinToString("") { "%02x".format(it) })
 
     /** Coupe le matériel sans toucher à l'intention (Bluetooth qui s'éteint). */
     private fun teardown() {
@@ -393,7 +446,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         else -> "La diffusion a echoue (code Android $code)."
     }
 
-    private fun startAdvertising(advertId: ByteArray) {
+    private fun startAdvertising(advertId: ByteArray, type: Byte) {
         if (advertising) return
         val advertiser = adapter?.bluetoothLeAdvertiser
         if (advertiser == null) {
@@ -403,7 +456,9 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         val data = AdvertiseData.Builder()
             .addManufacturerData(
                 BleConstants.MANUFACTURER_ID,
-                BleConstants.MAGIC + byteArrayOf(BleConstants.PROTOCOL_VERSION) + advertId,
+                BleConstants.MAGIC +
+                    byteArrayOf(BleConstants.PROTOCOL_VERSION, type) +
+                    advertId,
             )
             .setIncludeDeviceName(false)
             // ⚠️ **La puissance d'emission voyage avec l'annonce.**
@@ -415,8 +470,8 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             // deduite. La transmettre supprime cette inconnue-la.
             //
             // Cout : 3 octets sur les 31 de l'annonce. Notre charge utile en
-            // occupe 25 - il reste de la place, mais tout juste : ne rien
-            // ajouter d'autre sans recompter.
+            // occupe 26 depuis l'octet de TYPE (2026-08-25) - il reste de la
+            // place, mais tout juste : ne rien ajouter sans recompter.
             .setIncludeTxPowerLevel(true)
             .build()
         val settings = AdvertiseSettings.Builder()
@@ -458,7 +513,20 @@ class BleEngine(private val context: Context, private val listener: Listener) {
                 otherVersionScans++
                 return
             }
-            val id = payload.copyOfRange(3, BleConstants.ADVERT_PAYLOAD_SIZE)
+            // ⚠️ **Le TYPE d'abord : public et prive ne suivent pas le meme
+            // chemin.** Consigne de Jay du 2026-08-25. Un jeton prive qui ne
+            // nous est pas destine n'est pas un inconnu — c'est le jeton d'un
+            // autre, et il se jette. Le confondre avec une decouverte, c'est
+            // exactement ce qui affichait « 13 detections » pour un appareil.
+            val type = payload[3]
+            val id = payload.copyOfRange(4, BleConstants.ADVERT_PAYLOAD_SIZE)
+
+            // ⚠️ **Notre propre annonce.** Le jeton d'ami est symetrique : sans
+            // ce filtre, on se reconnait soi-meme comme l'ami a qui on crie.
+            if (isOwnToken(id)) {
+                selfScans++
+                return
+            }
             // `txPower` vaut TX_POWER_NOT_PRESENT (127) si l'emetteur ne
             // l'annonce pas - un appareil sur une version anterieure, par
             // exemple. On transmet tel quel : c'est au-dessus de decider quoi
@@ -469,7 +537,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             } else {
                 TX_POWER_UNKNOWN
             }
-            main.post { listener.onScan(result.device.address, id, result.rssi, tx) }
+            main.post { listener.onScan(result.device.address, id, result.rssi, tx, type) }
         }
 
         /**

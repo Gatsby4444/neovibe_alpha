@@ -101,19 +101,10 @@ class ProximityBridge(
                     result.success(null)
                 }
 
-                "updateAdvert" -> {
-                    val advertId = call.argument<ByteArray>("advertId")
-                        ?: return result.error("ARG", "advertId manquant", null)
-                    val service = ProximityService.instance
-                    if (service == null) {
-                        // Pas de service : l'identifiant n'a nulle part où aller.
-                        // On le DIT, au lieu de laisser croire à une rotation.
-                        result.error("NO_SERVICE", "Le service de proximité ne tourne pas", null)
-                    } else {
-                        service.updateAdvert(advertId)
-                        result.success(null)
-                    }
-                }
+                // ⚠️ **`updateAdvert` a ete SUPPRIME le 2026-08-25.** C'etait un
+                // second chemin vers l'emission, reste d'avant le plan
+                // d'annonces : aucun appelant Dart, et il ne pouvait pas porter
+                // le TYPE du jeton.
 
                 // ⚠️ **Le PLAN d'emission : la correction du point H.**
                 //
@@ -138,6 +129,11 @@ class ProximityBridge(
                         ?: return result.error("ARG", "perSlot manquant", null)
                     val tokenLength = call.argument<Int>("tokenLength")
                         ?: return result.error("ARG", "tokenLength manquant", null)
+                    // ⚠️ Un octet de TYPE par jeton, dans le meme ordre. Le
+                    // natif ne doit pas DEDUIRE lequel est public : le deduire,
+                    // c'est reinventer en Kotlin une regle qui vit en Dart.
+                    val types = call.argument<ByteArray>("types")
+                        ?: return result.error("ARG", "types manquants", null)
                     val service = ProximityService.instance
                     if (service == null) {
                         result.error("NO_SERVICE", "Le service de proximite ne tourne pas", null)
@@ -150,6 +146,7 @@ class ProximityBridge(
                                 perSlot = perSlot,
                                 tokens = tokens,
                                 tokenLength = tokenLength,
+                                types = types,
                             ),
                         )
                         result.success(mapOf("validUntil" to service.scheduleValidUntil()))
@@ -291,6 +288,7 @@ class ProximityBridge(
         advertId: ByteArray,
         rssi: Int,
         txPower: Int,
+        type: Byte,
     ) = emit(
         mapOf(
             "event" to "scan",
@@ -298,6 +296,10 @@ class ProximityBridge(
             "advertId" to advertId,
             "rssi" to rssi,
             "txPower" to txPower,
+            // ⚠️ Le type monte jusqu'au Dart : c'est LUI qui detient la table
+            // de reconnaissance faisant autorite, donc c'est lui qui decide
+            // qu'un jeton prive inconnu se jette au lieu de s'afficher.
+            "advertType" to type.toInt(),
         ),
     )
 

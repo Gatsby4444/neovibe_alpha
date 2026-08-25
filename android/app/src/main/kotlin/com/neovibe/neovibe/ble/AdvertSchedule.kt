@@ -47,6 +47,14 @@ class AdvertSchedule(
     private val tokens: ByteArray,
     /** Longueur d'un jeton. */
     private val tokenLength: Int,
+    /**
+     * Le TYPE de chaque jeton, dans le meme ordre : public ou prive.
+     *
+     * ⚠️ **Fourni par le Dart, jamais deduit ici.** Lequel des jetons est
+     * l'identifiant public est une regle produit (« le mode ping est ce qui
+     * l'ajoute »), et elle vit d'un seul cote.
+     */
+    private val types: ByteArray,
 ) {
     val isEmpty: Boolean get() = slotCount <= 0 || perSlot <= 0
 
@@ -65,6 +73,15 @@ class AdvertSchedule(
      * Rend `null` si le plan ne couvre plus cet instant - a quoi l'appelant
      * repond en cessant d'emettre, jamais en rejouant l'ancien.
      */
+    /** Le type du jeton que [tokenAt] rendrait pour ce meme curseur. */
+    fun typeAt(nowMillis: Long, cursor: Int): Byte {
+        if (!covers(nowMillis)) return BleConstants.TYPE_PUBLIC
+        val slotOffset = (nowMillis / slotMillis - fromSlot).toInt()
+        val which = if (perSlot == 1) 0 else Math.floorMod(cursor, perSlot)
+        val index = slotOffset * perSlot + which
+        return if (index < types.size) types[index] else BleConstants.TYPE_PUBLIC
+    }
+
     fun tokenAt(nowMillis: Long, cursor: Int): ByteArray? {
         if (!covers(nowMillis)) return null
         val slotOffset = (nowMillis / slotMillis - fromSlot).toInt()

@@ -18,6 +18,47 @@ La vision complète (mécaniques fondatrices, ce qui reste à construire, points
 
 ---
 
+## Règle impérative : UN FAIT SE VÉRIFIE À LA SOURCE, JAMAIS DANS UN DOCUMENT
+
+*Consigne de Jay, 2026-08-25 — impérative, sans exception.*
+
+> « Tu ne dois pas te fier aux rapports d'anciennes sessions, ni aux vieux
+> documents explicatifs, ni aux commentaires : il faut **vérifier en base ou
+> dans le code** pour contrôler une information avant d'en déduire quoi que ce
+> soit. »
+
+**Ce qui compte comme source** — et rien d'autre :
+
+| Question | Où la vérifier |
+|---|---|
+| L'état des données (qui est ami avec qui, quelles lignes existent) | **en base**, par une requête |
+| Ce que fait le code | **dans le code**, en déroulant la chaîne jusqu'au bout |
+| Ce que produit un build | **sur l'artefact** (manifeste fusionné, `aapt`, `apksigner`) |
+| Ce qui s'est passé sur l'appareil | **dans le rapport de diagnostic de CE test** |
+
+**Ce qui ne compte PAS comme source** : un rapport de session antérieur, une
+entrée de `RAPPELS.md`, un commentaire de code, un fichier de `docs/`, une
+migration SQL, ou ma propre mémoire. Tous décrivent **ce qui était vrai le jour
+où ils ont été écrits**. Ils servent à savoir **quoi aller vérifier** — jamais à
+conclure.
+
+⚠️ **Le piège est qu'un document périmé est indiscernable d'un document juste.**
+Il ne se contredit pas, il ne lève aucune erreur : il induit simplement un
+raisonnement entier dans la mauvaise direction, avec l'assurance d'une source.
+
+**Exemple de référence, 2026-08-25** : un rapport du 2026-08-17 mentionnait une
+remise à zéro « Charles ↔ mimi pour le test de première rencontre ». J'en ai
+conclu que les deux comptes n'étaient **pas** amis pendant le test du 2026-08-25,
+et j'ai bâti tout un diagnostic dessus. **Ils étaient amis.** Une requête en base
+aurait coûté dix secondes et évité une analyse fausse.
+
+**Corollaire** : quand une conclusion repose sur un fait non vérifié, le dire
+explicitement — « je suppose X, à confirmer » — au lieu de l'énoncer comme
+acquis. Voir aussi la règle 7 ci-dessous (« ne jamais livrer un correctif fondé
+sur une déduction ») : celle-ci en est l'amont.
+
+---
+
 ## Règle impérative : la fiabilité vient de l'architecture, pas du colmatage
 
 *Consigne de Jay, 2026-08-11 — impérative, applicable à tout chantier.*

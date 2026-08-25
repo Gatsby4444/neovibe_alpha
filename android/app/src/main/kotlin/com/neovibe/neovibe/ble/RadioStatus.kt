@@ -30,12 +30,36 @@ object BleConstants {
      * sans erreur ni trace. Doit rester egal a
      * `ProximityIdentity.protocolVersion` cote Dart.
      *
+     * 4 = un octet de TYPE separe le public du prive (2026-08-25).
      * 3 = un jeton par PAIRE (2026-08-20). 2 = cle de diffusion partagee.
      */
-    const val PROTOCOL_VERSION: Byte = 3
+    const val PROTOCOL_VERSION: Byte = 4
 
-    /** 2 octets "NV" + 1 de version + 16 d'identifiant. */
-    const val ADVERT_PAYLOAD_SIZE = 19
+    /**
+     * **L'identifiant PUBLIC du mode ping.** Destine aux inconnus, reconnu par
+     * personne : c'est son role.
+     */
+    const val TYPE_PUBLIC: Byte = 0x01
+
+    /**
+     * **Un jeton PRIVE, destine a UN ami precis.**
+     *
+     * ⚠️ **Consigne de Jay, 2026-08-25 : ces deux-la ne partagent ni le meme
+     * format, ni le meme chemin de traitement.** Jusqu'a la version 3 ils
+     * partaient comme 16 octets indifferenciés, et un ami recevait donc les
+     * jetons destines aux AUTRES amis de l'emetteur sans pouvoir les
+     * distinguer d'un inconnu. Avec cinq amis, un seul appareil apparaissait
+     * une fois comme ami et **cinq fois comme un inconnu** — constate au
+     * premier test a deux appareils, ou Jay a vu « 13 detections » la ou il ne
+     * pouvait y en avoir qu'une.
+     *
+     * Un jeton de ce type qui n'est PAS reconnu n'est pas un inconnu : c'est le
+     * jeton prive de quelqu'un d'autre. Il se **jette**, il ne s'affiche pas.
+     */
+    const val TYPE_FRIEND: Byte = 0x02
+
+    /** 2 octets "NV" + 1 de version + 1 de type + 16 d'identifiant. */
+    const val ADVERT_PAYLOAD_SIZE = 20
 
     val SERVICE_UUID: UUID = UUID.fromString("53d70001-8a3f-4f95-9b6c-4e656f566962")
     val RX_UUID: UUID = UUID.fromString("53d70002-8a3f-4f95-9b6c-4e656f566962")

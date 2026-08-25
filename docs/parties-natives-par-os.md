@@ -277,6 +277,32 @@ au remplacement de l'interface.
   écrire sur le disque depuis le natif poserait hors du Dart une trace de qui a
   été croisé, pour rattraper un cas rare.
 
+### Le format d'annonce — protocole v4 (2026-08-25)
+
+```
+[0..1]  "NV"          magie
+[2]     version = 4
+[3]     TYPE          0x01 = identifiant PUBLIC · 0x02 = jeton d'AMI privé
+[4..19] jeton         16 octets
+```
+
+20 octets de charge utile, **26 sur les 31** de la trame BLE avec la puissance
+d'émission. Ne rien ajouter sans recompter.
+
+⚠️ **Deux formats, deux chemins de traitement, et c'est une règle** (consigne de
+Jay). Un jeton **public** est fait pour être capté sans être reconnu — c'est la
+découverte d'inconnus, et lui seul ouvre un lien. Un jeton **privé** non reconnu
+**se jette** : c'est le jeton d'une autre paire, pas un inconnu. Les confondre
+faisait apparaître un ami à cinq amis comme **six appareils différents**.
+
+⚠️ **Le natif ne DÉDUIT pas le type** : il le reçoit du Dart avec le plan
+(`setAdvertPlan`, paramètre `types`). Savoir lequel est public est une règle
+produit, elle vit d'un seul côté.
+
+⚠️ **Auto-filtre obligatoire** (`BleEngine.ownTokens`) : le jeton de paire est
+**symétrique**, donc celui qu'on émet pour un ami est celui qu'on attend de lui.
+Sans filtre, capter sa propre annonce revient à voir cet ami.
+
 ⚠️ Déclarer le service au manifeste avec
 `android:foregroundServiceType="connectedDevice|location"`, et la permission
 `FOREGROUND_SERVICE_LOCATION` **non bornée** : à partir d'Android 14, tout type

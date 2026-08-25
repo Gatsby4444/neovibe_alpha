@@ -249,16 +249,23 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
       final flat = Uint8List(
         plan.tokens.length * ProximityIdentity.tokenLength,
       );
+      // ⚠️ **Le type descend avec le jeton, il ne se déduit pas en bas.**
+      // `audience == null` désigne l'identifiant public du mode ping ; tout le
+      // reste est le jeton privé d'un ami précis. C'est une règle produit, elle
+      // vit ici et nulle part ailleurs (consigne de Jay, 2026-08-25).
+      final types = Uint8List(plan.tokens.length);
       for (var i = 0; i < plan.tokens.length; i++) {
         flat.setRange(
           i * ProximityIdentity.tokenLength,
           (i + 1) * ProximityIdentity.tokenLength,
           plan.tokens[i].bytes,
         );
+        types[i] = plan.tokens[i].audience == null ? 1 : 2;
       }
 
       await _radio.setAdvertPlan(
         tokens: flat,
+        types: types,
         fromSlot: plan.fromSlot,
         slotMillis: ProximityIdentity.slotDuration.inMilliseconds,
         slotCount: plan.toSlot - plan.fromSlot + 1,

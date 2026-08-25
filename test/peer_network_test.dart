@@ -83,6 +83,33 @@ class Appareil {
         address: depuis ?? autre.radio.adresse,
         advertId: await autre.identite.currentPublicPingId(),
         rssi: rssi,
+        type: AdvertType.public,
+      ),
+    );
+  }
+
+  /// L'annonce que [autre] émet à l'intention de **quelqu'un d'autre**.
+  ///
+  /// ⚠️ **C'est le cas qui a produit « 13 détections » chez Jay le
+  /// 2026-08-25.** Un appareil crie un jeton par ami : celui qui a cinq amis
+  /// crie cinq jetons, dont **quatre me sont totalement opaques**. Ce ne sont
+  /// pas des inconnus — ce sont les jetons privés d'autres paires. Les afficher
+  /// comme des découvertes, c'est inventer des gens.
+  Future<void> voitJetonDUnTiers(
+    Appareil autre,
+    Appareil destinataire, {
+    int rssi = -60,
+    String? depuis,
+  }) async {
+    await reseau.onRadioEvent(
+      RadioScan(
+        address: depuis ?? autre.radio.adresse,
+        advertId: await autre.identite.jetonPour(
+          destinataire.identite,
+          slot: null,
+        ),
+        rssi: rssi,
+        type: AdvertType.friend,
       ),
     );
   }
@@ -95,6 +122,7 @@ class Appareil {
         address: depuis ?? autre.radio.adresse,
         advertId: await autre.identite.jetonPour(identite, slot: null),
         rssi: rssi,
+        type: AdvertType.friend,
       ),
     );
   }
@@ -145,6 +173,70 @@ void main() {
   tearDown(() async {
     await a.reseau.dispose();
     await b.reseau.dispose();
+  });
+
+  group("Deux formats d'annonce, deux chemins — jamais un seul", () {
+    test("le jeton privé de Bob destiné à Carole ne crée AUCUNE détection chez "
+        "Alice", () async {
+      final radioC = RadioSimulee('CC');
+      final carole = await Appareil.creer(
+        'Carole',
+        userId: 'u-c',
+        graine: 3,
+        radio: radioC,
+      );
+      addTearDown(carole.reseau.dispose);
+
+      await a.voitJetonDUnTiers(b, carole);
+
+      expect(
+        a.reseau.presence.sessions,
+        isEmpty,
+        reason:
+            "Bob crie un jeton par ami. Celui destiné à Carole est opaque "
+            "pour Alice : ce n'est pas un inconnu, c'est le jeton privé "
+            "d'une autre paire. L'afficher, c'est inventer quelqu'un — et "
+            "c'est ce qui a produit « 13 détections » le 2026-08-25.",
+      );
+      expect(a.reseau.foreignTokenScans, 1);
+    });
+
+    test("le jeton privé de Bob destiné à Alice, lui, identifie Bob", () async {
+      // Alice doit avoir la clé publique de Bob : c'est ce que la synchro
+      // serveur transporte, et ce dont dérive le secret de paire.
+      await a.carnet.put(
+        FriendKeys(
+          userId: 'u-b',
+          username: 'Bob',
+          edPublicKey: await b.identite.edPublicKey(),
+          x25519PublicKey: await b.identite.x25519PublicKey(),
+        ),
+      );
+      await a.reseau.refreshFriends();
+
+      await a.voitAmi(b);
+      expect(a.reseau.presence.byUser('u-b'), isNotNull);
+      expect(
+        a.reseau.foreignTokenScans,
+        0,
+        reason: "Un jeton reconnu ne doit jamais être compté comme étranger.",
+      );
+    });
+
+    test(
+      "l'identifiant PUBLIC reste une découverte, même sans être reconnu",
+      () async {
+        await a.voit(b);
+        expect(
+          a.reseau.presence.sessions,
+          isNotEmpty,
+          reason:
+              "C'est tout le rôle de l'identifiant public : être capté par "
+              "quelqu'un qui ne le reconnaît pas. Le jeter reviendrait à "
+              "supprimer la découverte d'inconnus.",
+        );
+      },
+    );
   });
 
   test('deux inconnus se découvrent, se révèlent, et se parlent', () async {
@@ -292,7 +384,12 @@ void main() {
     // publique — mais il ne lui dit rien.
     final pourAlice = await b.identite.jetonPour(a.identite);
     await c.reseau.onRadioEvent(
-      RadioScan(address: 'BB', advertId: pourAlice, rssi: -60),
+      RadioScan(
+        address: 'BB',
+        advertId: pourAlice,
+        rssi: -60,
+        type: AdvertType.friend,
+      ),
     );
     expect(
       c.reseau.presence.byUser('u-b'),
@@ -302,7 +399,12 @@ void main() {
 
     // Alice, elle, le reconnaît.
     await a.reseau.onRadioEvent(
-      RadioScan(address: 'BB', advertId: pourAlice, rssi: -60),
+      RadioScan(
+        address: 'BB',
+        advertId: pourAlice,
+        rssi: -60,
+        type: AdvertType.friend,
+      ),
     );
     expect(a.reseau.presence.byUser('u-b'), isNotNull);
   });
@@ -351,6 +453,7 @@ void main() {
       RadioScan(
         address: 'DD',
         advertId: await b.identite.jetonPour(a.identite),
+        type: AdvertType.friend,
         rssi: -60,
       ),
     );
@@ -364,6 +467,7 @@ void main() {
       RadioScan(
         address: 'EE',
         advertId: await c.identite.jetonPour(a.identite),
+        type: AdvertType.friend,
         rssi: -60,
       ),
     );

@@ -118,6 +118,7 @@ class ProximityService : Service(), BleEngine.Listener {
         val advertId: ByteArray,
         val rssi: Int,
         val txPower: Int,
+        val type: Byte,
     )
 
     private val pendingScans = ConcurrentLinkedQueue<BufferedScan>()
@@ -183,8 +184,9 @@ class ProximityService : Service(), BleEngine.Listener {
             )
             return
         }
+        val type = plan.typeAt(System.currentTimeMillis(), cursor)
         cursor++
-        engine.updateAdvert(token)
+        engine.updateAdvert(token, type)
     }
 
     /** Le Dart depose un nouveau plan. Il remplace entierement le precedent. */
@@ -300,7 +302,11 @@ class ProximityService : Service(), BleEngine.Listener {
     // Commandes venues du Dart
     // ------------------------------------------------------------------
 
-    fun updateAdvert(advertId: ByteArray) = engine.updateAdvert(advertId)
+    // ⚠️ **`updateAdvert` a ete SUPPRIME le 2026-08-25.** C'etait un second
+    // chemin vers l'emission, reste d'avant le plan d'annonces du 2026-08-20 :
+    // aucun appelant Dart (verifie), et il ne pouvait pas porter le TYPE du
+    // jeton. Deux chemins vers la meme radio, c'est celui qui en sait le moins
+    // qui gagne un jour, en silence.
     fun advertCapabilities(): Map<String, Any?> = engine.advertCapabilities()
     fun connect(address: String, done: (String?) -> Unit) = engine.connect(address, done)
     fun disconnect(linkId: String) = engine.disconnect(linkId)
@@ -320,6 +326,11 @@ class ProximityService : Service(), BleEngine.Listener {
         // cas de « personne autour ». Constate le 2026-08-25, juste avant le
         // premier test a deux appareils.
         "otherVersionScans" to engine.otherVersionScans,
+        // ⚠️ **Deux compteurs qui doivent rester visibles meme a zero** : le
+        // jour ou ils montent, ils expliquent un ami fantome ou une detection
+        // multipliee que rien d'autre n'expliquerait.
+        "selfScans" to engine.selfScans,
+        "foreignTokenScans" to engine.foreignTokenScans,
         "protocolVersion" to BleConstants.PROTOCOL_VERSION.toInt(),
         "sdk" to android.os.Build.VERSION.SDK_INT,
         "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
@@ -373,7 +384,7 @@ class ProximityService : Service(), BleEngine.Listener {
         updateNotification(status)
     }
 
-    override fun onScan(address: String, advertId: ByteArray, rssi: Int, txPower: Int) {
+    override fun onScan(address: String, advertId: ByteArray, rssi: Int, txPower: Int, type: Byte) {
         // ⚠️ **On reconnait TOUJOURS, que le Dart soit la ou non.**
         //
         // C'est le point de tout ce fichier : avant, l'appariement jeton -> ami
@@ -385,7 +396,11 @@ class ProximityService : Service(), BleEngine.Listener {
         // c'est ce qui evite d'avoir deux comportements selon que l'interface
         // est ouverte ou non. Le Dart deduplique de toute facon par
         // (ami, creneau).
-        val table = recognition
+        // ⚠️ **La reconnaissance ne concerne QUE les jetons prives.** Un
+        // identifiant public n'est reconnu par personne — c'est son role — et
+        // le passer a la table serait lui demander une question qui n'a pas de
+        // reponse (consigne de Jay, 2026-08-25 : deux formats, deux chemins).
+        val table = if (type == BleConstants.TYPE_FRIEND) recognition else null
         if (table != null) {
             val now = System.currentTimeMillis()
             val rang = table.match(advertId, now)
@@ -404,10 +419,10 @@ class ProximityService : Service(), BleEngine.Listener {
 
         val target = bridge
         if (target != null) {
-            target.onScan(address, advertId, rssi, txPower)
+            target.onScan(address, advertId, rssi, txPower, type)
             return
         }
-        pendingScans.add(BufferedScan(address, advertId, rssi, txPower))
+        pendingScans.add(BufferedScan(address, advertId, rssi, txPower, type))
         while (pendingScans.size > scanBufferMax) pendingScans.poll()
     }
 
@@ -438,7 +453,7 @@ class ProximityService : Service(), BleEngine.Listener {
         target.onStatus(lastStatus)
         while (true) {
             val scan = pendingScans.poll() ?: break
-            target.onScan(scan.address, scan.advertId, scan.rssi, scan.txPower)
+            target.onScan(scan.address, scan.advertId, scan.rssi, scan.txPower, scan.type)
         }
     }
 
