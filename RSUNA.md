@@ -816,7 +816,8 @@ $names = $zip.Entries | ForEach-Object { $_.FullName -replace '\\','/' }
 `.claude/settings.local.json`, `docdev/supabase-secrets.txt`,
 `docdev/bot-credentials.txt`, **et depuis le 2026-08-25 la CLÉ DE SIGNATURE**
 (`docdev/neovibe-release.jks`, `docdev/keystore-password.txt`,
-`android/key.properties`).
+`android/key.properties`) **et les deux fichiers de la rotation**
+(`docdev/ancienne-cle-debug.keystore`, `docdev/lineage-neovibe.bin`).
 
 🔴 **La clé de signature est le fichier le plus important de cette liste**, et
 c'est celui qui manquait. Son absence du paquet du 2026-08-24 a rendu la
