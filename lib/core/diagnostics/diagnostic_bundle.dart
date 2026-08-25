@@ -155,6 +155,11 @@ class DiagnosticBundle {
         'sdk',
         'rawScans',
         'neoScans',
+        'otherVersionScans',
+        'protocolVersion',
+        'needsLocation',
+        'fgsLocationType',
+        'locationEnabled',
         'clientPaths',
         'serverPaths',
         'bothPaths',
@@ -178,6 +183,12 @@ class DiagnosticBundle {
         buffer.writeln(
           'LECTURE : la radio ne livre RIEN. Le problème est sous l\'app '
           '(permission, localisation éteinte sur Android <= 11, ou puce).',
+        );
+      } else if ((stats['otherVersionScans'] as int? ?? 0) > 0 && neo == 0) {
+        buffer.writeln(
+          'LECTURE : ${stats['otherVersionScans']} annonces NeoVibe ecartees '
+          'parce qu\'elles parlent une AUTRE version du protocole. Les deux '
+          'appareils ne sont pas a la meme version : mets-les a jour ENSEMBLE.',
         );
       } else if (raw != null && neo == 0) {
         buffer.writeln(

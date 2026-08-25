@@ -311,6 +311,16 @@ class ProximityService : Service(), BleEngine.Listener {
     fun stats(): Map<String, Any?> = mapOf(
         "rawScans" to engine.rawScans,
         "neoScans" to engine.neoScans,
+        // ⚠️ **Le temoin du desaccord de version, rendu VISIBLE.**
+        //
+        // Il etait compte depuis le 2026-08-20 et n'etait expose nulle part :
+        // `RSUNA.md` et les notes de release affirmaient pourtant qu'on le
+        // voyait au diagnostic. Deux appareils de versions differentes ne se
+        // voient pas — c'est voulu — et sans ce compteur rien ne distingue ce
+        // cas de « personne autour ». Constate le 2026-08-25, juste avant le
+        // premier test a deux appareils.
+        "otherVersionScans" to engine.otherVersionScans,
+        "protocolVersion" to BleConstants.PROTOCOL_VERSION.toInt(),
         "sdk" to android.os.Build.VERSION.SDK_INT,
         "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
         // ⚠️ **Le prerequis pre-Android 12, rendu VISIBLE.**

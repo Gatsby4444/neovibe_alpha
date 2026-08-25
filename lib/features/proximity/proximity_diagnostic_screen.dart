@@ -106,6 +106,17 @@ class _ProximityDiagnosticScreenState
                 '${_stats['rawScans'] ?? '—'}',
               ),
               _Texte('dont NeoVibe', '${_stats['neoScans'] ?? '—'}'),
+              // ⚠️ **Le désaccord de version doit se VOIR.** Deux appareils de
+              // versions différentes ne se voient pas — c'est voulu — et sans
+              // ce compteur, ce cas est indiscernable de « personne autour ».
+              _Texte(
+                'écartées (autre version)',
+                '${_stats['otherVersionScans'] ?? '—'}',
+              ),
+              _Texte(
+                'version du protocole',
+                '${_stats['protocolVersion'] ?? '—'}',
+              ),
               const SizedBox(height: 8),
               Text(
                 _lireCompteurs(),
@@ -178,6 +189,10 @@ class _ProximityDiagnosticScreenState
   String _lireCompteurs() {
     final raw = _stats['rawScans'] as int?;
     final neo = _stats['neoScans'] as int?;
+    final autreVersion = _stats['otherVersionScans'] as int? ?? 0;
+    if (autreVersion > 0 && (neo ?? 0) == 0) {
+      return '$autreVersion annonces NeoVibe écartées : elles parlent une AUTRE version du protocole. Les deux appareils ne sont pas à la même version — mets-les à jour ENSEMBLE.';
+    }
     if (raw == null) return 'Le service ne tourne pas.';
     if (raw == 0) {
       return 'ZÉRO annonce reçue, toutes applications confondues. La radio ne '
