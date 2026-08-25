@@ -313,6 +313,17 @@ class ProximityService : Service(), BleEngine.Listener {
         "neoScans" to engine.neoScans,
         "sdk" to android.os.Build.VERSION.SDK_INT,
         "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
+        // ⚠️ **Le prerequis pre-Android 12, rendu VISIBLE.**
+        //
+        // Tout ce qui manque sur ce chemin echoue en silence : ni le type de
+        // service, ni la permission, ni l'interrupteur de localisation ne
+        // levent quoi que ce soit - `startScan` reussit et ne rend jamais rien.
+        // Un compteur `neoScans` a zero est alors indiscernable de « personne
+        // autour ». Ces trois lignes disent laquelle des trois manque.
+        "needsLocation" to (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.S),
+        "fgsLocationType" to
+            ((foregroundTypeUsed and ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION) != 0),
+        "locationEnabled" to isLocationEnabled(this),
         // ⚠️ **Les technologies de mesure de distance que l'appareil possede.**
         //
         // Question de Jay, 2026-08-16 : « pour la distance tu as juste utilise
@@ -428,16 +439,40 @@ class ProximityService : Service(), BleEngine.Listener {
     private fun startForegroundCompat() {
         ensureChannel()
         val notification = buildNotification(lastStatus)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        // ⚠️ La branche `startForeground` sans type a disparu avec le plancher
+        // passe de 26 a 29 (2026-08-25) : le type existe depuis l'API 29.
+        startForeground(NOTIFICATION_ID, notification, foregroundTypeUsed)
     }
+
+    /**
+     * **Le type du service de premier plan, et sur Android 10/11 il decide de
+     * tout.**
+     *
+     * Android ne considere l'app comme « au premier plan » pour la LOCALISATION
+     * que si son service de premier plan porte le type `location`. Or avant
+     * Android 12, un scan BLE est une operation de localisation : sans ce type,
+     * interface fermee, `onScanResult` ne remonte plus rien - **sans erreur, ni
+     * exception, ni trace**. C'est exactement le defaut releve le 2026-08-20,
+     * qui avait alors conduit a couper Android 10 et 11 (`minSdk = 31`).
+     *
+     * Avec ce type, `ACCESS_FINE_LOCATION` en « pendant l'utilisation » suffit :
+     * `ACCESS_BACKGROUND_LOCATION` ne servirait qu'a DEMARRER un scan sans
+     * interface, ce que nous ne faisons jamais (aucun receveur `BOOT_COMPLETED`,
+     * le service part toujours de l'ecran Ping).
+     *
+     * ⚠️ **A partir d'Android 12, on ne le demande PAS.** `BLUETOOTH_SCAN` avec
+     * `neverForLocation` remplace l'exigence, et se declarer « service de
+     * localisation » sur un appareil recent serait une affirmation fausse.
+     */
+    private val foregroundTypeUsed: Int
+        get() {
+            val base = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            return if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                base or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+            } else {
+                base
+            }
+        }
 
     private fun stopForegroundCompat() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -479,6 +514,10 @@ class ProximityService : Service(), BleEngine.Listener {
                 else if (status.scanning) "Détection active — tu n'es pas annoncé"
                 else "En veille — la diffusion a échoué"
             is RadioStatus.AdapterOff -> "En pause — le Bluetooth est éteint"
+            // ⚠️ Android 10/11 seulement. Dire « permission manquante » ici
+            // enverrait l'utilisateur dans les réglages de l'app, où il ne
+            // trouverait rien à corriger : c'est l'interrupteur du système.
+            is RadioStatus.LocationOff -> "En pause — localisation éteinte"
             is RadioStatus.PermissionsMissing -> "En pause — permission manquante"
             is RadioStatus.Unsupported -> "Indisponible sur cet appareil"
             is RadioStatus.Failed -> "En pause — ${status.message}"

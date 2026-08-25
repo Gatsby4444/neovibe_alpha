@@ -8,6 +8,7 @@ import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
+import 'net/ble_radio.dart';
 import 'net/distance_estimate.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_journal.dart';
@@ -265,6 +266,15 @@ class _BandeauEtat extends ConsumerWidget {
             'l\'allumeras.',
         'Ouvrir les réglages',
       ),
+      RadioLocationOff() => (
+        'Localisation de l\'appareil éteinte',
+        'Sur Android 11 et avant, le système exige que la localisation soit '
+            'allumée pour détecter les appareils Bluetooth autour de toi. '
+            'Ce n\'est pas une permission à accorder : c\'est l\'interrupteur '
+            'de localisation du téléphone. Sans lui, la détection tourne dans '
+            'le vide, sans aucune erreur.',
+        'Ouvrir les réglages de localisation',
+      ),
       RadioPermissionsMissing() => (
         'Permission manquante',
         'Sans elle, Android ne renvoie aucun résultat de détection — sans '
@@ -328,17 +338,25 @@ class _BandeauEtat extends ConsumerWidget {
   }
 
   Future<void> _agir(WidgetRef ref, RadioStatus status) async {
-    if (status is RadioPermissionsMissing) {
-      // ⚠️ **Aucune permission de localisation ici, et c'est délibéré**
-      // (2026-08-20, `minSdk = 31`). `BLUETOOTH_SCAN` est déclarée avec
-      // `neverForLocation` : nous affirmons ne dériver aucune position des
-      // annonces captées. En demander une contredirait cette déclaration, et
-      // l'invite qui va avec est la plus dissuasive d'Android — sur une app
-      // dont la thèse est la confiance.
+    if (status is RadioLocationOff) {
+      // ⚠️ Les réglages de LOCALISATION du système, pas ceux de l'app : c'est
+      // le service qu'il faut allumer, et aucune permission ne le remplace.
+      await BleRadio().openLocationSettings();
+    } else if (status is RadioPermissionsMissing) {
+      // ⚠️ **On demande ce que le NATIF dit manquer, on ne le déduit pas.**
+      //
+      // La liste dépend de la version d'Android — `ACCESS_FINE_LOCATION` sous
+      // Android 12, `BLUETOOTH_SCAN` au-dessus — et c'est `BlePermissions`
+      // qui la calcule, en interrogeant le système. Écrire ici un second test
+      // de version reviendrait à décider une deuxième fois de ce qu'Android
+      // exige, à un endroit qui ne le sait pas : le jour où les deux ne
+      // diraient plus la même chose, rien ne le signalerait — la demande
+      // porterait sur une permission, le blocage sur une autre.
+      //
+      // C'est le défaut A2 du diagnostic, corrigé en 2026-07 : la couche Dart
+      // demandait les permissions puis jetait le résultat.
       await [
-        Permission.bluetoothScan,
-        Permission.bluetoothAdvertise,
-        Permission.bluetoothConnect,
+        ...status.missing.map(_permissionAndroid).nonNulls,
         Permission.notification,
       ].request();
     } else if (status is RadioAdapterOff) {
@@ -347,6 +365,23 @@ class _BandeauEtat extends ConsumerWidget {
     // Dans tous les cas on redemande : c'est le natif qui dira si ça a marché.
     await ref.read(proximitySupervisorProvider.notifier).retry();
   }
+
+  /// Traduit un nom de permission Android en permission `permission_handler`.
+  ///
+  /// ⚠️ **Traduction, pas décision.** Les seuls noms qui arrivent ici sont ceux
+  /// que `BlePermissions.required()` a produits côté natif. `BLUETOOTH` et
+  /// `BLUETOOTH_ADMIN` (Android ≤ 11) n'en font jamais partie en pratique : ce
+  /// sont des permissions de niveau *normal*, accordées à l'installation, donc
+  /// `checkSelfPermission` ne les déclare jamais manquantes. On rend `null`
+  /// plutôt que de lever : un nom inconnu ne doit pas empêcher de demander les
+  /// autres.
+  Permission? _permissionAndroid(String nom) => switch (nom) {
+    'android.permission.BLUETOOTH_SCAN' => Permission.bluetoothScan,
+    'android.permission.BLUETOOTH_ADVERTISE' => Permission.bluetoothAdvertise,
+    'android.permission.BLUETOOTH_CONNECT' => Permission.bluetoothConnect,
+    'android.permission.ACCESS_FINE_LOCATION' => Permission.locationWhenInUse,
+    _ => null,
+  };
 }
 
 /// Une demande d'ami reçue en proximité.

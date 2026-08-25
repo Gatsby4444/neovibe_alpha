@@ -50,6 +50,14 @@ class BleRadio {
 
   Future<void> stop() => _methods.invokeMethod('stop');
 
+  /// Ouvre les réglages de LOCALISATION du système — pas ceux de l'app.
+  ///
+  /// ⚠️ Aucune permission ne remplace cet interrupteur : sur Android 10 et 11,
+  /// c'est le service de localisation lui-même qu'il faut allumer pour qu'un
+  /// scan BLE rende quoi que ce soit. Rétabli le 2026-08-25 (`minSdk = 29`).
+  Future<void> openLocationSettings() =>
+      _methods.invokeMethod('openLocationSettings');
+
   Future<void> updateAdvert(Uint8List advertId) =>
       _methods.invokeMethod('updateAdvert', {'advertId': advertId});
 

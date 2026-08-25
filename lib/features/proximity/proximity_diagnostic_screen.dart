@@ -198,6 +198,7 @@ class _ProximityDiagnosticScreenState
     RadioPermissionsMissing(:final missing) =>
       'permissionsMissing ${missing.join(", ")}',
     RadioAdapterOff() => 'adapterOff',
+    RadioLocationOff() => 'locationOff (Android <= 11)',
     RadioIdle() => 'idle',
     RadioStarting() => 'starting',
     RadioRunning(:final advertising, :final scanning) =>

@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.os.Build
 import androidx.core.content.ContextCompat
 import java.util.UUID
@@ -79,20 +80,37 @@ sealed class RadioStatus {
     /** Le Bluetooth est éteint. L'utilisateur doit l'allumer. */
     object AdapterOff : RadioStatus()
 
-    // ⚠️ **`LocationOff` a été SUPPRIMÉ le 2026-08-20, avec `minSdk = 31`.**
-    //
-    // Il disait « la localisation du téléphone est éteinte, donc le scan BLE ne
-    // rend rien » — le défaut constaté par Jay le 2026-08-16 sur sa tablette
-    // Android 10 : diffusion et détection au vert, zéro appareil, pendant que
-    // son téléphone Android 12 voyait la tablette.
-    //
-    // À partir d'Android 12, `BLUETOOTH_SCAN` avec `neverForLocation` remplace
-    // cette exigence : l'état ne peut plus se produire, et le garder ferait
-    // croire qu'il le peut.
-    //
-    // ⚠️ S'il fallait un jour redescendre sous Android 12, ce n'est pas ce seul
-    // état qu'il faudrait rétablir : voir `RAPPELS.md` #57 pour la chaîne
-    // entière (permission de fond, type du service de premier plan, invite).
+    /**
+     * Le service de LOCALISATION de l'appareil est éteint — et sur Android 10
+     * et 11, cela suffit à rendre tout scan BLE aveugle.
+     *
+     * ## Pourquoi ce cas existe, et pourquoi il a coûté une journée
+     *
+     * Jusqu'à Android 11 inclus, le système considère qu'écouter les
+     * identifiants Bluetooth des environs revient à se localiser. Il exige donc
+     * **deux choses distinctes**, qu'on confond facilement :
+     *
+     * 1. la **permission** `ACCESS_FINE_LOCATION` accordée à l'app ;
+     * 2. le **service de localisation** allumé sur l'appareil.
+     *
+     * La première était vérifiée. La seconde, non. Or sans elle `startScan`
+     * **réussit** — pas d'exception, pas de code d'erreur, `onScanFailed` n'est
+     * jamais appelé — et ne livre **jamais aucun résultat**.
+     *
+     * C'est le défaut constaté par Jay le 2026-08-16 : sa tablette Android 10
+     * affichait diffusion ET détection au vert, et zéro appareil, pendant que
+     * son téléphone (Android 12+) voyait la tablette. **L'asymétrie ne venait
+     * ni du code ni de la puce : elle venait de la version d'Android.**
+     * Une fois la localisation allumée, la même tablette est passée de **0 à
+     * 1 395 annonces NeoVibe** — mesure, pas déduction.
+     *
+     * ⚠️ **Retiré le 2026-08-20 avec `minSdk = 31`, rétabli le 2026-08-25 avec
+     * `minSdk = 29`** (décision de Jay). À partir d'Android 12,
+     * `BLUETOOTH_SCAN` + `neverForLocation` remplace cette exigence : l'état
+     * reste donc **inatteignable au-dessus de l'API 30**, et c'est
+     * `evaluateRadio` qui le garantit.
+     */
+    object LocationOff : RadioStatus()
 
     /** Tout est possible, mais personne n'a demandé à être visible. */
     object Idle : RadioStatus()
@@ -114,6 +132,7 @@ sealed class RadioStatus {
         is Unsupported -> mapOf("type" to "unsupported")
         is PermissionsMissing -> mapOf("type" to "permissionsMissing", "missing" to missing)
         is AdapterOff -> mapOf("type" to "adapterOff")
+        is LocationOff -> mapOf("type" to "locationOff")
         is Idle -> mapOf("type" to "idle")
         is Starting -> mapOf("type" to "starting")
         is Running -> mapOf(
@@ -140,20 +159,38 @@ sealed class RadioStatus {
  */
 object BlePermissions {
 
-    // ⚠️ **Une seule liste depuis `minSdk = 31`** (2026-08-20). Il y avait une
-    // branche pour Android <= 11 qui exigeait `ACCESS_FINE_LOCATION` : elle est
-    // devenue inatteignable, et une branche morte finit toujours par être lue
-    // comme une branche vivante.
-    //
-    // ⚠️ Aucune permission de localisation, et c'est délibéré : `BLUETOOTH_SCAN`
-    // est déclarée avec `neverForLocation`, donc nous affirmons ne dériver
-    // aucune position des annonces captées. En demander une contredirait cette
-    // déclaration.
-    fun required(): List<String> = listOf(
-        Manifest.permission.BLUETOOTH_SCAN,
-        Manifest.permission.BLUETOOTH_ADVERTISE,
-        Manifest.permission.BLUETOOTH_CONNECT,
-    )
+    /**
+     * ⚠️ **Deux modèles de permission, et c'est Android qui les impose.**
+     *
+     * - **API 31+** (Android 12) : `BLUETOOTH_SCAN` est déclarée avec
+     *   `neverForLocation`, donc nous affirmons ne dériver aucune position des
+     *   annonces captées, et Android nous dispense de toute permission de
+     *   localisation. **Ne rien ajouter ici** : ce serait contredire cette
+     *   déclaration, et l'invite qui va avec est la plus dissuasive d'Android —
+     *   sur une app dont la thèse est la confiance.
+     * - **API 29/30** (Android 10 et 11) : un scan BLE exige
+     *   `ACCESS_FINE_LOCATION`. La version « pendant l'utilisation » **suffit**,
+     *   y compris interface fermée, parce que `ProximityService` se déclare de
+     *   type `location` — voir `ProximityService.startForegroundCompat`.
+     *   `ACCESS_BACKGROUND_LOCATION` n'est **pas** demandée : elle ne servirait
+     *   qu'à démarrer un scan sans interface, ce que nous ne faisons jamais.
+     *
+     * ⚠️ La branche `else` n'est atteignable que sur API 29/30 : `minSdk = 29`.
+     */
+    fun required(): List<String> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.BLUETOOTH_CONNECT,
+            )
+        } else {
+            listOf(
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN,
+                Manifest.permission.ACCESS_FINE_LOCATION,
+            )
+        }
 
     fun missing(context: Context): List<String> = required().filter {
         ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
@@ -179,8 +216,35 @@ fun evaluateRadio(context: Context): RadioStatus? {
 
     if (!adapter.isEnabled) return RadioStatus.AdapterOff
 
-    // ⚠️ **Plus aucun contrôle de localisation ici.** Il n'avait de sens que sous
-    // Android 12, et `minSdk = 31` rend ce cas inatteignable (2026-08-20).
+    // ⚠️ **Sur Android 10 et 11 SEULEMENT.** Au-delà, `BLUETOOTH_SCAN` suffit et
+    // exiger la localisation serait une demande abusive. C'est cette garde qui
+    // rend `RadioStatus.LocationOff` inatteignable au-dessus de l'API 30.
+    //
+    // ⚠️ La permission accordée ne remplace PAS le service allumé : ce sont deux
+    // choses distinctes, et les confondre a coûté une journée le 2026-08-16.
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && !isLocationEnabled(context)) {
+        return RadioStatus.LocationOff
+    }
     return null
+}
+
+/**
+ * Le service de localisation est-il allumé ?
+ *
+ * ⚠️ **Un seul endroit repond a cette question**, pour deux appelants :
+ * `evaluateRadio` (qui en fait un blocage) et `ProximityService.stats` (qui en
+ * fait une ligne de diagnostic). En ecrire une copie garantirait qu'un jour les
+ * deux ne disent plus la meme chose - meme raisonnement que pour la bande de
+ * distance, jamais dupliquee dans le natif.
+ *
+ * `isLocationEnabled` existe depuis l'API 28, et `minSdk = 29` : la branche
+ * historique pour les API antérieures a disparu avec le passage du plancher de
+ * 26 à 29 (2026-08-25). Une branche qu'aucun appareil ne peut atteindre finit
+ * toujours par être lue comme une branche vivante.
+ */
+internal fun isLocationEnabled(context: Context): Boolean {
+    val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        ?: return false
+    return manager.isLocationEnabled
 }
 

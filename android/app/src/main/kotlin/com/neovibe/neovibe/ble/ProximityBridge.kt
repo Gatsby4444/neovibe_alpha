@@ -89,6 +89,18 @@ class ProximityBridge(
                     result.success(null)
                 }
 
+                // ⚠️ **Les réglages de LOCALISATION du système, pas ceux de
+                // l'app.** Aucune permission ne remplace l'interrupteur : sur
+                // Android 10 et 11, c'est le service lui-même qu'il faut
+                // allumer. Rétabli le 2026-08-25 avec `minSdk = 29`.
+                "openLocationSettings" -> {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS,
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                    result.success(null)
+                }
+
                 "updateAdvert" -> {
                     val advertId = call.argument<ByteArray>("advertId")
                         ?: return result.error("ARG", "advertId manquant", null)

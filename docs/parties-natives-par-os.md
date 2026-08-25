@@ -278,17 +278,39 @@ au remplacement de l'interface.
   été croisé, pour rattraper un cas rare.
 
 ⚠️ Déclarer le service au manifeste avec
-`android:foregroundServiceType="connectedDevice"`.
+`android:foregroundServiceType="connectedDevice|location"`, et la permission
+`FOREGROUND_SERVICE_LOCATION` **non bornée** : à partir d'Android 14, tout type
+déclaré sur un `<service>` exige sa permission, utilisé ou non à l'exécution.
 
-⚠️ **`minSdk = 31` depuis le 2026-08-20, et c'est une décision, pas une
-contrainte de compilation.** Sous Android 12, un scan BLE exige une permission de
-localisation, et le système ne considère l'app comme « au premier plan » pour la
-localisation que si le service a le type `location` — le nôtre est
-`connectedDevice`. Interface fermée, le scan n'aurait rien remonté, **sans erreur
-ni trace**. À partir d'Android 12, `BLUETOOTH_SCAN` avec `neverForLocation`
-dispense de toute permission de localisation : il n'y en a plus **aucune** dans
-le manifeste fusionné. L'état `LocationOff` a été retiré de bout en bout dans la
-foulée — voir `RAPPELS.md` #57 avant d'y toucher.
+⚠️ **`minSdk = 29` depuis le 2026-08-25 — le plancher a bougé deux fois.**
+
+| Date | Plancher | Pourquoi |
+|---|---|---|
+| avant le 2026-08-20 | 26 | BLE stable + canaux de notification |
+| 2026-08-20 | **31** | sous Android 12, le scan en arrière-plan semblait exiger « Autoriser la localisation tout le temps » |
+| 2026-08-25 | **29** | cette exigence n'existe pas : un service de type `location` suffit |
+
+**Le modèle de permission dépend donc de la version, et c'est le natif qui
+tranche** (`BlePermissions.required()`), jamais le Dart :
+
+- **API 31+** — `BLUETOOTH_SCAN` avec `neverForLocation` : **aucune** permission
+  de localisation. Le `maxSdkVersion="30"` posé sur `ACCESS_FINE_LOCATION`,
+  `BLUETOOTH` et `BLUETOOTH_ADMIN` garantit qu'elles **n'existent pas** sur ces
+  appareils — vérifié sur le manifeste fusionné *release* le 2026-08-25.
+- **API 29/30** — `ACCESS_FINE_LOCATION` en « pendant l'utilisation », **plus**
+  le type `location` sur le service de premier plan. Sans ce type, interface
+  fermée, `onScanResult` ne remonte rien, **sans erreur ni trace**.
+  `ACCESS_BACKGROUND_LOCATION` n'est **pas** demandée : elle ne servirait qu'à
+  démarrer un scan sans interface, ce que nous ne faisons jamais.
+
+⚠️ **Sur API 29/30, l'interrupteur de localisation du SYSTÈME doit être allumé** —
+la permission ne le remplace pas. Sinon `startScan` réussit et ne rend jamais
+rien. C'est l'état `RadioStatus.LocationOff`, rendu inatteignable au-dessus de
+l'API 30 par `evaluateRadio`, et le canal `openLocationSettings` qui va avec.
+
+⚠️ **Ces trois prérequis sont exposés au diagnostic** (`stats()` :
+`needsLocation`, `fgsLocationType`, `locationEnabled`) précisément parce
+qu'aucun des trois ne lève d'erreur quand il manque. Voir `RAPPELS.md` #57.
 
 **iOS (à faire)** — **CoreBluetooth**, et il faudra concevoir un **mode
 dégradé** :

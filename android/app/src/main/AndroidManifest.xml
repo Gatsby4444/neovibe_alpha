@@ -4,11 +4,32 @@
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- ⚠️ AUCUNE permission de localisation, et c'est tout l'intérêt de
-         minSdk 31. Avant Android 12, un scan BLE en exigeait une ;
-         `neverForLocation` ci-dessus déclare que nous n'en dérivons aucune
-         position, et Android nous dispense alors de la demander. Ne rien
-         rajouter ici sans relire `RAPPELS.md` #57. -->
+    <!-- ⚠️ **Android 10 et 11 UNIQUEMENT — le `maxSdkVersion` est essentiel.**
+         Avant Android 12, un scan BLE exige la localisation. À partir de 12,
+         `neverForLocation` ci-dessus déclare que nous ne dérivons aucune
+         position des annonces captées, et Android nous dispense de la demander.
+         Le `maxSdkVersion="30"` fait que ces trois lignes **n'existent pas** sur
+         un appareil Android 12+ : la propriété obtenue le 2026-08-20 (aucune
+         permission de localisation sur les appareils récents) est intacte.
+         Ne rien rajouter ici sans relire `RAPPELS.md` #57. -->
+    <uses-permission android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+    <!-- ⚠️ **PAS de `ACCESS_BACKGROUND_LOCATION`, et c'est le cœur de la
+         décision du 2026-08-25.** Un service de premier plan de type `location`
+         fait compter l'app comme « au premier plan » pour la localisation : la
+         permission « pendant l'utilisation » suffit alors, interface fermée et
+         écran éteint. « Tout le temps » ne servirait qu'à DÉMARRER un scan sans
+         interface, ce que nous ne faisons jamais : relevé sur le manifeste
+         FUSIONNÉ le 2026-08-25, le seul receveur `BOOT_COMPLETED` est celui du
+         plugin `flutter_foreground_task`, désarmé par `autoRunOnBoot: false`
+         (`lib/main.dart:120`) ; `ProximityService` ne part que de l'écran Ping.
+         🔴 Le jour où l'on ajoutera un démarrage au boot, cette ligne
+         redeviendra nécessaire sur Android 10/11 : y penser AVANT, le manque ne
+         lèvera aucune erreur — le scan rendra simplement zéro. -->
 
     <!-- Cards : capture recto/verso (photo + vidéo avec son) -->
     <uses-permission android:name="android.permission.CAMERA" />
@@ -21,6 +42,18 @@
     <!-- Service de premier plan : maintien de la détection BLE en arrière-plan -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <!-- ⚠️ **Non bornée, et il faut savoir pourquoi.** À partir d'Android 14,
+         tout type déclaré sur un `<service>` exige la permission correspondante,
+         que le type soit utilisé ou non à l'exécution. `ProximityService` déclare
+         `connectedDevice|location` pour Android 10/11 ; sans cette ligne, un
+         appareil Android 14+ refuserait le service. Elle est de niveau
+         **normal** : aucune invite, aucune entrée dans les permissions de
+         localisation de l'app — `ACCESS_FINE_LOCATION` reste bornée à 30. Nous
+         ne passons JAMAIS le type `location` au-dessus d'Android 11
+         (`ProximityService.startForegroundCompat`).
+         🔴 AVANT LA PROD : Google Play exige une déclaration d'usage de la
+         localisation pour cette permission. Voir `RAPPELS.md` #59. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-permission android:name="android.permission.INTERNET" />
@@ -68,7 +101,7 @@
              détient l'advertising, le scan et les liens GATT. -->
         <service
             android:name=".ble.ProximityService"
-            android:foregroundServiceType="connectedDevice"
+            android:foregroundServiceType="connectedDevice|location"
             android:exported="false" />
 
         <!-- Publie l'APK telecharge a l'installateur systeme. Portee
