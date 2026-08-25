@@ -16,8 +16,18 @@
         android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
         android:maxSdkVersion="30" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="30" />
+    <!-- ⚠️ **DÉBORNÉE le 2026-08-26 — le ping de proximité v2 en a besoin sur
+         TOUTES les versions.** Elle était limitée à Android 11 (scan BLE) ; le
+         GPS l'exige désormais partout, pour publier un carreau d'environ 1 km.
+         🟢 **« Pendant l'utilisation » suffit** : aucune position n'est lue app
+         fermée. Toujours **PAS** de `ACCESS_BACKGROUND_LOCATION` — le
+         croisement d'amis reste en BLE pur et n'en demande aucune.
+         ⚠️ Sur Android 12+, l'utilisateur peut n'accorder que la position
+         **approximative** (~3 km) : le ping ne peut alors pas fonctionner, et
+         l'app le DIT (`LocationBlocker.approximate`) au lieu d'afficher une
+         liste vide. Voir `docs/proximite-v2-gps-et-ble.md`. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <!-- ⚠️ **PAS de `ACCESS_BACKGROUND_LOCATION`, et c'est le cœur de la
          décision du 2026-08-25.** Un service de premier plan de type `location`
          fait compter l'app comme « au premier plan » pour la localisation : la

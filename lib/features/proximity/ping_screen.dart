@@ -8,7 +8,11 @@ import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
+import 'geo/coarse_location.dart';
 import 'net/ble_radio.dart';
+import 'net/ping_beacon_service.dart';
+import 'net/ping_nearby_feed.dart';
+import 'net/ping_repository.dart';
 import 'net/distance_estimate.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_journal.dart';
@@ -128,7 +132,14 @@ class _PingScreenState extends ConsumerState<PingScreen> {
                 in view?.requests ?? const <PendingFriendRequest>[])
               _CarteDemande(request: request),
 
+            // ⚠️ **Deux chemins coexistent volontairement, le temps du test.**
+            // Le nouveau (GPS + BLE, v2) est au-dessus ; l'ancien (BLE seul) en
+            // dessous. Rien n'est supprimé tant que le nouveau n'a pas tourné
+            // sur appareil — règle 8 : on relève les deux sens avant de couper.
             const _TitreSection('Autour de toi'),
+            ..._autourDeToiV2(ref, runtime),
+
+            const _TitreSection('Autour de toi — ancien chemin (BLE seul)'),
             ..._autourDeToi(runtime, keys),
 
             if (_conversations.any((c) => nearbyIds.contains(c.peerId))) ...[
@@ -780,6 +791,158 @@ class _Vide extends StatelessWidget {
           style: TextStyle(color: context.muted),
         ),
       ],
+    ),
+  );
+}
+
+/// La découverte **v2** : le GPS oriente, le BLE prouve.
+///
+/// ⚠️ **Cette liste ne contient que des proximités MUTUELLES.** Quelqu'un qui
+/// écoute sans s'annoncer n'y apparaît jamais — et n'y fait apparaître
+/// personne. La règle vit côté serveur, pas ici (`confirm_ping`).
+List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
+  if (!runtime.wantsVisible) {
+    return const [
+      _Vide(
+        icon: Icons.visibility_off_outlined,
+        text: "Active « Visible à proximité » pour découvrir qui est autour.",
+      ),
+    ];
+  }
+
+  final beacon = ref.watch(pingBeaconProvider);
+  final gens = ref.watch(pingNearbyProvider);
+
+  // ⚠️ **Un blocage se DIT, et il nomme son action.** Une liste vide et une
+  // permission refusée doivent rester distinguables — c'est tout ce que ce
+  // projet a appris cette semaine.
+  final blocker = beacon.blocker;
+  if (blocker != null) {
+    final (String titre, String detail, String action) = switch (blocker) {
+      LocationBlocker.serviceOff => (
+        "Localisation de l'appareil éteinte",
+        "La découverte de proximité a besoin de savoir dans quel quartier tu "
+            "es — à un kilomètre près, jamais plus précis.",
+        "Ouvrir les réglages",
+      ),
+      LocationBlocker.denied => (
+        "Position non autorisée",
+        "Elle sert uniquement à savoir dans quel quartier chercher. Qui est "
+            "vraiment à 20 m, c'est le Bluetooth qui le prouve.",
+        "Autoriser",
+      ),
+      LocationBlocker.deniedForever => (
+        "Position refusée définitivement",
+        "Seuls les réglages système peuvent la rouvrir.",
+        "Ouvrir les réglages",
+      ),
+      LocationBlocker.approximate => (
+        "Position approximative",
+        "Android répond à environ 3 km près, ce qui ne suffit pas à savoir "
+            "dans quel quartier chercher. Choisis « Précise » dans les réglages "
+            "de l'app.",
+        "Ouvrir les réglages",
+      ),
+    };
+    return [
+      _BandeauSimple(
+        titre: titre,
+        detail: detail,
+        action: action,
+        onAction: () => blocker == LocationBlocker.denied
+            ? ref.read(pingBeaconProvider.notifier).requestPermission()
+            : openAppSettings(),
+      ),
+    ];
+  }
+
+  if (gens.isEmpty) {
+    return [
+      _Vide(
+        icon: Icons.travel_explore,
+        text: beacon.listening == 0
+            ? "Personne d'autre n'a le ping activé dans ton quartier."
+            : "${beacon.listening} personne(s) ont le ping actif dans le "
+                  "quartier. Aucune n'est à portée pour l'instant — il faut "
+                  "être à une vingtaine de mètres.",
+      ),
+    ];
+  }
+
+  return [
+    for (final personne in gens)
+      ListTile(
+        leading: CircleAvatar(
+          backgroundImage: personne.avatarUrl == null
+              ? null
+              : NetworkImage(personne.avatarUrl!),
+          child: personne.avatarUrl == null
+              ? Text(
+                  personne.displayName.isEmpty
+                      ? "?"
+                      : personne.displayName.substring(0, 1).toUpperCase(),
+                )
+              : null,
+        ),
+        title: Text(personne.displayName),
+        subtitle: Text(
+          personne.tagName == null ? "À portée" : "@${personne.tagName}",
+        ),
+        trailing: const Icon(Icons.chat_bubble_outline),
+        onTap: () => _ouvrirChatProximite(ref, personne),
+      ),
+  ];
+}
+
+/// Ouvre la messagerie de proximité.
+///
+/// ⚠️ **Le serveur peut refuser**, et c'est voulu : il exige une proximité
+/// constatée des DEUX côtés. Un refus se montre, il ne s'avale pas.
+Future<void> _ouvrirChatProximite(WidgetRef ref, NearbyPerson personne) async {
+  final messenger = ScaffoldMessenger.maybeOf(ref.context);
+  try {
+    await ref.read(pingRepositoryProvider).openConversation(personne.userId);
+    messenger?.showSnackBar(
+      SnackBar(
+        content: Text("Conversation ouverte avec ${personne.displayName}"),
+      ),
+    );
+  } catch (e) {
+    messenger?.showSnackBar(SnackBar(content: Text("$e")));
+  }
+}
+
+/// Un bandeau d'information autonome, pour les blocages du ping v2.
+class _BandeauSimple extends StatelessWidget {
+  const _BandeauSimple({
+    required this.titre,
+    required this.detail,
+    required this.action,
+    required this.onAction,
+  });
+
+  final String titre;
+  final String detail;
+  final String action;
+  final VoidCallback onAction;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+    child: Padding(
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(titre, style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text(detail, style: TextStyle(color: context.faint, fontSize: 12)),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(onPressed: onAction, child: Text(action)),
+          ),
+        ],
+      ),
     ),
   );
 }
