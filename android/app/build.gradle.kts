@@ -56,6 +56,29 @@ android {
         // ⚠️ Ne pas bouger ce nombre sans relire `RAPPELS.md` #57.
         minSdk = 29
         targetSdk = flutter.targetSdkVersion
+        // ⚠️ **LE `versionCode` A FAIT UN SAUT À 3000 LE 2026-08-25, ET IL NE
+        // FAUT JAMAIS LE REDESCENDRE.**
+        //
+        // Les releases v0.9.114 à v0.9.121 ont été publiées en APK **découpés
+        // par architecture** (`--split-per-abi`). Flutter y ajoute alors un
+        // décalage au `versionCode` : 1000 pour armeabi-v7a, **2000 pour
+        // arm64-v8a**, 4000 pour x86_64. Le `0.9.119+209` livré à Jay portait
+        // donc `versionCode = 2209`, et non 209.
+        //
+        // À partir de la v0.9.122 les APK sont redevenus **complets**, donc sans
+        // décalage : 212, 213, 214, 215 — tous **inférieurs à 2209**. Android a
+        // refusé les quatre avec `INSTALL_FAILED_VERSION_DOWNGRADE (-25)`, et
+        // rien ne l'avait signalé côté build : l'APK se construit parfaitement,
+        // c'est l'INSTALLATION qui échoue, chez Jay.
+        //
+        // ⚠️ **La leçon, plus large que le nombre** : `versionName` et
+        // `versionCode` sont deux choses distinctes. Android ne lit QUE le
+        // second, et **changer le format de livraison change le second sans
+        // qu'on le demande**. Ne jamais mélanger APK complet et APK découpé sur
+        // un même canal de distribution.
+        //
+        // 3000 laisse la place à un éventuel retour au découpage (arm64 vaudrait
+        // alors 2000 + 3000 = 5000, toujours croissant).
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
