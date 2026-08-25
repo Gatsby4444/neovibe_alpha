@@ -127,7 +127,9 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
                 ref.invalidate(conversationsProvider);
                 ref.invalidate(myCategoriesProvider);
                 ref.invalidate(categoryMembersProvider);
-                ref.invalidate(friendStoriesProvider);
+                // ⚠️ On invalide la SOURCE, pas la vue : la vue est dérivée, la
+                // réinvalider ne redemanderait rien au serveur.
+                ref.invalidate(storiesSourceProvider);
               },
               child: conversations.when(
                 loading: () => const Center(child: CircularProgressIndicator()),

@@ -33,20 +33,6 @@ import '../proximity/net/proximity_controller.dart';
 import 'conversations_repository.dart';
 import 'group_settings_screen.dart';
 
-/// Détail d'une conversation (métadonnées + membres).
-final conversationDetailProvider = FutureProvider.family<Conversation, String>((
-  ref,
-  id,
-) async {
-  final row = await ref
-      .watch(supabaseProvider)
-      .from('conversations')
-      .select('*, members:conversation_members(profiles(*))')
-      .eq('id', id)
-      .single();
-  return Conversation.fromJson(row);
-});
-
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.conversationId});
   final String conversationId;
@@ -199,13 +185,21 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Widget build(BuildContext context) {
     final me = ref.watch(currentUserIdProvider)!;
     final detail = ref.watch(conversationDetailProvider(widget.conversationId));
-    final messages = ref.watch(messagesStreamProvider(widget.conversationId));
+    // ⚠️ **La vue, pas l'acquisition** (2026-08-25, checkup `RAPPELS.md` #52).
+    // `messagesStreamProvider` publie ce que dit la base ;
+    // `visibleMessagesProvider` applique la péremption avec sa propre horloge et
+    // ne réveille cet écran que si la liste affichée change vraiment.
+    final messages = ref.watch(visibleMessagesProvider(widget.conversationId));
+    final chargement = ref
+        .watch(messagesStreamProvider(widget.conversationId))
+        .isLoading;
 
-    // Marque comme lus les messages reçus dès qu'ils arrivent à l'écran
-    ref.listen(messagesStreamProvider(widget.conversationId), (_, next) {
-      final list = next.value;
-      if (list != null && list.isNotEmpty) {
-        ref.read(conversationsRepositoryProvider).markRead(list);
+    // Marque comme lus les messages reçus dès qu'ils arrivent à l'écran.
+    // ⚠️ Sur la vue AFFICHÉE : marquer lu un message que l'utilisateur n'a pas
+    // pu voir (déjà expiré) serait un mensonge à l'émetteur.
+    ref.listen(visibleMessagesProvider(widget.conversationId), (_, next) {
+      if (next.isNotEmpty) {
+        ref.read(conversationsRepositoryProvider).markRead(next.items);
       }
     });
 
@@ -310,34 +304,34 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
           Expanded(
-            child: messages.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text('Erreur : $e')),
-              data: (list) => ListView.builder(
-                controller: _scroll,
-                reverse: true,
-                padding: const EdgeInsets.fromLTRB(10, 12, 10, 8),
-                itemCount: list.length,
-                itemBuilder: (context, index) {
-                  final i = list.length - 1 - index;
-                  final message = list[i];
-                  // Regroupement façon iMessage : les messages consécutifs
-                  // d'un même auteur, à moins de 5 min d'écart, forment un
-                  // bloc. Seul le DERNIER du bloc porte le coin coupé et
-                  // l'heure — c'est ce qui donne le rythme visuel d'iMessage
-                  // au lieu d'une liste de pavés identiques.
-                  final previous = i > 0 ? list[i - 1] : null;
-                  final next = i + 1 < list.length ? list[i + 1] : null;
-                  return _MessageBubble(
-                    message: message,
-                    isMine: message.senderId == me,
-                    isFirstOfGroup: !_sameGroup(previous, message),
-                    isLastOfGroup: !_sameGroup(message, next),
-                    showSenderName: isGroup,
-                  );
-                },
-              ),
-            ),
+            child: chargement && messages.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : ListView.builder(
+                    controller: _scroll,
+                    reverse: true,
+                    padding: const EdgeInsets.fromLTRB(10, 12, 10, 8),
+                    itemCount: messages.length,
+                    itemBuilder: (context, index) {
+                      final i = messages.length - 1 - index;
+                      final message = messages[i];
+                      // Regroupement façon iMessage : les messages consécutifs
+                      // d'un même auteur, à moins de 5 min d'écart, forment un
+                      // bloc. Seul le DERNIER du bloc porte le coin coupé et
+                      // l'heure — c'est ce qui donne le rythme visuel d'iMessage
+                      // au lieu d'une liste de pavés identiques.
+                      final previous = i > 0 ? messages[i - 1] : null;
+                      final next = i + 1 < messages.length
+                          ? messages[i + 1]
+                          : null;
+                      return _MessageBubble(
+                        message: message,
+                        isMine: message.senderId == me,
+                        isFirstOfGroup: !_sameGroup(previous, message),
+                        isLastOfGroup: !_sameGroup(message, next),
+                        showSenderName: isGroup,
+                      );
+                    },
+                  ),
           ),
           if (_typingName != null)
             Padding(
@@ -850,7 +844,7 @@ class _MediaPreview extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (message.mediaPath == null) return const Text('[média]');
-    final url = ref.watch(_mediaUrlProvider(message.mediaPath!));
+    final url = ref.watch(messageMediaUrlProvider(message.mediaPath!));
     return url.when(
       loading: () => const SizedBox(
         height: 120,
@@ -872,14 +866,6 @@ class _MediaPreview extends ConsumerWidget {
     );
   }
 }
-
-final _mediaUrlProvider = FutureProvider.family<String, String>(
-  (ref, path) => ref
-      .watch(supabaseProvider)
-      .storage
-      .from('media')
-      .createSignedUrl(path, 3600),
-);
 
 class _InlineVideo extends StatelessWidget {
   const _InlineVideo({required this.url});
@@ -917,7 +903,7 @@ class _CardContainer extends ConsumerWidget {
         message.card ??
         (message.cardId == null
             ? null
-            : ref.watch(_cardProvider(message.cardId!)).value);
+            : ref.watch(cardByIdProvider(message.cardId!)).value);
     if (card == null) {
       return Text(
         '[Vibe expirée]',
@@ -1097,19 +1083,6 @@ class _CardContainer extends ConsumerWidget {
     );
   }
 }
-
-final _cardProvider = FutureProvider.family<CardModel?, String>((
-  ref,
-  id,
-) async {
-  final row = await ref
-      .watch(supabaseProvider)
-      .from('cards')
-      .select()
-      .eq('id', id)
-      .maybeSingle();
-  return row == null ? null : CardModel.fromJson(row);
-});
 
 /// Aperçu d'un contenu **repartagé** dans le fil.
 ///

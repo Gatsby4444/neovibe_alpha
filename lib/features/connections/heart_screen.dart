@@ -15,38 +15,6 @@ import '../recommendations/recommendation_screens.dart';
 import '../recommendations/recommendations_repository.dart';
 import 'connections_repository.dart';
 
-/// Historique des Waves : uniquement les croisements dont l'heure de
-/// notification est passée (le différé reste différé), horodatage flou,
-/// jamais de position (spec 4.11).
-final wavesProvider = FutureProvider<List<Wave>>((ref) async {
-  final me = ref.watch(currentUserIdProvider);
-  if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('waves')
-      .select()
-      .eq('user_id', me)
-      .lte('notify_after', DateTime.now().toUtc().toIso8601String())
-      .order('detected_at', ascending: false)
-      .limit(50);
-  return rows.map(Wave.fromJson).toList();
-});
-
-/// Historique de MES demandes de connexion (reçues + envoyées, tous statuts).
-final requestHistoryProvider = FutureProvider<List<ConnectionRequest>>((
-  ref,
-) async {
-  final me = ref.watch(currentUserIdProvider);
-  if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('connection_requests')
-      .select()
-      .order('created_at', ascending: false)
-      .limit(50);
-  return rows.map(ConnectionRequest.fromJson).toList();
-});
-
 /// Section « cœur » du Profil (consigne Jay 2026-07-12) : historique des
 /// demandes de connexion, des recommandations A→B→C et des Waves.
 class HeartScreen extends ConsumerWidget {
@@ -85,7 +53,8 @@ class _RequestsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final me = ref.watch(currentUserIdProvider)!;
-    final incoming = ref.watch(incomingRequestsProvider).value ?? [];
+    // La vue VIVANTE : une demande expirée disparaît d'elle-même.
+    final incoming = ref.watch(liveIncomingRequestsProvider);
     final partial = ref.watch(partialConnectionsProvider);
     final history = ref.watch(requestHistoryProvider);
 

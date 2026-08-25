@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -252,23 +251,23 @@ class _SavedViewerScreenState extends State<_SavedViewerScreen> {
 }
 
 /// Une photo enregistrée : lue depuis le disque, où elle est en clair.
-class _SavedPhoto extends StatelessWidget {
+///
+/// ⚠️ **La lecture n'est plus créée dans `build()`** (2026-08-25, checkup #52).
+/// Elle l'était, et repartait donc à zéro à chaque reconstruction : une lecture
+/// disque de plus, et un retour au rond de chargement, sans que rien ne
+/// s'affiche de faux.
+class _SavedPhoto extends ConsumerWidget {
   const _SavedPhoto({required this.path, required this.type});
 
   final String path;
   final CardType type;
 
   @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<Uint8List>(
-      future: File(path).readAsBytes(),
-      builder: (context, snapshot) {
-        final bytes = snapshot.data;
-        if (bytes == null) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        return VibePhotoFace(bytes: bytes, type: type);
-      },
-    );
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bytes = ref.watch(savedPhotoBytesProvider(path)).value;
+    if (bytes == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return VibePhotoFace(bytes: bytes, type: type);
   }
 }

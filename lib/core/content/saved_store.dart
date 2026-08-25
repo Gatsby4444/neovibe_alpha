@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
@@ -286,4 +287,21 @@ final savedItemsProvider = FutureProvider<List<SavedItem>>(
 /// Ce contenu est-il déjà dans mes Enregistrements ?
 final isSavedProvider = FutureProvider.family<bool, String>(
   (ref, id) => ref.watch(savedStoreProvider).isSaved(id),
+);
+
+/// Les octets d'une photo enregistrée, lus **une fois**.
+///
+/// ⚠️ **Ajouté le 2026-08-25** (checkup `RAPPELS.md` #52). L'écran des
+/// enregistrements faisait `FutureBuilder(future: File(path).readAsBytes())`
+/// — la lecture était donc créée **dans `build()`**, et repartait à zéro à
+/// chaque reconstruction du widget : une lecture disque par reconstruction, et
+/// un retour visible au rond de chargement à chaque fois.
+///
+/// Rien n'affichait quoi que ce soit de faux, et c'est bien le problème : le
+/// coût ne se voyait qu'en comptant les lectures.
+///
+/// Ici l'acquisition est nommée, mise en cache par Riverpod, et partagée par
+/// tous les widgets qui montrent le même fichier.
+final savedPhotoBytesProvider = FutureProvider.family<Uint8List, String>(
+  (ref, path) => File(path).readAsBytes(),
 );

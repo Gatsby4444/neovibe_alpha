@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/connection_request.dart';
+import '../../core/clock.dart';
+import '../../core/derived_list.dart';
 import '../../core/supabase_providers.dart';
 import 'presence_feed.dart';
 
@@ -24,11 +26,13 @@ final incomingRequestsProvider = StreamProvider<List<ConnectionRequest>>((ref) {
       .from('connection_requests')
       .stream(primaryKey: ['id'])
       .eq('receiver_id', me)
+      // ⚠️ **Ne filtre plus sur `isActive`** (2026-08-25, checkup #52) :
+      // `isActive` dépend de `DateTime.now()`, donc de l'HEURE, une source que
+      // ce flux n'observe pas. Une demande expirée restait affichée jusqu'à ce
+      // qu'un événement sans rapport passe. La péremption est appliquée en aval,
+      // adossée à l'horloge.
       .map(
-        (rows) => rows
-            .map(ConnectionRequest.fromJson)
-            .where((r) => r.isActive)
-            .toList(),
+        (rows) => rows.map(ConnectionRequest.fromJson).toList(growable: false),
       );
 });
 
@@ -45,13 +49,53 @@ final outgoingRequestsProvider = StreamProvider<List<ConnectionRequest>>((ref) {
       .from('connection_requests')
       .stream(primaryKey: ['id'])
       .eq('sender_id', me)
+      // ⚠️ **Ne filtre plus sur `isActive`** (2026-08-25, checkup #52) :
+      // `isActive` dépend de `DateTime.now()`, donc de l'HEURE, une source que
+      // ce flux n'observe pas. Une demande expirée restait affichée jusqu'à ce
+      // qu'un événement sans rapport passe. La péremption est appliquée en aval,
+      // adossée à l'horloge.
       .map(
-        (rows) => rows
-            .map(ConnectionRequest.fromJson)
-            .where((r) => r.isActive)
-            .toList(),
+        (rows) => rows.map(ConnectionRequest.fromJson).toList(growable: false),
       );
 });
+
+// ---------------------------------------------------------------------------
+// L'USAGE — les demandes ENCORE VALIDES, à l'heure qu'il est
+// ---------------------------------------------------------------------------
+
+/// Les demandes reçues encore en attente **maintenant**.
+class _LiveIncoming extends Notifier<List<ConnectionRequest>>
+    with DerivedList<ConnectionRequest> {
+  @override
+  List<ConnectionRequest> build() {
+    final now = ref.watch(expiryClockProvider);
+    return (ref.watch(incomingRequestsProvider).value ?? const [])
+        .where(
+          (r) => r.status == RequestStatus.pending && r.expiresAt.isAfter(now),
+        )
+        .toList(growable: false);
+  }
+}
+
+final liveIncomingRequestsProvider =
+    NotifierProvider<_LiveIncoming, List<ConnectionRequest>>(_LiveIncoming.new);
+
+/// Mes demandes sortantes encore en attente **maintenant**.
+class _LiveOutgoing extends Notifier<List<ConnectionRequest>>
+    with DerivedList<ConnectionRequest> {
+  @override
+  List<ConnectionRequest> build() {
+    final now = ref.watch(expiryClockProvider);
+    return (ref.watch(outgoingRequestsProvider).value ?? const [])
+        .where(
+          (r) => r.status == RequestStatus.pending && r.expiresAt.isAfter(now),
+        )
+        .toList(growable: false);
+  }
+}
+
+final liveOutgoingRequestsProvider =
+    NotifierProvider<_LiveOutgoing, List<ConnectionRequest>>(_LiveOutgoing.new);
 
 class ProximityRepository {
   ProximityRepository(this.ref) {
@@ -67,7 +111,8 @@ class ProximityRepository {
 
   Future<void> _refresh() async {
     final nearby = ref.read(nearbyUserIdsProvider);
-    final outgoing = ref.read(outgoingRequestsProvider).value ?? [];
+    // Le battement de cœur ne prolonge que des demandes ENCORE valides.
+    final outgoing = ref.read(liveOutgoingRequestsProvider);
     final client = ref.read(supabaseProvider);
     for (final request in outgoing) {
       final inRange = nearby.contains(request.receiverId);

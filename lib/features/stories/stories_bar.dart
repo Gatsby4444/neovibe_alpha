@@ -3,6 +3,7 @@ import '../../core/widgets/avatar.dart';
 import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/derived_list.dart';
 import '../../core/models/story.dart';
 import '../../core/widgets/gradient.dart';
 import '../library/user_library_screen.dart';
@@ -25,7 +26,7 @@ class StoriesBar extends ConsumerWidget {
 
   /// `friendStoriesProvider` (Cercle) ou `crossedStoriesProvider` (Ping) :
   /// même bandeau, deux fils.
-  final FutureProvider<List<StoryRing>> provider;
+  final Provider<AsyncValue<ValueList<StoryRing>>> provider;
 
   /// Affiché à la place du bandeau quand il n'y a rien. Null = bandeau masqué.
   final String? emptyHint;
@@ -78,7 +79,7 @@ class StoriesBar extends ConsumerWidget {
             // auteur, la visionneuse enchaîne sur le suivant sans repasser
             // par ici (consigne de Jay du 2026-08-13).
             itemBuilder: (context, index) =>
-                _StoryDot(rings: list, index: index),
+                _StoryDot(rings: list.items, index: index),
           ),
         );
       },

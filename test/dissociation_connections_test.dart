@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:neovibe/core/clock.dart';
 import 'package:neovibe/core/models/connection.dart';
 import 'package:neovibe/features/connections/connections_repository.dart';
 
@@ -37,14 +38,29 @@ Connection _conn({
 /// lecteur. Sans ce `listen`, la première émission part **avant** que quiconque
 /// écoute et se perd — et les tests comptaient alors des notifications qui
 /// n'étaient pas celles qu'ils annonçaient.
-({ProviderContainer container, StreamController<List<Connection>> source})
+({
+  ProviderContainer container,
+  StreamController<List<Connection>> source,
+  StreamController<DateTime> horloge,
+})
 _harnais() {
   final source = StreamController<List<Connection>>.broadcast();
+  final horloge = StreamController<DateTime>.broadcast();
   final container = ProviderContainer(
-    overrides: [connectionsStreamProvider.overrideWith((ref) => source.stream)],
+    overrides: [
+      connectionsStreamProvider.overrideWith((ref) => source.stream),
+      // ⚠️ **Le temps est pilote, jamais attendu.** Un test qui dort pour voir
+      // expirer quelque chose mesure la vitesse de la machine autant que le
+      // code, et il echoue un jour sur dix sans rien apprendre a personne.
+      tickProvider(kExpiryTick).overrideWith((ref) => horloge.stream),
+    ],
   );
+  // Les DEUX sources doivent etre abonnees avant la premiere emission :
+  // un flux `broadcast` ne rejoue rien. Oubli fait trois fois de suite
+  // pendant ce chantier, chaque fois avec un compteur qui semblait bon.
   container.listen(connectionsStreamProvider, (_, _) {});
-  return (container: container, source: source);
+  container.listen(expiryClockProvider, (_, _) {});
+  return (container: container, source: source, horloge: horloge);
 }
 
 /// Refuse de conclure si la source n'est pas arrivée.
@@ -148,40 +164,83 @@ void main() {
     });
   });
 
-  group('Le temps : une valeur périmable qui ne se réévalue jamais', () {
-    test(
-      'une connexion partielle expirée doit disparaître sans qu\'un événement '
-      'sans rapport ne survienne',
-      () async {
-        final h = _harnais();
-        addTearDown(h.container.dispose);
-        addTearDown(h.source.close);
+  group('Le temps : une source a part entiere, pilotee', () {
+    test('un lien partiel expire disparait au battement suivant, sans aucun '
+        'evenement de la base', () async {
+      final h = _harnais();
+      addTearDown(h.container.dispose);
+      addTearDown(h.source.close);
+      addTearDown(h.horloge.close);
 
-        // Elle expire dans 200 ms : personne n'écrira en base entre-temps.
-        h.source.add([
-          _conn(
-            id: 'b',
-            status: ConnectionStatus.partial,
-            expire: DateTime.now().add(const Duration(milliseconds: 200)),
-          ),
-        ]);
-        await _propage();
-        _sourceArrivee(h.container, 1);
-        expect(h.container.read(partialConnectionsProvider), hasLength(1));
+      final t0 = DateTime.utc(2026, 8, 25, 12);
+      h.horloge.add(t0);
+      h.source.add([
+        _conn(
+          id: 'b',
+          status: ConnectionStatus.partial,
+          expire: t0.add(const Duration(seconds: 30)),
+        ),
+      ]);
+      await _propage();
+      _sourceArrivee(h.container, 1);
+      expect(h.container.read(partialConnectionsProvider), hasLength(1));
 
-        await Future<void>.delayed(const Duration(milliseconds: 400));
+      var reveils = 0;
+      h.container.listen(partialConnectionsProvider, (_, _) => reveils++);
 
-        expect(
-          h.container.read(partialConnectionsProvider),
-          isEmpty,
-          reason:
-              'Le filtre appelle DateTime.now(), mais le provider ne se '
-              'recalcule que si la SOURCE change. Une connexion partielle '
-              'expirée reste donc affichée tant que personne n\'écrit dans la '
-              'table — exactement la « disparition buggée » déjà rencontrée '
-              'sur les messages le 2026-07-13, corrigée là-bas et pas ici.',
-        );
-      },
-    );
+      // Le temps passe, mais pas assez : rien ne doit bouger.
+      h.horloge.add(t0.add(const Duration(seconds: 10)));
+      await _propage();
+      expect(
+        reveils,
+        0,
+        reason:
+            "L'horloge a battu et la liste est inchangee. Un battement qui "
+            "reveille l'ecran pour rien serait le defaut qu'on remplace, pas "
+            "celui qu'on installe.",
+      );
+
+      // Le temps passe l'echeance : la, et la seulement, ca bouge.
+      h.horloge.add(t0.add(const Duration(seconds: 31)));
+      await _propage();
+
+      expect(h.container.read(partialConnectionsProvider), isEmpty);
+      expect(
+        reveils,
+        1,
+        reason: 'Exactement un reveil, au moment ou le contenu change.',
+      );
+    });
+
+    test("la vue BRUTE des liens partiels ignore l'horloge", () async {
+      final h = _harnais();
+      addTearDown(h.container.dispose);
+      addTearDown(h.source.close);
+      addTearDown(h.horloge.close);
+
+      final t0 = DateTime.utc(2026, 8, 25, 12);
+      h.horloge.add(t0);
+      h.source.add([
+        _conn(
+          id: 'b',
+          status: ConnectionStatus.partial,
+          expire: t0.add(const Duration(seconds: 1)),
+        ),
+      ]);
+      await _propage();
+
+      h.horloge.add(t0.add(const Duration(hours: 1)));
+      await _propage();
+
+      expect(
+        h.container.read(allPartialConnectionsProvider),
+        hasLength(1),
+        reason:
+            "L'acquisition publie ce qui EST en base. La peremption est une "
+            "decision d'affichage : elle appartient a la vue qui l'applique, "
+            "pas a celle qui lit la table.",
+      );
+      expect(h.container.read(partialConnectionsProvider), isEmpty);
+    });
   });
 }

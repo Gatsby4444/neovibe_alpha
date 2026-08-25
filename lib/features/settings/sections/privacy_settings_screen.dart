@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/supabase_providers.dart';
 import '../blocked_screen.dart';
 import '../settings_common.dart';
+import '../../profile/profile_repository.dart';
 
 /// Sécurité, blocages et notifications de croisement.
 class PrivacySettingsScreen extends ConsumerWidget {
@@ -11,9 +12,7 @@ class PrivacySettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final me = ref.watch(currentUserIdProvider)!;
     final profile = ref.watch(myProfileProvider).value;
-    final client = ref.watch(supabaseProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Sécurité et confidentialité')),
@@ -41,13 +40,8 @@ class PrivacySettingsScreen extends ConsumerWidget {
               'moment.',
             ),
             value: profile?.realtimeWaves ?? false,
-            onChanged: (v) async {
-              await client
-                  .from('profiles')
-                  .update({'realtime_waves': v})
-                  .eq('id', me);
-              ref.invalidate(myProfileProvider);
-            },
+            onChanged: (v) async =>
+                ref.read(profileRepositoryProvider).setRealtimeWaves(v),
           ),
           const SettingsNote(
             'L\'historique des croisements manqués vit dans Profil → ♥',

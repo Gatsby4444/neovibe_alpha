@@ -192,6 +192,10 @@ class LibraryRepository {
         .from('profiles')
         .update({'library_visibility': visibility.name})
         .eq('id', me);
+    // ⚠️ L'invalidation appartient à l'écriture (2026-08-25). Elle était faite
+    // par l'écran appelant : un second appelant l'aurait oubliée, et lui seul
+    // aurait affiché du périmé.
+    ref.invalidate(myProfileProvider);
   }
 
   Future<void> grantAccess(String userId) async {

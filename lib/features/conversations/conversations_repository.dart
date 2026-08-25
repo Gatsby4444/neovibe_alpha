@@ -1,9 +1,10 @@
-import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/clock.dart';
+import '../../core/derived_list.dart';
 import '../../core/diagnostics/app_log.dart';
 import '../../core/models/message.dart';
 import '../../core/supabase_providers.dart';
@@ -43,14 +44,24 @@ final conversationsProvider = FutureProvider<List<Conversation>>((ref) async {
   return result;
 });
 
-/// Messages d'une conversation, temps réel, filtrés des expirés côté client.
+/// **L'ACQUISITION** — les messages d'une conversation, tels qu'ils sont.
 ///
-/// Le filtre des expirés est REJOUÉ toutes les 10 s : sur le seul flux
-/// Supabase, il ne s'appliquait qu'à l'arrivée d'un nouvel événement — un
-/// message atteignant ses 24 h restait donc affiché tant que personne
-/// n'écrivait (disparition « buggée » remontée par Jay le 2026-07-13).
-/// Côté serveur, la RLS le rend déjà invisible dès `expires_at` et la purge
-/// cron le supprime physiquement dans les 5 minutes.
+/// ⚠️ **Ne filtre rien et n'a plus de minuterie**, depuis le 2026-08-25
+/// (checkup `RAPPELS.md` #52).
+///
+/// Ce provider rejouait son filtre d'expiration toutes les 10 secondes, en
+/// réémettant une `List` neuve. Deux défauts en un :
+///
+/// 1. **Il décidait de ce qui est VISIBLE.** La péremption est une décision
+///    d'affichage : elle dépend d'une horloge, pas de la table.
+/// 2. **Il imposait son rythme à tous ses lecteurs** — 360 réveils par heure,
+///    chat ouvert et parfaitement inactif — et un futur second lecteur en
+///    aurait hérité sans l'avoir demandé.
+///
+/// La péremption vit maintenant dans [visibleMessagesProvider], qui observe
+/// l'horloge de `core/clock.dart` et ne réveille personne tant que la liste ne
+/// change pas. Côté serveur, la RLS rend déjà le message invisible dès
+/// `expires_at` et la purge cron le supprime dans les 5 minutes.
 final messagesStreamProvider = StreamProvider.family<List<Message>, String>((
   ref,
   conversationId,
@@ -60,7 +71,7 @@ final messagesStreamProvider = StreamProvider.family<List<Message>, String>((
   // au bout d'une heure — sans le moindre symptôme (2026-08-17).
   ref.watch(realtimeEpochProvider);
   final client = ref.watch(supabaseProvider);
-  final source = client
+  return client
       .from('messages')
       .stream(primaryKey: ['id'])
       .eq('conversation_id', conversationId)
@@ -68,28 +79,57 @@ final messagesStreamProvider = StreamProvider.family<List<Message>, String>((
       // (l'inverse du REST) — c'est ce qui empilait les messages en haut
       // du chat (bug remonté par Jay, 2026-07-12).
       .order('created_at', ascending: true)
-      .map((rows) => rows.map(Message.fromJson).toList());
-
-  final controller = StreamController<List<Message>>();
-  var latest = <Message>[];
-  void emit() {
-    if (!controller.isClosed) {
-      controller.add(latest.where((m) => !m.isExpired).toList());
-    }
-  }
-
-  final sub = source.listen((rows) {
-    latest = rows;
-    emit();
-  }, onError: controller.addError);
-  final ticker = Timer.periodic(const Duration(seconds: 10), (_) => emit());
-  ref.onDispose(() {
-    sub.cancel();
-    ticker.cancel();
-    controller.close();
-  });
-  return controller.stream;
+      .map((rows) => rows.map(Message.fromJson).toList(growable: false));
 });
+
+/// **L'USAGE** — ce que le chat affiche à cet instant.
+///
+/// Deux sources, deux rythmes : les messages (quand quelqu'un écrit) et
+/// l'horloge de péremption (toutes les 5 s). L'horloge bat sans rien réveiller
+/// tant qu'aucun message n'atteint son échéance — c'est [DerivedList] qui
+/// arrête la propagation.
+///
+/// ⚠️ **C'est ici que se corrige la « disparition buggée » signalée par Jay le
+/// 2026-07-13**, et cette fois sans imposer de rythme à l'acquisition.
+final visibleMessagesProvider = Provider.family<ValueList<Message>, String>((
+  ref,
+  conversationId,
+) {
+  final now = ref.watch(expiryClockProvider);
+  final tous = ref.watch(messagesStreamProvider(conversationId)).value;
+  if (tous == null) return const ValueList.empty();
+  return ValueList(
+    tous.where((m) => m.expiresAt.isAfter(now)).toList(growable: false),
+  );
+});
+
+/// Détail d'une conversation (métadonnées + membres).
+///
+/// ⚠️ **Déplacé depuis `chat_screen.dart` le 2026-08-25** (checkup #52). Une
+/// requête écrite dans le fichier d'un écran n'est réutilisable par personne, et
+/// ajouter un champ à l'écran obligeait à toucher au code qui parle au réseau —
+/// exactement la question de contrôle de la règle.
+final conversationDetailProvider = FutureProvider.family<Conversation, String>((
+  ref,
+  id,
+) async {
+  final row = await ref
+      .watch(supabaseProvider)
+      .from('conversations')
+      .select('*, members:conversation_members(profiles(*))')
+      .eq('id', id)
+      .single();
+  return Conversation.fromJson(row);
+});
+
+/// URL signée d'un média de message. Même origine, même motif.
+final messageMediaUrlProvider = FutureProvider.family<String, String>(
+  (ref, path) => ref
+      .watch(supabaseProvider)
+      .storage
+      .from('media')
+      .createSignedUrl(path, 3600),
+);
 
 class ConversationsRepository {
   ConversationsRepository(this.ref);

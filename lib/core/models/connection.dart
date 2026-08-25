@@ -49,4 +49,34 @@ class Connection {
         confirmedHigh: json['confirmed_high'] as bool? ?? false,
         peer: peer,
       );
+
+  // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
+  //
+  // Sans elle, `listEquals` retombe sur l'identité et tout `DerivedList` est
+  // inopérant — en silence. Deux objets décrivant la même ligne, relus depuis
+  // le réseau, doivent être égaux : c'est ce qui permet à un flux qui réémet
+  // la même chose de ne réveiller personne.
+  @override
+  bool operator ==(Object other) =>
+      other is Connection &&
+      other.id == id &&
+      other.userLow == userLow &&
+      other.userHigh == userHigh &&
+      other.status == status &&
+      other.partialExpiresAt == partialExpiresAt &&
+      other.confirmedLow == confirmedLow &&
+      other.confirmedHigh == confirmedHigh &&
+      other.peer == peer;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    userLow,
+    userHigh,
+    status,
+    partialExpiresAt,
+    confirmedLow,
+    confirmedHigh,
+    peer,
+  );
 }

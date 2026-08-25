@@ -2,6 +2,12 @@
 
 *Demandé par Jay le 2026-08-20 (`RAPPELS.md` #52), réalisé le 2026-08-25.*
 
+> ✅ **CORRIGÉ le 2026-08-25**, sur consigne de Jay : *« corrige tous les bugs de
+> dissociation et dissocie tout ce qui peut l'être au niveau acquisition des
+> données. »* L'état après correction est au **§6**, en fin de document. Le
+> constat ci-dessous est conservé tel qu'il a été relevé — il dit ce qu'on
+> cherchait et pourquoi.
+
 > « Une même donnée peut servir à plusieurs fonctions, modules, outils. Modifier
 > un outil ou une fonction ne doit pas entraîner la modification du système de
 > récupération des données — sinon on casse d'autres fonctions qu'on ne
@@ -248,10 +254,127 @@ Tant que 12 écrans parlent directement au réseau, cette couche ne peut pas êt
 
 ## 5. La preuve exécutable
 
-`test/dissociation_connections_test.dart` — **3 tests, qui ÉCHOUENT
-volontairement**. Ils ne vérifient pas que l'écran affiche la bonne chose : il
-l'affiche. Ils **comptent les reconstructions**.
+`test/dissociation_connections_test.dart` — **3 tests qui échouaient
+volontairement** au moment de l'audit. Ils ne vérifiaient pas que l'écran
+affiche la bonne chose : il l'affichait. Ils **comptaient les reconstructions**.
+*(Ils passent depuis la correction du §6, et un quatrième s'y est ajouté.)*
 
 C'est la seule façon de voir ce défaut. Il ne lève aucune erreur, les 188 autres
 tests passent, et l'application se comporte correctement — elle coûte simplement
 plus qu'elle ne devrait, et elle est plus dure à modifier qu'elle ne devrait.
+
+---
+
+## 6. État après correction — 2026-08-25
+
+Consigne de Jay : *« corrige tous les bugs de dissociation et dissocie tout ce
+qui peut l'être au niveau acquisition des données. »*
+
+### 6.1 Deux primitives, parce que le défaut était toujours le même
+
+Tous les défauts mesurés se ramenaient à une seule phrase : **en Dart, l'égalité
+d'une collection est l'identité**. Un recalcul produit un nouvel objet, donc
+notifie, même quand l'utilisateur verrait exactement la même chose.
+
+| Primitive | Fichier | Pour qui |
+|---|---|---|
+| `DerivedList` / `DerivedSet` | `core/derived_list.dart` | une vue **sans paramètre** (`Notifier` + `updateShouldNotify` élément par élément) |
+| `ValueList<T>` | `core/derived_list.dart` | une vue **paramétrée** (`Provider.family`, dont l'égalité passe par `==`) |
+| `expiryClockProvider` | `core/clock.dart` | tout ce qui **périme** |
+
+⚠️ **Pourquoi deux mécanismes et pas un.** Riverpod 3 **sans génération de code
+n'offre pas de `Notifier` familial** (constaté le 2026-08-25 : la fabrique attend
+`NotifierT Function(Ref, ArgT)`, réservée au codegen). Les vues paramétrées
+restent donc des `Provider.family`, et c'est le **type** qui porte l'égalité.
+
+⚠️ **`.select` reste à 2 dans tout le projet, et c'est normal.** Il répond à une
+autre question — « je ne veux qu'un champ de cet objet ». Ici la question était
+« je ne veux être réveillé que si le RÉSULTAT change », à laquelle `select` ne
+peut pas répondre : il compare lui aussi des listes par identité. Ne pas lire ce
+`2` comme un échec.
+
+### 6.2 La cause racine, supprimée
+
+**Aucun modèle de `core/models/` n'avait d'égalité de valeur.** C'est ce qui
+rendait toute comparaison de liste vaine. Sept fichiers de modèle en portent une
+désormais : `Profile`, `Connection`, `ConnectionRequest`, `Wave`, `Message`,
+`Conversation`, `CardModel`, `CardDelivery`, `Story`, `StoryRing`, `StoryViewer`.
+
+⚠️ **`Message.isExpired` est volontairement HORS de son `==`** : il se calcule sur
+`DateTime.now()`. L'y inclure ferait dépendre l'égalité de l'instant du test.
+
+### 6.3 Les six défauts
+
+| # | État | Ce qui a été fait |
+|---|---|---|
+| **D1** | ✅ corrigé, **testé** | `fullConnectionsProvider` et `partialConnectionsProvider` sont des `Notifier` + `DerivedList`. Une partielle qui bouge ne réveille plus les 7 écrans des amis. |
+| **D2** | ✅ corrigé, **testé** | deux émissions au contenu identique : **0 réveil** (contre 1 avant). |
+| **D3** | ✅ corrigé, **testé** | la péremption est séparée de la lecture : `allPartialConnectionsProvider` (brut) / `partialConnectionsProvider` (vivant). Idem pour les demandes de connexion (`liveIncomingRequestsProvider`, `liveOutgoingRequestsProvider`) et les stories. |
+| **D4** | ✅ corrigé | le `Timer.periodic(10 s)` **a disparu de l'acquisition**. `messagesStreamProvider` publie ce que dit la base ; `visibleMessagesProvider` applique la péremption. **360 réveils/heure à l'arrêt → 0.** |
+| **D5** | ✅ corrigé | `friendIdsProvider` : les stories n'observent plus que l'**ensemble des identifiants d'amis**. Un inconnu croisé dans la rue ne recalcule plus les deux bandeaux. |
+| **D6** | ✅ 12 écrans → **3** | voir ci-dessous. |
+
+### 6.4 D6 — l'acquisition sortie des écrans
+
+| Ce qui a bougé | Vers |
+|---|---|
+| `conversationDetailProvider`, `_mediaUrlProvider` | `conversations_repository.dart` |
+| `_cardProvider` | **supprimé** — `cards_repository.cardByIdProvider` existait déjà, mot pour mot |
+| `_myDeliveryProvider` | `cards_repository.dart` |
+| `wavesProvider`, `requestHistoryProvider` | `connections_repository.dart` |
+| 3 écritures sur `profiles` (confidentialité, édition, inscription) | **`profile_repository.dart`**, créé |
+| lecture disque d'une photo enregistrée | `savedPhotoBytesProvider` (`core/content/saved_store.dart`) |
+
+⚠️ **Le doublon de `cardByIdProvider` est le cas le plus parlant du checkup** :
+deux chemins vers la même card, deux caches, et rien pour le signaler.
+
+⚠️ **L'invalidation appartient désormais à l'écriture**, pas à l'appelant
+(`ProfileRepository._write`, `LibraryRepository.setVisibility`). Deux écrans qui
+écrivent la même table doivent laisser le lecteur dans le même état — sinon l'un
+affiche du périmé et l'autre non, selon lequel a servi.
+
+**Les 3 écrans restants sont légitimes** — vérifié un par un, pas supposé :
+`card_capture_screen` (écrit le fichier qu'il vient de capturer),
+`avatar_cropper_screen` (lit l'image qu'on lui donne à recadrer),
+`day_cycle_preview_screen` (outil de développement).
+
+### 6.5 Ce qui reste ouvert, et pourquoi je ne l'ai pas tranché
+
+- **`wavesProvider` garde son filtre d'heure côté serveur.** Il borne le volume
+  rapatrié, ce qui est bien le travail de l'acquisition. Contrepartie connue : un
+  croisement dont l'heure de notification échoit pendant que l'écran est ouvert
+  n'apparaît qu'au prochain rafraîchissement. Le rendre vivant coûterait une
+  **requête réseau périodique** — c'est un arbitrage produit, pas une évidence
+  technique.
+- 🟡 **`receivedDeliveriesProvider` (`cards_repository.dart:16`) n'a AUCUN
+  consommateur.** Relevé au passage. Pas supprimé : la règle 8 de `CLAUDE.md`
+  demande de relever les deux sens avant de couper, et c'est la décision de Jay.
+- **`connectionsStreamProvider` reste sans filtre serveur.** La RLS ne renvoie
+  que mes lignes ; ajouter un `.or()` dupliquerait la règle de sécurité côté
+  client, où elle pourrait diverger.
+
+### 6.6 Les chiffres, avant et après
+
+| Mesure | Avant | Après |
+|---|---|---|
+| Écrans contenant de l'acquisition | **12** | **3** (tous légitimes, vérifiés) |
+| Modèles portant une égalité de valeur | **0** | **11 classes** |
+| Providers dérivés sans garde d'égalité | **10** | **0** (3 restants sont des flux d'acquisition, dont un mort) |
+| Péremption traitée dans l'acquisition | 2 endroits | **0** |
+| Réveils/heure du chat à l'arrêt | **360** | **0** |
+| Chemins distincts vers une même card | **2** | **1** |
+| Tests | 188 | **199** |
+
+### 6.7 Ce qui protège la correction
+
+- `test/derived_list_test.dart` — **7 tests** sur les deux primitives, dont un
+  qui vérifie explicitement que **la garde est inopérante si l'élément n'a pas
+  d'égalité de valeur**. C'est le seul piège du dispositif, et il est silencieux.
+- `test/dissociation_connections_test.dart` — **4 tests** qui comptent les
+  réveils, horloge **pilotée** (aucune attente réelle : un test qui dort mesure
+  la vitesse de la machine autant que le code).
+
+⚠️ **Le harnais refuse de conclure si la source n'est pas arrivée**
+(`_sourceArrivee`). Pendant ce chantier, **trois fois**, un compteur à zéro a
+semblé prouver l'absence de défaut alors qu'il ne prouvait que le silence de
+l'instrument.

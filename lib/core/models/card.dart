@@ -199,6 +199,46 @@ class CardModel {
     scrubbable: json['scrubbable'] as bool? ?? false,
     createdAt: DateTime.parse(json['created_at'] as String),
   );
+
+  // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
+  //
+  // Sans elle, `listEquals` retombe sur l'identité et tout `DerivedList` est
+  // inopérant — en silence.
+  @override
+  bool operator ==(Object other) =>
+      other is CardModel &&
+      other.id == id &&
+      other.ownerId == ownerId &&
+      other.type == type &&
+      other.frontPath == frontPath &&
+      other.backPath == backPath &&
+      other.viewDurationSeconds == viewDurationSeconds &&
+      other.maxViews == maxViews &&
+      other.encrypted == encrypted &&
+      other.saveable == saveable &&
+      other.imported == imported &&
+      other.frontIsVideo == frontIsVideo &&
+      other.backIsVideo == backIsVideo &&
+      other.scrubbable == scrubbable &&
+      other.createdAt == createdAt;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    ownerId,
+    type,
+    frontPath,
+    backPath,
+    viewDurationSeconds,
+    maxViews,
+    encrypted,
+    saveable,
+    imported,
+    frontIsVideo,
+    backIsVideo,
+    scrubbable,
+    createdAt,
+  );
 }
 
 class CardDelivery {
@@ -259,5 +299,37 @@ class CardDelivery {
     card: json['cards'] == null
         ? null
         : CardModel.fromJson(json['cards'] as Map<String, dynamic>),
+  );
+
+  // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
+  //
+  // Sans elle, `listEquals` retombe sur l'identité et tout `DerivedList` est
+  // inopérant — en silence.
+  @override
+  bool operator ==(Object other) =>
+      other is CardDelivery &&
+      other.id == id &&
+      other.cardId == cardId &&
+      other.recipientId == recipientId &&
+      other.deliveredAt == deliveredAt &&
+      other.firstViewedAt == firstViewedAt &&
+      other.destroyedAt == destroyedAt &&
+      other.viewCount == viewCount &&
+      other.replayRequestedAt == replayRequestedAt &&
+      other.replayGrantedAt == replayGrantedAt &&
+      other.card == card;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    cardId,
+    recipientId,
+    deliveredAt,
+    firstViewedAt,
+    destroyedAt,
+    viewCount,
+    replayRequestedAt,
+    replayGrantedAt,
+    card,
   );
 }

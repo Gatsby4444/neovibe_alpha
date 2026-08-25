@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'card.dart';
 import 'profile.dart';
 
@@ -99,6 +100,45 @@ class Message {
         ? null
         : CardModel.fromJson(json['cards'] as Map<String, dynamic>),
   );
+
+  // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
+  //
+  // ⚠️ `isExpired` n'en fait PAS partie, et c'est délibéré : il se calcule sur
+  // `DateTime.now()`. L'inclure ferait dépendre l'égalité de l'instant où on la
+  // teste — deux messages identiques seraient tantôt égaux, tantôt non. La
+  // péremption est une décision d'AFFICHAGE, elle appartient au consommateur
+  // (voir `core/clock.dart`).
+  @override
+  bool operator ==(Object other) =>
+      other is Message &&
+      other.id == id &&
+      other.conversationId == conversationId &&
+      other.senderId == senderId &&
+      other.kind == kind &&
+      other.body == body &&
+      other.mediaPath == mediaPath &&
+      other.cardId == cardId &&
+      other.contentId == contentId &&
+      other.createdAt == createdAt &&
+      other.expiresAt == expiresAt &&
+      other.sender == sender &&
+      other.card == card;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    conversationId,
+    senderId,
+    kind,
+    body,
+    mediaPath,
+    cardId,
+    contentId,
+    createdAt,
+    expiresAt,
+    sender,
+    card,
+  );
 }
 
 enum ConversationType {
@@ -161,4 +201,29 @@ class Conversation {
         members: members ?? this.members,
         lastMessage: lastMessage ?? this.lastMessage,
       );
+
+  // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
+  //
+  // Ce type contient une LISTE : sans `listEquals`, comparer ce champ
+  // reviendrait à comparer deux adresses mémoire, et l'égalité de l'objet
+  // entier serait fausse dès le premier rechargement.
+  @override
+  bool operator ==(Object other) =>
+      other is Conversation &&
+      other.id == id &&
+      other.type == type &&
+      other.title == title &&
+      other.createdAt == createdAt &&
+      other.lastMessage == lastMessage &&
+      listEquals(other.members, members);
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    type,
+    title,
+    createdAt,
+    lastMessage,
+    Object.hashAll(members),
+  );
 }

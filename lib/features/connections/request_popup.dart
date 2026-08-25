@@ -8,16 +8,14 @@ import 'connections_repository.dart';
 
 /// Pop-up de demande de connexion entrante (consigne Jay 2026-07-12) :
 /// PP + username + tag name du demandeur, boutons Accepter / Annuler.
-/// À brancher via `ref.listen(incomingRequestsProvider, ...)` dans un widget
+/// À brancher via `ref.listen(liveIncomingRequestsProvider, ...)` dans un widget
 /// toujours monté (HomeShell) — chaque demande n'est montrée qu'une fois,
 /// l'historique restant consultable dans la section cœur du Profil.
 final _shownRequestIds = <String>{};
 
 void listenForConnectionRequestPopups(WidgetRef ref, BuildContext context) {
-  ref.listen(incomingRequestsProvider, (previous, next) {
-    final requests = next.value;
-    if (requests == null) return;
-    for (final request in requests) {
+  ref.listen(liveIncomingRequestsProvider, (previous, next) {
+    for (final request in next) {
       if (!_shownRequestIds.add(request.id)) continue;
       showDialog<void>(
         context: context,

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'card.dart';
 import 'profile.dart';
 
@@ -96,6 +97,44 @@ class Story {
         ? null
         : Profile.fromJson(json['profiles'] as Map<String, dynamic>),
   );
+
+  // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
+  //
+  // Sans elle, `listEquals` retombe sur l'identité et tout `DerivedList` est
+  // inopérant — en silence.
+  @override
+  bool operator ==(Object other) =>
+      other is Story &&
+      other.id == id &&
+      other.ownerId == ownerId &&
+      other.cardType == cardType &&
+      other.frontPath == frontPath &&
+      other.backPath == backPath &&
+      other.frontIsVideo == frontIsVideo &&
+      other.backIsVideo == backIsVideo &&
+      other.shareable == shareable &&
+      other.saveable == saveable &&
+      other.encrypted == encrypted &&
+      other.createdAt == createdAt &&
+      other.expiresAt == expiresAt &&
+      other.owner == owner;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    ownerId,
+    cardType,
+    frontPath,
+    backPath,
+    frontIsVideo,
+    backIsVideo,
+    shareable,
+    saveable,
+    encrypted,
+    createdAt,
+    expiresAt,
+    owner,
+  );
 }
 
 /// Stories d'un même auteur, regroupées pour le bandeau horizontal.
@@ -133,6 +172,20 @@ class StoryRing {
   /// ANCIENNE. Le bandeau se serait alors trié à l'envers — les auteurs les
   /// moins actifs en tête — **sans qu'aucune erreur ne soit levée**.
   DateTime get latestAt => stories.last.createdAt;
+
+  // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
+  //
+  // Ce type contient une LISTE : sans `listEquals`, comparer ce champ
+  // reviendrait à comparer deux adresses mémoire, et l'égalité de l'objet
+  // entier serait fausse dès le premier rechargement.
+  @override
+  bool operator ==(Object other) =>
+      other is StoryRing &&
+      other.owner == owner &&
+      listEquals(other.stories, stories);
+
+  @override
+  int get hashCode => Object.hash(owner, Object.hashAll(stories));
 }
 
 /// Un spectateur d'une de MES stories, tel que le serveur accepte de le
@@ -164,4 +217,21 @@ class StoryViewer {
     tagName: json['tag_name'] as String?,
     avatarUrl: json['avatar_url'] as String?,
   );
+
+  // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
+  //
+  // Sans elle, `listEquals` retombe sur l'identité et tout `DerivedList` est
+  // inopérant — en silence.
+  @override
+  bool operator ==(Object other) =>
+      other is StoryViewer &&
+      other.viewerId == viewerId &&
+      other.firstViewedAt == firstViewedAt &&
+      other.displayName == displayName &&
+      other.tagName == tagName &&
+      other.avatarUrl == avatarUrl;
+
+  @override
+  int get hashCode =>
+      Object.hash(viewerId, firstViewedAt, displayName, tagName, avatarUrl);
 }

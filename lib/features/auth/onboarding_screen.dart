@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/supabase_providers.dart';
 import '../profile/avatar_service.dart';
+import '../profile/profile_repository.dart';
 
 /// Création du profil minimal : nom affiché obligatoire, photo optionnelle
 /// (spec 4.1).
@@ -49,10 +50,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       // ⚠️ La ligne de profil D'ABORD, la photo ENSUITE. `AvatarService.upload`
       // met le profil à jour : sans la ligne, il n'aurait rien à mettre à jour
       // et la photo serait déposée dans le coffre sans que rien ne la désigne.
-      await client.from('profiles').insert({
-        'id': userId,
-        'display_name': name,
-      });
+      await ref
+          .read(profileRepositoryProvider)
+          .create(userId: userId, displayName: name);
       // Le MÊME chemin qu'à l'édition de profil — recadrage, chemin versionné,
       // ménage de l'ancien fichier. C'est ce que le service existe pour
       // garantir : une étape ne peut plus être oubliée d'un côté seulement.

@@ -45,7 +45,6 @@ class SharingSettingsScreen extends ConsumerWidget {
             onChanged: (v) async {
               if (v == null) return;
               await ref.read(libraryRepositoryProvider).setVisibility(v);
-              ref.invalidate(myProfileProvider);
             },
             child: const Column(
               children: [

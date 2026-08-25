@@ -43,4 +43,24 @@ class ConnectionRequest {
             ? null
             : Profile.fromJson(json['sender'] as Map<String, dynamic>),
       );
+
+  // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
+  //
+  // Sans elle, `listEquals` retombe sur l'identité et tout `DerivedList` est
+  // inopérant — en silence. Deux objets décrivant la même ligne, relus depuis
+  // le réseau, doivent être égaux : c'est ce qui permet à un flux qui réémet
+  // la même chose de ne réveiller personne.
+  @override
+  bool operator ==(Object other) =>
+      other is ConnectionRequest &&
+      other.id == id &&
+      other.senderId == senderId &&
+      other.receiverId == receiverId &&
+      other.status == status &&
+      other.expiresAt == expiresAt &&
+      other.sender == sender;
+
+  @override
+  int get hashCode =>
+      Object.hash(id, senderId, receiverId, status, expiresAt, sender);
 }

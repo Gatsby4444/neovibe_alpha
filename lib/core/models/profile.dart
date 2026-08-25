@@ -58,4 +58,34 @@ class Profile {
     realtimeWaves: json['realtime_waves'] as bool? ?? false,
     storiesPublic: json['stories_public'] as bool? ?? false,
   );
+
+  // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
+  //
+  // Sans elle, `listEquals` retombe sur l'identité et tout `DerivedList` est
+  // inopérant — en silence. Deux objets décrivant la même ligne, relus depuis
+  // le réseau, doivent être égaux : c'est ce qui permet à un flux qui réémet
+  // la même chose de ne réveiller personne.
+  @override
+  bool operator ==(Object other) =>
+      other is Profile &&
+      other.id == id &&
+      other.displayName == displayName &&
+      other.tagName == tagName &&
+      other.bio == bio &&
+      other.avatarUrl == avatarUrl &&
+      other.libraryVisibility == libraryVisibility &&
+      other.realtimeWaves == realtimeWaves &&
+      other.storiesPublic == storiesPublic;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    displayName,
+    tagName,
+    bio,
+    avatarUrl,
+    libraryVisibility,
+    realtimeWaves,
+    storiesPublic,
+  );
 }

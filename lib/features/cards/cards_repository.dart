@@ -34,6 +34,11 @@ final receivedDeliveriesProvider = StreamProvider<List<CardDelivery>>((ref) {
       );
 });
 
+/// Ma livraison pour une card (état du container côté destinataire).
+final myDeliveryProvider = FutureProvider.family<CardDelivery?, String>(
+  (ref, cardId) => ref.watch(cardsRepositoryProvider).myDelivery(cardId),
+);
+
 /// Demandes de replay en attente sur une de MES cards (côté émetteur).
 final pendingReplayForCardProvider =
     FutureProvider.family<List<CardDelivery>, String>((ref, cardId) async {
@@ -47,6 +52,10 @@ final pendingReplayForCardProvider =
       return rows.map(CardDelivery.fromJson).toList();
     });
 
+/// ⚠️ **Le chat en avait sa propre copie** (`_cardProvider` dans
+/// `chat_screen.dart`), mot pour mot, jusqu'au 2026-08-25. Deux chemins vers la
+/// même donnée, dont un que personne d'autre ne pouvait réutiliser — et deux
+/// caches distincts pour la même card. Supprimée au checkup #52.
 final cardByIdProvider = FutureProvider.family<CardModel?, String>((
   ref,
   id,

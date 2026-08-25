@@ -7,6 +7,7 @@ import '../../core/widgets/avatar.dart';
 import '../profile/avatar_service.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
+import '../profile/profile_repository.dart';
 
 /// Édition du profil : PP, username (unique), tag name (optionnel, affiché en
 /// conversation), bio.
@@ -63,8 +64,6 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
       return;
     }
     setState(() => _loading = true);
-    final client = ref.read(supabaseProvider);
-    final me = client.auth.currentUser!.id;
     try {
       // La photo est déposée (ou retirée) par le service, qui possède toute la
       // séquence : chemin versionné, suppression de l'ancien fichier, mise à
@@ -77,14 +76,9 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
       }
       final tagName = _tagName.text.trim();
       final bio = _bio.text.trim();
-      await client
-          .from('profiles')
-          .update({
-            'display_name': username,
-            'tag_name': tagName.isEmpty ? null : tagName,
-            'bio': bio.isEmpty ? null : bio,
-          })
-          .eq('id', me);
+      await ref
+          .read(profileRepositoryProvider)
+          .updateIdentity(displayName: username, tagName: tagName, bio: bio);
       ref.invalidate(myProfileProvider);
       if (mounted) Navigator.of(context).pop();
     } catch (e) {

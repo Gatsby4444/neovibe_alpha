@@ -10,6 +10,8 @@ import '../../core/models/card.dart';
 import '../../core/models/story.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
+import '../../core/clock.dart';
+import '../../core/derived_list.dart';
 import '../connections/connections_repository.dart';
 import '../../core/content/content_media_cache.dart';
 import '../../core/content/own_keys.dart';
@@ -23,7 +25,7 @@ import '../../core/content/own_keys.dart';
 ///
 /// Plus de jointure `cards(*)` : une story n'est plus une Card, elle porte ses
 /// propres fichiers.
-final _visibleStoriesProvider = FutureProvider<List<Story>>((ref) async {
+final storiesSourceProvider = FutureProvider<List<Story>>((ref) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
   final rows = await ref
@@ -62,45 +64,72 @@ List<StoryRing> _ring(List<Story> stories) {
 }
 
 /// Bandeau du **Cercle** : mes stories et celles de mes amis.
-final friendStoriesProvider = FutureProvider<List<StoryRing>>((ref) async {
+/// Les stories encore valides **à cet instant**.
+///
+/// ⚠️ **Ajouté le 2026-08-25** (checkup `RAPPELS.md` #52). La requête filtre
+/// déjà sur `expires_at` — mais c'est un **instantané** : une story qui atteint
+/// ses 24 h pendant que l'écran est ouvert y restait jusqu'à ce qu'un événement
+/// sans rapport invalide le cache. Exactement la « disparition buggée » signalée
+/// par Jay sur les messages le 2026-07-13, à un autre endroit.
+///
+/// Le filtre serveur reste : il borne le VOLUME rapatrié, ce qui est bien le
+/// travail de l'acquisition. Celui-ci décide de ce qui est AFFICHÉ.
+final _liveStoriesProvider = Provider<AsyncValue<ValueList<Story>>>((ref) {
+  final now = ref.watch(expiryClockProvider);
+  // ⚠️ `whenData` PRÉSERVE les états `loading` et `error`. Les aplatir en liste
+  // vide rendrait une panne indiscernable d'une absence de story — c'est
+  // exactement ce qui a masqué le défaut du 2026-08-02.
+  return ref
+      .watch(storiesSourceProvider)
+      .whenData(
+        (toutes) => ValueList(
+          toutes.where((s) => s.expiresAt.isAfter(now)).toList(growable: false),
+        ),
+      );
+});
+
+final friendStoriesProvider = Provider<AsyncValue<ValueList<StoryRing>>>((ref) {
   final me = ref.watch(currentUserIdProvider);
-  if (me == null) return [];
-  // ⚠️ Les connexions se lisent AVANT le `await`. Un `ref.watch` placé après
-  // une suspension n'enregistre pas la dépendance de façon fiable : le fil ne
-  // se recalculait pas quand la liste d'amis arrivait (elle vient d'un stream,
-  // donc elle est VIDE au premier passage) — et il ne restait que mes propres
-  // stories, c'est-à-dire rien. Cause du « aucune story nulle part » du
-  // 2026-08-02.
-  final friends = ref
-      .watch(fullConnectionsProvider)
-      .map((c) => c.peerIdFor(me))
-      .toSet();
-  final stories = await ref.watch(_visibleStoriesProvider.future);
-  return _ring(
-    stories
-        .where((s) => s.ownerId == me || friends.contains(s.ownerId))
-        .toList(),
-  );
+  if (me == null) return const AsyncData(ValueList.empty());
+  // ⚠️ **On observe les IDENTIFIANTS, pas les connexions** (2026-08-25). Lire
+  // `fullConnectionsProvider` en entier faisait recalculer ce bandeau dès qu'un
+  // ami changeait d'avatar — ou, pire, dès qu'une connexion *partielle*
+  // bougeait, c'est-à-dire au passage d'un inconnu dans la rue.
+  final friends = ref.watch(friendIdsProvider);
+  return ref
+      .watch(_liveStoriesProvider)
+      .whenData(
+        (stories) => ValueList(
+          _ring(
+            stories
+                .where((s) => s.ownerId == me || friends.contains(s.ownerId))
+                .toList(),
+          ),
+        ),
+      );
 });
 
 /// Bandeau du **Ping** : les stories des personnes croisées qui ne sont PAS
 /// mes amis. Le tri se fait ici et non côté serveur — la RLS a déjà écarté
 /// tout ce que je n'ai pas le droit de voir, il ne reste qu'à séparer les
 /// deux fils pour ne pas afficher deux fois les mêmes personnes.
-final crossedStoriesProvider = FutureProvider<List<StoryRing>>((ref) async {
+final crossedStoriesProvider = Provider<AsyncValue<ValueList<StoryRing>>>((
+  ref,
+) {
   final me = ref.watch(currentUserIdProvider);
-  if (me == null) return [];
-  // Même règle que ci-dessus : tout `ref.watch` avant le premier `await`.
-  final friends = ref
-      .watch(fullConnectionsProvider)
-      .map((c) => c.peerIdFor(me))
-      .toSet();
-  final stories = await ref.watch(_visibleStoriesProvider.future);
-  return _ring(
-    stories
-        .where((s) => s.ownerId != me && !friends.contains(s.ownerId))
-        .toList(),
-  );
+  if (me == null) return const AsyncData(ValueList.empty());
+  final friends = ref.watch(friendIdsProvider);
+  return ref
+      .watch(_liveStoriesProvider)
+      .whenData(
+        (stories) => ValueList(
+          _ring(
+            stories
+                .where((s) => s.ownerId != me && !friends.contains(s.ownerId))
+                .toList(),
+          ),
+        ),
+      );
 });
 
 /// Spectateurs NOMMÉS d'une de mes stories (ceux que je peux situer dans mon
@@ -279,7 +308,7 @@ class StoriesRepository {
       _client.storage.from('stories').createSignedUrl(path, 3600);
 
   void _invalidate() {
-    ref.invalidate(_visibleStoriesProvider);
+    ref.invalidate(storiesSourceProvider);
   }
 }
 

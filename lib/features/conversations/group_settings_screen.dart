@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/widgets/avatar.dart';
 import '../../core/supabase_providers.dart';
 import '../connections/connections_repository.dart';
-import 'chat_screen.dart';
 import 'conversations_repository.dart';
 
 /// Gestion basique de groupe V1 : renommage, ajout (parmi SES connexions),
