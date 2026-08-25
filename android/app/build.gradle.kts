@@ -1,7 +1,30 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+}
+
+// ⚠️ **LA CLÉ DE SIGNATURE — irremplaçable, et hors du dépôt.**
+//
+// Créée le 2026-08-25 après la panne « Signatures d'application en conflit
+// (-7) » chez Jay. Jusque-là, les APK de release étaient signés avec la clé de
+// **debug**, qui est générée **par machine** : le changement de PC du même jour
+// a suffi à rendre toute mise à jour impossible sur les appareils de test.
+// C'était la dette `RAPPELS.md` #13, ouverte depuis le 2026-07-26.
+//
+// `key.properties` et le `.jks` sont gitignorés. **Les sauvegarder hors de
+// cette machine et les joindre au paquet de transfert** — leur absence est
+// exactement ce qui a cassé la bascule du 2026-08-25.
+//
+// Repli sur la clé de debug si le fichier manque : un clone frais doit pouvoir
+// compiler. L'APK produit ne s'installera simplement pas par-dessus un APK
+// officiel, et c'est le comportement voulu — mieux vaut un échec d'installation
+// qu'un APK signé par une clé inconnue qui prendrait sa place.
+val keyProperties = Properties().apply {
+    val f = rootProject.file("key.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
 }
 
 android {
@@ -83,11 +106,34 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        create("release") {
+            val store = keyProperties.getProperty("storeFile")
+            if (store != null) {
+                storeFile = rootProject.file(store)
+                storePassword = keyProperties.getProperty("storePassword")
+                keyAlias = keyProperties.getProperty("keyAlias")
+                keyPassword = keyProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            // ⚠️ **Le repli sur la clé de debug DOIT rester bruyant.** Un APK
+            // signé par une clé de debug ressemble en tout point à un APK
+            // officiel : même nom, même icône, même numéro de version. Seule
+            // l'empreinte du certificat les distingue, et personne ne la lit.
+            signingConfig = if (keyProperties.getProperty("storeFile") != null) {
+                signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "NEOVIBE : android/key.properties introuvable — APK signé " +
+                        "avec la clé de DEBUG. Il ne s'installera PAS par-dessus " +
+                        "une version officielle. Voir RAPPELS.md #13 et #61.",
+                )
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }

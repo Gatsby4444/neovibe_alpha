@@ -108,7 +108,9 @@ elle vit hors du dossier projet (voir §1.5).
 
 > ⚠️ **Deux fichiers de secrets vivent dans `docdev/`**, qui est **gitignoré**
 > depuis le 2026-08-12 : `docdev/supabase-secrets.txt` (clé `service_role`) et
-> `docdev/bot-credentials.txt` (mots de passe des bots de test). **Le zip les
+> `docdev/bot-credentials.txt` (mots de passe des bots de test) ; **depuis le
+> 2026-08-25, `docdev/neovibe-release.jks`, `docdev/keystore-password.txt` et
+> `android/key.properties` — LA CLÉ DE SIGNATURE, irremplaçable**. **Le zip les
 > emporte** (il ne suit pas `.gitignore`), un clone **non**. C'est voulu :
 > ces secrets ne doivent jamais entrer dans le dépôt. Leçon du 2026-08-12 — un
 > secret qui n'existe que dans le contexte d'une session est un secret perdu.
@@ -812,4 +814,14 @@ $names = $zip.Entries | ForEach-Object { $_.FullName -replace '\\','/' }
 (un `dangling tag` est bénin), tag de la version courante présent, et les
 **quatre** fichiers hors-dépôt : `lib/core/config/env.dart`,
 `.claude/settings.local.json`, `docdev/supabase-secrets.txt`,
-`docdev/bot-credentials.txt`.
+`docdev/bot-credentials.txt`, **et depuis le 2026-08-25 la CLÉ DE SIGNATURE**
+(`docdev/neovibe-release.jks`, `docdev/keystore-password.txt`,
+`android/key.properties`).
+
+🔴 **La clé de signature est le fichier le plus important de cette liste**, et
+c'est celui qui manquait. Son absence du paquet du 2026-08-24 a rendu la
+v0.9.126 **ininstallable** sur les appareils de test : les APK étaient signés
+avec la clé de **debug**, propre à chaque machine. Voir `RAPPELS.md` #13 et #61.
+**Sans elle, aucune mise à jour ne s'installe par-dessus une version
+précédente** — et le message d'Android (« Signatures d'application en conflit »)
+ne dit pas pourquoi.
