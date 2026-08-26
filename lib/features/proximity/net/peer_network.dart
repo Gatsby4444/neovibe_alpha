@@ -120,13 +120,6 @@ class PeerNetwork {
   /// lui pose ; il possède aussi le transport, qui n'intéresse que ce fichier.
   late final PeerRegistry presence;
 
-  /// Au bout de ce délai, le côté passif prend l'initiative.
-  ///
-  /// L'initiateur est choisi par comparaison des identifiants diffusés, donc
-  /// exactement un des deux ouvre. Mais si celui-là n'y arrive pas — écran
-  /// éteint, pile GATT occupée — la paire ne se rencontrerait **jamais**.
-  static const passiveFallback = Duration(seconds: 12);
-
   /// Au-delà, on considère que le lien ne s'ouvrira pas.
   static const connectTimeout = Duration(seconds: 15);
 
@@ -335,56 +328,48 @@ class PeerNetwork {
     // un pour le certificat de croisement — c'est `tick` qui le décidera.
     if (session.snapshot != null) return;
 
-    // ⚠️ **Seul l'identifiant PUBLIC ouvre un lien vers un inconnu.** Un jeton
-    // privé reconnu appartient à un ami, déjà identifié juste au-dessus ; un
-    // jeton privé non reconnu est reparti plus haut. Il ne reste donc ici que
-    // le mode ping — la fonction « se rendre découvrable », et elle seule.
+    // ⚠️ **PLUS AUCUN LIEN N'EST OUVERT VERS UN INCONNU** — décision de Jay du
+    // 2026-08-27 : *« on n'utilise plus la poignée de main GATT ‹…› le BLE ne
+    // sert qu'à valider et authentifier la proximité réelle »*.
+    //
+    // C'est l'aboutissement du renversement du 2026-08-25 (`RAPPELS.md` #65),
+    // qui posait déjà **zéro connexion GATT dans tout le ping public** et
+    // annonçait la suppression « après validation ». La validation a eu lieu le
+    // 2026-08-26 au soir : première paire réelle en base.
+    //
+    // ## Ce que ce chemin faisait, et par quoi c'est remplacé
+    //
+    // | Il portait | Désormais |
+    // |---|---|
+    // | révéler l'identité d'un inconnu | `ping_nearby`, après réciprocité |
+    // | la messagerie de proximité | conversation serveur (`ChatScreen`) |
+    // | la demande d'ami | `request_connection_from_proximity` |
+    //
+    // ⚠️ **La barrière de présence physique n'a pas disparé avec le canal** :
+    // elle était tenue par la portée de la radio, elle est maintenant une
+    // condition **écrite et vérifiée** côté serveur — pas de paire mutuelle
+    // fraîche, pas de demande, pas de messagerie. Le BLE reste ce qui la prouve.
+    //
+    // ⚠️ **Le code de transport n'est PAS supprimé, seulement plus déclenché
+    // ici.** Il sert encore au côté receveur (`touch`) tant que d'anciennes
+    // versions tournent en face, et la règle 8 demande de relever les deux sens
+    // avant de couper un nœud. Le retrait physique est un chantier à part,
+    // consigné dans `RAPPELS.md`.
     if (type != AdvertType.public) return;
-
-    await _maybeOpenLink(session, hex);
   }
 
-  /// Décide s'il faut ouvrir un lien vers un inconnu, et qui l'ouvre.
-  ///
-  /// ## ⚠️ On n'ouvre pas au premier signe de vie
-  ///
-  /// Le code ouvrait une connexion GATT dès la **première** annonce d'un
-  /// inconnu — donc avec chaque passant, chaque voiture qui s'arrête au feu,
-  /// chaque téléphone d'une salle d'attente. C'était l'objection de Jay
-  /// (2026-08-18), et elle est fondée : une poignée de main coûte une connexion,
-  /// une négociation de MTU, une découverte de services et deux signatures.
-  ///
-  /// On exige donc [PresenceRules.stableAfter] de contact continu. La mesure
-  /// est une **durée**, pas un compte d'annonces : l'advertising tourne à
-  /// ~100 ms, donc « 15 pings » serait atteint en moins de deux secondes.
-  Future<void> _maybeOpenLink(PeerSession session, String peerHex) async {
-    if (session.channel != null || session.connecting) return;
-    if (session.snapshot != null) return;
-
-    final now = _clock();
-    if (!session.isStable(now)) return;
-
-    // ⚠️ **On compare avec notre identifiant PUBLIC**, pas avec un jeton d'ami :
-    // ce chemin ne concerne que les inconnus, et un jeton d'ami n'est de toute
-    // façon pas le même selon l'ami. Il faut une valeur unique et partagée par
-    // les deux côtés pour que le départage soit stable.
-    final myHex = FriendKeyBook.hex(await _identity.currentPublicPingId());
-    final iInitiate = myHex.compareTo(peerHex) < 0;
-
-    if (!iInitiate) {
-      final since = session.awaitingSince;
-      if (since == null) {
-        session.awaitingSince = now;
-        return;
-      }
-      if (now.difference(since) < passiveFallback) return;
-      // L'autre n'y arrive pas. On prend la main plutôt que d'attendre
-      // indéfiniment un rendez-vous qui n'aura jamais lieu.
-    }
-
-    session.awaitingSince = null;
-    await _open(session);
-  }
+  // ⚠️ **`_maybeOpenLink` a été SUPPRIMÉE le 2026-08-27**, avec le repli passif
+  // de `tick` qui en dépendait. Elle ouvrait une connexion GATT vers un inconnu
+  // après dix secondes de contact continu, pour lui demander qui il est.
+  //
+  // Plus personne ne pose cette question à la radio : `ping_nearby` y répond,
+  // après réciprocité prouvée. Elle emportait avec elle `awaitingSince` et
+  // `passiveFallback` — **elle était le seul endroit qui posait le premier**,
+  // donc la boucle de repli ne pouvait plus se déclencher : du code qui ne
+  // pouvait plus rien faire, et que rien n'aurait signalé.
+  //
+  // ⚠️ [_open] reste, lui : [ensureChannel] s'en sert encore pour les gestes
+  // explicites, et le côté receveur d'un lien entrant n'a pas changé.
 
   Future<void> _open(PeerSession session) async {
     if (session.connecting) return;
@@ -797,17 +782,6 @@ class PeerNetwork {
       final peer = session.toPresence();
       _close(session);
       _emit(PeerLost(peer));
-    }
-
-    final now = _clock();
-    for (final session in presence.sessions.toList()) {
-      if (session.snapshot != null || session.channel != null) continue;
-      final since = session.awaitingSince;
-      if (since == null) continue;
-      if (now.difference(since) >= passiveFallback) {
-        session.awaitingSince = null;
-        await _open(session);
-      }
     }
 
     _publish();

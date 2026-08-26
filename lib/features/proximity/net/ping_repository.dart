@@ -124,6 +124,22 @@ class PingRepository {
     return id as String;
   }
 
+  /// Demande en ami quelqu'un dont la proximité vient d'être prouvée.
+  ///
+  /// ⚠️ **La barrière fondatrice est vérifiée par le SERVEUR** depuis le
+  /// 2026-08-27. Elle était tenue par la portée de la radio : la demande
+  /// voyageait dans un canal BLE chiffré, donc il fallait être là. Maintenant
+  /// qu'elle est un appel réseau, `request_connection_from_proximity` exige la
+  /// preuve que le BLE vient de produire — sans paire mutuelle fraîche, la
+  /// demande est refusée. **Le BLE reste la barrière ; il ne transporte
+  /// simplement plus le message.**
+  Future<String> requestConnection(String peerId) async {
+    final id = await ref
+        .read(supabaseProvider)
+        .rpc('request_connection_from_proximity', params: {'peer': peerId});
+    return id as String;
+  }
+
   static String _hex(List<int> bytes) =>
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }

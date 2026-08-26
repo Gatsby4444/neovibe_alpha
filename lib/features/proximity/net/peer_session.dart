@@ -243,9 +243,6 @@ class PeerSession {
   /// Une connexion est en cours d'ouverture.
   bool connecting = false;
 
-  /// Depuis quand on attend que l'AUTRE ouvre le lien.
-  DateTime? awaitingSince;
-
   /// Notre profil est déjà parti sur cette session.
   bool profileSent = false;
 
@@ -375,7 +372,6 @@ class PeerSession {
     linkAddress = null;
     profileSent = false;
     connecting = false;
-    awaitingSince = null;
   }
 
   PresencePeer toPresence() => PresencePeer(

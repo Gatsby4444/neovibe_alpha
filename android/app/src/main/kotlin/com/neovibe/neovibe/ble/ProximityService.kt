@@ -554,19 +554,38 @@ class ProximityService : Service(), BleEngine.Listener {
      * interface, ce que nous ne faisons jamais (aucun receveur `BOOT_COMPLETED`,
      * le service part toujours de l'ecran Ping).
      *
-     * ⚠️ **A partir d'Android 12, on ne le demande PAS.** `BLUETOOTH_SCAN` avec
-     * `neverForLocation` remplace l'exigence, et se declarer « service de
-     * localisation » sur un appareil recent serait une affirmation fausse.
+     * ## ⚠️ Le raisonnement ci-dessus s'est PERIME le 2026-08-26
+     *
+     * Il portait : *« a partir d'Android 12 on ne le demande pas, se declarer
+     * service de localisation sur un appareil recent serait une affirmation
+     * fausse »*. C'etait **juste** tant que ce service ne faisait que du BLE :
+     * le type `location` ne servait alors qu'a debloquer le scan sous
+     * Android 11.
+     *
+     * **Le ping v2 a change la premisse** : ce service lit desormais une vraie
+     * position. Se declarer service de localisation n'est plus une affirmation
+     * fausse — c'est devenu **la verite**, et la refuser est ce qui casse.
+     *
+     * Sans ce type, des que l'app passe en arriere-plan, Android cesse de rendre
+     * une position fine. Constate sur l'appareil de Jay le 2026-08-26 :
+     * l'incertitude annoncee passe de **129 m a 449 m**, la balise cesse d'etre
+     * republiee (**158 s d'age** contre 18 s sur la tablette, qui porte le
+     * type), et l'utilisateur **disparait de l'ecran d'en face** trente secondes
+     * plus tard. Rien ne le signale.
+     *
+     * C'est la regle 6 de `CLAUDE.md` : *apres un changement d'architecture,
+     * rejouer les decisions qui en dependaient au lieu de derouler un plan ecrit
+     * avant.*
+     *
+     * ⚠️ **A affiner avant la Play Console**, qui exige une justification par
+     * type : le service tourne aussi pour le seul croisement d'amis, qui ne lit
+     * aucune position. Le declarer alors est plus large que la verite. Le
+     * correctif juste serait de **repromouvoir** le service quand le ping public
+     * demarre ; il demande un aller-retour de plus. Voir `RAPPELS.md`.
      */
     private val foregroundTypeUsed: Int
-        get() {
-            val base = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-            return if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-                base or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            } else {
-                base
-            }
-        }
+        get() = ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
 
     private fun stopForegroundCompat() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {

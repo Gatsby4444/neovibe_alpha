@@ -132,6 +132,18 @@ class Appareil {
     );
   }
 
+  /// Ouvre le canal chiffré vers [autre] **par un geste explicite**.
+  ///
+  /// ⚠️ **C'est le seul chemin qui subsiste depuis le 2026-08-27.** Voir un
+  /// inconnu, même longtemps, n'ouvre plus rien : son identité vient du serveur.
+  /// Le canal ne s'ouvre plus que lorsque l'utilisateur agit — c'est ce que
+  /// `ensureChannel` documente, et c'est ce que les tests de transport doivent
+  /// désormais emprunter pour avoir un canal à éprouver.
+  Future<void> ouvreLeCanalVers(Appareil autre) async {
+    await voit(autre);
+    await reseau.ensureChannel(autre.radio.adresse);
+  }
+
   /// Un contact **continu** assez long pour que l'on accepte d'ouvrir un lien.
   ///
   /// ⚠️ C'est la règle posée le 2026-08-18 : on n'ouvre pas de connexion GATT
@@ -244,11 +256,16 @@ void main() {
     );
   });
 
-  test('deux inconnus se découvrent, se révèlent, et se parlent', () async {
-    // Les deux se voient DURABLEMENT : l'un des deux initie (comparaison des ID
-    // diffusés).
-    await a.voitLongtemps(b);
-    await b.voitLongtemps(a);
+  test('un geste explicite révèle l\'inconnu, et ils se parlent', () async {
+    // ⚠️ **Ce test ouvrait le canal tout seul avant le 2026-08-27.** Il
+    // suffisait de se voir durablement. Ce chemin est supprimé : l'identité
+    // d'un inconnu vient du serveur, et le canal BLE ne s'ouvre plus que sur un
+    // geste de l'utilisateur.
+    //
+    // Ce qui est protégé ici reste entier : quand le canal EST ouvert, la
+    // poignée de main signée, la révélation de profil et le chat aboutissent.
+    await a.ouvreLeCanalVers(b);
+    await b.voit(a);
 
     await jusqua(
       () =>
@@ -278,14 +295,23 @@ void main() {
     expect(recus.single, 'on se voit ?');
   });
 
-  test('un passant ne coûte AUCUNE connexion', () async {
-    // ⚠️ **L'objection de Jay du 2026-08-18, en test.**
+  test('un inconnu ne coûte AUCUNE connexion, bref ou installé', () async {
+    // ⚠️ **Ce test a changé de sens le 2026-08-27, et c'est voulu.**
     //
-    // Le code ouvrait une connexion GATT dès la PREMIÈRE annonce d'un inconnu :
-    // une poignée de main complète — connexion, négociation de MTU, découverte
-    // de services, deux signatures — pour quelqu'un qui traverse le couloir.
+    // Il protégeait l'objection de Jay du 2026-08-18 : ne pas ouvrir une
+    // connexion GATT dès la première annonce d'un inconnu — une poignée de main
+    // complète pour quelqu'un qui traverse le couloir. Il vérifiait donc qu'un
+    // passant ne coûte rien, **mais qu'un inconnu installé finit par ouvrir**.
     //
-    // On voit le pair plusieurs fois, mais brièvement : rien ne doit s'ouvrir.
+    // Cette seconde moitié n'existe plus. Décision de Jay : *« on n'utilise plus
+    // la poignée de main GATT, le BLE ne sert qu'à valider et authentifier la
+    // proximité réelle »*. L'identité d'un inconnu vient de `ping_nearby`, après
+    // réciprocité prouvée côté serveur.
+    //
+    // Ce qu'on protège maintenant est plus fort : **aucune durée de contact,
+    // si longue soit-elle, ne doit rouvrir ce chemin.** C'est le mur des sept
+    // connexions GATT qu'on a supprimé, et il ne doit pas revenir par
+    // inadvertance.
     for (var i = 0; i < 3; i++) {
       await a.voit(b);
       a.horloge.avance(const Duration(seconds: 1));
@@ -293,21 +319,24 @@ void main() {
     expect(a.reseau.presence.length, 1, reason: 'il est bien détecté');
     expect(radioA.connexions, isEmpty, reason: 'mais il ne coûte rien');
 
-    // Il s'installe : là, on ouvre.
-    //
-    // ⚠️ **Le rôle n'est pas choisissable**, et ce test l'a appris à ses
-    // dépens : l'initiateur vient de la comparaison des ID rotatifs, qui
-    // dépendent du créneau de 15 minutes. Écrit en supposant qu'Alice initie,
-    // ce test était vert dans un créneau et rouge dans le suivant — le piège
-    // que `quel que soit le rôle…` documente depuis le 2026-08-16.
+    // Il s'installe, longtemps — bien au-delà de l'ancien seuil de stabilité
+    // et de l'ancien délai de repli passif.
     await a.voitLongtemps(b);
-    if (radioA.connexions.isEmpty) {
-      a.horloge.avance(
-        PeerNetwork.passiveFallback + const Duration(seconds: 1),
-      );
-      await a.reseau.tick();
-    }
-    await jusqua(() => radioA.connexions.isNotEmpty);
+    a.horloge.avance(const Duration(minutes: 2));
+    await a.reseau.tick();
+
+    expect(
+      radioA.connexions,
+      isEmpty,
+      reason:
+          "voir un inconnu, même longtemps, ne doit plus dépenser une "
+          "connexion : son identité vient du serveur",
+    );
+    expect(
+      a.reseau.presence.identifiedCount,
+      0,
+      reason: 'et il reste un inconnu pour la radio',
+    );
   });
 
   test('un inconnu détecté EXISTE avant d\'être identifié', () async {
@@ -524,48 +553,6 @@ void main() {
     );
   });
 
-  test('quel que soit le rôle, le lien finit par s\'ouvrir', () async {
-    // ⚠️ **Le rôle n'est pas choisissable** : il vient de la comparaison des ID
-    // rotatifs, qui dépendent du créneau horaire. Un test qui supposerait un
-    // rôle serait vert un jour et rouge le lendemain — pire qu'absent.
-    //
-    // On teste donc la PROPRIÉTÉ, valable dans les deux cas : que P initie tout
-    // de suite, ou qu'il attende, la paire se rencontre. C'est exactement ce
-    // que l'ancienne couche ne garantissait pas — le côté passif attendait
-    // indéfiniment un rendez-vous qui n'aurait jamais lieu.
-    final radioP = RadioSimulee('PP');
-    final radioQ = RadioSimulee('QQ');
-    radioP.pair = radioQ;
-    radioQ.pair = radioP;
-
-    final p = await Appareil.creer(
-      'P',
-      userId: 'u-p',
-      graine: 5,
-      radio: radioP,
-    );
-    final q = await Appareil.creer(
-      'Q',
-      userId: 'u-q',
-      graine: 6,
-      radio: radioQ,
-    );
-
-    await p.voitLongtemps(q);
-
-    if (radioP.connexions.isEmpty) {
-      // P est le côté passif : il a armé son échéance.
-      p.horloge.avance(
-        PeerNetwork.passiveFallback + const Duration(seconds: 1),
-      );
-      await p.reseau.tick();
-    }
-    expect(radioP.connexions, isNotEmpty);
-
-    await p.reseau.dispose();
-    await q.reseau.dispose();
-  });
-
   test('la radio qui s\'arrête ferme TOUT, présence et transport', () async {
     // ⚠️ **Le second chemin, jamais soupçonné avant le 2026-08-18.**
     //
@@ -575,8 +562,8 @@ void main() {
     //
     // Avec une session unique, arrêter la radio ferme le transport dans le même
     // geste — il n'y a plus d'état à moitié défait.
-    await a.voitLongtemps(b);
-    await b.voitLongtemps(a);
+    await a.ouvreLeCanalVers(b);
+    await b.voit(a);
     await jusqua(() => a.reseau.presence.identifiedCount == 1);
 
     await a.reseau.onRadioEvent(const RadioStatusEvent(RadioAdapterOff()));
@@ -592,8 +579,8 @@ void main() {
   test(
     'un profil signé par une AUTRE clé que la poignée de main est rejeté',
     () async {
-      await a.voitLongtemps(b);
-      await b.voitLongtemps(a);
+      await a.ouvreLeCanalVers(b);
+      await b.voit(a);
       await jusqua(() => a.reseau.presence.identifiedCount == 1);
 
       // Un imposteur forge un profil parfaitement signé… avec sa propre clé.
@@ -625,8 +612,8 @@ void main() {
     // l'autre prend la main - et les deux finissent connectes. Chacun recevait
     // alors DEUX evenements de lien, et le second detruisait la session deja
     // negociee.
-    await a.voitLongtemps(b);
-    await b.voitLongtemps(a);
+    await a.ouvreLeCanalVers(b);
+    await b.voit(a);
     await jusqua(() => a.reseau.presence.identifiedCount == 1);
 
     // On force le second lien, dans l'autre sens, comme si les deux avaient
@@ -682,8 +669,8 @@ void main() {
       radio: radioQ,
     );
 
-    await p.voitLongtemps(q);
-    await q.voitLongtemps(p);
+    await p.ouvreLeCanalVers(q);
+    await q.voit(p);
     await jusqua(
       () =>
           p.reseau.presence.identifiedCount == 1 &&
@@ -753,8 +740,8 @@ void main() {
         radio: radioQ,
       );
 
-      await p.voitLongtemps(q);
-      await q.voitLongtemps(p);
+      await p.ouvreLeCanalVers(q);
+      await q.voit(p);
       await jusqua(() => p.reseau.presence.identifiedCount == 1);
 
       final perdus = <String>[];

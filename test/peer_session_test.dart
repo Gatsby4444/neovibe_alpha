@@ -359,7 +359,6 @@ void main() {
     s.profileSent = true;
     s.certified = true;
     s.connecting = true;
-    s.awaitingSince = DateTime.now();
 
     s.release();
 
@@ -371,7 +370,6 @@ void main() {
     expect(s.linkAddress, isNull);
     expect(s.profileSent, isFalse);
     expect(s.connecting, isFalse);
-    expect(s.awaitingSince, isNull);
   });
 
   test('la radio qui s\'arrête rend TOUTES les sessions à fermer', () {

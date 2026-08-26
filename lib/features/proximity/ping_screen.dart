@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/theme.dart';
+import '../../core/widgets/avatar.dart';
+import '../conversations/chat_screen.dart';
 import '../../core/utils/formats.dart';
 import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
@@ -132,15 +134,23 @@ class _PingScreenState extends ConsumerState<PingScreen> {
                 in view?.requests ?? const <PendingFriendRequest>[])
               _CarteDemande(request: request),
 
-            // ⚠️ **Deux chemins coexistent volontairement, le temps du test.**
-            // Le nouveau (GPS + BLE, v2) est au-dessus ; l'ancien (BLE seul) en
-            // dessous. Rien n'est supprimé tant que le nouveau n'a pas tourné
-            // sur appareil — règle 8 : on relève les deux sens avant de couper.
+            // ⚠️ **UNE seule section depuis le 2026-08-27.** Les deux chemins
+            // coexistaient « le temps du test » (`RAPPELS.md` #65) ; le test a
+            // eu lieu le 2026-08-26 et la v2 a produit sa première rencontre.
+            //
+            // Ce qui reste de chaque côté, et pourquoi :
+            //
+            // | Source | Ce qu'elle apporte |
+            // |---|---|
+            // | **BLE** | les AMIS, reconnus à l'annonce, avec leur DISTANCE |
+            // | **ping v2** | les INCONNUS, après réciprocité prouvée |
+            //
+            // Les amis venaient aussi de `ping_nearby`, d'où le même profil
+            // affiché deux fois. Le serveur les écarte maintenant : chaque
+            // personne a UNE ligne, et une seule.
             const _TitreSection('Autour de toi'),
+            ..._autourDeToiAmis(runtime, keys),
             ..._autourDeToiV2(ref, runtime),
-
-            const _TitreSection('Autour de toi — ancien chemin (BLE seul)'),
-            ..._autourDeToi(runtime, keys),
 
             if (_conversations.any((c) => nearbyIds.contains(c.peerId))) ...[
               const _TitreSection('Conversations ping'),
@@ -195,8 +205,14 @@ class _PingScreenState extends ConsumerState<PingScreen> {
     return 'Activée, mais en pause — voir ci-dessous';
   }
 
-  /// La liste, et surtout **ce qu'on dit quand elle est vide**.
-  List<Widget> _autourDeToi(ProximityRuntime runtime, PresenceKeys keys) {
+  /// **Les AMIS à portée**, reconnus par le BLE seul.
+  ///
+  /// ⚠️ **C'est la moitié du produit, et elle ne passe par aucun serveur.** Un
+  /// ami est reconnu à l'annonce, hors ligne, app fermée, sans permission de
+  /// localisation sur Android 12+ — et c'est le seul chemin qui donne une
+  /// **distance**. Ne pas la confondre avec la découverte d'inconnus, qui vient
+  /// du ping v2 et qui, elle, a besoin du serveur.
+  List<Widget> _autourDeToiAmis(ProximityRuntime runtime, PresenceKeys keys) {
     if (!runtime.wantsVisible) {
       return const [
         _Vide(
@@ -218,33 +234,24 @@ class _PingScreenState extends ConsumerState<PingScreen> {
         ),
       ];
     }
+    // ⚠️ **Le compteur « N appareils détectés » a été SUPPRIMÉ le
+    // 2026-08-27.** Il comptait les sessions BLE non identifiées, c'est-à-dire
+    // celles qui attendaient une poignée de main GATT — or plus aucun lien
+    // n'est ouvert vers un inconnu : leur identité vient du serveur.
+    //
+    // Il ne mesurait donc plus rien d'atteignable, et tournait en boucle chez
+    // Jay (« 2 appareils détectés, vérification chiffrée en cours ») : un
+    // appareil en mode ping émet deux jetons, donc deux sessions, dont une
+    // seule est un ami. **Un compteur qui ne peut plus tomber à zéro n'est
+    // pas une mesure, c'est du bruit.**
+    //
+    // Le vide, lui, est dit par la section du ping juste en dessous : elle
+    // sait distinguer « personne autour » de « personne à portée », ce que
+    // celle-ci n'a jamais su faire.
     return [
       // La tuile ne reçoit qu'une ADRESSE : elle va chercher elle-même ce
       // qu'elle affiche, et ne se reconstruit que quand cela change.
       for (final address in keys.identified) _TuilePair(address: address),
-      if (keys.pending > 0)
-        ListTile(
-          leading: const SizedBox(
-            width: 24,
-            height: 24,
-            child: CircularProgressIndicator(strokeWidth: 2),
-          ),
-          title: Text(
-            keys.pending == 1
-                ? 'Un appareil détecté'
-                : '${keys.pending} appareils détectés',
-          ),
-          // ⚠️ C'est exactement le cas que l'ancienne version affichait comme
-          // « Personne à proximité » : deux téléphones en train de se parler.
-          subtitle: const Text('Vérification chiffrée en cours…'),
-        ),
-      if (keys.identified.isEmpty && keys.pending == 0)
-        const _Vide(
-          icon: Icons.radar,
-          text:
-              'Personne à proximité pour l\'instant.\nLes membres NeoVibe '
-              'proches apparaîtront ici.',
-        ),
     ];
   }
 }
@@ -889,46 +896,121 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
 
   return [
     ...notice,
-    for (final personne in gens)
-      ListTile(
-        leading: CircleAvatar(
-          backgroundImage: personne.avatarUrl == null
-              ? null
-              : NetworkImage(personne.avatarUrl!),
-          child: personne.avatarUrl == null
-              ? Text(
-                  personne.displayName.isEmpty
-                      ? "?"
-                      : personne.displayName.substring(0, 1).toUpperCase(),
-                )
-              : null,
-        ),
-        title: Text(personne.displayName),
-        subtitle: Text(
-          personne.tagName == null ? "À portée" : "@${personne.tagName}",
-        ),
-        trailing: const Icon(Icons.chat_bubble_outline),
-        onTap: () => _ouvrirChatProximite(ref, personne),
-      ),
+    for (final personne in gens) _TuileInconnu(personne: personne),
   ];
 }
 
-/// Ouvre la messagerie de proximité.
+/// Quelqu'un que le ping a révélé : un **inconnu**, dont la proximité est
+/// prouvée des deux côtés.
+///
+/// ⚠️ **Un ami n'arrive jamais ici** depuis le 2026-08-27 : `ping_nearby` les
+/// écarte. Cette chaîne sert à découvrir, et un ami est déjà reconnu par le BLE
+/// — avec une information meilleure, sa distance. Les afficher ici produisait le
+/// même profil deux fois, et un bouton de chat qui ne pouvait qu'échouer.
+class _TuileInconnu extends ConsumerWidget {
+  const _TuileInconnu({required this.personne});
+
+  final NearbyPerson personne;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final initiale = personne.displayName.isEmpty
+        ? "?"
+        : personne.displayName.substring(0, 1).toUpperCase();
+    return ListTile(
+      // ⚠️ **Le widget partagé, et pas un `NetworkImage`.** `avatar_url` porte
+      // un chemin de coffre privé, pas une URL : le donner tel quel à
+      // `NetworkImage` levait « No host specified in URI » et laissait un rond
+      // vide (constaté par Jay le 2026-08-26). `Avatar` sait lire les deux
+      // formes, passe par la politique du coffre, et garde le fichier.
+      leading: Avatar(stored: personne.avatarUrl, fallback: Text(initiale)),
+      title: Text(personne.displayName),
+      subtitle: Text(
+        personne.tagName == null ? "À portée" : "@${personne.tagName}",
+      ),
+      // Deux gestes, deux boutons : écrire, ou demander en ami. Les confondre
+      // obligerait l'utilisateur à deviner lequel il déclenche.
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: "Demander en ami",
+            icon: const Icon(Icons.person_add_alt),
+            onPressed: () => _demanderEnAmi(ref, personne),
+          ),
+          IconButton(
+            tooltip: "Écrire",
+            icon: const Icon(Icons.chat_bubble_outline),
+            onPressed: () => _ouvrirChatProximite(ref, personne),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Demande en ami quelqu'un que le ping vient de révéler.
+///
+/// ⚠️ **La barrière de présence physique est vérifiée PAR LE SERVEUR** depuis le
+/// 2026-08-27. Elle était tenue par la radio — il fallait un canal BLE ouvert
+/// pour émettre la demande, donc être à portée. Maintenant que la demande est un
+/// appel réseau ordinaire, c'est `request_connection_from_proximity` qui exige
+/// la preuve : pas de proximité mutuelle fraîche, pas de demande.
+Future<void> _demanderEnAmi(WidgetRef ref, NearbyPerson personne) async {
+  final messenger = ScaffoldMessenger.maybeOf(ref.context);
+  try {
+    await ref.read(pingRepositoryProvider).requestConnection(personne.userId);
+    messenger?.showSnackBar(
+      SnackBar(content: Text("Demande envoyée à ${personne.displayName}")),
+    );
+  } catch (e) {
+    // ⚠️ Un refus du serveur se MONTRE. « Proximité non constatée » veut dire
+    // quelque chose de précis, et l'avaler laisserait l'utilisateur croire que
+    // sa demande est partie.
+    messenger?.showSnackBar(SnackBar(content: Text(_lisible(e))));
+  }
+}
+
+/// Ouvre la messagerie de proximité — **et l'écran qui va avec**.
+///
+/// ⚠️ **Elle créait la conversation sans jamais l'ouvrir** : le seul retour
+/// était un encadré « Conversation ouverte », et la conversation restait
+/// introuvable. La messagerie de proximité existait donc en base sans exister
+/// pour l'utilisateur (constaté le 2026-08-27, en préparant le retrait du chat
+/// BLE — sans cette correction, le produit se serait retrouvé sans aucune
+/// messagerie de proximité).
 ///
 /// ⚠️ **Le serveur peut refuser**, et c'est voulu : il exige une proximité
 /// constatée des DEUX côtés. Un refus se montre, il ne s'avale pas.
 Future<void> _ouvrirChatProximite(WidgetRef ref, NearbyPerson personne) async {
   final messenger = ScaffoldMessenger.maybeOf(ref.context);
+  final navigator = Navigator.maybeOf(ref.context);
   try {
-    await ref.read(pingRepositoryProvider).openConversation(personne.userId);
-    messenger?.showSnackBar(
-      SnackBar(
-        content: Text("Conversation ouverte avec ${personne.displayName}"),
-      ),
+    final id = await ref
+        .read(pingRepositoryProvider)
+        .openConversation(personne.userId);
+    navigator?.push(
+      MaterialPageRoute(builder: (_) => ChatScreen(conversationId: id)),
     );
   } catch (e) {
-    messenger?.showSnackBar(SnackBar(content: Text("$e")));
+    messenger?.showSnackBar(SnackBar(content: Text(_lisible(e))));
   }
+}
+
+/// Ce que le serveur a refusé, en français et sans le bruit de la couche
+/// réseau.
+///
+/// ⚠️ **Un message technique n'est pas un message.** Jay a vu s'afficher
+/// `PostgrestException(message: …, code: P0001, details: Bad Request, hint:
+/// null)` : le texte utile y était noyé dans quatre champs qui ne le concernent
+/// pas.
+String _lisible(Object erreur) {
+  final texte = erreur.toString();
+  final debut = texte.indexOf('message: ');
+  if (debut == -1) return texte;
+  final reste = texte.substring(debut + 'message: '.length);
+  final fin = reste.indexOf(', code:');
+  return fin == -1 ? reste : reste.substring(0, fin);
 }
 
 /// Un bandeau d'information autonome, pour les blocages du ping v2.
