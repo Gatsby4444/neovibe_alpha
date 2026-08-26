@@ -82,15 +82,20 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     return const PingBeaconState();
   }
 
+  /// Démarre l'acquisition. **Sans jamais s'arrêter sur un blocage.**
+  ///
+  /// ⚠️ **C'est la moitié invisible de la panne du 2026-08-26.** Cette méthode
+  /// posait son verdict *avant* d'armer ses minuteurs et sortait : une fois
+  /// bloquée, la chaîne ne se réévaluait plus jamais. L'utilisateur pouvait
+  /// accorder la permission dans les réglages et revenir — l'écran affichait
+  /// toujours le même bandeau, et le seul remède était de rebasculer
+  /// l'interrupteur de visibilité, ce que personne ne devine.
+  ///
+  /// On arme donc **toujours**, et c'est [_tick] qui constate à chaque tour. Un
+  /// blocage levé se rattrape tout seul en moins d'une minute — la cause du
+  /// cul-de-sac est supprimée, pas contournée.
   Future<void> _start() async {
     if (_refresh != null) return;
-
-    final blocker = await ref.read(coarseLocationProvider).blocker();
-    if (blocker != null) {
-      state = state.copyWith(blocker: blocker);
-      return;
-    }
-    state = state.copyWith(blocker: null);
 
     _radioFeed ??= ref
         .read(proximitySupervisorProvider.notifier)
@@ -122,9 +127,16 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     final geo = ref.read(coarseLocationProvider);
     final repo = ref.read(pingRepositoryProvider);
     try {
+      // ⚠️ **La finesse accordée est relevée à chaque tour, et elle ne bloque
+      // rien.** Une position approximative reste une position : on publie, et
+      // on dit la dégradation (voir [LocationPrecision]).
+      final precision = await geo.precision();
       final fix = await geo.current();
       if (fix == null) {
-        state = state.copyWith(blocker: await geo.blocker());
+        state = state.copyWith(
+          blocker: await geo.blocker(),
+          precision: precision,
+        );
         return;
       }
       final identity = ref.read(proximityIdentityProvider);
@@ -134,11 +146,14 @@ class PingBeaconService extends Notifier<PingBeaconState> {
         token: await identity.currentPublicPingId(),
         slot: slot,
       );
-      _shortlist = await repo.shortlist();
+      final liste = await repo.shortlist();
+      _shortlist = liste.tokens;
       state = state.copyWith(
         blocker: null,
+        precision: precision,
         cell: fix.toString(),
-        listening: _shortlist.length,
+        listening: liste.length,
+        listeningTruncated: liste.atLeast,
         lastError: null,
       );
     } catch (e) {
@@ -153,7 +168,7 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   ///
   /// ⚠️ **Seules les annonces PUBLIQUES nous concernent.** Un jeton privé
   /// appartient à une paire d'amis, et il est traité par une autre chaîne, avec
-  /// d'autres règles (protocole v4, `AdvertType`).
+  /// d'autres règles (protocole v5, `AdvertType`).
   void _onRadioEvent(RadioEvent event) {
     if (event is! RadioScan) return;
     if (event.type != AdvertType.public) return;
@@ -185,11 +200,19 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     }
   }
 
-  /// Redemande la permission de localisation, puis relance.
+  /// Redemande la permission de localisation, puis reprend **tout de suite**.
+  ///
+  /// ⚠️ Sert aussi à demander la position *précise* quand seule
+  /// l'approximative a été accordée : [CoarseLocation.request] redemande alors
+  /// à Android, qui affiche sa boîte de mise à niveau.
   Future<void> requestPermission() async {
     final blocker = await ref.read(coarseLocationProvider).request();
     state = state.copyWith(blocker: blocker);
-    if (blocker == null) await _start();
+    // ⚠️ **On relance sans attendre le prochain tour de minuteur.** L'ancien
+    // code appelait `_start()`, qui sort aussitôt si les minuteurs sont déjà
+    // armés : la réponse de l'utilisateur serait restée sans effet visible
+    // pendant une minute entière, ce qui se lit comme un refus.
+    if (blocker == null) await _tick();
   }
 
   static String _hex(List<int> bytes) =>
@@ -200,8 +223,10 @@ class PingBeaconService extends Notifier<PingBeaconState> {
 class PingBeaconState {
   const PingBeaconState({
     this.blocker,
+    this.precision = LocationPrecision.precise,
     this.cell,
     this.listening = 0,
+    this.listeningTruncated = false,
     this.confirmed = 0,
     this.lastError,
   });
@@ -209,11 +234,19 @@ class PingBeaconState {
   /// Ce qui empêche de lire une position, ou `null`.
   final LocationBlocker? blocker;
 
+  /// La finesse réellement accordée. **Une dégradation, jamais un blocage** —
+  /// voir [LocationPrecision].
+  final LocationPrecision precision;
+
   /// Le carreau publié, pour le diagnostic.
   final String? cell;
 
   /// Combien de jetons on écoute en ce moment.
   final int listening;
+
+  /// Vrai quand [listening] est un **plancher**, pas un total : le serveur
+  /// a rendu tout ce qu'on lui demandait, il y en avait peut-être plus.
+  final bool listeningTruncated;
 
   /// Combien de constats ont été retenus par le serveur depuis le démarrage.
   final int confirmed;
@@ -224,14 +257,18 @@ class PingBeaconState {
 
   PingBeaconState copyWith({
     LocationBlocker? blocker,
+    LocationPrecision? precision,
     String? cell,
     int? listening,
+    bool? listeningTruncated,
     int? confirmed,
     String? lastError,
   }) => PingBeaconState(
     blocker: blocker,
+    precision: precision ?? this.precision,
     cell: cell ?? this.cell,
     listening: listening ?? this.listening,
+    listeningTruncated: listeningTruncated ?? this.listeningTruncated,
     confirmed: confirmed ?? this.confirmed,
     lastError: lastError,
   );
@@ -240,14 +277,23 @@ class PingBeaconState {
   bool operator ==(Object other) =>
       other is PingBeaconState &&
       other.blocker == blocker &&
+      other.precision == precision &&
       other.cell == cell &&
       other.listening == listening &&
+      other.listeningTruncated == listeningTruncated &&
       other.confirmed == confirmed &&
       other.lastError == lastError;
 
   @override
-  int get hashCode =>
-      Object.hash(blocker, cell, listening, confirmed, lastError);
+  int get hashCode => Object.hash(
+    blocker,
+    precision,
+    cell,
+    listening,
+    listeningTruncated,
+    confirmed,
+    lastError,
+  );
 }
 
 final pingBeaconProvider = NotifierProvider<PingBeaconService, PingBeaconState>(

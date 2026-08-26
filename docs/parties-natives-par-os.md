@@ -36,6 +36,7 @@
 | Journal caméra (dev) | (dans `neovibe/camera`) | `CamLog` (fichier disque) | fichier disque (trivial) |
 | Diagnostic appareil (dev) | `neovibe/diag` | `NativeDiagnostics` (`PackageManager` + `Build`) | `Bundle.main.infoDictionary` + `UIDevice` |
 | **Installation d'APK (dev)** | `neovibe/install` | `NativeInstall` + `FileProvider` + `MediaStore` | *sans objet — iOS n'installe que par l'App Store ou TestFlight* |
+| **Finesse de position accordée** | `neovibe/location` | `LocationGrant` (`checkSelfPermission` sur `ACCESS_FINE_LOCATION`) | `CLLocationManager.accuracyAuthorization` (`.fullAccuracy` / `.reducedAccuracy`) |
 
 ### Natif **fourni par un paquet**, donc rien à écrire — mais à connaître
 
@@ -367,6 +368,15 @@ dégradé** :
   qui scanne en continu et garde un état — iOS ne le donne pas. Mais la logique
   est pure et sans dépendance Android : elle se transpose en Swift telle quelle,
   c'est **quand** elle tourne qui change.
+- ⚠️ **Le mode d'émission PARALLÈLE ne se transpose pas non plus (2026-08-26).**
+  Android sait émettre plusieurs annonces simultanées (`startAdvertisingSet`,
+  API 26+), ce qui corrige un défaut d'échelle réel : en cycle, le jeton d'un ami
+  n'est en l'air que 1/N du temps. **iOS n'offre rien d'équivalent** —
+  `CBPeripheralManager.startAdvertising` ne gère **qu'une seule** annonce à la
+  fois, et il n'y a pas d'API de jeux d'annonces. Le portage devra donc soit
+  cycler (avec le défaut d'échelle assumé, et documenté à l'écran), soit repenser
+  la reconnaissance d'amis autrement sur iOS. **À trancher au portage, pas
+  avant.**
 - ⚠️ **`AdvertSchedule` n'a PAS d'équivalent iOS évident.** Le plan suppose un
   processus qui survit à l'interface et qui peut changer son annonce tout seul —
   exactement ce qu'iOS ne donne pas. Le calcul du plan, lui, est en Dart pur
@@ -450,6 +460,36 @@ dev avant la prod** (voir `RAPPELS.md`).
 
 **iOS (à faire, si conservé en dev)** : écriture fichier équivalente (trivial).
 Outil de dev seulement — non prioritaire pour un portage.
+
+---
+
+## 6 ter. Finesse de position réellement accordée
+
+**Canal** : `neovibe/location`. Méthode unique : `grant` → `{fine, coarse}`,
+deux booléens.
+
+**Android (fait, 2026-08-26)** : `LocationGrant.kt` —
+`Context.checkSelfPermission(ACCESS_FINE_LOCATION)`. Aucune demande, aucun
+réglage ouvert : ce pont **constate**, il ne décide de rien.
+
+**Pourquoi c'est natif** : `geolocator` ne distingue pas
+`ACCESS_FINE_LOCATION` de `ACCESS_COARSE_LOCATION` — il rend `whileInUse` dans
+les deux cas. Or depuis Android 12 c'est exactement la question à poser.
+
+**Ce que ça remplace, et ce que ça a coûté** : le Dart déduisait « position
+approximative » de la précision de la **dernière position connue** (> 500 m).
+C'est un raisonnement sur un cache, pas sur une permission — un point réseau
+imprécis suffisait à déclarer la permission insuffisante alors qu'elle ne
+l'était pas. L'app réclamait alors un réglage déjà fait, sans issue possible, et
+la balise de ping ne partait jamais. Relevé sur l'appareil de Jay le
+2026-08-26 : une seule ligne dans `ping_beacons` là où il en fallait deux.
+
+**iOS (à faire)** : `CLLocationManager.accuracyAuthorization`, qui vaut
+`.fullAccuracy` ou `.reducedAccuracy` — la correspondance est directe. À noter
+pour le portage : iOS permet en plus de demander la précision complète
+**temporairement**, pour un usage nommé
+(`requestTemporaryFullAccuracyAuthorization(withPurposeKey:)`), ce qu'Android ne
+sait pas faire. Décision produit à prendre à ce moment-là, pas maintenant.
 
 ---
 

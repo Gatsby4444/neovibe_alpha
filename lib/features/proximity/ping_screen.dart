@@ -836,13 +836,6 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
         "Seuls les réglages système peuvent la rouvrir.",
         "Ouvrir les réglages",
       ),
-      LocationBlocker.approximate => (
-        "Position approximative",
-        "Android répond à environ 3 km près, ce qui ne suffit pas à savoir "
-            "dans quel quartier chercher. Choisis « Précise » dans les réglages "
-            "de l'app.",
-        "Ouvrir les réglages",
-      ),
     };
     return [
       _BandeauSimple(
@@ -856,20 +849,46 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
     ];
   }
 
+  // ⚠️ **Une dégradation s'AJOUTE à la liste, elle ne la remplace pas.**
+  // « Position approximative » était un bandeau exclusif : la découverte
+  // s'arrêtait là. Or elle fonctionne quand même, moins bien — et le mur
+  // garantissait l'échec que l'avertissement se contente d'annoncer.
+  final notice = beacon.precision == LocationPrecision.approximate
+      ? [
+          _BandeauSimple(
+            titre: "Position approximative",
+            detail:
+                "Android répond à environ 3 km près : on cherche quand même, "
+                "mais quelqu'un du quartier d'à côté peut te manquer. La "
+                "position précise ne sert qu'à savoir OÙ chercher — qui est "
+                "vraiment à 20 m, c'est le Bluetooth qui le prouve.",
+            action: "Autoriser la position précise",
+            onAction: () =>
+                ref.read(pingBeaconProvider.notifier).requestPermission(),
+          ),
+        ]
+      : const <Widget>[];
+
   if (gens.isEmpty) {
     return [
+      ...notice,
       _Vide(
         icon: Icons.travel_explore,
         text: beacon.listening == 0
             ? "Personne d'autre n'a le ping activé dans ton quartier."
-            : "${beacon.listening} personne(s) ont le ping actif dans le "
-                  "quartier. Aucune n'est à portée pour l'instant — il faut "
-                  "être à une vingtaine de mètres.",
+            // Un compte tronque s'annonce comme un PLANCHER : afficher le
+            // plafond de la requete comme un total serait presenter une limite
+            // d'instrument pour une mesure.
+            : "${beacon.listeningTruncated ? 'Plus de ' : ''}"
+                  "${beacon.listening} personne(s) ont le ping actif autour de "
+                  "toi. Aucune n'est à portée pour l'instant — il faut être à "
+                  "une vingtaine de mètres.",
       ),
     ];
   }
 
   return [
+    ...notice,
     for (final personne in gens)
       ListTile(
         leading: CircleAvatar(

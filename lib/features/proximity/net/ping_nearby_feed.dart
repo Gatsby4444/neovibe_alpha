@@ -44,6 +44,19 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
 
   Timer? _poll;
 
+  /// Le dernier constat du serveur, **conservé à travers les reconstructions**.
+  ///
+  /// ⚠️ **C'est ce qui remplace `return state;`**, qui levait
+  /// `Bad state: Tried to read the state of an uninitialized provider` à chaque
+  /// lancement avec le ping actif (relevé sur les deux appareils de Jay le
+  /// 2026-08-26). Riverpod n'expose pas l'état pendant `build` — il n'existe
+  /// pas encore, et lors d'une reconstruction il a déjà été remis à zéro. Un
+  /// champ, lui, survit : le notifier est le même objet.
+  ///
+  /// Sans lui, une simple bascule d'un dépendance vidait l'écran, puis le
+  /// rafraîchissement suivant le remplissait — un clignotement pour rien.
+  List<NearbyPerson> _last = const [];
+
   @override
   List<NearbyPerson> build() {
     ref.onDispose(() {
@@ -60,16 +73,21 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
 
     _poll?.cancel();
     _poll = null;
-    if (!wants) return const [];
+    if (!wants) {
+      // Le ping coupé, le souvenir n'a plus de sens : le garder ferait
+      // réapparaître d'anciens voisins à la réactivation.
+      _last = const [];
+      return const [];
+    }
 
     _poll = Timer.periodic(pollEvery, (_) => unawaited(refresh()));
     Future.microtask(refresh);
-    return state;
+    return _last;
   }
 
   Future<void> refresh() async {
     try {
-      state = await ref.read(pingRepositoryProvider).nearby();
+      state = _last = await ref.read(pingRepositoryProvider).nearby();
     } catch (_) {
       // ⚠️ **On ne vide PAS sur erreur.** Une panne réseau ferait alors
       // disparaître tout le monde de l'écran, ce qui est indiscernable de

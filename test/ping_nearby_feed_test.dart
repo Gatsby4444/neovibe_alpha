@@ -3,8 +3,11 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/clock.dart';
+import 'package:neovibe/features/proximity/net/ping_beacon_service.dart';
 import 'package:neovibe/features/proximity/net/ping_nearby_feed.dart';
 import 'package:neovibe/features/proximity/net/ping_repository.dart';
+import 'package:neovibe/features/proximity/net/proximity_supervisor.dart';
+import 'package:neovibe/features/proximity/net/radio_status.dart';
 
 /// Ce que ces tests protègent : **le délai de grâce de 30 s, et son coût.**
 ///
@@ -158,4 +161,158 @@ void main() {
       expect(reveils, 1);
     });
   });
+
+  _troncature();
+
+  group("l'ACQUISITION démarre sans lire un état qui n'existe pas", () {
+    // ⚠️ **La panne du 2026-08-26.** `build()` finissait par `return state;` —
+    // or Riverpod n'expose pas l'état pendant la construction : au premier
+    // passage avec le ping actif, le provider partait en
+    // `Bad state: Tried to read the state of an uninitialized provider`, et
+    // toute la section « Autour de toi » avec lui. Relevé sur les deux
+    // appareils, à chaque lancement.
+
+    ProviderContainer conteneur({required bool visible}) => ProviderContainer(
+      overrides: [
+        proximitySupervisorProvider.overrideWith(
+          () => _SuperviseurFaux(visible: visible),
+        ),
+        pingBeaconProvider.overrideWith(_BaliseFausse.new),
+        pingRepositoryProvider.overrideWith((ref) => _DepotFaux(ref)),
+      ],
+    );
+
+    test('ping actif : la première lecture ne lève pas', () {
+      final c = conteneur(visible: true);
+      addTearDown(c.dispose);
+      expect(c.read(pingNearbySourceProvider), isEmpty);
+      expect(c.read(pingNearbyProvider), isEmpty);
+    });
+
+    test('le dernier constat SURVIT à une reconstruction', () async {
+      final c = conteneur(visible: true);
+      addTearDown(c.dispose);
+      c.listen(pingNearbySourceProvider, (_, _) {});
+      await _propage();
+      expect(c.read(pingNearbySourceProvider), hasLength(1));
+
+      // Une dépendance bouge — ici la balise. Sans le champ conservé, l'écran
+      // se viderait puis se remplirait : un clignotement pour rien.
+      (c.read(pingBeaconProvider.notifier) as _BaliseFausse).bouger();
+      await _propage();
+      expect(
+        c.read(pingNearbySourceProvider),
+        hasLength(1),
+        reason: "une reconstruction ne doit pas effacer ce qu'on sait deja",
+      );
+    });
+
+    test('ping coupé : la liste est vide, et le souvenir est jeté', () async {
+      final c = conteneur(visible: false);
+      addTearDown(c.dispose);
+      c.listen(pingNearbySourceProvider, (_, _) {});
+      await _propage();
+      expect(c.read(pingNearbySourceProvider), isEmpty);
+    });
+  });
+}
+
+/// Ce que ce groupe protège : **un plafond n'est pas une mesure.**
+///
+/// `ping_shortlist` coupe à 500. Le client affichait ce nombre comme un total —
+/// « 500 personne(s) ont le ping actif » — alors qu'il y en avait peut-être
+/// trois mille. C'est le motif que ce projet traque partout : un chiffre qui a
+/// l'air d'être un fait alors que c'est la limite de l'instrument.
+class _DepotPlein extends PingRepository {
+  _DepotPlein(super.ref, this.rendus);
+
+  final int rendus;
+  final limitesRecues = <int>[];
+
+  @override
+  Future<PingShortlist> shortlist({
+    int limit = PingRepository.shortlistLimit,
+  }) async {
+    limitesRecues.add(limit);
+    return PingShortlist(
+      tokens: {for (var i = 0; i < rendus; i++) 'jeton-$i'},
+      atLeast: rendus >= limit,
+    );
+  }
+}
+
+void _troncature() {
+  group("un plafond atteint se DIT, il ne se lit pas comme un total", () {
+    _DepotPlein depot(int rendus) {
+      final c = ProviderContainer(
+        overrides: [
+          pingRepositoryProvider.overrideWith(
+            (ref) => _DepotPlein(ref, rendus),
+          ),
+        ],
+      );
+      addTearDown(c.dispose);
+      return c.read(pingRepositoryProvider) as _DepotPlein;
+    }
+
+    test("liste pleine : le compte est un PLANCHER", () async {
+      final liste = await depot(500).shortlist();
+      expect(liste.length, 500);
+      expect(
+        liste.atLeast,
+        isTrue,
+        reason:
+            "recevoir exactement ce qu'on demande ne prouve pas qu'il n'y en "
+            "avait pas plus — donc on n'affiche pas un total",
+      );
+    });
+
+    test("liste partielle : le compte est un TOTAL", () async {
+      final liste = await depot(3).shortlist();
+      expect(liste.length, 3);
+      expect(liste.atLeast, isFalse);
+    });
+
+    test(
+      "le client impose SA limite, il ne subit pas celle du serveur",
+      () async {
+        // Une limite subie doit être connue de celui qui la subit : sans la
+        // passer, le client ne peut pas savoir si la liste a été coupée.
+        final d = depot(10);
+        await d.shortlist(limit: 10);
+        expect(d.limitesRecues, [10]);
+        expect(PingRepository.shortlistLimit, 500);
+      },
+    );
+  });
+}
+
+/// Superviseur figé : on ne teste ici que l'intention, pas la radio.
+class _SuperviseurFaux extends ProximitySupervisor {
+  _SuperviseurFaux({required this.visible});
+  final bool visible;
+
+  @override
+  ProximityRuntime build() => ProximityRuntime(
+    wantsVisible: visible,
+    status: const RadioIdle(),
+    intentLoaded: true,
+  );
+}
+
+/// Balise figée — mais qui sait notifier, pour provoquer la reconstruction.
+class _BaliseFausse extends PingBeaconService {
+  @override
+  PingBeaconState build() => const PingBeaconState();
+
+  void bouger() => state = const PingBeaconState(listening: 1);
+}
+
+class _DepotFaux extends PingRepository {
+  _DepotFaux(super.ref);
+
+  @override
+  Future<List<NearbyPerson>> nearby() async => [
+    _personne('a', DateTime.now().toUtc()),
+  ];
 }

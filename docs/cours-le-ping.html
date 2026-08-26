@@ -87,6 +87,8 @@ ul{margin:8px 0 8px 20px;padding:0} li{margin:5px 0}
   <button data-go="7">8 · La distance</button>
   <button data-go="8">9 · Les bugs, expliqués</button>
   <button data-go="9">10 · La refonte du 18</button>
+  <button data-go="10">11 · Le ping v2 / v3</button>
+  <button data-go="11">12 · Ce que le 26 a corrigé</button>
 </nav>
 
 <main>
@@ -961,6 +963,377 @@ final peerInRangeProvider = …   // ← 25 s de souvenir, infini si relié</pre
   </div>
 </section>
 
+<!-- ================================================================= 11 -->
+<section>
+  <h2>Les trois âges de la découverte</h2>
+
+  <p>Les dix onglets précédents décrivent un système où <b>la radio fait tout</b> :
+  elle annonce, elle écoute, et elle va chercher l'identité elle-même. Ce système
+  existe toujours — c'est lui qui fait le croisement entre amis. Mais pour les
+  <b>inconnus</b>, il a heurté un mur, et il a fallu le remplacer.</p>
+
+  <div class="card bad">
+    <h3>Le mur : l'identité coûtait une connexion</h3>
+    <p class="big">Le jeton public est opaque. Savoir qui c'est exigeait donc
+    d'ouvrir une connexion GATT — <b>une par personne</b>.</p>
+    <p>Android en tient environ <b>sept simultanées</b>. Dans une salle de trente
+    personnes, la découverte ne pouvait pas aboutir : ce n'est pas qu'elle était
+    lente, c'est qu'elle était <b>impossible</b>. Et ce n'était pas un bug — c'était
+    la conséquence directe de « la radio va chercher l'identité elle-même ».</p>
+  </div>
+
+  <h3>Ce qui a changé, âge par âge</h3>
+
+  <table>
+    <tr>
+      <th>&nbsp;</th>
+      <th>v1 — jusqu'au 20 août</th>
+      <th>v2 — 25 août</th>
+      <th>v3 — 26 août</th>
+    </tr>
+    <tr>
+      <td><b>Reconnaître un ami</b></td>
+      <td>une <b>clé de diffusion</b> partagée avec <i>tous</i> les amis</td>
+      <td>un <b>secret par paire</b> (Diffie-Hellman), jamais transmis</td>
+      <td>idem, mais le jeton porte le <b>nom de son émetteur</b></td>
+    </tr>
+    <tr>
+      <td><b>Trouver un inconnu</b></td>
+      <td>BLE seul, puis <b>connexion GATT</b> pour savoir qui c'est</td>
+      <td>le <b>GPS oriente</b> (carreau d'1 km), le BLE prouve, <b>zéro connexion</b></td>
+      <td>idem, mais filtre par <b>distance réelle</b></td>
+    </tr>
+    <tr>
+      <td><b>Ce que le serveur garde</b></td>
+      <td>rien de spatial</td>
+      <td>un carreau d'~1 km</td>
+      <td>la <b>position exacte</b> + son incertitude</td>
+    </tr>
+    <tr>
+      <td><b>Émission</b></td>
+      <td colspan="2">un jeton à la fois, en <b>cycle</b> à 400 ms</td>
+      <td>tous les jetons <b>en même temps</b></td>
+    </tr>
+    <tr>
+      <td><b>Plafond d'échelle</b></td>
+      <td class="tag no">~7 personnes</td>
+      <td>des centaines</td>
+      <td>des centaines</td>
+    </tr>
+  </table>
+
+  <div class="card good">
+    <h3>Le renversement de la v2, en une phrase</h3>
+    <p class="big">La résolution d'identité passe du <b>téléphone</b> au
+    <b>serveur</b> — et la radio n'a plus qu'à <b>écouter</b>.</p>
+    <p>Écouter est une opération <b>passive et un-vers-tous</b> : elle ne coûte
+    rien de plus avec cent émetteurs qu'avec deux. Le mur des sept connexions
+    disparaît parce qu'<b>on n'ouvre plus aucune connexion</b>.</p>
+    <p class="muted">Le prix à payer : le serveur entre dans la boucle, alors
+    qu'il n'y était pas. C'est pour ça que la chaîne des <b>amis</b> ne l'a pas
+    suivi — elle n'a pas ce problème d'échelle, puisqu'un ami est reconnu
+    <b>à l'annonce</b>, sans rien demander à personne.</p>
+  </div>
+
+  <h3>La chaîne des inconnus, en cinq temps</h3>
+  <pre>1. je publie   → ma position + mon jeton du quart d'heure
+2. je demande  → la liste des JETONS à écouter (jamais des noms)
+3. j'écoute    → BLE passif, je ne retiens que ce qui est dans ma liste
+4. je dépose   → ce que j'ai entendu, groupé toutes les 10 s
+5. le miroir   → une paire ne naît QUE si l'autre a déposé le mien</pre>
+
+  <div class="card warn">
+    <h3>Pourquoi mentir sur sa position ne sert à rien</h3>
+    <p>Si je me déclare à l'autre bout de la ville, j'obtiens <b>la liste des
+    jetons de ce quartier</b>. Des suites d'octets. Pour en faire quoi que ce
+    soit, il faudrait que je les <b>entende</b> — donc que je sois physiquement
+    à vingt mètres de ces gens.</p>
+    <p class="big">Le GPS n'ouvre aucune porte tout seul. La porte, c'est le
+    Bluetooth qui l'ouvre.</p>
+    <p class="muted">C'est exactement ce qui manquait à Happn, où la position
+    déclarée <i>était</i> la preuve : des chercheurs ont pu envoyer trois fausses
+    positions, lire trois distances renvoyées, et retrouver l'adresse d'une cible
+    par trilatération.</p>
+  </div>
+
+  <h3>La grille, et pourquoi elle reste</h3>
+
+  <p>La v3 conserve la position exacte, mais <b>le carreau n'a pas disparu</b> —
+  il a changé de rôle. Il ne décide plus, il <b>indexe</b> : c'est lui qui permet
+  au serveur de trouver vite les balises voisines, sans calculer une distance
+  pour chaque balise du monde. Le rayon décide ensuite, à l'intérieur.</p>
+
+  <table>
+    <tr><th>Étage</th><th>Ce qu'il fait</th><th>Pourquoi lui</th></tr>
+    <tr>
+      <td><b>Le carreau</b><br><span class="faint">±1 case, ~1 km</span></td>
+      <td>écarte tout ce qui est loin</td>
+      <td>il se compare avec deux entiers — c'est ce qui va vite</td>
+    </tr>
+    <tr>
+      <td><b>Le rayon</b><br><span class="faint">300 m au minimum</span></td>
+      <td>écarte ce qui reste et qui est trop loin</td>
+      <td>il dit la vérité géographique, mais coûte un calcul</td>
+    </tr>
+    <tr>
+      <td><b>Le BLE</b><br><span class="faint">~20 m</span></td>
+      <td><b>prouve</b> la proximité</td>
+      <td>une onde a porté, ou non : ça ne se déclare pas</td>
+    </tr>
+  </table>
+
+  <div class="card">
+    <h3>Le seuil s'élargit quand la position est mauvaise</h3>
+    <p>Un rayon fixe ferait disparaître de la liste des gens réellement à portée
+    dès que le GPS se trompe — <b>et rien ne le dirait</b>. Le seuil vaut donc
+    <code>max(300 m, mon incertitude + la sienne)</code>. Quand on sait mal où
+    l'on est, on cherche large.</p>
+    <p class="tag ok">Propriété importante</p>
+    <p class="muted">Ce filtre ne peut que <b>retirer</b> des lignes que le
+    carreau avait déjà laissées passer. Il n'existe donc aucun cas où la v3 fait
+    trouver <b>moins</b> de monde que la v2 sans raison mesurée.</p>
+  </div>
+
+  <h3>La troncature : ce que « limite 500 » veut dire</h3>
+
+  <p>La liste des jetons à écouter est plafonnée à <b>500</b>. Si le voisinage
+  contient plus de 500 balises fraîches, le serveur <b>coupe</b> : il n'en renvoie
+  que 500. Les autres ne sont pas dans ma liste, donc je ne les retiendrai pas,
+  donc <b>je ne les verrai pas — même à trois mètres</b>.</p>
+
+  <div class="card warn">
+    <h3>Le tri décide de QUI on sacrifie</h3>
+    <p>Le plafond, lui, ne choisit pas : il coupe la fin de la liste. C'est donc
+    le <b>tri</b> qui décide de qui disparaît.</p>
+    <table>
+      <tr><th>&nbsp;</th><th>Tri</th><th>Qui est sacrifié</th></tr>
+      <tr>
+        <td>v2</td>
+        <td>par <b>fraîcheur</b> de balise</td>
+        <td class="tag no">celui qui a publié il y a 4 min — <b>peut-être juste à côté</b></td>
+      </tr>
+      <tr>
+        <td>v3</td>
+        <td>par <b>distance</b> croissante</td>
+        <td class="tag ok">les plus lointains — ceux qu'on n'avait aucune chance d'entendre</td>
+      </tr>
+    </table>
+    <p class="muted">Le tri chronologique n'était pas faux, il était
+    <b>sans rapport</b> avec la question posée. Trier par distance rend la
+    troncature inoffensive tant que moins de 500 personnes sont réellement autour
+    de nous — ce qui laisse de la marge.</p>
+  </div>
+</section>
+
+<!-- ================================================================= 12 -->
+<section>
+  <h2>Le 26 août : quand le schéma est juste et le produit ne marche pas</h2>
+
+  <p>Le 26 août, deux téléphones à deux mètres l'un de l'autre, ping activé des
+  deux côtés, ne se voyaient pas. <b>Zéro rencontre en base.</b> L'architecture
+  décrite dans l'onglet précédent était pourtant exacte.</p>
+
+  <div class="card bad">
+    <h3>Ce que les quatre pannes avaient en commun</h3>
+    <p class="big">Aucune n'était visible sur un schéma d'architecture.</p>
+    <p>Un jeton symétrique. Une adresse prise pour une identité. Une permission
+    déduite d'un cache. Un état lu avant d'exister. <b>Rien de tout cela
+    n'apparaît quand on dessine des flèches entre des boîtes</b> — et l'une des
+    quatre était même recommandée par les documents d'architecture consultés.</p>
+  </div>
+
+  <h3>① Le jeton d'ami était symétrique</h3>
+
+  <p>Le secret d'une paire vient de Diffie-Hellman : les deux côtés obtiennent
+  <b>la même valeur</b>. C'est la propriété qu'on veut. Mais le jeton diffusé en
+  dérivait directement :</p>
+
+  <pre>AVANT   mon jeton pour Mimi  =  HMAC(secret, créneau)
+        son jeton pour moi   =  HMAC(secret, créneau)   ← LA MÊME VALEUR</pre>
+
+  <p>Or un téléphone doit écarter ses <b>propres</b> annonces — il peut les capter
+  par réflexion, par un relais, ou parce que sa puce les lui remonte. Il compare
+  donc ce qu'il entend à ce qu'il vient de crier. Et comme les deux valeurs sont
+  identiques…</p>
+
+  <div class="card bad">
+    <p class="big">Le filtre anti-soi jetait <b>toutes</b> les annonces de l'ami.</p>
+    <p>« C'est moi » et « c'est lui » étaient <b>indiscernables par la valeur</b>.
+    Le croisement d'amis en BLE était structurellement impossible, et aucune
+    erreur n'était levée.</p>
+    <p class="tag no">La preuve était dans les compteurs, sans qu'on la lise</p>
+    <p class="muted">Sur les deux appareils, les annonces se répartissaient
+    presque exactement moitié/moitié entre « écartées comme les nôtres » et le
+    reste : <b>317 contre 321</b> sur le téléphone, <b>710 contre 721</b> sur la
+    tablette. Exactement ce que prédit un émetteur qui alterne un jeton public et
+    un jeton d'ami : <b>une annonce sur deux</b> avalée.</p>
+  </div>
+
+  <div class="card good">
+    <h3>Le correctif : donner un sens au jeton</h3>
+    <pre>APRÈS   mon jeton pour Mimi  =  HMAC(secret, créneau | MON nom)
+        son jeton pour moi   =  HMAC(secret, créneau | SON nom)</pre>
+    <p>Chacun émet le sien, écoute celui de l'autre. Les deux restent calculables
+    des deux côtés — c'est la même clé. Le filtre anti-soi redevient
+    <b>exact</b> au lieu d'être destructeur.</p>
+    <p class="muted">On supprime la cause, on ne garde pas le garde-fou : tant
+    que les deux côtés criaient la même valeur, aucune garde n'aurait pu les
+    distinguer.</p>
+  </div>
+
+  <h3>② Une adresse BLE n'est pas une identité</h3>
+
+  <p>Android tire une <b>nouvelle adresse aléatoire</b> à chaque démarrage
+  d'annonce. Et le service en redémarrait une toutes les 400 ms, pour changer de
+  jeton. La présence, elle, était indexée <b>par adresse</b>.</p>
+
+  <table>
+    <tr><th>Symptôme observé</th><th>Cause</th></tr>
+    <tr>
+      <td>« 6 appareils détectés », puis 13, chiffre instable</td>
+      <td>un téléphone = une adresse toutes les 400 ms = une ligne de plus</td>
+    </tr>
+    <tr>
+      <td>« Vérification chiffrée en cours… » sans fin</td>
+      <td>il faut <b>10 s de contact continu</b> avant d'ouvrir un lien. Aucune
+      session ne vivait plus de 400 ms : <b>aucun lien n'était jamais tenté</b></td>
+    </tr>
+  </table>
+
+  <p>Le registre indexe désormais <b>par jeton</b> — qui vaut pour tout un quart
+  d'heure — et garde l'adresse pour ce qu'elle est : une clé de <b>transport</b>,
+  celle par laquelle on ouvre un lien.</p>
+
+  <h3>③ Le mode d'émission : pourquoi le cycle ne passe pas à l'échelle</h3>
+
+  <p>Une annonce BLE ne porte <b>qu'un seul</b> jeton — 31 octets en tout, on en
+  utilise 20. Avec un ami, il faut donc crier un jeton ; avec dix amis, dix
+  jetons différents. Cette contrainte est réelle et n'a pas changé.</p>
+
+  <div class="card warn">
+    <p class="big">Ce qui a changé, c'est qu'un téléphone peut faire tourner
+    <b>plusieurs annonceurs à la fois</b>.</p>
+    <p>« Une annonce ne porte qu'un jeton » reste vrai. Mais la radio accepte
+    <b>plusieurs jeux d'annonces simultanés</b> (<code>startAdvertisingSet</code>,
+    Android 8+) : chacun porte son jeton, et tous émettent en permanence.
+    L'hypothèse « donc il faut cycler » était la conclusion de trop.</p>
+  </div>
+
+  <div class="lab">
+    <h3>Le coût du cycle, en fonction du nombre d'amis</h3>
+    <div class="row">
+      <label class="muted">Amis : <b id="amisN" class="mono">1</b></label>
+      <input id="amisR" type="range" min="1" max="20" value="1" style="flex:1;min-width:220px">
+    </div>
+    <div class="row top" style="margin-top:12px">
+      <div class="col">
+        <p class="tag no">Cycle — un jeton à la fois</p>
+        <div id="barCycle" style="height:22px;border-radius:6px;background:var(--panel);border:1px solid var(--line);overflow:hidden">
+          <div style="height:100%;background:var(--no);width:100%"></div>
+        </div>
+        <p class="faint" id="txtCycle">un ami donné est annoncé 100 % du temps</p>
+      </div>
+      <div class="col">
+        <p class="tag ok">Parallèle — tous en même temps</p>
+        <div style="height:22px;border-radius:6px;background:var(--panel);border:1px solid var(--line);overflow:hidden">
+          <div style="height:100%;background:var(--ok);width:100%"></div>
+        </div>
+        <p class="faint">un ami donné est annoncé <b>100 % du temps</b>, quel que
+        soit leur nombre</p>
+      </div>
+    </div>
+    <p class="faint" id="txtRate">&nbsp;</p>
+  </div>
+
+  <div class="card bad">
+    <h3>Pourquoi c'est le pire des défauts</h3>
+    <p class="big">Il s'aggrave à mesure que l'app réussit.</p>
+    <p>Plus on a d'amis, moins on les croise. Un utilisateur avec dix amis voit
+    le jeton de chacun 10 % du temps ; quelqu'un croisé trois secondes dans un
+    couloir pouvait n'être <b>jamais</b> vu. Et comme le croisement raté ne lève
+    rien, l'app aurait paru fonctionner de moins en moins bien sans que personne
+    ne sache pourquoi.</p>
+  </div>
+
+  <p class="muted">Ce n'était pas une découverte : la dette était <b>écrite et
+  assumée</b> depuis le 20 août — l'architecture adaptative était décidée, la
+  sonde de capacités existait, seul le chemin multi-annonces manquait. Ce qui
+  manquait vraiment, c'est que la sonde <b>n'apparaissait dans aucun rapport de
+  diagnostic</b> : la consigne disait « relever avant d'écrire », et l'instrument
+  ne rendait pas la mesure.</p>
+
+  <h3>④ Une permission ne se déduit pas d'un cache</h3>
+
+  <p>L'app concluait « position approximative » en lisant la précision de la
+  <b>dernière position connue</b> : au-delà de 500 m, elle déclarait la permission
+  insuffisante. C'est un raisonnement sur un cache, pas sur une permission.</p>
+
+  <div class="card bad">
+    <p>Un vieux point issu du réseau dépasse couramment 500 m <b>même quand la
+    position précise est accordée</b>. L'app réclamait donc un réglage déjà fait —
+    et le blocage était <b>sans issue</b> : tant que le cache était mauvais,
+    aucune vraie lecture GPS n'était jamais tentée.</p>
+    <p class="tag no">Effet en cascade, mesuré en base</p>
+    <p class="muted">Le téléphone n'a jamais publié sa balise. Donc la tablette
+    n'a trouvé personne dans son quartier, et a affiché « il n'y a personne aux
+    alentours ». <b>Les deux symptômes rapportés n'en faisaient qu'un.</b></p>
+  </div>
+
+  <p>La finesse accordée est désormais <b>relevée auprès d'Android</b>, et
+  « approximative » est devenu un <b>avertissement</b>, plus un mur : une position
+  imprécise reste une position, donc un fait publiable. Bloquer garantissait
+  l'échec là où publier ne donne, au pire, que le même échec.</p>
+
+  <h3>⑤ L'attaque par relais</h3>
+
+  <p>Un tiers capte l'annonce d'Alice à Paris et la rejoue à Tokyo. Bob l'entend,
+  la dépose ; Alice fait de même de son côté. Le serveur voyait deux constats
+  réciproques et créait une rencontre — <b>entre deux personnes qui ne se sont
+  jamais vues, et qui n'y sont pour rien</b>.</p>
+
+  <div class="card good">
+    <p>Le serveur exige maintenant que les <b>deux balises</b> soient à portée
+    l'une de l'autre. Leurs positions déclarées sont vraies et distantes de
+    9 700 km : le constat est refusé.</p>
+    <p class="tag ok">Et un second trou fermé au passage</p>
+    <p class="muted">On pouvait <b>déposer sans jamais s'annoncer</b> : la règle
+    « on n'écoute que si on s'annonce » ne vivait que dans la fonction qui rend la
+    liste, donc ne tenait que par la bonne volonté du client.</p>
+  </div>
+
+  <div class="card warn">
+    <h3>Ce que ça n'arrête pas</h3>
+    <p>Le <b>mensonge</b>. Un client modifié peut inventer sa position — mais il
+    lui faut alors un complice qui mente de façon cohérente, et deux complices ont
+    toujours pu se déclarer proches. C'est irréductible. Ce qui est fermé, c'est
+    le cas où les <b>victimes</b> n'y sont pour rien.</p>
+  </div>
+
+  <h3>Le tableau qu'il faut retenir</h3>
+
+  <table>
+    <tr><th>Ce qui a échoué</th><th>Se voyait-il ?</th><th>Ce qui l'a révélé</th></tr>
+    <tr><td>Jeton d'ami symétrique</td><td class="tag no">non</td><td>un compteur, lu comme un ratio</td></tr>
+    <tr><td>Adresse prise pour identité</td><td class="tag no">non</td><td>un chiffre « impossible » signalé par l'utilisateur</td></tr>
+    <tr><td>Cycle 1/N</td><td class="tag no">non</td><td>en cherchant la cause d'autre chose</td></tr>
+    <tr><td>Permission déduite d'un cache</td><td class="tag no">non</td><td>une ligne en base : zéro balise là où il en fallait deux</td></tr>
+    <tr><td>Attaque par relais</td><td class="tag no">non</td><td>une lecture extérieure, pas le code</td></tr>
+  </table>
+
+  <div class="card good">
+    <h3>La leçon de méthode</h3>
+    <p class="big">Aucune de ces pannes n'était une panne d'architecture.</p>
+    <p>Tenir la bonne architecture est nécessaire — mais ça n'a jamais été ce qui
+    manquait. Les défauts vivent deux étages plus bas, là où aucun schéma ne
+    descend, et <b>ils ne se voient qu'en comptant</b> : des annonces, des
+    sessions, des lignes en base.</p>
+    <p class="tag ok">Le seul chiffre qui tranche</p>
+    <p class="muted">Une architecture n'est pas validée parce qu'elle est
+    cohérente. Elle l'est le jour où la table des rencontres contient
+    <b>une ligne</b>. Au 26 août au soir, elle en contient <b>zéro</b>.</p>
+  </div>
+</section>
+
 </main>
 
 <script>
@@ -1274,6 +1647,30 @@ function drawFresh() {
         : 'refermée, et la radio coupée avec');
 }
 if (frT) { frT.oninput = drawFresh; drawFresh(); }
+
+/* ------------------------------------------------- le cout du cycle (1/N) */
+const amisR = document.getElementById('amisR');
+function drawAmis() {
+  // +1 : l'identifiant public du ping partage le meme cycle que les amis.
+  const amis = +amisR.value;
+  const jetons = amis + 1;
+  const part = 100 / jetons;
+  document.getElementById('amisN').textContent = amis;
+  document.getElementById('barCycle').firstElementChild.style.width = part + '%';
+  document.getElementById('txtCycle').innerHTML =
+    'un ami donn\u00e9 est annonc\u00e9 <b>' + part.toFixed(0) + ' %</b> du temps' +
+    (jetons > 1 ? ' <span class="faint">(' + jetons + ' jetons \u00e0 crier : ' +
+      amis + ' ami' + (amis > 1 ? 's' : '') + ' + l\'identifiant public)</span>' : '');
+  const cycleMs = 400 * jetons;
+  document.getElementById('txtRate').innerHTML =
+    'En cycle, son jeton repasse toutes les <b>' + (cycleMs / 1000).toFixed(1) +
+    ' s</b>. Quelqu\'un crois\u00e9 <b>3 s</b> dans un couloir a donc ' +
+    (cycleMs > 3000
+      ? '<b style="color:var(--no)">de bonnes chances de n\'\u00eatre jamais vu</b>.'
+      : 'de bonnes chances d\'\u00eatre vu.') +
+    ' En parall\u00e8le, il est vu <b>tout de suite</b>.';
+}
+if (amisR) { amisR.oninput = drawAmis; drawAmis(); }
 </script>
 </body>
 </html>

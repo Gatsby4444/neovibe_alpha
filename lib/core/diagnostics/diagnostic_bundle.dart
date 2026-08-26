@@ -5,6 +5,7 @@ import '../../features/cards/native_camera.dart';
 import 'app_log.dart';
 import 'card_rules_trace.dart';
 
+import '../../features/proximity/geo/coarse_location.dart';
 import '../../features/proximity/net/ble_radio.dart';
 import '../../features/proximity/net/connection_trace.dart';
 import '../../features/proximity/net/transport_trace.dart';
@@ -157,6 +158,11 @@ class DiagnosticBundle {
         'neoScans',
         'otherVersionScans',
         'protocolVersion',
+        'advertMode',
+        'advertTokensPerSlot',
+        'multipleAdvertisement',
+        'extendedAdvertising',
+        'maxAdvertisingDataLength',
         'needsLocation',
         'fgsLocationType',
         'locationEnabled',
@@ -194,6 +200,40 @@ class DiagnosticBundle {
         buffer.writeln(
           'LECTURE : la radio livre ($raw), mais aucune annonce NeoVibe. '
           'L\'écoute marche ; c\'est la diffusion d\'en face qui n\'arrive pas.',
+        );
+      }
+
+      // ⚠️ **La ligne qui aurait fait gagner une journée le 2026-08-26.**
+      //
+      // Le jeton d'ami était alors symétrique : celui qu'on émet valait
+      // exactement celui qu'on attend, donc le filtre anti-auto-détection
+      // jetait toutes les annonces de l'ami — comptées en `selfScans`. Le
+      // rapport portait le chiffre (317 contre 321 d'annonces retenues, soit
+      // une sur deux) sans que rien ne dise ce qu'il fallait en lire.
+      //
+      // Le protocole 5 rend les deux sens distincts : au-delà de quelques
+      // unités, ce compteur redevient un signal.
+      // ⚠️ **Le mode d'émission décide de la moitié des croisements ratés.**
+      // En `cycle`, un ami n'est annoncé que 1/N du temps : à dix amis, 10 %.
+      // Sans cette ligne, un croisement manqué ressemble à une panne de radio.
+      if (stats['advertMode'] == 'cycle') {
+        final n = stats['advertTokensPerSlot'] as int? ?? 0;
+        if (n > 1) {
+          buffer.writeln(
+            "LECTURE : émission en CYCLE sur $n jetons — chacun n'est "
+            "en l'air qu'environ ${(100 / n).round()} % du temps. Le repli "
+            "s'est déclenché : cet appareil n'a pas accepté les "
+            "annonces simultanées.",
+          );
+        }
+      }
+
+      final self = stats['selfScans'] as int?;
+      if (self != null && neo != null && neo > 0 && self * 3 > neo) {
+        buffer.writeln(
+          'LECTURE : $self annonces sur $neo écartées comme « les nôtres ». '
+          'Au-delà de quelques-unes, c\'est que deux appareils calculent le '
+          'MÊME jeton — le sens du jeton d\'ami est perdu (protocole < 5).',
         );
       }
 
@@ -245,6 +285,32 @@ class DiagnosticBundle {
   ///
   /// Les drapeaux permettent d'en produire une partie seulement — l'écran des
   /// temps d'ouverture copie ses seules mesures.
+  /// Ce que le ping v2 sait de la position — **des faits, pas un verdict**.
+  ///
+  /// ⚠️ **Cette section manquait, et son absence a coûté un aller-retour.** Le
+  /// 2026-08-26, un appareil affichait « position approximative » et l'autre
+  /// non ; rien dans le rapport ne permettait de trancher entre « la permission
+  /// précise n'est pas accordée » et « le dernier point en cache est mauvais ».
+  /// Il a fallu lire le code pour le savoir. Un instrument qui ne peut pas
+  /// mesurer la chose qu'on soupçonne ne sert à rien.
+  static Future<String> location() async {
+    final buffer = StringBuffer();
+    try {
+      const geo = CoarseLocation();
+      final blocker = await geo.blocker();
+      final precision = await geo.precision();
+      buffer
+        ..writeln('service actif : ${blocker != LocationBlocker.serviceOff}')
+        ..writeln('blocage       : ${blocker?.name ?? 'aucun'}')
+        ..writeln('finesse       : ${precision.name}');
+      final fix = await geo.current();
+      buffer.writeln('carreau       : ${fix ?? 'aucune position lisible'}');
+    } catch (e) {
+      buffer.writeln('relevé impossible : $e');
+    }
+    return buffer.toString();
+  }
+
   static Future<String> build({
     bool device = true,
     bool video = true,
@@ -275,7 +341,9 @@ class DiagnosticBundle {
         ..writeln('\n===== PROXIMITÉ — CE QUE LE TRANSPORT A PERDU =====')
         ..writeln(transport())
         ..writeln('\n===== CONNEXIONS — DEMANDES ET SYNCHRONISATION =====')
-        ..writeln(connections());
+        ..writeln(connections())
+        ..writeln('\n===== POSITION — CE QU\'ANDROID A ACCORDÉ =====')
+        ..writeln(await location());
     }
 
     if (video) {

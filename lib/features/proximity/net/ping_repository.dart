@@ -18,12 +18,17 @@ class PingRepository {
 
   final Ref ref;
 
-  /// Publie ma balise : mon carreau et le jeton public que je crie.
+  /// Publie ma balise : ma position, son incertitude, et le jeton que je crie.
   ///
-  /// ⚠️ **On envoie la position brute, et c'est le SERVEUR qui l'arrondit.**
-  /// Si le client envoyait déjà le carreau, la table dépendrait de ce qu'il veut
-  /// bien arrondir — et un client modifié pourrait s'annoncer où il veut, aussi
-  /// finement qu'il veut.
+  /// ⚠️ **La position exacte est envoyée ET conservée** — décision de Jay du
+  /// 2026-08-26. Le serveur en tire le carreau (une seule définition de la
+  /// grille, chez lui), mais garde la valeur : c'est elle qui permet le filtre
+  /// par distance réelle et la barrière anti-relais de `confirm_ping`.
+  ///
+  /// ⚠️ **L'incertitude part avec, et ce n'est pas décoratif.** Sans elle, le
+  /// serveur appliquerait un rayon fixe à une position dont il ignore la
+  /// qualité — et ferait disparaître de la liste des gens réellement à portée,
+  /// sans que rien ne le dise. Voir `private.ping_reach`.
   Future<void> publishBeacon({
     required CoarseFix fix,
     required Uint8List token,
@@ -35,6 +40,7 @@ class PingRepository {
         params: {
           'p_lat': fix.latitude,
           'p_lon': fix.longitude,
+          'p_acc': fix.accuracy,
           'p_token': _hex(token),
           'p_slot': slot,
         },
@@ -48,18 +54,35 @@ class PingRepository {
   Future<void> retireBeacon() =>
       ref.read(supabaseProvider).rpc('retire_ping_beacon');
 
+  /// Le plafond que **le client** demande.
+  ///
+  /// ⚠️ **Il est passé explicitement, et ce n'est pas cosmétique.** Il valait le
+  /// défaut du serveur : le client recevait donc une liste éventuellement
+  /// **coupée sans le savoir**, et l'écran affichait « 500 personnes » comme un
+  /// fait alors que c'était la limite de l'instrument. Une limite subie doit
+  /// être connue de celui qui la subit.
+  static const shortlistLimit = 500;
+
   /// La liste des jetons à écouter.
   ///
   /// ⚠️ **Des jetons, jamais des profils.** Sans être physiquement à portée BLE
   /// de l'un d'eux, cette liste n'apprend rigoureusement rien : ni qui, ni
   /// combien de personnes distinctes, ni où. C'est une liste de choses à
   /// écouter, pas une liste de gens.
-  Future<Set<String>> shortlist() async {
-    final rows = await ref.read(supabaseProvider).rpc('ping_shortlist');
-    return {
+  Future<PingShortlist> shortlist({int limit = shortlistLimit}) async {
+    final rows = await ref
+        .read(supabaseProvider)
+        .rpc('ping_shortlist', params: {'p_limit': limit});
+    final tokens = {
       for (final row in (rows as List? ?? const []))
         (row as Map)['token'] as String,
     };
+    // ⚠️ **On ne devine pas la troncature, on borne ce qu'on affirme.**
+    // Recevoir exactement ce qu'on a demandé ne prouve pas qu'il y en avait
+    // plus — mais faire porter le total par chaque ligne coûterait ~7 Ko de
+    // réseau sur les 48 Ko mesurés. « Au moins N » est vrai dans les deux cas ;
+    // « N » ne l'est que dans l'un des deux.
+    return PingShortlist(tokens: tokens, atLeast: tokens.length >= limit);
   }
 
   /// Dépose ce que j'ai **entendu**. Rend le nombre de constats retenus.
@@ -103,6 +126,23 @@ class PingRepository {
 
   static String _hex(List<int> bytes) =>
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+}
+
+/// La liste des jetons a ecouter, **et si elle a ete coupee**.
+///
+/// ⚠️ **Deux faits distincts, donc deux champs.** Le nombre de jetons rendus et
+/// « y en avait-il plus ? » ne répondent pas à la même question, et les
+/// confondre fait afficher une limite comme si c'était une mesure.
+class PingShortlist {
+  const PingShortlist({required this.tokens, required this.atLeast});
+
+  final Set<String> tokens;
+
+  /// Vrai quand le serveur a rendu **au moins** autant qu'on lui en demandait :
+  /// le compte affiche est alors un plancher, pas un total.
+  final bool atLeast;
+
+  int get length => tokens.length;
 }
 
 /// Quelqu'un dont la proximité a été **prouvée des deux côtés**.

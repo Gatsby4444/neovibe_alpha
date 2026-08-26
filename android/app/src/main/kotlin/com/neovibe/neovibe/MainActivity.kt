@@ -16,6 +16,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var nativePlayer: NativePlayer? = null
     private var nativeDiagnostics: NativeDiagnostics? = null
     private var nativeInstall: NativeInstall? = null
+    private var locationGrant: LocationGrant? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -48,6 +49,12 @@ class MainActivity : FlutterFragmentActivity() {
         // depuis un contexte d'application exigerait NEW_TASK et perdrait le
         // retour visuel vers l'app.
         nativeInstall = NativeInstall(this, flutterEngine.dartExecutor.binaryMessenger)
+        // `applicationContext` : on ne fait que LIRE une permission, il n'y a
+        // aucune raison de retenir l'activite pour ca.
+        locationGrant = LocationGrant(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
     }
 
     override fun onDestroy() {
@@ -62,6 +69,8 @@ class MainActivity : FlutterFragmentActivity() {
         proximity = null
         nativeInstall?.dispose()
         nativeInstall = null
+        locationGrant?.dispose()
+        locationGrant = null
         super.onDestroy()
     }
 }
