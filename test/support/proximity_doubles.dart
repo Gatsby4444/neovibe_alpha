@@ -18,9 +18,26 @@ import 'package:neovibe/features/proximity/proximity_identity.dart';
 /// différentes et des méthodes qui ont divergé. Deux doubles d'un même objet
 /// finissent toujours par tester deux choses différentes.
 class IdentiteMemoire implements ProximityIdentity {
-  IdentiteMemoire._(this._pair, this._pub, this._x, this._xPub, this._pingSeed);
+  IdentiteMemoire._(
+    this.userId,
+    this._pair,
+    this._pub,
+    this._x,
+    this._xPub,
+    this._pingSeed,
+  );
 
-  static Future<IdentiteMemoire> creer({int graine = 1}) async {
+  /// L'identifiant de compte de **cet appareil**.
+  ///
+  /// ⚠️ **Il ne décore pas le double, il est dans le protocole** : depuis le
+  /// 2026-08-26 le jeton d'ami porte le nom de celui qui l'émet. Sans lui, le
+  /// double ne saurait pas fabriquer une annonce que l'autre reconnaîtra.
+  final String userId;
+
+  static Future<IdentiteMemoire> creer({
+    int graine = 1,
+    String userId = 'u-double',
+  }) async {
     final pair = await Ed25519().newKeyPairFromSeed(
       List<int>.generate(32, (i) => (i * 7 + graine) % 256),
     );
@@ -33,6 +50,7 @@ class IdentiteMemoire implements ProximityIdentity {
     );
     final xPub = await x.extractPublicKey();
     return IdentiteMemoire._(
+      userId,
       pair,
       Uint8List.fromList(pub.bytes),
       x,
@@ -123,6 +141,11 @@ class IdentiteMemoire implements ProximityIdentity {
     return ProximityIdentity.pairToken(
       secret,
       slot ?? ProximityIdentity.slotIndex(DateTime.now()),
+      // ⚠️ **C'est MOI qui émets.** Mettre ici l'identifiant du destinataire
+      // ferait fabriquer au double exactement le jeton que le destinataire
+      // s'apprête à crier — donc celui que son propre filtre anti-soi jette.
+      // C'est la panne du 2026-08-26, reproduite dans les tests.
+      emitter: userId,
     );
   }
 }

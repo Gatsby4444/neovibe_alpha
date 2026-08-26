@@ -141,10 +141,20 @@ class AdvertPlanner {
 
   final int tolerance;
 
+  /// [meUserId] : **mon** identifiant de compte. C'est lui qui donne son sens à
+  /// chaque jeton d'ami — voir [ProximityIdentity.pairToken].
+  ///
+  /// ⚠️ **`null` = on n'émet aucun jeton d'ami**, et c'est délibéré. Sans
+  /// identifiant, la seule chose qu'on saurait crier est la valeur symétrique
+  /// d'avant le 2026-08-26, que plus personne n'écoute : ce serait une radio
+  /// bruyante et muette, indiscernable d'une radio saine. Le silence, lui, se
+  /// constate. L'identifiant public du ping, qui ne dépend que d'une graine
+  /// locale, part quand même.
   Future<AdvertPlan> plan({
     required Map<String, Uint8List> secrets,
     required int fromSlot,
     required int slots,
+    required String? meUserId,
     Uint8List? pingSeed,
   }) async {
     final tokens = <AdvertToken>[];
@@ -162,11 +172,18 @@ class AdvertPlanner {
           ),
         );
       }
+      if (meUserId == null) continue;
       for (final entry in secrets.entries) {
         tokens.add(
           AdvertToken(
             slot: slot,
-            bytes: await ProximityIdentity.pairToken(entry.value, slot),
+            // ⚠️ **C'est MOI qui émets** : le sens du jeton porte mon nom, pas
+            // celui de l'ami. L'inverse rendrait les deux appareils sourds.
+            bytes: await ProximityIdentity.pairToken(
+              entry.value,
+              slot,
+              emitter: meUserId,
+            ),
             audience: entry.key,
           ),
         );
@@ -200,7 +217,13 @@ class AdvertPlanner {
     var pos = 0;
     for (var slot = fromSlot; slot < fromSlot + slots; slot++) {
       for (final userId in ordre) {
-        final token = await ProximityIdentity.pairToken(secrets[userId]!, slot);
+        // ⚠️ **C'est LUI qui émet** : on prépare ici ce qu'on s'attend à
+        // ENTENDRE, donc le sens porte le nom de l'ami. Symétrique de `plan`.
+        final token = await ProximityIdentity.pairToken(
+          secrets[userId]!,
+          slot,
+          emitter: userId,
+        );
         flat.setRange(pos, pos + ProximityIdentity.tokenLength, token);
         pos += ProximityIdentity.tokenLength;
       }
@@ -227,7 +250,13 @@ class AdvertPlanner {
     final byToken = <String, String>{};
     for (var s = slot - tolerance; s <= slot + tolerance; s++) {
       for (final entry in secrets.entries) {
-        final token = await ProximityIdentity.pairToken(entry.value, s);
+        // ⚠️ **C'est LUI qui émet** — même sens que `nativeTable`. Voir
+        // [ProximityIdentity.pairToken].
+        final token = await ProximityIdentity.pairToken(
+          entry.value,
+          s,
+          emitter: entry.key,
+        );
         byToken[ProximityIdentity.hex(token)] = entry.key;
       }
     }

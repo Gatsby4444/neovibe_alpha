@@ -15,6 +15,9 @@ import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
+import android.bluetooth.le.AdvertisingSet
+import android.bluetooth.le.AdvertisingSetCallback
+import android.bluetooth.le.AdvertisingSetParameters
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanCallback.SCAN_FAILED_ALREADY_STARTED
 import android.bluetooth.le.ScanCallback.SCAN_FAILED_APPLICATION_REGISTRATION_FAILED
@@ -71,6 +74,16 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         fun onScan(address: String, advertId: ByteArray, rssi: Int, txPower: Int, type: Byte)
         fun onLink(linkId: String, connected: Boolean, mtu: Int, incoming: Boolean)
         fun onFrame(linkId: String, data: ByteArray)
+
+        /**
+         * Le mode d'emission PARALLELE n'a pas pu tenir, il faut revenir au
+         * cycle.
+         *
+         * ⚠️ **Le moteur ne decide pas du repli tout seul** : c'est le service
+         * qui detient le plan et l'heure, donc lui seul sait quoi crier ensuite.
+         * Le moteur constate et le dit — il ne va pas chercher le plan.
+         */
+        fun onParallelAdvertLost(reason: String)
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -80,6 +93,58 @@ class BleEngine(private val context: Context, private val listener: Listener) {
 
     private var advertising = false
     private var scanning = false
+
+    // ------------------------------------------------------------------
+    // Emission PARALLELE — la correction du 2026-08-26
+    // ------------------------------------------------------------------
+    //
+    // ## Ce que le mode CYCLE coutait, et pourquoi ce n'est pas une optimisation
+    //
+    // Avec plusieurs jetons a crier (un par ami, plus l'identifiant public du
+    // ping), le service en emettait **un a la fois** et tournait toutes les
+    // 400 ms. Trois consequences, toutes silencieuses :
+    //
+    // 1. **Un ami n'etait annonce que 1/N du temps.** A dix amis, son jeton
+    //    partait 400 ms toutes les 4 secondes — 10 % du temps. Quelqu'un qu'on
+    //    croise trois secondes dans un couloir pouvait ne JAMAIS etre vu. Le
+    //    croisement devenait probabiliste, et il ratait d'autant plus qu'on a
+    //    d'amis : **le mode cycle ne passe pas a l'echelle.**
+    // 2. **Chaque rotation retirait puis relancait l'annonce**, et Android tire
+    //    une nouvelle adresse aleatoire a chaque demarrage : un seul appareil
+    //    apparaissait comme six. (Traite aussi cote Dart, par l'index par jeton.)
+    // 3. **Entre le stop et le start, `advertising` valait false**, et l'ecran
+    //    affichait « Tu n'es pas annonce » — deux fois et demie par seconde.
+    //
+    // Ici, chaque jeton a son propre jeu d'annonces, tous emis **en permanence**.
+    // Au changement de creneau, on remplace les donnees **sans arreter** le jeu :
+    // l'adresse ne change donc pas non plus.
+    //
+    // ⚠️ **Le repli est le filet, et il doit rester exact.** Le nombre de jeux
+    // simultanes depend du controleur et n'est expose par aucune API : on tente,
+    // et le premier echec fait revenir au cycle pour tout le monde. Un mode
+    // parallele a moitie demarre serait pire que le cycle — certains amis
+    // annonces, d'autres pas, sans que rien ne le dise.
+
+    /** Les jeux d'annonces vivants, par rang dans le creneau. */
+    private val advertSets = HashMap<Int, AdvertisingSet>()
+
+    /** Les rappels correspondants — `stopAdvertisingSet` exige le meme objet. */
+    private val advertSetCallbacks = HashMap<Int, AdvertSetCallback>()
+
+    /** Ce qu'on a demande, pour savoir quand tout est confirme. */
+    private var parallelExpected = 0
+
+    /**
+     * Le parallele a echoue une fois : on ne le retente plus de la session.
+     *
+     * ⚠️ Sans ce drapeau, un appareil qui refuse le multi-advertising
+     * reessaierait a chaque creneau et passerait son temps a basculer.
+     */
+    private var parallelRefused = false
+
+    /** Vrai quand l'emission tourne en mode parallele. Lu par le diagnostic. */
+    var parallelAdvertising = false
+        private set
     private var gattServer: BluetoothGattServer? = null
     private var txCharacteristic: BluetoothGattCharacteristic? = null
 
@@ -303,6 +368,166 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         publish(currentStatus())
     }
 
+    /**
+     * Combien de jeux d'annonces on accepte de tenter simultanement.
+     *
+     * ⚠️ **Une borne RAISONNEE, pas mesuree** (2026-08-26). Les controleurs
+     * BLE courants tiennent 4 a 8 jeux ; aucune API ne le dit. Au-dela, on ne
+     * tente meme pas : quelqu'un qui a vingt amis aurait vingt jeux, le
+     * controleur refuserait, et on aurait paye une bascule pour rien. C'est la
+     * premiere valeur a confronter au terrain.
+     */
+    private val maxParallelSets = 6
+
+    /**
+     * Peut-on esperer emettre [count] jetons en meme temps ?
+     *
+     * ⚠️ **On demande a l'adaptateur, on ne deduit pas du modele** - meme
+     * raisonnement que [advertCapabilities].
+     */
+    private fun parallelPossible(count: Int): Boolean =
+        !parallelRefused &&
+            count in 2..maxParallelSets &&
+            (adapter?.isMultipleAdvertisementSupported == true)
+
+    /** Le contenu d'une annonce. **Un seul endroit le compose.** */
+    private fun advertDataFor(advertId: ByteArray, type: Byte): AdvertiseData =
+        AdvertiseData.Builder()
+            .addManufacturerData(
+                BleConstants.MANUFACTURER_ID,
+                BleConstants.MAGIC +
+                    byteArrayOf(BleConstants.PROTOCOL_VERSION, type) +
+                    advertId,
+            )
+            .setIncludeDeviceName(false)
+            .setIncludeTxPowerLevel(true)
+            .build()
+
+    /**
+     * Depose ce qu'il faut crier pour le creneau courant, **tout en meme
+     * temps**.
+     *
+     * Rend `false` si l'appelant doit se rabattre sur le cycle.
+     *
+     * ⚠️ **Met a jour SANS redemarrer quand c'est possible.** Un jeu qu'on
+     * arrete et relance repart avec une nouvelle adresse aleatoire - c'est
+     * exactement ce qu'on cherche a supprimer. `setAdvertisingData` remplace le
+     * contenu et laisse l'adresse tranquille.
+     */
+    fun applyAdverts(ids: List<ByteArray>, types: ByteArray): Boolean {
+        if (evaluateRadio(context) != null) return false
+        ids.forEach { rememberOwnToken(it) }
+        if (!parallelPossible(ids.size)) return false
+
+        if (parallelAdvertising && advertSets.size == ids.size) {
+            for ((index, id) in ids.withIndex()) {
+                val set = advertSets[index] ?: return startParallelAdverts(ids, types)
+                val type = types.getOrElse(index) { BleConstants.TYPE_PUBLIC }
+                try {
+                    set.setAdvertisingData(advertDataFor(id, type))
+                } catch (e: Exception) {
+                    fallbackFromParallel("mise a jour refusee : " + e.message)
+                    return false
+                }
+            }
+            return true
+        }
+        return startParallelAdverts(ids, types)
+    }
+
+    private fun startParallelAdverts(ids: List<ByteArray>, types: ByteArray): Boolean {
+        val advertiser = adapter?.bluetoothLeAdvertiser ?: return false
+        stopAdvertising()
+        stopParallelAdverts()
+
+        val params = AdvertisingSetParameters.Builder()
+            // ⚠️ **Mode LEGACY, delibere.** Une annonce etendue n'est pas vue
+            // par un scan legacy - et notre scan l'est, comme celui de tout
+            // appareil qui ne demande pas explicitement l'inverse. Passer en
+            // etendu nous rendrait invisibles d'une partie du parc **sans lever
+            // la moindre erreur**. Nos 20 octets tiennent largement dans les 31
+            // du format legacy.
+            .setLegacyMode(true)
+            // En legacy, connectable implique scannable : Android leve un
+            // IllegalArgumentException si les deux ne s'accordent pas.
+            .setConnectable(true)
+            .setScannable(true)
+            .setInterval(AdvertisingSetParameters.INTERVAL_LOW)
+            .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_MEDIUM)
+            .build()
+
+        parallelExpected = ids.size
+        advertSets.clear()
+        advertSetCallbacks.clear()
+        for ((index, id) in ids.withIndex()) {
+            val callback = AdvertSetCallback(index)
+            advertSetCallbacks[index] = callback
+            try {
+                advertiser.startAdvertisingSet(
+                    params,
+                    advertDataFor(id, types.getOrElse(index) { BleConstants.TYPE_PUBLIC }),
+                    null,
+                    null,
+                    null,
+                    callback,
+                )
+            } catch (e: Exception) {
+                // Un refus immediat (argument invalide, pile occupee) n'attend
+                // pas le rappel : on replie tout de suite plutot que de rester
+                // a moitie demarre.
+                fallbackFromParallel("demarrage refuse : " + e.message)
+                return false
+            }
+        }
+        return true
+    }
+
+    /** Arrete tous les jeux, sans rien dire a personne. */
+    private fun stopParallelAdverts() {
+        val advertiser = adapter?.bluetoothLeAdvertiser
+        advertSetCallbacks.values.forEach { cb ->
+            runCatching { advertiser?.stopAdvertisingSet(cb) }
+        }
+        advertSets.clear()
+        advertSetCallbacks.clear()
+        parallelExpected = 0
+        parallelAdvertising = false
+    }
+
+    /**
+     * Le parallele n'a pas tenu : on defait tout et on le DIT.
+     *
+     * ⚠️ **Tout ou rien.** Garder les jeux qui ont demarre laisserait certains
+     * amis annonces et d'autres muets, sans qu'aucun compteur ne le montre.
+     */
+    private fun fallbackFromParallel(reason: String) {
+        if (parallelRefused && !parallelAdvertising && advertSets.isEmpty()) return
+        parallelRefused = true
+        stopParallelAdverts()
+        advertising = false
+        main.post { listener.onParallelAdvertLost(reason) }
+    }
+
+    /** Un jeu d'annonces, et son rang dans le creneau. */
+    private inner class AdvertSetCallback(private val index: Int) : AdvertisingSetCallback() {
+        override fun onAdvertisingSetStarted(set: AdvertisingSet?, txPower: Int, status: Int) {
+            if (status != ADVERTISE_SUCCESS || set == null) {
+                fallbackFromParallel("jeu " + index + " refuse (code " + status + ")")
+                return
+            }
+            advertSets[index] = set
+            if (parallelExpected > 0 && advertSets.size >= parallelExpected) {
+                parallelAdvertising = true
+                advertising = true
+                publish(currentStatus())
+            }
+        }
+
+        override fun onAdvertisingSetStopped(set: AdvertisingSet?) {
+            advertSets.remove(index)
+        }
+    }
+
     fun updateAdvert(advertId: ByteArray, type: Byte) {
         desiredAdvertId = advertId
         desiredAdvertType = type
@@ -310,19 +535,35 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         if (evaluateRadio(context) != null) return
         stopAdvertising()
         startAdvertising(advertId, type)
-        publish(currentStatus())
+        // ⚠️ **On ne publie PAS ici, et c'est la correction du 2026-08-26.**
+        //
+        // `stopAdvertising()` pose `advertising = false` ; `startAdvertising()`
+        // ne le repose qu'au rappel `onStartSuccess`, plus tard. Publier entre
+        // les deux annoncait donc un `Running(advertising = false)` — que
+        // l'ecran affiche « Tu n'es pas annonce » — pour un redemarrage que
+        // NOUS venions de provoquer. En mode cycle, c'etait deux fois et demie
+        // par seconde : Jay a vu le bandeau clignoter en permanence.
+        //
+        // Un etat transitoire qu'on a soi-meme cause n'est pas un fait sur la
+        // radio. Les rappels, eux, publient le resultat — et un vrai refus du
+        // systeme reste donc parfaitement visible.
     }
 
     /**
      * **Ce que nous crions nous-memes, pour ne pas nous reconnaitre nous-memes.**
      *
-     * ⚠️ Le jeton d'ami est **symetrique** : il derive du secret Diffie-Hellman,
-     * identique des deux cotes. Le jeton que nous EMETTONS pour un ami est donc
-     * exactement celui que nous ATTENDONS de lui. Sans ce filtre, un appareil
-     * qui capte sa propre annonce — par reflexion, par un relais, ou parce que
-     * sa puce la lui remonte — se reconnait comme cet ami. C'est ce qui
-     * affichait « mimi tout pres » alors que le telephone de mimi etait eteint
-     * (constate par Jay le 2026-08-25).
+     * Un appareil peut capter sa propre annonce — par reflexion, par un relais,
+     * ou parce que sa puce la lui remonte. C'est ce qui affichait « mimi tout
+     * pres » alors que le telephone de mimi etait eteint (2026-08-25).
+     *
+     * ⚠️ **Ce filtre n'est exact que depuis le protocole 5** (2026-08-26). En
+     * version 4 le jeton d'ami etait **symetrique** : celui que nous emettions
+     * pour un ami etait exactement celui que nous attendions de lui, et ce
+     * filtre jetait donc **toutes** ses annonces — la moitie du trafic radio,
+     * comptee en `selfScans`, sans qu'aucune erreur ne soit levee. La cause a
+     * ete supprimee en amont : le jeton porte desormais le nom de son emetteur
+     * (`ProximityIdentity.pairToken`), donc « le mien » et « le sien » sont
+     * deux valeurs differentes.
      *
      * Borne a [OWN_TOKENS_MAX] : un plan couvre plusieurs heures et plusieurs
      * amis, on ne garde que ce qui vient d'etre crie.
@@ -346,6 +587,10 @@ class BleEngine(private val context: Context, private val listener: Listener) {
     /** Coupe le matériel sans toucher à l'intention (Bluetooth qui s'éteint). */
     private fun teardown() {
         stopAdvertising()
+        // ⚠️ **Les jeux paralleles aussi.** Les oublier ici, c'est laisser la
+        // radio annoncer apres l'extinction du Bluetooth — et c'est exactement
+        // la famille « X nettoye, Y oublie » que ce fichier existe pour eviter.
+        stopParallelAdverts()
         stopScanning()
         clientLinks.values.forEach { runCatching { it.gatt?.disconnect() } }
         clientLinks.clear()
@@ -453,27 +698,11 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             publish(RadioStatus.Failed("advertise", "Advertising indisponible sur cet appareil"))
             return
         }
-        val data = AdvertiseData.Builder()
-            .addManufacturerData(
-                BleConstants.MANUFACTURER_ID,
-                BleConstants.MAGIC +
-                    byteArrayOf(BleConstants.PROTOCOL_VERSION, type) +
-                    advertId,
-            )
-            .setIncludeDeviceName(false)
-            // ⚠️ **La puissance d'emission voyage avec l'annonce.**
-            //
-            // Sans elle, celui qui recoit ne connait que le RSSI - la puissance
-            // ARRIVEE - et doit DEVINER celle qui est partie. Or elle varie
-            // fortement d'un appareil a l'autre : deux telephones cote a cote
-            // peuvent emettre a 6 dB d'ecart, soit un facteur ~2 sur la distance
-            // deduite. La transmettre supprime cette inconnue-la.
-            //
-            // Cout : 3 octets sur les 31 de l'annonce. Notre charge utile en
-            // occupe 26 depuis l'octet de TYPE (2026-08-25) - il reste de la
-            // place, mais tout juste : ne rien ajouter sans recompter.
-            .setIncludeTxPowerLevel(true)
-            .build()
+        // ⚠️ **Le contenu vient de `advertDataFor`, et de nulle part ailleurs.**
+        // Il etait compose ici ET dans le mode parallele : deux copies du
+        // format d'annonce, donc deux versions du protocole le jour ou l'une
+        // des deux change. La note sur la puissance d'emission y a suivi.
+        val data = advertDataFor(advertId, type)
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)

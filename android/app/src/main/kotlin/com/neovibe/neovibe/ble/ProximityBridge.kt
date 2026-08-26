@@ -315,4 +315,17 @@ class ProximityBridge(
 
     override fun onFrame(linkId: String, data: ByteArray) =
         emit(mapOf("event" to "frame", "linkId" to linkId, "data" to data))
+
+    /**
+     * Le repli du mode parallele **ne remonte pas au Dart**, et c'est voulu.
+     *
+     * C'est une decision de la couche radio : quels jetons crier, et comment,
+     * appartient au service - qui detient le plan et l'heure. Le Dart n'a rien
+     * a en faire, et lui envoyer l'evenement l'obligerait a connaitre un detail
+     * de la radio qu'il n'a aucun moyen de corriger.
+     *
+     * Le fait, lui, reste **visible** : `stats()` publie `advertMode`, et le
+     * rapport de diagnostic le lit.
+     */
+    override fun onParallelAdvertLost(reason: String) = Unit
 }

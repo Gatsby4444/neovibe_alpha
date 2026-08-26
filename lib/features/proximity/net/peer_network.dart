@@ -301,7 +301,16 @@ class PeerNetwork {
       return;
     }
 
-    var session = presence.observe(address, rssi, txPower: txPower);
+    // ⚠️ **Le jeton descend jusqu'au registre.** C'est lui, et non l'adresse,
+    // qui regroupe les annonces d'un même appareil : l'adresse change à chaque
+    // redemarrage d'annonce, le jeton tient tout un créneau. Voir
+    // [PeerRegistry.observe].
+    var session = presence.observe(
+      address,
+      rssi,
+      txPower: txPower,
+      tokenHex: hex,
+    );
 
     // Un ami est reconnu ICI, sans poignée de main : c'est tout l'intérêt de
     // l'ID rotatif.

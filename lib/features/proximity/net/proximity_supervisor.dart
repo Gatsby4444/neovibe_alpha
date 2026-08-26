@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/supabase_providers.dart';
 import '../ping_store.dart';
 import '../proximity_identity.dart';
 import 'advert_plan.dart';
@@ -230,12 +231,16 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
       // d'autre.** Les jetons d'amis, eux, partent toujours : croiser un ami et
       // se rendre découvrable d'inconnus sont deux fonctions distinctes qui
       // partagent la même radio (consigne de Jay, 2026-08-20).
+      // ⚠️ **Le jeton d'ami porte le nom de celui qui l'émet** depuis le
+      // 2026-08-26 (voir [ProximityIdentity.pairToken]). Sans mon identifiant,
+      // aucun jeton d'ami ne part — le planificateur le dit lui-même.
       final plan = await const AdvertPlanner().plan(
         secrets: secrets,
         fromSlot: _slot,
         slots:
             planHorizon.inMilliseconds ~/
             ProximityIdentity.slotDuration.inMilliseconds,
+        meUserId: ref.read(currentUserIdProvider),
         pingSeed: _identity.pingSeed(),
       );
 

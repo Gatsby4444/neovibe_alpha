@@ -296,16 +296,47 @@ class ProximityIdentity {
   /// Longueur d'un jeton diffusé, en octets.
   static const tokenLength = 16;
 
-  /// Le jeton qu'un ami donné doit voir pour ce créneau.
+  /// Le jeton **qu'[emitter] crie** à l'autre membre de la paire, pour ce
+  /// créneau.
   ///
   /// ⚠️ **`nv-pair-` et `nv-ping-` ne sont pas décoratifs.** Deux usages
   /// différents d'une même fonction doivent partir de textes différents, sinon
   /// rien n'interdit qu'un jeton d'un contexte soit accepté dans l'autre. Ce
   /// n'est pas une précaution théorique : c'est ce qui garantit qu'un jeton
   /// d'ami ne pourra jamais être confondu avec un identifiant public.
-  static Future<Uint8List> pairToken(Uint8List secret, int slot) async {
+  ///
+  /// ## ⚠️ Pourquoi [emitter] — la panne du 2026-08-26
+  ///
+  /// Jusqu'au 2026-08-26 ce jeton valait `HMAC(secret, "nv-pair-$slot")`, donc
+  /// **la même valeur des deux côtés** : le secret de paire est symétrique par
+  /// construction. Conséquence : le jeton que j'émets pour un ami est
+  /// exactement celui que j'attends de lui, et « c'est moi » devient
+  /// **indiscernable de « c'est lui » par la valeur**.
+  ///
+  /// Le natif, qui doit écarter ses propres annonces (réflexion, relais, puce
+  /// qui les remonte), jetait donc **toutes** les annonces de l'ami — comptées
+  /// en `selfScans`. Relevé sur les deux appareils de Jay : 317 contre 321 sur
+  /// le téléphone, 710 contre 721 sur la tablette, soit très exactement une
+  /// annonce sur deux. Le croisement d'amis en BLE était **structurellement
+  /// impossible**, sans qu'aucune erreur ne soit levée.
+  ///
+  /// Le nom de l'émetteur dans le message HMAC rend les deux sens distincts :
+  /// chacun émet le sien, écoute celui de l'autre, et les deux restent
+  /// calculables des deux côtés — c'est la même clé. Le filtre anti-soi
+  /// redevient alors **exact** au lieu d'être destructeur. On supprime la
+  /// cause, on ne garde pas le garde-fou (règle 1 de `CLAUDE.md`).
+  ///
+  /// ⚠️ [emitter] est l'identifiant de compte de **celui qui crie**, pas de
+  /// celui qui écoute. Une inversion ici ne lève aucune erreur : elle rend
+  /// simplement les deux appareils sourds l'un à l'autre. Le sens est vérifié
+  /// par `test/advert_plan_test.dart`.
+  static Future<Uint8List> pairToken(
+    Uint8List secret,
+    int slot, {
+    required String emitter,
+  }) async {
     final mac = await Hmac.sha256().calculateMac(
-      utf8.encode('nv-pair-$slot'),
+      utf8.encode('nv-pair-$slot|$emitter'),
       secretKey: SecretKey(secret),
     );
     return Uint8List.fromList(mac.bytes.sublist(0, tokenLength));

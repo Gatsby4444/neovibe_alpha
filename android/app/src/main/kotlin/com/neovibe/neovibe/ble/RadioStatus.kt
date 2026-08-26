@@ -30,10 +30,16 @@ object BleConstants {
      * sans erreur ni trace. Doit rester egal a
      * `ProximityIdentity.protocolVersion` cote Dart.
      *
+     * 5 = le jeton d'ami est DIRECTIONNEL (2026-08-26). Jusqu'a la 4 il valait
+     *     `HMAC(secret, slot)`, donc la meme valeur des deux cotes : le filtre
+     *     anti-auto-detection ci-dessous jetait alors toutes les annonces de
+     *     l'ami, comptees en `selfScans`. Un appareil en v4 et un en v5 ne se
+     *     voient pas — c'est voulu, et `otherVersionScans` le rend visible au
+     *     diagnostic au lieu de le laisser passer pour « personne autour ».
      * 4 = un octet de TYPE separe le public du prive (2026-08-25).
      * 3 = un jeton par PAIRE (2026-08-20). 2 = cle de diffusion partagee.
      */
-    const val PROTOCOL_VERSION: Byte = 4
+    const val PROTOCOL_VERSION: Byte = 5
 
     /**
      * **L'identifiant PUBLIC du mode ping.** Destine aux inconnus, reconnu par

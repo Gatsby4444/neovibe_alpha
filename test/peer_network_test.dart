@@ -42,7 +42,12 @@ class Appareil {
     // horloge maîtrisée, un test devrait ou bien attendre réellement dix
     // secondes, ou bien ne rien vérifier de ces règles.
     final montre = horloge ?? HorlogeMobile();
-    final identite = await IdentiteMemoire.creer(graine: graine);
+    // ⚠️ **L'identité porte l'identifiant de compte**, parce que le jeton d'ami
+    // porte le nom de celui qui l'émet depuis le 2026-08-26.
+    final identite = await IdentiteMemoire.creer(
+      graine: graine,
+      userId: userId,
+    );
     final carnet = CarnetMemoire();
     final reseau = PeerNetwork(
       myUserId: userId,

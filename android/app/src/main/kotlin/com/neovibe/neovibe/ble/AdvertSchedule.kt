@@ -91,6 +91,38 @@ class AdvertSchedule(
         return tokens.copyOfRange(start, start + tokenLength)
     }
 
+    /**
+     * **TOUS** les jetons du creneau qui couvre [nowMillis], avec leurs types.
+     *
+     * Rend `null` si le plan ne couvre plus cet instant - meme reponse que
+     * [tokenAt] : on se tait plutot que de rejouer l'ancien.
+     *
+     * ## Pourquoi cette methode existe (2026-08-26)
+     *
+     * [tokenAt] ne rend qu'un jeton a la fois, parce que la radio n'en emettait
+     * qu'un a la fois. Or **le mode cycle ne passe pas a l'echelle** : avec dix
+     * amis, le jeton de chacun n'etait en l'air que 10 % du temps, et quelqu'un
+     * qu'on croise trois secondes pouvait n'etre jamais vu. Le defaut s'aggravait
+     * avec le nombre d'amis, et ne levait rien.
+     *
+     * Le moteur sait emettre plusieurs annonces simultanement : il lui faut donc
+     * le creneau entier, pas un jeton choisi par un curseur.
+     */
+    fun tokensAt(nowMillis: Long): Pair<List<ByteArray>, ByteArray>? {
+        if (!covers(nowMillis)) return null
+        val slotOffset = (nowMillis / slotMillis - fromSlot).toInt()
+        val jetons = ArrayList<ByteArray>(perSlot)
+        val leursTypes = ByteArray(perSlot)
+        for (i in 0 until perSlot) {
+            val index = slotOffset * perSlot + i
+            val start = index * tokenLength
+            if (start + tokenLength > tokens.size) return null
+            jetons.add(tokens.copyOfRange(start, start + tokenLength))
+            leursTypes[i] = if (index < types.size) types[index] else BleConstants.TYPE_PUBLIC
+        }
+        return Pair(jetons, leursTypes)
+    }
+
     /** Combien de jetons differents sont emis par creneau. */
     val cycleLength: Int get() = perSlot
 }

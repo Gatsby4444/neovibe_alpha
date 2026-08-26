@@ -27,10 +27,16 @@ void main() {
   const planner = AdvertPlanner();
   final slot = ProximityIdentity.slotIndex(DateTime.now());
 
+  /// Mon identifiant de compte. **Le jeton d'ami porte le nom de celui qui
+  /// l'émet** depuis le 2026-08-26 : sans lui, les deux sens seraient de
+  /// nouveau confondus (voir [ProximityIdentity.pairToken]).
+  const moi = 'u-moi';
+
   group('le plan d\'émission', () {
     test('couvre tout l\'horizon annoncé', () async {
       final plan = await planner.plan(
         secrets: {'u-a': secret(1), 'u-b': secret(2)},
+        meUserId: moi,
         fromSlot: slot,
         slots: 48,
       );
@@ -55,6 +61,7 @@ void main() {
       // que personne ne le reconnaisse.
       final plan = await planner.plan(
         secrets: {'u-a': secret(1), 'u-b': secret(2), 'u-c': secret(3)},
+        meUserId: moi,
         fromSlot: slot,
         slots: 5,
         pingSeed: secret(9),
@@ -71,6 +78,7 @@ void main() {
     test('sans mode ping, aucun identifiant public n\'est émis', () async {
       final plan = await planner.plan(
         secrets: {'u-a': secret(1)},
+        meUserId: moi,
         fromSlot: slot,
         slots: 2,
       );
@@ -85,6 +93,7 @@ void main() {
         // jamais éteindre l'autre.
         final avec = await planner.plan(
           secrets: {'u-a': secret(1)},
+          meUserId: moi,
           fromSlot: slot,
           slots: 1,
           pingSeed: secret(9),
@@ -97,6 +106,7 @@ void main() {
     test('sans ami ni ping, le plan est vide plutôt que faux', () async {
       final plan = await planner.plan(
         secrets: const {},
+        meUserId: moi,
         fromSlot: slot,
         slots: 4,
       );
@@ -106,6 +116,7 @@ void main() {
     test('chaque créneau produit des jetons différents', () async {
       final plan = await planner.plan(
         secrets: {'u-a': secret(1)},
+        meUserId: moi,
         fromSlot: slot,
         slots: 3,
       );
@@ -118,6 +129,86 @@ void main() {
         reason:
             'sinon le pistage d\'un créneau à l\'autre '
             'redeviendrait trivial',
+      );
+    });
+  });
+
+  group('le SENS du jeton d\'ami — la panne du 2026-08-26', () {
+    // Jusqu'à cette date le jeton valait `HMAC(secret, slot)`, donc la MÊME
+    // valeur des deux côtés. Le filtre anti-auto-détection du natif jetait
+    // alors toutes les annonces de l'ami, comptées en `selfScans` : le
+    // croisement en BLE était structurellement impossible, sans qu'aucune
+    // erreur ne soit levée. Ces trois tests sont ce qui l'empêche de revenir.
+
+    test('ce que J\'ÉMETS n\'est PAS ce que J\'ATTENDS', () async {
+      final s = secret(1);
+      final emis = await ProximityIdentity.pairToken(s, slot, emitter: moi);
+      final attendu = await ProximityIdentity.pairToken(
+        s,
+        slot,
+        emitter: 'u-a',
+      );
+      expect(
+        emis,
+        isNot(attendu),
+        reason:
+            'si ces deux valeurs sont égales, le filtre anti-soi du natif '
+            'jette l\'ami — c\'est exactement la panne du 2026-08-26',
+      );
+    });
+
+    test('le plan émet MON sens, la table écoute le SIEN', () async {
+      final secrets = {'u-a': secret(1)};
+      final plan = await planner.plan(
+        secrets: secrets,
+        meUserId: moi,
+        fromSlot: slot,
+        slots: 1,
+      );
+      final table = await planner.table(secrets: secrets, slot: slot);
+
+      final emis = plan.forSlot(slot).single.bytes;
+      expect(
+        table.match(emis),
+        isNull,
+        reason: 'notre propre annonce ne doit jamais être prise pour l\'ami',
+      );
+      expect(
+        table.match(
+          await ProximityIdentity.pairToken(
+            secrets['u-a']!,
+            slot,
+            emitter: 'u-a',
+          ),
+        ),
+        'u-a',
+        reason: 'et la sienne doit être reconnue',
+      );
+    });
+
+    test('les deux appareils calculent la même paire de jetons', () async {
+      // Le secret est symétrique : chacun peut donc calculer les DEUX sens.
+      // C'est ce qui rend la correction possible sans échange supplémentaire.
+      final s = secret(1);
+      final cheMoi = await ProximityIdentity.pairToken(s, slot, emitter: moi);
+      final chezLui = await ProximityIdentity.pairToken(s, slot, emitter: moi);
+      expect(cheMoi, chezLui);
+    });
+
+    test('sans identifiant, aucun jeton d\'ami n\'est émis', () async {
+      // Le silence se constate ; une valeur que plus personne n'écoute, non.
+      final plan = await planner.plan(
+        secrets: {'u-a': secret(1)},
+        meUserId: null,
+        fromSlot: slot,
+        slots: 2,
+        pingSeed: secret(9),
+      );
+      expect(plan.tokens.every((t) => t.isPublic), isTrue);
+      expect(
+        plan.tokens.length,
+        2,
+        reason: 'l\'identifiant public part quand même',
       );
     });
   });
@@ -140,10 +231,18 @@ void main() {
         slot: slot,
       );
 
-      final sien = await ProximityIdentity.pairToken(secret(1), slot);
+      final sien = await ProximityIdentity.pairToken(
+        secret(1),
+        slot,
+        emitter: 'u-a',
+      );
       expect(table.match(sien), 'u-a');
 
-      final autre = await ProximityIdentity.pairToken(secret(2), slot);
+      final autre = await ProximityIdentity.pairToken(
+        secret(2),
+        slot,
+        emitter: 'u-b',
+      );
       expect(
         table.match(autre),
         isNull,
@@ -157,6 +256,7 @@ void main() {
       final secrets = {for (var i = 0; i < 10; i++) 'u-$i': secret(i)};
       final plan = await planner.plan(
         secrets: secrets,
+        meUserId: moi,
         fromSlot: slot,
         slots: 48,
       );
@@ -169,7 +269,11 @@ void main() {
   test(
     'un jeton fait exactement la taille prévue dans l\'annonce BLE',
     () async {
-      final token = await ProximityIdentity.pairToken(secret(1), slot);
+      final token = await ProximityIdentity.pairToken(
+        secret(1),
+        slot,
+        emitter: 'u-a',
+      );
       expect(token.length, ProximityIdentity.tokenLength);
       expect(ProximityIdentity.tokenLength, 16);
     },
@@ -182,7 +286,7 @@ void main() {
       // n'interdirait qu'une valeur d'un contexte soit acceptée dans l'autre.
       final graine = secret(5);
       expect(
-        await ProximityIdentity.pairToken(graine, slot),
+        await ProximityIdentity.pairToken(graine, slot, emitter: 'u-a'),
         isNot(await ProximityIdentity.publicPingId(graine, slot)),
       );
     },
@@ -211,6 +315,7 @@ void main() {
             final attendu = await ProximityIdentity.pairToken(
               secrets[table.order[i]]!,
               slot + s,
+              emitter: table.order[i],
             );
             final debut = (s * 2 + i) * 16;
             expect(table.tokens.sublist(debut, debut + 16), attendu);

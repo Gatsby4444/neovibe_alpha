@@ -159,17 +159,49 @@ class ProximityService : Service(), BleEngine.Listener {
     private val cycleTick = object : Runnable {
         override fun run() {
             emitNext()
-            val plan = schedule
-            // Un seul jeton par creneau : inutile de se reveiller souvent, il
-            // suffit d'etre la au changement de creneau.
-            val delay = if (plan == null || plan.cycleLength <= 1) 30_000L else cycleMillis
-            cycleHandler.postDelayed(this, delay)
+            cycleHandler.postDelayed(this, nextDelay())
         }
     }
 
+    /**
+     * Dans combien de temps se reveiller.
+     *
+     * ⚠️ **Trois cadences, et une seule raison a chacune.** En mode parallele
+     * tous les jetons sont deja en l'air : il suffit d'etre la au changement de
+     * creneau, donc 30 s. Avec un seul jeton, idem. C'est uniquement le mode
+     * cycle qui doit tourner vite, parce qu'il n'annonce qu'un ami a la fois.
+     */
+    private fun nextDelay(): Long {
+        val plan = schedule
+        if (parallel) return 30_000L
+        return if (plan == null || plan.cycleLength <= 1) 30_000L else cycleMillis
+    }
+
+    /**
+     * Vrai quand le moteur emet tous les jetons **en meme temps**.
+     *
+     * ⚠️ **C'est un fait constate, pas une preference.** Le moteur decide de
+     * ce que le materiel accepte ; ce service ne fait qu'en tenir compte pour
+     * choisir sa cadence. Voir [BleEngine.applyAdverts].
+     */
+    private var parallel = false
+
     private fun emitNext() {
         val plan = schedule ?: return
-        val token = plan.tokenAt(System.currentTimeMillis(), cursor)
+        val now = System.currentTimeMillis()
+
+        // ⚠️ **Le parallele d'abord, toujours.** En mode cycle, le jeton d'un
+        // ami donne n'est en l'air que 1/N du temps : a dix amis, 10 %. Quelqu'un
+        // qu'on croise trois secondes pouvait n'etre JAMAIS vu, et le defaut
+        // s'aggravait avec le nombre d'amis - sans jamais rien lever.
+        val duCreneau = plan.tokensAt(now)
+        if (duCreneau != null && engine.applyAdverts(duCreneau.first, duCreneau.second)) {
+            parallel = true
+            return
+        }
+        parallel = false
+
+        val token = plan.tokenAt(now, cursor)
         if (token == null) {
             // ⚠️ **Plan epuise : on se TAIT.** Reemettre le dernier jeton connu
             // serait indiscernable d'un fonctionnement normal, alors que plus
@@ -195,9 +227,27 @@ class ProximityService : Service(), BleEngine.Listener {
         cursor = 0
         cycleHandler.removeCallbacks(cycleTick)
         if (!plan.isEmpty) {
+            // `emitNext` pose `parallel` : la cadence se lit donc APRES lui, et
+            // pas avant. L'inverse aurait arme 400 ms un mode qui n'en a pas
+            // besoin.
             emitNext()
-            cycleHandler.postDelayed(cycleTick, if (plan.cycleLength <= 1) 30_000L else cycleMillis)
+            cycleHandler.postDelayed(cycleTick, nextDelay())
         }
+    }
+
+    /**
+     * Le moteur n'a pas pu tenir le mode parallele : on reprend le cycle.
+     *
+     * ⚠️ **On ne se contente pas de changer de drapeau.** Le moteur vient
+     * d'arreter tous ses jeux : sans un `emitNext` immediat, l'appareil resterait
+     * **muet** jusqu'au prochain reveil - jusqu'a trente secondes d'invisibilite
+     * totale, que rien n'aurait signalee.
+     */
+    override fun onParallelAdvertLost(reason: String) {
+        parallel = false
+        cycleHandler.removeCallbacks(cycleTick)
+        emitNext()
+        cycleHandler.postDelayed(cycleTick, nextDelay())
     }
 
     /** Jusqu'a quand le plan courant tient, pour que le Dart sache le renouveler. */
@@ -313,8 +363,21 @@ class ProximityService : Service(), BleEngine.Listener {
     fun send(linkId: String, data: ByteArray): Boolean = engine.send(linkId, data)
     fun mtuOf(linkId: String): Int = engine.mtuOf(linkId)
 
-    /** Ce que la radio a reellement recu depuis le dernier demarrage. */
-    fun stats(): Map<String, Any?> = mapOf(
+    /**
+     * Ce que la radio a reellement recu depuis le dernier demarrage.
+     *
+     * ⚠️ **Les CAPACITES y sont fusionnees depuis le 2026-08-26**, et leur
+     * absence a coute cher. `advertCapabilities()` existait depuis le
+     * 2026-08-20 et n'etait joignable que par un appel Dart dedie : elle
+     * n'apparaissait donc dans aucun rapport de diagnostic. Or `RAPPELS.md` #54
+     * demandait explicitement d'ecrire le chemin multi-annonces **apres** avoir
+     * releve ce que l'appareil de Jay annonce. La consigne etait juste, et
+     * inapplicable : l'instrument ne rendait pas la mesure.
+     *
+     * On fusionne la map entiere plutot que d'en recopier les champs - une
+     * liste a tenir a jour finit toujours par diverger de sa source.
+     */
+    fun stats(): Map<String, Any?> = engine.advertCapabilities() + mapOf(
         "rawScans" to engine.rawScans,
         "neoScans" to engine.neoScans,
         // ⚠️ **Le temoin du desaccord de version, rendu VISIBLE.**
@@ -332,6 +395,12 @@ class ProximityService : Service(), BleEngine.Listener {
         "selfScans" to engine.selfScans,
         "foreignTokenScans" to engine.foreignTokenScans,
         "protocolVersion" to BleConstants.PROTOCOL_VERSION.toInt(),
+        // ⚠️ **Le mode d'emission, rendu VISIBLE.** En `cycle`, un ami n'est
+        // annonce que 1/N du temps : c'est la premiere chose a regarder quand un
+        // croisement se rate sans raison apparente. Et c'est le seul endroit qui
+        // dise si le repli s'est declenche - il ne leve rien par ailleurs.
+        "advertMode" to if (engine.parallelAdvertising) "parallele" else "cycle",
+        "advertTokensPerSlot" to (schedule?.cycleLength ?: 0),
         "sdk" to android.os.Build.VERSION.SDK_INT,
         "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",
         // ⚠️ **Le prerequis pre-Android 12, rendu VISIBLE.**

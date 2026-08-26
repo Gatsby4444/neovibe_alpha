@@ -182,6 +182,15 @@ class PeerSession {
   /// Toutes les adresses BLE connues de ce pair.
   final Set<String> addresses;
 
+  /// Tous les jetons d'annonce entendus de ce pair, en hexadécimal.
+  ///
+  /// ⚠️ **C'est la clé de regroupement la plus fiable dont on dispose**, et
+  /// elle est bien meilleure que l'adresse : un jeton vaut pour tout un créneau
+  /// de 15 minutes, là où Android tire une nouvelle adresse aléatoire **à
+  /// chaque redemarrage d'annonce** — soit toutes les 400 ms chez nous
+  /// (`ProximityService.cycleMillis`). Voir [PeerRegistry.observe].
+  final Set<String> tokens = <String>{};
+
   String _advertAddress;
 
   /// La dernière adresse entendue. C'est par elle qu'on ouvre un lien.
@@ -327,6 +336,7 @@ class PeerSession {
   /// plus riche et **le lien vivant, d'où qu'il vienne**.
   void absorb(PeerSession other) {
     addresses.addAll(other.addresses);
+    tokens.addAll(other.tokens);
     sightings += other.sightings;
     if (other.lastHeard.isAfter(lastHeard)) {
       lastHeard = other.lastHeard;
@@ -394,6 +404,13 @@ class PeerRegistry {
 
   /// Plusieurs adresses peuvent pointer vers **la même** session.
   final _byAddress = <String, PeerSession>{};
+
+  /// Plusieurs jetons peuvent pointer vers **la même** session.
+  ///
+  /// ⚠️ **L'index qui manquait, et qui rendait le produit inopérant.** Voir
+  /// [observe].
+  final _byToken = <String, PeerSession>{};
+
   final _sessions = <PeerSession>{};
 
   Iterable<PeerSession> get sessions => _sessions;
@@ -444,11 +461,42 @@ class PeerRegistry {
   }
 
   /// Une annonce vue par la radio. Rend la session concernée.
-  PeerSession observe(String address, int rssi, {int txPower = 127}) {
+  ///
+  /// ## ⚠️ Le JETON prime sur l'adresse, et ce n'est pas un détail
+  ///
+  /// Cette méthode n'indexait que par adresse. Or une adresse BLE n'est **pas**
+  /// une identité : Android en tire une nouvelle **à chaque redemarrage
+  /// d'annonce**, et notre service en redémarre une toutes les 400 ms pour
+  /// alterner ses jetons (`ProximityService.cycleMillis`). Un seul appareil
+  /// produisait donc une session par adresse — Jay a compté « 6 appareils
+  /// détectés », puis « 13 », pour un seul téléphone en face.
+  ///
+  /// Le second effet était le plus grave, et parfaitement silencieux :
+  /// [PeerSession.isStable] exige [PresenceRules.stableAfter] de contact
+  /// **continu sur la même session** avant de dépenser une connexion. Aucune
+  /// session ne vivant plus de 400 ms, **aucun lien n'était jamais tenté** —
+  /// « Vérification chiffrée en cours… » indéfiniment, avec
+  /// `clientPaths = serverPaths = 0` au diagnostic.
+  ///
+  /// Le jeton, lui, vaut pour tout un créneau de 15 minutes. C'est donc lui la
+  /// clé de regroupement, et l'adresse redevient ce qu'elle est : une clé de
+  /// **transport**, celle par laquelle on ouvre un lien.
+  ///
+  /// ⚠️ [tokenHex] reste facultatif : un lien peut monter sans qu'aucune
+  /// annonce n'ait été entendue (voir [touch]), et un test peut légitimement
+  /// n'observer que des adresses.
+  PeerSession observe(
+    String address,
+    int rssi, {
+    int txPower = 127,
+    String? tokenHex,
+  }) {
     final now = _now();
-    final existing = _byAddress[address];
+    final existing =
+        (tokenHex == null ? null : _byToken[tokenHex]) ?? _byAddress[address];
     if (existing != null) {
       existing.noteAdvert(address, rssi, txPower, now);
+      _index(existing, address: address, tokenHex: tokenHex);
       return existing;
     }
     final session = PeerSession(
@@ -457,9 +505,23 @@ class PeerRegistry {
       rssi: rssi,
       txPower: txPower,
     );
-    _byAddress[address] = session;
     _sessions.add(session);
+    _index(session, address: address, tokenHex: tokenHex);
     return session;
+  }
+
+  /// Rattache une adresse et un jeton à une session. **Un seul endroit tient
+  /// les deux index** — les tenir séparément, c'est la famille de défauts
+  /// « X nettoyé, Y oublié » que ce fichier existe pour supprimer.
+  void _index(PeerSession session, {String? address, String? tokenHex}) {
+    if (address != null) {
+      session.addresses.add(address);
+      _byAddress[address] = session;
+    }
+    if (tokenHex != null) {
+      session.tokens.add(tokenHex);
+      _byToken[tokenHex] = session;
+    }
   }
 
   /// Un lien s'ouvre sur une adresse jamais annoncée.
@@ -482,8 +544,8 @@ class PeerRegistry {
       // proximité. La première annonce la corrigera.
       rssi: PresenceRules.leaveVeryClose,
     );
-    _byAddress[address] = session;
     _sessions.add(session);
+    _index(session, address: address);
     return session;
   }
 
@@ -526,6 +588,11 @@ class PeerRegistry {
       for (final a in gagnante.addresses) {
         _byAddress[a] = gagnante;
       }
+      // Les jetons suivent, sinon la prochaine annonce de la perdante
+      // ressusciterait une session que l'on vient de fusionner.
+      for (final t in gagnante.tokens) {
+        _byToken[t] = gagnante;
+      }
       // `absorb` a repris le lien de la perdante si la gagnante n'en avait pas.
       // S'il en reste un, c'est un vrai doublon physique : au réseau de le
       // couper, dans le même geste que ce retour.
@@ -548,6 +615,7 @@ class PeerRegistry {
   void _forget(PeerSession session) {
     _sessions.remove(session);
     _byAddress.removeWhere((_, s) => identical(s, session));
+    _byToken.removeWhere((_, s) => identical(s, session));
   }
 
   void remove(PeerSession session) => _forget(session);
@@ -557,6 +625,7 @@ class PeerRegistry {
     final all = _sessions.toList();
     _sessions.clear();
     _byAddress.clear();
+    _byToken.clear();
     return all;
   }
 }

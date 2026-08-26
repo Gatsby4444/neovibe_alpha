@@ -58,6 +58,92 @@ void main() {
     });
   });
 
+  group('le JETON regroupe, l\'adresse ne fait que transporter', () {
+    // ⚠️ **La panne du 2026-08-26, et ce qui l'empêche de revenir.**
+    //
+    // Android tire une nouvelle adresse aléatoire à chaque redemarrage
+    // d'annonce, et notre service en redémarre une toutes les 400 ms pour
+    // alterner ses jetons. Indexé par adresse, un seul appareil devenait
+    // « 6 appareils détectés » — et, bien plus grave, aucune session ne vivait
+    // assez longtemps pour atteindre `stableAfter`, donc **aucun lien n'était
+    // jamais tenté**. Rien dans tout cela ne lève d'erreur : ça se compte.
+
+    test('un appareil qui change d\'adresse reste UN pair', () {
+      final r = PeerRegistry();
+      late PeerSession s;
+      for (var i = 0; i < 20; i++) {
+        s = r.observe('addr-$i', -60, tokenHex: 'jeton-mimi');
+      }
+      expect(
+        r.length,
+        1,
+        reason: '20 adresses, un seul jeton : un seul appareil',
+      );
+      expect(s.addresses.length, 20);
+    });
+
+    test('deux jetons distincts restent deux pairs', () {
+      final r = PeerRegistry();
+      r.observe('AA', -60, tokenHex: 'jeton-a');
+      r.observe('BB', -60, tokenHex: 'jeton-b');
+      expect(
+        r.length,
+        2,
+        reason: 'regrouper ne doit pas vouloir dire fusionner',
+      );
+    });
+
+    test('le contact reste CONTINU malgré le brassage d\'adresses', () {
+      // C'est l'effet qui comptait vraiment : sans lui, `isStable` n'était
+      // jamais vraie et la poignée de main n'était jamais tentée.
+      final h = Horloge();
+      final r = PeerRegistry(clock: h.call);
+      var s = r.observe('addr-0', -60, tokenHex: 'jeton-mimi');
+      for (var i = 1; i <= 30; i++) {
+        h.avance(const Duration(milliseconds: 400));
+        s = r.observe('addr-$i', -60, tokenHex: 'jeton-mimi');
+      }
+      expect(
+        s.isStable(h.instant),
+        isTrue,
+        reason:
+            'douze secondes de contact continu : le lien doit pouvoir '
+            's\'ouvrir',
+      );
+    });
+
+    test('une session oubliée libère AUSSI son jeton', () {
+      // Sinon le jeton ressusciterait une session que le registre a jetée —
+      // exactement la famille « X nettoyé, Y oublié ».
+      final h = Horloge();
+      final r = PeerRegistry(clock: h.call);
+      final s = r.observe('AA', -60, tokenHex: 'jeton-mimi');
+      r.remove(s);
+      final neuve = r.observe('BB', -60, tokenHex: 'jeton-mimi');
+      expect(identical(neuve, s), isFalse);
+      expect(r.length, 1);
+    });
+
+    test('la fusion par identité emporte les jetons des deux', () {
+      final r = PeerRegistry();
+      final a = r.observe('AA', -60, tokenHex: 'jeton-public');
+      final b = r.observe('BB', -60, tokenHex: 'jeton-ami');
+      r.identify(a, profil);
+      final fusion = r.identify(b, profil);
+
+      expect(r.length, 1);
+      expect(fusion.session.tokens, containsAll(['jeton-public', 'jeton-ami']));
+      // Et la prochaine annonce de l'un OU l'autre jeton retombe dessus.
+      expect(
+        identical(
+          r.observe('CC', -60, tokenHex: 'jeton-public'),
+          fusion.session,
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('« il est là » ne se dit qu\'avec une preuve récente', () {
     test('passé le délai de fraîcheur, le pair n\'est plus montré', () {
       final h = Horloge();

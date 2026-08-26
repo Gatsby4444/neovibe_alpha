@@ -150,18 +150,25 @@ void main() {
     final pubC = await carole.x25519PublicKey();
 
     final slot = ProximityIdentity.slotIndex(DateTime.now());
+    // ⚠️ **C'est Alice qui émet** : le sens du jeton porte son nom.
     final aliceBob = await ProximityIdentity.pairToken(
       await alice.pairSecret(pubB),
       slot,
+      emitter: 'alice',
     );
     final aliceCarole = await ProximityIdentity.pairToken(
       await alice.pairSecret(pubC),
       slot,
+      emitter: 'alice',
     );
 
     // Bob retrouve le jeton qu'Alice lui destine...
     expect(
-      await ProximityIdentity.pairToken(await bob.pairSecret(pubA), slot),
+      await ProximityIdentity.pairToken(
+        await bob.pairSecret(pubA),
+        slot,
+        emitter: 'alice',
+      ),
       aliceBob,
     );
     // ...et Carole, amie d'Alice elle aussi, n'y voit rien.
