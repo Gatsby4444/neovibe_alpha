@@ -8,8 +8,6 @@ import '../../core/widgets/content_overflow_menu.dart';
 import '../connections/connections_repository.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
-import '../proximity/ping_chat_screen.dart';
-import '../proximity/ping_store.dart';
 import '../proximity/net/proximity_controller.dart';
 import 'library_deck_screen.dart';
 import 'library_repository.dart';
@@ -67,61 +65,24 @@ class UserLibraryScreen extends ConsumerWidget {
                     ),
                   )
                 else if (inRange) ...[
-                  // Inconnu en portée BLE : conversation ping LOCALE (100 %
-                  // BLE, 3 messages max sans réponse) + demande de connexion
-                  // co-signée d'appareil à appareil (chantier BLE
-                  // 2026-07-13) — sans lien entre les deux (pas de connexion
-                  // automatique, consigne Jay).
+                  // ⚠️ **Les deux boutons BLE ont été retirés le 2026-08-27.**
+                  //
+                  // Ils ouvraient une conversation ping LOCALE et envoyaient une
+                  // demande de connexion co-signée d'appareil à appareil. Les
+                  // deux fonctions passent désormais par le serveur (décision de
+                  // Jay : *« le BLE ne sert qu'à valider et authentifier la
+                  // proximité réelle »*), et le chemin serveur vit sur l'écran
+                  // Ping, sur la personne elle-même.
+                  //
+                  // Les laisser aurait fait **deux boutons « Ajouter » dans
+                  // l'app qui font deux choses différentes** — un chemin, une
+                  // donnée : c'est le défaut que ce projet traque le plus.
                   Expanded(
-                    child: FilledButton.tonalIcon(
-                      icon: const Icon(Icons.podcasts),
-                      label: const Text('Message'),
-                      onPressed: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => PingChatScreen(
-                            peerId: profile.id,
-                            peer: PingPeerSnapshot(
-                              userId: profile.id,
-                              username: profile.displayName,
-                              tagName: profile.tagName,
-                              verified: true,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: FilledButton.icon(
-                      icon: const Icon(Icons.person_add_alt),
-                      label: const Text('Ajouter'),
-                      onPressed: () async {
-                        try {
-                          await ref
-                              .read(proximityControllerProvider.notifier)
-                              .requestFriendship(profile.id);
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Demande envoyée directement à son appareil.',
-                                ),
-                              ),
-                            );
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  e.toString().replaceFirst('Bad state: ', ''),
-                                ),
-                              ),
-                            );
-                          }
-                        }
-                      },
+                    child: Text(
+                      "À portée — retrouve-le dans Ping pour lui écrire ou "
+                      "l'ajouter.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: context.muted),
                     ),
                   ),
                 ] else

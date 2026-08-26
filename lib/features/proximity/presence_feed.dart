@@ -210,19 +210,23 @@ final peerViewProvider = Provider.family<PeerView?, String>((ref, address) {
   );
 });
 
-/// Les identifiants des pairs identifiés, pour les écrans qui raisonnent en
-/// personnes plutôt qu'en adresses.
-final nearbyUserIdsProvider = Provider<Set<String>>((ref) {
+/// Les identifiants des pairs que **LA RADIO** a identifiés.
+///
+/// ⚠️ **Ce n'est plus la présence du produit, seulement une de ses deux
+/// sources** — d'où le préfixe, posé le 2026-08-27. Depuis que l'identité d'un
+/// inconnu vient du serveur, cette vue ne voit plus que les **amis** : eux seuls
+/// sont reconnus à l'annonce.
+///
+/// La question « qui est à portée ? » se pose à `nearby_people.dart`, qui
+/// combine les deux sources. La poser ici rendrait une réponse partielle — et
+/// c'est exactement ce qui affichait « Hors de portée » à deux mètres.
+final bleNearbyUserIdsProvider = Provider<Set<String>>((ref) {
   // Dérivé des CLÉS, pas de la présence brute : il ne se recalcule donc que
   // quand la composition change, et pas à chaque annonce.
   return ref.watch(presenceKeysProvider).userIds.toSet();
 });
 
-/// Vrai si [userId] est à portée **maintenant**.
-///
-/// ⚠️ Ne jamais remplacer par une lecture du registre : [presenceProvider] ne
-/// contient déjà que des pairs frais, et c'est la seule définition de la
-/// présence dans le produit.
-final isNearbyProvider = Provider.family<bool, String>((ref, userId) {
-  return ref.watch(nearbyUserIdsProvider.select((ids) => ids.contains(userId)));
-});
+// ⚠️ `isNearbyProvider` a DÉMÉNAGÉ dans `nearby_people.dart` le 2026-08-27.
+// Il vivait ici tant que la radio était la seule source de la présence. Le
+// laisser aurait laissé deux réponses possibles à une même question, dont une
+// fausse pour les inconnus — le motif que ce projet traque partout.

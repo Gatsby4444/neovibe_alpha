@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
+import '../../core/utils/erreur_serveur.dart';
 import '../../core/widgets/avatar.dart';
 import '../conversations/chat_screen.dart';
+import '../conversations/conversations_repository.dart';
 import '../../core/utils/formats.dart';
 import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
@@ -20,9 +23,9 @@ import 'net/proximity_controller.dart';
 import 'net/proximity_journal.dart';
 import 'net/proximity_supervisor.dart';
 import 'net/radio_status.dart';
-import 'ping_chat_screen.dart';
 import 'ping_store.dart';
 import 'presence_feed.dart';
+import 'nearby_people.dart';
 
 /// Le Ping — découverte 100 % locale, chiffrée d'appareil à appareil.
 ///
@@ -45,7 +48,6 @@ class PingScreen extends ConsumerStatefulWidget {
 }
 
 class _PingScreenState extends ConsumerState<PingScreen> {
-  List<PingConversation> _conversations = const [];
   List<LocalEncounter> _encounters = const [];
 
   /// Capturé à l'initialisation : `ref` est INTERDIT dans `dispose()`.
@@ -65,13 +67,13 @@ class _PingScreenState extends ConsumerState<PingScreen> {
   }
 
   Future<void> _reload() async {
-    final convs = await _store.conversations();
+    // ⚠️ **Les conversations locales ne sont plus lues** depuis le 2026-08-27 :
+    // la messagerie de proximité passe par le serveur, et cet écran n'a plus de
+    // section pour elles. Les charger aurait été une lecture disque à chaque
+    // rafraîchissement, pour un résultat que personne n'affiche.
     final encounters = await _store.encounters();
     if (!mounted) return;
-    setState(() {
-      _conversations = convs;
-      _encounters = encounters;
-    });
+    setState(() => _encounters = encounters);
   }
 
   @override
@@ -152,34 +154,16 @@ class _PingScreenState extends ConsumerState<PingScreen> {
             ..._autourDeToiAmis(runtime, keys),
             ..._autourDeToiV2(ref, runtime),
 
-            if (_conversations.any((c) => nearbyIds.contains(c.peerId))) ...[
-              const _TitreSection('Conversations ping'),
-              for (final conv in _conversations.where(
-                (c) => nearbyIds.contains(c.peerId),
-              ))
-                ListTile(
-                  leading: const Icon(Icons.podcasts),
-                  title: Text(conv.peer.displayName),
-                  subtitle: Text(
-                    conv.messages.isEmpty ? '' : conv.messages.last.text,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: conv.messages.isEmpty
-                      ? null
-                      : Text(
-                          shortTime(conv.messages.last.at),
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          PingChatScreen(peerId: conv.peerId, peer: conv.peer),
-                    ),
-                  ),
-                ),
-            ],
-
+            // ⚠️ **La section « Conversations ping » a été retirée le
+            // 2026-08-27.** Elle listait les conversations BLE **locales**, et
+            // permettait d'y écrire : c'était donc un second chemin d'émission,
+            // à côté de la messagerie serveur qui vient d'être branchée.
+            //
+            // On n'en crée plus aucune. Celles qui existaient restent sur le
+            // disque mais ne sont plus atteignables — perte assumée : ce sont
+            // des messages éphémères, contre la suppression d'un doublon de
+            // chemin. `PingChatScreen` et le transport BLE forment désormais un
+            // bloc mort, à retirer ensemble (`RAPPELS.md`).
             if (_encounters.any((e) => !nearbyIds.contains(e.peer.userId))) ...[
               const _TitreSection('Croisés récemment'),
               for (final rencontre in _encounters.where(
@@ -648,15 +632,17 @@ class _TuilePair extends ConsumerWidget {
                 ),
               ),
             },
+          // ⚠️ **La conversation SERVEUR, plus le chat BLE local** (2026-08-27).
+          //
+          // Depuis que l'identité d'un inconnu vient du serveur, cette tuile
+          // n'affiche plus que des **amis** : eux seuls sont reconnus par la
+          // radio. Or un ami a déjà une conversation directe partout ailleurs
+          // dans l'app — ouvrir ici un second fil, local et éphémère, faisait
+          // deux historiques pour une même personne.
           IconButton(
             icon: const Icon(Icons.chat_bubble_outline),
-            tooltip: 'Message ping',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) =>
-                    PingChatScreen(peerId: snapshot.userId, peer: snapshot),
-              ),
-            ),
+            tooltip: 'Message',
+            onPressed: () => _ouvrirConversation(context, ref, snapshot.userId),
           ),
         ],
       ),
@@ -693,6 +679,19 @@ class _TuilePair extends ConsumerWidget {
     );
   }
 
+  /// Demande en ami quelqu'un que la radio a identifié.
+  ///
+  /// ⚠️ **Passe par le SERVEUR depuis le 2026-08-27**, comme le bouton de la
+  /// tuile d'un inconnu. Elle appelait `ProximityController.requestFriendship`,
+  /// qui envoyait la demande dans le canal BLE chiffré : c'était le **dernier**
+  /// des trois chemins d'émission, et le garder aurait laissé deux boutons
+  /// « Ajouter » faire deux choses différentes selon la tuile touchée.
+  ///
+  /// ⚠️ **Le serveur peut répondre « Proximité non constatée », et c'est
+  /// correct** : cette tuile peut afficher quelqu'un identifié par un lien
+  /// ENTRANT (un appareil resté sur une version antérieure), sans paire ping.
+  /// La barrière s'applique alors, et elle le dit — au lieu de laisser croire
+  /// que la demande est partie.
   Future<void> _demander(
     BuildContext context,
     WidgetRef ref,
@@ -700,28 +699,16 @@ class _TuilePair extends ConsumerWidget {
   ) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      await ref
-          .read(proximityControllerProvider.notifier)
-          .requestFriendship(snapshot.userId);
+      await ref.read(pingRepositoryProvider).requestConnection(snapshot.userId);
       messenger.showSnackBar(
         SnackBar(content: Text('Demande envoyée à ${snapshot.displayName}.')),
       );
-    } on FriendRequestRefused catch (refus) {
-      // ⚠️ **La vraie raison, pas un conseil au hasard.** Tout était attrapé
-      // par un `catch (_)` qui répondait « rapproche-toi » — un conseil FAUX
-      // quand la cause était « vous êtes déjà connectés ». Une réponse fausse
-      // envoie l'utilisateur faire quelque chose d'inutile.
-      messenger.showSnackBar(SnackBar(content: Text(refus.message)));
-    } catch (_) {
-      // Un envoi raté se DIT. En silence, l'utilisateur croit avoir demandé.
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Impossible de joindre cette personne — rapproche-toi '
-            'et réessaie.',
-          ),
-        ),
-      );
+    } catch (e) {
+      // ⚠️ **La vraie raison, pas un conseil au hasard.** Un `catch` qui
+      // répondait « rapproche-toi » donnait un conseil FAUX quand la cause
+      // était « vous êtes déjà connectés », et envoyait l'utilisateur faire
+      // quelque chose d'inutile.
+      messenger.showSnackBar(SnackBar(content: Text(messageServeur(e))));
     }
   }
 }
@@ -761,11 +748,7 @@ Future<void> _ouvrirProfil(
     // Hors ligne : pas de profil serveur.
   }
   if (context.mounted) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => PingChatScreen(peerId: snapshot.userId, peer: snapshot),
-      ),
-    );
+    await _ouvrirConversation(context, ref, snapshot.userId);
   }
 }
 
@@ -967,7 +950,7 @@ Future<void> _demanderEnAmi(WidgetRef ref, NearbyPerson personne) async {
     // ⚠️ Un refus du serveur se MONTRE. « Proximité non constatée » veut dire
     // quelque chose de précis, et l'avaler laisserait l'utilisateur croire que
     // sa demande est partie.
-    messenger?.showSnackBar(SnackBar(content: Text(_lisible(e))));
+    messenger?.showSnackBar(SnackBar(content: Text(messageServeur(e))));
   }
 }
 
@@ -993,24 +976,46 @@ Future<void> _ouvrirChatProximite(WidgetRef ref, NearbyPerson personne) async {
       MaterialPageRoute(builder: (_) => ChatScreen(conversationId: id)),
     );
   } catch (e) {
-    messenger?.showSnackBar(SnackBar(content: Text(_lisible(e))));
+    messenger?.showSnackBar(SnackBar(content: Text(messageServeur(e))));
   }
 }
 
-/// Ce que le serveur a refusé, en français et sans le bruit de la couche
-/// réseau.
+/// Ouvre la conversation **serveur** avec quelqu'un qu'on a croisé.
 ///
-/// ⚠️ **Un message technique n'est pas un message.** Jay a vu s'afficher
-/// `PostgrestException(message: …, code: P0001, details: Bad Request, hint:
-/// null)` : le texte utile y était noyé dans quatre champs qui ne le concernent
-/// pas.
-String _lisible(Object erreur) {
-  final texte = erreur.toString();
-  final debut = texte.indexOf('message: ');
-  if (debut == -1) return texte;
-  final reste = texte.substring(debut + 'message: '.length);
-  final fin = reste.indexOf(', code:');
-  return fin == -1 ? reste : reste.substring(0, fin);
+/// ⚠️ **Un seul chemin pour écrire, depuis le 2026-08-27.** Cet écran en avait
+/// trois : le chat BLE local sur la tuile d'un pair, le même sur une rencontre,
+/// et la messagerie serveur sur un inconnu du ping. Trois historiques possibles
+/// pour une même personne, selon le bouton emprunté.
+///
+/// ⚠️ **Deux conversations restent distinctes, et c'est voulu** : la
+/// **directe** pour un ami, la **proximité** pour un inconnu prouvé proche. Le
+/// serveur refuse d'ouvrir la seconde entre gens déjà connectés — on essaie
+/// donc la directe d'abord, et la proximité si l'on n'est pas amis.
+Future<void> _ouvrirConversation(
+  BuildContext context,
+  WidgetRef ref,
+  String peerId,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final navigator = Navigator.of(context);
+  final me = ref.read(currentUserIdProvider);
+  final amis = ref
+      .read(fullConnectionsProvider)
+      .any((c) => me != null && c.peerIdFor(me) == peerId);
+  try {
+    final id = amis
+        ? await ref
+              .read(conversationsRepositoryProvider)
+              .getOrCreateDirect(peerId)
+        : await ref.read(pingRepositoryProvider).openConversation(peerId);
+    navigator.push(
+      MaterialPageRoute(builder: (_) => ChatScreen(conversationId: id)),
+    );
+  } catch (e) {
+    // Un appui qui n'aboutit à rien est le pire des retours : l'utilisateur
+    // n'a d'autre hypothèse que « le bouton ne marche pas ».
+    messenger.showSnackBar(SnackBar(content: Text(messageServeur(e))));
+  }
 }
 
 /// Un bandeau d'information autonome, pour les blocages du ping v2.

@@ -6,7 +6,7 @@ import '../../core/models/connection_request.dart';
 import '../../core/clock.dart';
 import '../../core/derived_list.dart';
 import '../../core/supabase_providers.dart';
-import 'presence_feed.dart';
+import 'nearby_people.dart';
 
 /// Demandes de connexion SERVEUR : depuis le chantier BLE (2026-07-13), les
 /// demandes de proximité passent d'appareil à appareil (co-signées, cf.

@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/notifications/notification_service.dart';
 import '../../../core/supabase_providers.dart';
 import '../ping_store.dart';
+import '../nearby_people.dart';
 import '../presence_feed.dart';
 import '../proximity_identity.dart';
 import 'connection_trace.dart';

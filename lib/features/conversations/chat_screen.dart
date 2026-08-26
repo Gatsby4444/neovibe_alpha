@@ -214,10 +214,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ? null
         : partials.where((c) => c.peerIdFor(me) == peer.id).firstOrNull;
 
-    // Canal proximité : visible uniquement en portée BLE, sauf lien établi.
-    // NB : depuis le chantier BLE (2026-07-13), les conversations ping sont
-    // 100 % locales (PingChatScreen) — ce canal serveur ne subsiste que pour
-    // les conversations prox héritées, il n'en est plus créé de nouvelles.
+    // ⚠️ **Ce commentaire affirmait le contraire jusqu'au 2026-08-27** : « les
+    // conversations ping sont 100 % locales — il n'en est plus créé de
+    // nouvelles ». C'était vrai depuis le chantier BLE du 2026-07-13, et c'est
+    // devenu faux le jour où la messagerie de proximité est repassée par le
+    // serveur (décision de Jay : *« le BLE ne sert qu'à valider et authentifier
+    // la proximité réelle »*).
+    //
+    // **C'est désormais le seul canal de proximité**, et il en naît à chaque
+    // fois que deux inconnus se prouvent mutuellement proches.
+    //
+    // ⚠️ « En portée » se demande à `nearby_people.dart`, qui combine la radio
+    // ET le ping. Le demander à la seule présence BLE affichait « Hors de
+    // portée » en permanence sur ces conversations-là : un inconnu n'est plus
+    // jamais identifié par la radio.
     final outOfRange =
         isProximity &&
         peer != null &&

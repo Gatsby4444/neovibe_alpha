@@ -174,7 +174,7 @@ void main() {
         final keys = container.read(presenceKeysProvider);
         expect(keys.identified, ['AA:BB']);
         expect(keys.pending, 1);
-        expect(container.read(nearbyUserIdsProvider), {'u-1'});
+        expect(container.read(bleNearbyUserIdsProvider), {'u-1'});
       },
     );
   });
