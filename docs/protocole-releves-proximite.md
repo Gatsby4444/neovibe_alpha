@@ -26,6 +26,151 @@ sans hypothèse ne produit qu'un rapport de plus.
 
 ---
 
+# Série v0.9.131 — à faire en premier (2026-08-26)
+
+> Cette série remplace tout ce qui suit tant qu'elle n'est pas passée. Cinq
+> correctifs y sont livrés d'un coup, et **trois d'entre eux se prouvent par un
+> chiffre du diagnostic**, pas par une impression.
+
+## ⚠️ Prérequis — sans lui, tous les relevés sont ininterprétables
+
+**Le protocole d'annonce passe de 4 à 5. Un appareil en v4 et un en v5 ne se
+voient pas du tout.**
+
+| À vérifier | Où | Attendu |
+|---|---|---|
+| Les deux appareils sont en v0.9.131 | en-tête du diagnostic | `app 0.9.131+3005` |
+| Ils parlent la même version de protocole | section proximité | `protocolVersion : 5` **des deux côtés** |
+
+Si l'un des deux est resté en 4, `otherVersionScans` montera et `neoScans`
+restera à zéro — et le diagnostic écrira lui-même la phrase qui le dit.
+
+---
+
+## Relevé 1 — le croisement d'amis (le correctif principal)
+
+**Geste** : les deux appareils côte à côte, ping activé des deux côtés, attendre
+une minute sur l'écran Ping.
+
+**Ce qu'on regarde à l'écran** : la section *Autour de toi — ancien chemin
+(BLE seul)*.
+
+| | Avant (v0.9.130) | Attendu maintenant |
+|---|---|---|
+| Affichage | « 6 appareils détectés — Vérification chiffrée en cours… » | **le nom de l'autre**, directement |
+
+**Le chiffre qui tranche**, dans le diagnostic : `selfScans`.
+
+- Il valait **317** (téléphone) et **710** (tablette) — soit la moitié de
+  `neoScans`. C'était le jeton de l'ami, jeté comme s'il était le nôtre.
+- Attendu maintenant : **proche de zéro**.
+- ⚠️ S'il est encore à ~50 % de `neoScans`, le jeton directionnel n'a pas pris,
+  et le diagnostic l'écrira en toutes lettres (ligne `LECTURE`).
+
+---
+
+## Relevé 2 — un appareil ne doit plus en valoir six
+
+**Même geste que le relevé 1.**
+
+Attendu : au maximum **« Un appareil détecté »**, et le chiffre ne doit plus
+sauter d'une seconde à l'autre.
+
+Si le compte dépasse 2 avec un seul autre téléphone en face : **noter le chiffre
+dans la note du rapport**. C'est la seule chose que le diagnostic ne sait pas
+mesurer tout seul.
+
+---
+
+## Relevé 3 — le mode d'émission ⭐
+
+**C'est la mesure qu'on attend depuis le 2026-08-20** (`RAPPELS.md` #54) : on ne
+savait pas ce que les appareils acceptent, et la sonde n'atteignait aucun
+rapport. Elle y est maintenant.
+
+**Rien à faire** : ping activé, puis envoyer le rapport. Trois lignes nouvelles :
+
+| Ligne | Ce qu'elle dit |
+|---|---|
+| `advertMode` | `parallele` = tous les jetons en l'air en même temps ⭐ · `cycle` = le repli s'est déclenché |
+| `multipleAdvertisement` | ce que la puce **annonce** savoir faire |
+| `advertTokensPerSlot` | combien de jetons sont à crier |
+
+⚠️ **`cycle` n'est pas une panne** : c'est une réponse. Elle voudra dire que
+l'appareil refuse les annonces simultanées, et le rapport dira alors le coût
+exact (« chacun n'est en l'air qu'environ N % du temps »). **Envoyer le rapport
+tel quel dans les deux cas.**
+
+---
+
+## Relevé 4 — le bandeau qui clignotait
+
+**Geste** : ping activé, rester **30 secondes** sur l'écran Ping sans rien faire.
+
+Attendu : **aucun** bandeau « Tu n'es pas annoncé » qui apparaît et disparaît. Il
+clignotait deux fois et demie par seconde.
+
+S'il apparaît **et reste**, c'est un vrai refus du système — et là il faut le
+signaler, parce que ce n'est plus le même problème.
+
+---
+
+## Relevé 5 — le ping v2, la vraie cible ⭐⭐
+
+**C'est le test qui compte.** Aucune rencontre n'a jamais été produite par cette
+chaîne : la table des paires est à **zéro** depuis le début du chantier.
+
+**Geste, dans l'ordre** :
+
+1. Ping activé des deux côtés, les deux appareils **au même endroit**.
+2. Regarder la section *Autour de toi* (celle du haut, sans « ancien chemin »).
+3. S'il y a un bandeau sur la position : appuyer sur **« Autoriser la position
+   précise »**. ⚠️ Ce bouton a changé — il **redemande** à Android au lieu de
+   renvoyer vers des réglages où il n'y avait rien à trouver.
+4. **Attendre deux minutes.** Chaque appareil republie toutes les 60 s, et il
+   faut que les deux aient déposé pour que la rencontre naisse.
+
+Attendu : **l'autre apparaît avec son nom** dans *Autour de toi*.
+
+**Ce que tu peux lire toi-même**, section *POSITION — CE QU'ANDROID A ACCORDÉ* :
+
+| Ligne | Attendu |
+|---|---|
+| `service actif` | `true` |
+| `blocage` | `aucun` |
+| `finesse` | `precise` — et si c'est `approximate`, ce n'est plus bloquant |
+| `carreau` | `carreau(x, y) ± N m` — **si N dépasse ~500, c'est là qu'est le problème** |
+
+**Le chiffre qui tranche est en base**, et je le lirai : le jour où la table des
+paires contient **une ligne**, la chaîne est validée. Dis-moi simplement quand
+le test est fait.
+
+---
+
+## Relevé 6 — la position approximative (si le temps le permet)
+
+**Geste** : réglages Android → NeoVibe → Position → passer sur
+**« Approximative »**, revenir dans l'app.
+
+Attendu : un bandeau qui **s'ajoute** à la liste **sans la remplacer** — la
+découverte continue de tourner, en moins bien. Avant, c'était un mur qui
+empêchait toute publication.
+
+---
+
+## Ce qu'il faut envoyer
+
+**Un rapport depuis CHAQUE appareil** (Réglages → Développeur → *Tout envoyer*),
+avec dans la note :
+
+1. le **numéro du relevé** ;
+2. ce que tu as **vu à l'écran**, dans tes mots ;
+3. le **chiffre** si le relevé en demande un (relevé 2).
+
+> ⚠️ Deux rapports envoyés à la même minute sans note ne se distinguent plus.
+> C'est arrivé le 2026-08-26 : c'est la note qui a permis de savoir lequel était
+> la tablette et ce qu'elle affichait.
+
 ## Relevé A — l'étiquette de proximité ne doit pas clignoter
 
 **Ce qui est en cause** : le lissage du RSSI et l'hystérésis. Ils existent et
