@@ -301,10 +301,15 @@ natif, pour ne rien découvrir au dernier moment lors du portage iOS.
 
 ## Stack
 
-- **Frontend** : Flutter/Dart (choisi pour perf caméra, cohérence cross-platform, écosystème BLE/WiFi Direct)
+- **Frontend** : Flutter/Dart (choisi pour perf caméra, cohérence cross-platform, écosystème BLE)
 - **Backend** : Supabase
 - **State management** : Riverpod
-- **Connectivité proximité** : BLE (détection + échange de contact) ; WiFi Direct (transfert média)
+- **Connectivité proximité** : **BLE uniquement, et uniquement pour PROUVER la
+  proximité** (décision de Jay du 2026-08-27). Il ne transporte plus rien : ni
+  messages, ni demandes d'ami, ni médias. *« Notre objectif n'est plus une app
+  de messagerie pair-à-pair, mais une app sociale qui mise sur la proximité. »*
+  **Wi-Fi Direct est abandonné** — il n'avait jamais été écrit. Tout le
+  contenu passe par le serveur, avec sa livraison scellée.
 - **Repo** : GitHub privé, releases taguées → APK compilés
 - **Test** : APK natif Android, testé manuellement par Jay (pas de CI de test automatisé pour l'instant)
 

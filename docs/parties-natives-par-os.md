@@ -31,7 +31,7 @@
 | Anti-capture | (dans `neovibe/camera` : `setSecure`) | `WindowManager.FLAG_SECURE` | Pas d'équivalent strict → détection + occultation |
 | Média (hors caméra) | `neovibe/media` | `MediaMetadataRetriever` (image de couverture d'une vidéo) | `AVAssetImageGenerator` |
 | Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise/scan + GATT) | CoreBluetooth, **mode dégradé à concevoir** |
-| Transfert média proximité | *(à venir)* | Wi-Fi Direct (Wi-Fi P2P) | MultipeerConnectivity |
+| ~~Transfert média proximité~~ | — | **ABANDONNÉ le 2026-08-27** — tout le contenu passe par le serveur | *sans objet* |
 | Hôte / cycle de vie | — | `MainActivity : FlutterFragmentActivity` | `AppDelegate` / `FlutterViewController` |
 | Journal caméra (dev) | (dans `neovibe/camera`) | `CamLog` (fichier disque) | fichier disque (trivial) |
 | Diagnostic appareil (dev) | `neovibe/diag` | `NativeDiagnostics` (`PackageManager` + `Build`) | `Bundle.main.infoDictionary` + `UIDevice` |
@@ -389,7 +389,28 @@ dégradé** :
 
 ---
 
-## 4. Proximité — transfert média (Wi-Fi Direct)
+## 4. ~~Proximité — transfert média (Wi-Fi Direct)~~ — ABANDONNÉ
+
+> 🔴 **Décision de Jay, 2026-08-27** : *« on annule le transfert de média via
+> Wi-Fi Direct, on passera toute la messagerie par internet. Notre objectif n'est
+> plus une app de messagerie pair-à-pair, mais une app sociale qui mise sur la
+> proximité, et le BLE n'est maintenant qu'un outil pour PROUVER la proximité,
+> non pour échanger. »*
+>
+> **Rien n'est perdu** : ce bloc n'avait jamais été écrit. Ce qui disparaît est
+> une intention, pas du code.
+>
+> ✅ **Ce que ça allège pour iOS** : plus de `MultipeerConnectivity`, et surtout
+> plus besoin de faire transiter un contenu hors du serveur — donc **un seul
+> contexte de diffusion par média**, ce que la règle 5 de `CLAUDE.md` exige de
+> toute façon.
+>
+> ⚠️ **Ce que ça coûte, et qui n'est pas technique** : toute la bande passante
+> vidéo passe désormais par l'hébergement, sans exception. À relire avec le
+> cadrage hébergement de `RAPPELS.md` avant la prod.
+
+*Texte d'origine conservé ci-dessous pour mémoire.*
+
 
 **Rôle** : envoyer des cards/médias dans les conversations éphémères (le chat
 ping reste en BLE ; les médias passeront par un canal plus gros).
