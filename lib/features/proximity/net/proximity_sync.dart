@@ -156,11 +156,13 @@ class ProximitySync {
       for (final p in profiles) (p as Map<String, dynamic>)['id'] as String: p,
     };
 
+    // Ce que le carnet sait déjà : sert de repli quand un profil est masqué.
+    final connu = await _keyBook.all();
     final amis = <FriendKeys>[];
     for (final raw in rows) {
       final row = raw as Map<String, dynamic>;
-      final profile = byId[row['user_id'] as String];
-      if (profile == null) continue;
+      final userId = row['user_id'] as String;
+      final profile = byId[userId];
       final x25519 = row['x25519_pub'] as String?;
       // ⚠️ **Un ami sans clé X25519 n'est PAS un ami parti.**
       //
@@ -170,12 +172,28 @@ class ProximitySync {
       // déclenchait une révocation ; elle ne l'est plus, parce que la révocation
       // par rotation n'existe plus. La cause du faux positif a disparu avec elle.
       if (x25519 == null) continue;
+      // ⚠️ **UN PROFIL INVISIBLE NE RETIRE PAS UN AMI.**
+      //
+      // Cette ligne faisait `if (profile == null) continue;` — donc une absence
+      // de NOM faisait perdre une CLÉ. Constaté chez Jay le 2026-08-27 à
+      // 20 h 58 : le blocage rendait le profil invisible, et le carnet d'amis
+      // s'est vidé **des deux côtés**, arrêtant net la reconnaissance BLE.
+      //
+      // ⚠️ **C'est `device_keys` qui décide qui je reconnais**, et lui seul :
+      // sa politique RLS ne rend que mes amis, et écarte ceux qui m'ont bloqué.
+      // Une source d'affichage ne doit jamais pouvoir révoquer une capacité.
+      //
+      // C'est le même raisonnement que la ligne juste au-dessus pour la clé
+      // X25519 — *« un ami sans clé n'est PAS un ami parti »* — qui manquait
+      // ici d'une ligne.
+      final nom =
+          profile?['display_name'] as String? ?? connu[userId]?.username ?? '…';
       amis.add(
         FriendKeys(
-          userId: row['user_id'] as String,
-          username: profile['display_name'] as String,
-          tagName: profile['tag_name'] as String?,
-          avatarUrl: profile['avatar_url'] as String?,
+          userId: userId,
+          username: nom,
+          tagName: profile?['tag_name'] as String?,
+          avatarUrl: profile?['avatar_url'] as String?,
           // ⚠️ **La clé publique de l'ami, telle que le serveur la donne
           // MAINTENANT.** On ne stocke aucun secret dérivé : il se recalcule à
           // partir d'elle. C'est ce qui rend une réinstallation indolore — sa
