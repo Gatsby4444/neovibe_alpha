@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/clock.dart';
@@ -7,6 +9,7 @@ import '../../core/models/connection_request.dart';
 import '../../core/models/wave.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
+import '../proximity/net/proximity_sync.dart';
 
 /// Profil par id, mis en cache (résolu selon les droits RLS).
 final profileByIdProvider = FutureProvider.family<Profile?, String>((
@@ -194,11 +197,26 @@ class ConnectionsRepository {
   ConnectionsRepository(this.ref);
   final Ref ref;
 
-  Future<void> confirmPartial(String connectionId) => ref
+  /// ⚠️ **Les trois écritures qui changent le graphe d'amis relancent la
+  /// synchro.** Le carnet local porte les clés qui permettent de reconnaître un
+  /// ami par la radio : sans ce rappel, un ami ajouté reste invisible en BLE, et
+  /// un ami retiré reste reconnu — jusqu'au prochain démarrage de l'app.
+  /// Constaté pendant la session de test du 2026-08-27.
+  Future<void> confirmPartial(String connectionId) async {
+    await _confirmPartial(connectionId);
+    unawaited(ref.read(proximitySyncProvider).run());
+  }
+
+  Future<void> _confirmPartial(String connectionId) => ref
       .read(supabaseProvider)
       .rpc('confirm_partial_connection', params: {'conn_id': connectionId});
 
-  Future<void> remove(String connectionId) => ref
+  Future<void> remove(String connectionId) async {
+    await _remove(connectionId);
+    unawaited(ref.read(proximitySyncProvider).run());
+  }
+
+  Future<void> _remove(String connectionId) => ref
       .read(supabaseProvider)
       .from('connections')
       .delete()

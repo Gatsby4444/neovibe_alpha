@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/connection_request.dart';
 import '../../core/clock.dart';
 import '../../core/derived_list.dart';
 import '../../core/supabase_providers.dart';
+import 'net/proximity_sync.dart';
 
 /// Les demandes de connexion, **et il n'y a plus qu'un seul endroit où elles
 /// vivent** : la table `connection_requests`.
@@ -191,9 +194,29 @@ class ProximityRepository {
   // `requests_insert_sender` l'autorise encore : voir `RAPPELS.md` #70.
   // **Ne pas rouvrir ce chemin ici.**
 
-  Future<void> accept(String requestId) => ref
-      .read(supabaseProvider)
-      .rpc('accept_connection_request', params: {'req_id': requestId});
+  /// Accepte une demande — **et fait apprendre le nouvel ami à la radio**.
+  ///
+  /// ## ⚠️ Sans la resynchro, un ami tout juste accepté reste un inconnu
+  ///
+  /// La reconnaissance BLE d'un ami se fait avec **sa clé publique X25519**,
+  /// qui vit dans le carnet local. Ce carnet ne se remplit qu'à la
+  /// synchronisation — et rien ne la déclenchait après une acceptation.
+  ///
+  /// Conséquence, mesurée pendant la session de test du 2026-08-27 : Charles et
+  /// mimi devenus amis, **zéro constat de croisement**, et aucune distance à
+  /// l'écran. Il fallait fermer et rouvrir l'app pour que ça démarre — ce que
+  /// personne ne devine.
+  ///
+  /// ⚠️ **L'invalidation appartient à l'ÉCRITURE, jamais à l'appelant** (règle
+  /// de `CLAUDE.md`) : la poser ici, et non dans l'écran, garantit que tout
+  /// chemin d'acceptation la déclenche — celui de l'écran cœur comme celui de
+  /// l'encadré surgissant.
+  Future<void> accept(String requestId) async {
+    await ref
+        .read(supabaseProvider)
+        .rpc('accept_connection_request', params: {'req_id': requestId});
+    unawaited(ref.read(proximitySyncProvider).run());
+  }
 
   Future<void> decline(String requestId) => ref
       .read(supabaseProvider)
