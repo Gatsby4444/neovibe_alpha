@@ -47,9 +47,10 @@ Puis : *Réglages → Développeur → Diagnostic* et m'envoyer le rapport.
 |---|---|---|
 | `rawScans` | **> 0** | la radio livre quelque chose |
 | `neoScans` | **> 0** | elle entend des annonces NeoVibe |
-| `advertMode` | `parallele` | l'émission simultanée tient |
+| `advertMode` | **`cycle`** tant que vous n'êtes pas amis | ⚠️ **corrigé le 2026-08-27** : le plan disait `parallele`, c'était faux. Avec **un seul jeton** à crier (l'identifiant public), le mode parallèle n'est même pas tenté — il exige 2 jetons ou plus. Lire `advertTokensPerSlot` : s'il vaut 1, `cycle` est la seule réponse possible, pas un repli. **C'est APRÈS être devenus amis (test 7) qu'il faut lire `parallele`.** |
 | `otherVersionScans` | `0` | les deux appareils parlent le même protocole |
 | `fgsLocationType` | `true` | le service porte le bon type |
+| `synchros du carnet réussies` | **`0`** tant que vous n'êtes pas amis | normal : la synchro sort tôt quand le serveur ne renvoie aucune clé d'ami. Ça n'empêche pas la publication de la vôtre. |
 
 🔴 **Si `rawScans` vaut 0 : arrête tout et dis-le-moi.** C'est
 `BLUETOOTH_CONNECT` qu'il faut remettre — dans le manifeste **et** dans
