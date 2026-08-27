@@ -116,12 +116,18 @@ class PeerView {
 /// Séparée du contenu des tuiles **parce qu'elle change beaucoup plus rarement**.
 /// Sans elle, l'écran devrait observer la liste complète des pairs — donc se
 /// reconstruire à chaque annonce, ce qu'on cherche précisément à éviter.
+/// ⚠️ **`pending` a été retiré le 2026-08-27.**
+///
+/// Il comptait les pairs détectés mais pas encore identifiés, pour le bandeau
+/// « N appareils détectés » — supprimé le 2026-08-27 avec la poignée de main
+/// GATT, parce qu'il ne pouvait plus tomber à zéro.
+///
+/// ⚠️ **Le garder n'était pas neutre** : il entrait dans l'égalité de cet objet,
+/// donc l'apparition d'un inconnu que **rien n'affiche** reconstruisait la liste
+/// de l'écran Ping. Un champ que personne ne lit mais qui décide des redessins
+/// est le pire des deux mondes.
 class PresenceKeys {
-  const PresenceKeys({
-    required this.identified,
-    required this.userIds,
-    required this.pending,
-  });
+  const PresenceKeys({required this.identified, required this.userIds});
 
   /// Adresses des pairs identifiés, dans l'ordre d'affichage.
   final List<String> identified;
@@ -134,13 +140,9 @@ class PresenceKeys {
   /// silencieusement, puisque l'écran afficherait quand même la bonne chose.
   final List<String> userIds;
 
-  /// Combien de pairs sont détectés mais pas encore identifiés.
-  final int pending;
-
   @override
   bool operator ==(Object other) =>
       other is PresenceKeys &&
-      other.pending == pending &&
       _same(other.identified, identified) &&
       _same(other.userIds, userIds);
 
@@ -154,7 +156,7 @@ class PresenceKeys {
 
   @override
   int get hashCode =>
-      Object.hash(pending, Object.hashAll(identified), Object.hashAll(userIds));
+      Object.hash(Object.hashAll(identified), Object.hashAll(userIds));
 }
 
 /// **L'acquisition.** Ce que la radio a constaté, publié tel quel.
@@ -181,21 +183,13 @@ final presenceKeysProvider = Provider<PresenceKeys>((ref) {
   final peers = ref.watch(presenceProvider);
   final identified = <String>[];
   final userIds = <String>[];
-  var pending = 0;
   for (final p in peers) {
-    if (p.stage == PresenceStage.identified) {
-      identified.add(p.address);
-      final id = p.userId;
-      if (id != null) userIds.add(id);
-    } else {
-      pending++;
-    }
+    if (p.stage != PresenceStage.identified) continue;
+    identified.add(p.address);
+    final id = p.userId;
+    if (id != null) userIds.add(id);
   }
-  return PresenceKeys(
-    identified: identified,
-    userIds: userIds,
-    pending: pending,
-  );
+  return PresenceKeys(identified: identified, userIds: userIds);
 });
 
 /// Ce qu'affiche la tuile de ce pair. Ne notifie que si CETTE tuile change.

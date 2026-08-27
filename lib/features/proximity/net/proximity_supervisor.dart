@@ -177,6 +177,19 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
   /// après que l'utilisateur a rallumé le Bluetooth depuis l'app.
   ///
   /// Ne touche pas à l'intention : on ne réessaie que ce qui a échoué.
+  /// Ouvre les réglages de LOCALISATION du système — pas ceux de l'app.
+  ///
+  /// ⚠️ **Aucune permission ne remplace cet interrupteur** : sur Android 10 et
+  /// 11, c'est le service de localisation lui-même qu'il faut allumer pour
+  /// qu'un scan BLE rende quoi que ce soit.
+  ///
+  /// ⚠️ **Vit ici depuis le 2026-08-27, et plus dans l'écran.** `PingScreen`
+  /// construisait son propre `BleRadio()` pour l'appeler : un écran qui parle
+  /// directement au natif, c'est-à-dire le client qui va en cuisine. Le
+  /// superviseur **possède** la radio ; c'est à lui qu'on s'adresse, et il n'y a
+  /// qu'un seul chemin vers le canal natif.
+  Future<void> openLocationSettings() => _radio.openLocationSettings();
+
   Future<void> retry() async {
     if (!state.wantsVisible) return;
     await _engage();

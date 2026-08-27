@@ -160,22 +160,34 @@ void main() {
       expect(notifications, 1);
     });
 
-    test(
-      'un pair non identifié compte comme « en cours », pas comme une tuile',
-      () {
-        final container = ProviderContainer();
-        addTearDown(container.dispose);
+    test('un pair non identifié ne fait ni tuile NI reconstruction', () {
+      final container = ProviderContainer();
+      addTearDown(container.dispose);
 
-        container.read(presenceProvider.notifier).publish([
-          _peer(),
-          _peer(address: 'CC:DD', stage: PresenceStage.detected),
-        ]);
+      var notifications = 0;
+      container.listen(presenceKeysProvider, (_, _) => notifications++);
 
-        final keys = container.read(presenceKeysProvider);
-        expect(keys.identified, ['AA:BB']);
-        expect(keys.pending, 1);
-        expect(container.read(bleNearbyUserIdsProvider), {'u-1'});
-      },
-    );
+      container.read(presenceProvider.notifier).publish([_peer()]);
+      expect(container.read(presenceKeysProvider).identified, ['AA:BB']);
+      final apresLePremier = notifications;
+
+      // Un inconnu apparaît. Plus rien ne l'affiche depuis le 2026-08-27 :
+      // son identité ne peut venir que du serveur, jamais de la radio.
+      container.read(presenceProvider.notifier).publish([
+        _peer(),
+        _peer(address: 'CC:DD', stage: PresenceStage.detected),
+      ]);
+
+      expect(container.read(presenceKeysProvider).identified, ['AA:BB']);
+      expect(container.read(bleNearbyUserIdsProvider), {'u-1'});
+      // ⚠️ **C'est ce que MESURE ce test.** Tant que `PresenceKeys` portait un
+      // compteur `pending`, cette apparition changeait sa valeur et
+      // reconstruisait la liste de l'écran — pour quelque chose d'invisible.
+      expect(
+        notifications,
+        apresLePremier,
+        reason: 'un inconnu que rien n\'affiche ne doit rien redessiner',
+      );
+    });
   });
 }

@@ -13,10 +13,10 @@ import '../library/user_library_screen.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
 import 'geo/coarse_location.dart';
-import 'net/ble_radio.dart';
 import 'net/ping_beacon_service.dart';
 import 'net/ping_nearby_feed.dart';
 import 'net/ping_repository.dart';
+import 'proximity_repository.dart';
 import 'net/distance_estimate.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_supervisor.dart';
@@ -342,9 +342,12 @@ class _BandeauEtat extends ConsumerWidget {
 
   Future<void> _agir(WidgetRef ref, RadioStatus status) async {
     if (status is RadioLocationOff) {
-      // ⚠️ Les réglages de LOCALISATION du système, pas ceux de l'app : c'est
-      // le service qu'il faut allumer, et aucune permission ne le remplace.
-      await BleRadio().openLocationSettings();
+      // ⚠️ **On demande au SUPERVISEUR, pas à la radio.** Cet écran
+      // construisait son propre `BleRadio()` — un écran qui parle au natif.
+      // Le superviseur possède la radio ; lui seul l'adresse.
+      await ref
+          .read(proximitySupervisorProvider.notifier)
+          .openLocationSettings();
     } else if (status is RadioPermissionsMissing) {
       // ⚠️ **On demande ce que le NATIF dit manquer, on ne le déduit pas.**
       //
@@ -511,10 +514,9 @@ class _TuilePair extends ConsumerWidget {
           // `RAPPELS.md`. En attendant, le refus du serveur est **montré**, ce
           // qui n'était pas le cas en 2026-08-17.
           if (!estAmi)
-            IconButton(
-              icon: const Icon(Icons.person_add_alt),
-              tooltip: 'Demander à se connecter',
-              onPressed: () => _demander(context, ref, snapshot),
+            _BoutonDemande(
+              userId: snapshot.userId,
+              displayName: snapshot.displayName,
             ),
           // ⚠️ **La conversation SERVEUR, et elle seule** (2026-08-27).
           //
@@ -536,39 +538,6 @@ class _TuilePair extends ConsumerWidget {
   // ⚠️ **`_oublier` a été SUPPRIMÉE le 2026-08-27**, avec le journal local des
   // demandes sortantes qu'elle effaçait. Elle n'avait plus de bouton pour
   // l'appeler.
-
-  /// Demande en ami quelqu'un que la radio a identifié.
-  ///
-  /// ⚠️ **Passe par le SERVEUR depuis le 2026-08-27**, comme le bouton de la
-  /// tuile d'un inconnu. Elle appelait `ProximityController.requestFriendship`,
-  /// qui envoyait la demande dans le canal BLE chiffré : c'était le **dernier**
-  /// des trois chemins d'émission, et le garder aurait laissé deux boutons
-  /// « Ajouter » faire deux choses différentes selon la tuile touchée.
-  ///
-  /// ⚠️ **Le serveur peut répondre « Proximité non constatée », et c'est
-  /// correct** : cette tuile peut afficher quelqu'un identifié par un lien
-  /// ENTRANT (un appareil resté sur une version antérieure), sans paire ping.
-  /// La barrière s'applique alors, et elle le dit — au lieu de laisser croire
-  /// que la demande est partie.
-  Future<void> _demander(
-    BuildContext context,
-    WidgetRef ref,
-    PingPeerSnapshot snapshot,
-  ) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref.read(pingRepositoryProvider).requestConnection(snapshot.userId);
-      messenger.showSnackBar(
-        SnackBar(content: Text('Demande envoyée à ${snapshot.displayName}.')),
-      );
-    } catch (e) {
-      // ⚠️ **La vraie raison, pas un conseil au hasard.** Un `catch` qui
-      // répondait « rapproche-toi » donnait un conseil FAUX quand la cause
-      // était « vous êtes déjà connectés », et envoyait l'utilisateur faire
-      // quelque chose d'inutile.
-      messenger.showSnackBar(SnackBar(content: Text(messageServeur(e))));
-    }
-  }
 }
 
 Future<void> _ouvrirProfil(
@@ -756,10 +725,9 @@ class _TuileInconnu extends ConsumerWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          IconButton(
-            tooltip: "Demander en ami",
-            icon: const Icon(Icons.person_add_alt),
-            onPressed: () => _demanderEnAmi(ref, personne),
+          _BoutonDemande(
+            userId: personne.userId,
+            displayName: personne.displayName,
           ),
           IconButton(
             tooltip: "Écrire",
@@ -772,25 +740,99 @@ class _TuileInconnu extends ConsumerWidget {
   }
 }
 
-/// Demande en ami quelqu'un que le ping vient de révéler.
+/// Le bouton « demander en ami », **et l'état de la demande**.
+///
+/// ## ⚠️ Un seul bouton pour les DEUX tuiles, et c'est le sujet
+///
+/// Il en existait deux, avec deux fonctions d'envoi quasi identiques : une sur
+/// la tuile d'un ami à portée, une sur celle d'un inconnu révélé par le ping.
+/// Deux copies d'un même geste divergent toujours — c'est exactement ce qui
+/// avait produit deux boutons « Ajouter » faisant deux choses différentes selon
+/// la tuile touchée. **Le test de la règle** : le jour où une troisième tuile
+/// aura besoin de ce bouton, il n'y aura rien à réécrire.
+///
+/// ## ⚠️ L'état vient du SERVEUR, jamais d'une mémoire locale
+///
+/// Voir [etatDemandeProvider]. La leçon coûte deux itérations : la première
+/// réponse au défaut du 2026-08-17 fut un journal local, qui n'a jamais eu de
+/// raison d'être une fois la demande devenue une ligne serveur.
+class _BoutonDemande extends ConsumerWidget {
+  const _BoutonDemande({required this.userId, required this.displayName});
+
+  final String userId;
+  final String displayName;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    // ⚠️ **Une famille par personne, pas la liste entière.** Un lecteur qui
+    // suit UNE demande n'est réveillé que quand CELLE-CI change — pas à chaque
+    // fois que n'importe laquelle des demandes de l'utilisateur bouge.
+    final etat = ref.watch(etatDemandeProvider(userId));
+    return switch (etat) {
+      EtatDemande.aucune => IconButton(
+        icon: const Icon(Icons.person_add_alt),
+        tooltip: 'Demander à se connecter',
+        onPressed: () => _demanderEnAmi(context, ref, userId, displayName),
+      ),
+      // Désactivé, mais il DIT pourquoi. Un bouton grisé muet est
+      // indiscernable d'une fonction absente (leçon du 2026-08-16).
+      EtatDemande.envoyee => IconButton(
+        icon: Icon(Icons.hourglass_top, color: context.muted),
+        tooltip: 'Demande envoyée — en attente de sa réponse',
+        onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Demande déjà envoyée à $displayName. '
+              'En attente de sa réponse.',
+            ),
+          ),
+        ),
+      ),
+      // ⚠️ **Redemander, et non « oublier ».** L'ancien bouton effaçait une
+      // entrée d'un journal local ; il n'y a plus rien à effacer, et le serveur
+      // autorise explicitement une nouvelle demande après un refus (vérifié
+      // dans `request_connection_from_proximity`, qui ne cherche qu'une demande
+      // `pending`). Cacher le refus serait pire : l'utilisateur ne saurait
+      // jamais qu'on lui a dit non, il verrait juste le bouton revenir.
+      EtatDemande.declinee => IconButton(
+        icon: Icon(Icons.person_off_outlined, color: context.muted),
+        tooltip: '$displayName n\'a pas accepté — appuie pour redemander',
+        onPressed: () => _demanderEnAmi(context, ref, userId, displayName),
+      ),
+    };
+  }
+}
+
+/// Demande en ami quelqu'un qui est à portée.
 ///
 /// ⚠️ **La barrière de présence physique est vérifiée PAR LE SERVEUR** depuis le
 /// 2026-08-27. Elle était tenue par la radio — il fallait un canal BLE ouvert
 /// pour émettre la demande, donc être à portée. Maintenant que la demande est un
 /// appel réseau ordinaire, c'est `request_connection_from_proximity` qui exige
 /// la preuve : pas de proximité mutuelle fraîche, pas de demande.
-Future<void> _demanderEnAmi(WidgetRef ref, NearbyPerson personne) async {
-  final messenger = ScaffoldMessenger.maybeOf(ref.context);
+///
+/// ⚠️ **Rien à invalider après l'envoi.** La demande apparaît dans le flux temps
+/// réel de `connection_requests`, donc le bouton change tout seul. Une
+/// invalidation posée ici serait un second chemin vers un état dont le serveur
+/// est déjà la source.
+Future<void> _demanderEnAmi(
+  BuildContext context,
+  WidgetRef ref,
+  String userId,
+  String displayName,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
   try {
-    await ref.read(pingRepositoryProvider).requestConnection(personne.userId);
-    messenger?.showSnackBar(
-      SnackBar(content: Text("Demande envoyée à ${personne.displayName}")),
+    await ref.read(pingRepositoryProvider).requestConnection(userId);
+    messenger.showSnackBar(
+      SnackBar(content: Text('Demande envoyée à $displayName.')),
     );
   } catch (e) {
-    // ⚠️ Un refus du serveur se MONTRE. « Proximité non constatée » veut dire
-    // quelque chose de précis, et l'avaler laisserait l'utilisateur croire que
-    // sa demande est partie.
-    messenger?.showSnackBar(SnackBar(content: Text(messageServeur(e))));
+    // ⚠️ **La vraie raison, pas un conseil au hasard.** Un `catch` qui
+    // répondait « rapproche-toi » donnait un conseil FAUX quand la cause était
+    // « vous êtes déjà connectés » ou « proximité non constatée », et envoyait
+    // l'utilisateur faire quelque chose d'inutile.
+    messenger.showSnackBar(SnackBar(content: Text(messageServeur(e))));
   }
 }
 
