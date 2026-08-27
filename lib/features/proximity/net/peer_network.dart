@@ -4,18 +4,14 @@ import 'dart:typed_data';
 import '../ping_store.dart';
 import '../proximity_identity.dart';
 import 'advert_plan.dart';
-import 'peer_link.dart';
 import 'peer_session.dart';
-import 'proximity_protocol.dart';
 import 'radio_status.dart';
-import 'secure_channel.dart';
-import 'transport_trace.dart';
 
 /// Ce que le réseau constate, une fois les octets devenus du sens.
 ///
-/// C'est la frontière : en dessous, on parle radio, trames et clés ; au-dessus,
-/// on parle profils, messages et certificats. **Aucune fonction produit ne
-/// descend sous cette ligne.**
+/// C'est la frontière : en dessous, on parle radio et jetons ; au-dessus, on
+/// parle de personnes présentes. **Aucune fonction produit ne descend sous
+/// cette ligne.**
 sealed class PeerEvent {
   const PeerEvent();
 }
@@ -37,51 +33,46 @@ class PeerIdentified extends PeerEvent {
   final PingPeerSnapshot snapshot;
 }
 
-/// Un message applicatif est arrivé, déchiffré et authentifié.
-class PeerMessageReceived extends PeerEvent {
-  const PeerMessageReceived(this.address, this.snapshot, this.message);
-  final String address;
-  final PingPeerSnapshot snapshot;
-  final PeerMessage message;
-}
-
 /// Un pair a quitté la portée.
 class PeerLost extends PeerEvent {
   const PeerLost(this.peer);
   final PresencePeer peer;
 }
 
-/// Le réseau de pairs : liens, canaux, présence.
+/// La présence de proximité : qui la radio entend, et depuis quand.
 ///
 /// ## Ce qu'il fait
 ///
-/// Il transforme un flux d'événements radio en un flux d'événements de pairs :
-/// il ouvre les liens, tient un canal chiffré par pair, réassemble les trames,
-/// vérifie les identités, et publie ce qui a du sens.
+/// Il transforme un flux d'annonces BLE en un flux d'événements de présence :
+/// il reconnaît les jetons d'amis, tient un [PeerSession] par personne, et
+/// publie ce qu'il constate.
 ///
 /// ## Ce qu'il ne fait pas
 ///
-/// Il ne sait pas ce qu'est un certificat de croisement, un wave ou une demande
-/// d'ami. Il transporte des [PeerMessage] ; ce sont les fonctions, au-dessus,
-/// qui décident quoi en faire.
+/// Il ne sait pas ce qu'est un ami, un croisement ou une demande de connexion.
+/// Il dit **qui est là** ; ce sont les fonctions, au-dessus, qui décident quoi
+/// en faire.
 ///
-/// ## ⚠️ Ce qui a changé le 2026-08-18
+/// ## ⚠️ Ce qui a changé le 2026-08-27 — le transport BLE est parti
 ///
-/// Ce fichier tenait **neuf collections indexées par adresse** — présence,
-/// liens, canaux, identités, connexions en cours, replis armés, profils envoyés,
-/// croisements certifiés — qu'il fallait nettoyer ensemble, à la main, à chaque
-/// sortie. Tous les défauts du chantier sont le même : *la collection X a été
-/// nettoyée, la Y non*. Au point que la boucle de nettoyage des adresses
-/// fusionnées existait **en deux exemplaires**, dont les corps avaient déjà
-/// divergé.
+/// Ce fichier portait aussi les **liens GATT** : ouverture de connexion, canal
+/// chiffré, découpage de trames, poignée de main, envoi de messages
+/// applicatifs. Soit un peu plus de la moitié de ses lignes.
 ///
-/// Il n'y a plus qu'un [PeerRegistry] de [PeerSession]. Fermer un pair est
-/// **un geste** ([_close]), et il n'existe aucun autre chemin pour le faire.
+/// Décision de Jay du 2026-08-27 : *« on n'utilise plus la poignée de main
+/// GATT ‹…› le BLE ne sert qu'à valider et authentifier la proximité réelle »*.
+/// Tout ce que le canal transportait est passé au serveur — identité d'un
+/// inconnu (`ping_nearby`), messagerie (conversation de proximité), demande
+/// d'ami (`request_connection_from_proximity`).
+///
+/// ⚠️ **La barrière de présence physique n'est pas partie avec le canal** :
+/// elle était tenue par la portée de la radio, elle est désormais une condition
+/// **écrite et vérifiée côté serveur**. Le BLE reste ce qui la prouve.
+///
+/// Ce qui reste ici est ce que le serveur ne saura jamais faire : reconnaître un
+/// ami **hors ligne, app fermée**, à son jeton rotatif, et mesurer sa distance.
 class PeerNetwork {
   PeerNetwork({
-    required this.myUserId,
-    required this.myProfile,
-    required this.radio,
     required FriendKeyStore keyBook,
     required ProximityIdentity identity,
     DateTime Function()? clock,
@@ -95,13 +86,6 @@ class PeerNetwork {
     presence = PeerRegistry(clock: clock);
   }
 
-  /// Mon identifiant. Sert à décider qui initie et à signer.
-  final String myUserId;
-
-  /// Mon mini-profil, envoyé dans le tunnel chiffré.
-  final Future<PingPeerSnapshot> Function() myProfile;
-
-  final RadioCommands radio;
   final ProximityIdentity _identity;
   final FriendKeyStore _keyBook;
   final DateTime Function() _clock;
@@ -110,22 +94,19 @@ class PeerNetwork {
   /// fonctionnalité : le registre expire les sessions contre cette horloge, et
   /// tout ce qui juge une session doit la lire ici.
   ///
-  /// ⚠️ Le balayage des certificats appelait `DateTime.now()` directement
+  /// ⚠️ Le balayage des croisements appelait `DateTime.now()` directement
   /// (audit du 2026-08-18, point G). Sans effet en production — les deux
   /// valaient la même chose — mais sous horloge simulée, le registre et le
   /// balayage n'étaient plus au même instant, et ce chemin devenait intestable.
   DateTime now() => _clock();
 
   /// Le registre des pairs. Nommé `presence` parce que c'est la question qu'on
-  /// lui pose ; il possède aussi le transport, qui n'intéresse que ce fichier.
+  /// lui pose.
   late final PeerRegistry presence;
-
-  /// Au-delà, on considère que le lien ne s'ouvrira pas.
-  static const connectTimeout = Duration(seconds: 15);
 
   /// Table jeton reçu → ami, reconstruite à chaque créneau.
   ///
-  /// ⚠️ **Elle ne contient plus de clés, seulement des jetons attendus.** Le
+  /// ⚠️ **Elle ne contient pas de clés, seulement des jetons attendus.** Le
   /// carnet range des clés publiques ; `AdvertPlanner` en dérive ce qu'on
   /// s'attend à recevoir. Le réseau, lui, ne fait que comparer.
   RecognitionTable _recognition = const RecognitionTable(
@@ -164,40 +145,13 @@ class PeerNetwork {
 
   void _onBookChanged() => unawaited(refreshFriends());
 
-  /// ⚠️ **Fermer le réseau doit COUPER LA RADIO, pas seulement oublier.**
-  ///
-  /// Cette méthode se contentait de `session.release()` : le Dart oubliait, le
-  /// natif gardait ses liens GATT. C'est exactement le piège que le transport
-  /// documente ailleurs — `connect()` rend un succès **immédiat et sans le
-  /// moindre événement** quand un lien existe déjà. Le `PeerNetwork` suivant
-  /// attendait donc un événement qui ne viendrait jamais, et ce pair devenait
-  /// injoignable pour toute la vie du service, sans erreur ni trace.
-  ///
-  /// Elle passe donc par [_closeTransport], comme les deux autres chemins de
-  /// fermeture (`_close` et la branche « la radio s'est arrêtée » de
-  /// [onRadioEvent]). Trois chemins, une seule règle.
-  ///
-  /// Relevé à l'audit du 2026-08-18 (point B), corrigé le 2026-08-20.
   Future<void> dispose() async {
     _keyBook.changes.removeListener(_onBookChanged);
     _housekeeping?.cancel();
     _housekeeping = null;
-    for (final session in presence.drain()) {
-      _closeTransport(session);
-    }
+    presence.drain();
     await _events.close();
   }
-
-  /// Y a-t-il un canal capable de chiffrer avec cette adresse ?
-  ///
-  /// ⚠️ **Point d'observation de test : aucun appelant dans `lib/`.** Vérifié à
-  /// l'audit du 2026-08-18 (point E). Conservé délibérément — il permet aux
-  /// tests de transport d'affirmer l'état du canal sans ouvrir la session — mais
-  /// **à retirer avant la mise en production** avec les autres accès de test
-  /// (`RAPPELS.md`). Ne pas l'appeler depuis du code de production : ce serait
-  /// lire l'état du transport depuis une couche qui n'a pas à le connaître.
-  bool hasEstablishedChannel(String address) =>
-      presence.byAddress(address)?.hasChannel ?? false;
 
   /// Recharge le carnet d'amis et la table de reconnaissance du créneau.
   ///
@@ -224,12 +178,7 @@ class PeerNetwork {
         // souvenir présenté comme une observation est exactement ce qu'on
         // supprime partout ici.
         if (!status.isDetecting && presence.length > 0) {
-          for (final session in presence.drain()) {
-            session.release();
-            for (final a in session.addresses) {
-              radio.disconnect(a);
-            }
-          }
+          presence.drain();
           _publish();
         }
       case RadioScan(
@@ -240,29 +189,6 @@ class PeerNetwork {
         :final type,
       ):
         await _onScan(address, advertId, rssi, txPower, type);
-      case RadioLink(
-        :final linkId,
-        :final connected,
-        :final mtu,
-        :final incoming,
-      ):
-        connected
-            ? await _onLinkUp(linkId, mtu, incoming)
-            : _onLinkDown(linkId);
-      case RadioFrame(:final linkId, :final data):
-        final session = presence.byAddress(linkId);
-        final link = session?.link;
-        if (session == null || link == null) {
-          // Arrive normalement : les deux côtés s'ouvrent, et l'un peut parler
-          // avant que notre événement de lien ne soit remonté. Si ce compteur
-          // s'envole, c'est que des liens montent sans être vus.
-          TransportTrace.drop(DropKind.noLink, linkId, '${data.length} octets');
-          return;
-        }
-        // ⚠️ **Une trame reçue EST une preuve de présence.** C'est ce qui rend
-        // tenable une fraîcheur de 5 s sans second délai de grâce.
-        session.noteTraffic(_clock());
-        link.receive(data);
     }
   }
 
@@ -287,8 +213,7 @@ class PeerNetwork {
 
     // ⚠️ **Un jeton PRIVÉ qu'on ne reconnaît pas n'est PAS un inconnu.** C'est
     // le jeton d'une autre paire, capté au passage. L'afficher comme une
-    // découverte, c'est inventer des gens qui n'existent pas — et ouvrir des
-    // connexions vers eux.
+    // découverte, c'est inventer des gens qui n'existent pas.
     if (type == AdvertType.friend && friend == null) {
       _foreignTokens++;
       return;
@@ -308,7 +233,7 @@ class PeerNetwork {
     // Un ami est reconnu ICI, sans poignée de main : c'est tout l'intérêt de
     // l'ID rotatif.
     if (friend != null && session.snapshot == null) {
-      final result = presence.identify(
+      session = presence.identify(
         session,
         PingPeerSnapshot(
           userId: friend.userId,
@@ -317,470 +242,43 @@ class PeerNetwork {
           verified: true,
         ),
       );
-      if (result.merged != null) _closeTransport(result.merged!);
-      session = result.session;
       _emit(PeerIdentified(session.address, session.snapshot!));
     }
 
     _publish();
-
-    // Un ami reconnu n'a PAS besoin d'un lien pour être affiché. Il en faudra
-    // un pour le certificat de croisement — c'est `tick` qui le décidera.
-    if (session.snapshot != null) return;
-
-    // ⚠️ **PLUS AUCUN LIEN N'EST OUVERT VERS UN INCONNU** — décision de Jay du
-    // 2026-08-27 : *« on n'utilise plus la poignée de main GATT ‹…› le BLE ne
-    // sert qu'à valider et authentifier la proximité réelle »*.
-    //
-    // C'est l'aboutissement du renversement du 2026-08-25 (`RAPPELS.md` #65),
-    // qui posait déjà **zéro connexion GATT dans tout le ping public** et
-    // annonçait la suppression « après validation ». La validation a eu lieu le
-    // 2026-08-26 au soir : première paire réelle en base.
-    //
-    // ## Ce que ce chemin faisait, et par quoi c'est remplacé
-    //
-    // | Il portait | Désormais |
-    // |---|---|
-    // | révéler l'identité d'un inconnu | `ping_nearby`, après réciprocité |
-    // | la messagerie de proximité | conversation serveur (`ChatScreen`) |
-    // | la demande d'ami | `request_connection_from_proximity` |
-    //
-    // ⚠️ **La barrière de présence physique n'a pas disparé avec le canal** :
-    // elle était tenue par la portée de la radio, elle est maintenant une
-    // condition **écrite et vérifiée** côté serveur — pas de paire mutuelle
-    // fraîche, pas de demande, pas de messagerie. Le BLE reste ce qui la prouve.
-    //
-    // ⚠️ **Le code de transport n'est PAS supprimé, seulement plus déclenché
-    // ici.** Il sert encore au côté receveur (`touch`) tant que d'anciennes
-    // versions tournent en face, et la règle 8 demande de relever les deux sens
-    // avant de couper un nœud. Le retrait physique est un chantier à part,
-    // consigné dans `RAPPELS.md`.
-    if (type != AdvertType.public) return;
   }
 
-  // ⚠️ **`_maybeOpenLink` a été SUPPRIMÉE le 2026-08-27**, avec le repli passif
-  // de `tick` qui en dépendait. Elle ouvrait une connexion GATT vers un inconnu
-  // après dix secondes de contact continu, pour lui demander qui il est.
+  // ⚠️ **TOUT LE TRANSPORT A ÉTÉ SUPPRIMÉ LE 2026-08-27** — décision de Jay :
+  // *« on n'utilise plus la poignée de main GATT ‹…› le BLE ne sert qu'à valider
+  // et authentifier la proximité réelle »*.
   //
-  // Plus personne ne pose cette question à la radio : `ping_nearby` y répond,
-  // après réciprocité prouvée. Elle emportait avec elle `awaitingSince` et
-  // `passiveFallback` — **elle était le seul endroit qui posait le premier**,
-  // donc la boucle de repli ne pouvait plus se déclencher : du code qui ne
-  // pouvait plus rien faire, et que rien n'aurait signalé.
+  // Ce qui vivait ici, et par quoi c'est remplacé :
   //
-  // ⚠️ [_open] reste, lui : [ensureChannel] s'en sert encore pour les gestes
-  // explicites, et le côté receveur d'un lien entrant n'a pas changé.
-
-  Future<void> _open(PeerSession session) async {
-    if (session.connecting) return;
-    final channel = session.channel;
-    if (channel != null && channel.stage != ChannelStage.closed) return;
-
-    final address = session.advertAddress;
-    session.connecting = true;
-    _publish();
-    try {
-      // ⚠️ **Avec une échéance.** Une connexion GATT qui n'aboutit pas peut
-      // rester sans réponse une trentaine de secondes côté Android — et si le
-      // rappel natif se perd, pour toujours.
-      await radio.connect(address).timeout(connectTimeout);
-    } catch (_) {
-      // Rien ici : le stade affiché dérive de `connecting`, qui vaut ENCORE
-      // `true` à cet instant. Un `_publish()` posé dans ce `catch` calculait
-      // donc une signature inchangée et ne publiait rien — une ligne qui
-      // mentait sur son intention (audit du 2026-08-18, point D).
-    } finally {
-      // L'état ne change qu'ici, donc c'est ici qu'on publie.
-      session.connecting = false;
-      _publish();
-    }
-  }
-
-  /// Un lien s'ouvre.
-  ///
-  /// ## ⚠️ Une session a AU PLUS un lien
-  ///
-  /// Deux appareils peuvent se connecter en même temps — c'est même fréquent
-  /// depuis le repli passif. Chacun reçoit alors deux événements de lien pour le
-  /// même pair. L'ancien code écrasait le canal sans condition : l'émetteur
-  /// chiffrait avec l'ancienne clé, le destinataire déchiffrait avec la
-  /// nouvelle, et le message **disparaissait sans un mot**.
-  ///
-  /// La règle tient en une phrase parce que la session est unique : **un canal
-  /// vivant ne se remplace jamais, et le lien de trop se referme côté radio.**
-  Future<void> _onLinkUp(String linkId, int mtu, bool incoming) async {
-    // Un lien est en soi une preuve de présence, et il peut précéder la
-    // première annonce : le côté qui *reçoit* la connexion n'a souvent rien vu.
-    final session = presence.touch(linkId);
-
-    final existing = session.channel;
-    if (existing != null && existing.stage != ChannelStage.closed) {
-      TransportTrace.drop(
-        DropKind.duplicateLink,
-        linkId,
-        incoming
-            ? 'entrant, canal ${existing.stage.name}'
-            : 'sortant, canal ${existing.stage.name}',
-      );
-      // Un second chemin physique vers un pair déjà relié : on le referme, sans
-      // toucher à la session qui tient déjà un canal négocié.
-      if (session.linkAddress != linkId) radio.disconnect(linkId);
-      return;
-    }
-
-    // Un canal fermé laisse derrière lui un transport à refermer, sinon ses
-    // envois en attente resteraient suspendus pour toujours.
-    session.release();
-
-    session.link = PeerLink(
-      linkId: linkId,
-      mtu: mtu,
-      sendChunk: radio.send,
-      onFrame: (id, frame) => unawaited(_onFrame(id, frame)),
-      onDropped: (id, reason) =>
-          TransportTrace.drop(DropKind.reassembly, id, reason),
-    );
-    session.channel = SecureChannel(linkId: linkId, identity: _identity);
-    session.linkAddress = linkId;
-    _publish();
-
-    // ⚠️ **Les DEUX ouvrent, et personne n'attend.** Deux ouvertures qui se
-    // croisent aboutissent au même couple de clés éphémères, donc à la même
-    // session, et la réponse de trop ne change rien.
-    await _tell(session, await session.channel!.open());
-  }
-
-  void _onLinkDown(String linkId) {
-    final session = presence.byAddress(linkId);
-    if (session == null) return;
-    // Un AUTRE chemin est mort, pas le nôtre : ne rien défaire.
-    if (session.linkAddress != null && session.linkAddress != linkId) return;
-    session.release();
-    // Le lien tombe, mais la RADIO peut encore voir le pair : on ne le fait pas
-    // disparaître. Sa fraîcheur décidera.
-    _publish();
-  }
-
-  // ------------------------------------------------------------------
-  // Trames
-  // ------------------------------------------------------------------
-
-  /// ⚠️ **Ce traitement ne doit JAMAIS lever.** Il est appelé depuis le
-  /// réassembleur, sans personne pour attendre son résultat : une exception y
-  /// partirait dans le vide — invisible à l'exécution, aux tests, et à Jay.
-  Future<void> _onFrame(String linkId, Uint8List bytes) async {
-    try {
-      await _handleFrame(linkId, bytes);
-    } catch (e) {
-      TransportTrace.drop(DropKind.handlerFailed, linkId, '$e');
-      final session = presence.byAddress(linkId);
-      if (session != null) {
-        // Un état à moitié défait est plus difficile à diagnostiquer qu'un état
-        // franchement cassé : le lien ET le canal partent ensemble.
-        session.release();
-        radio.disconnect(linkId);
-      }
-    }
-  }
-
-  Future<void> _handleFrame(String linkId, Uint8List bytes) async {
-    final session = presence.byAddress(linkId);
-    final channel = session?.channel;
-    if (session == null || channel == null) {
-      // La signature exacte du message fantôme : en face l'envoi a réussi, ici
-      // il n'y a plus personne pour l'ouvrir.
-      TransportTrace.drop(DropKind.noChannel, linkId, '${bytes.length} octets');
-      return;
-    }
-    final frame = WireFrame.decode(bytes);
-    if (frame == null) {
-      TransportTrace.drop(
-        DropKind.undecodable,
-        linkId,
-        '${bytes.length} octets',
-      );
-      return;
-    }
-
-    switch (frame) {
-      // ⚠️ **Une OUVERTURE reçue l'emporte toujours sur la session en cours.**
-      // Le pair ne l'envoie que s'il n'a plus de session avec nous ; refuser de
-      // le suivre ne peut produire que du silence.
-      case HelloFrame(
-        :final version,
-        :final ephemeralPublicKey,
-        :final devicePublicKey,
-        :final signature,
-      ):
-        final avantRekeys = channel.rekeys;
-        final avantSession = channel.sessionSerial;
-        final refus = await channel.acceptHello(
-          version: version,
-          peerEphemeral: ephemeralPublicKey,
-          peerDeviceKey: devicePublicKey,
-          signature: signature,
-          weWillAnswer: true,
-        );
-        if (refus != null) {
-          TransportTrace.drop(DropKind.handshakeRefused, linkId, refus);
-          await _tell(session, ByeFrame(refus));
-          radio.disconnect(linkId);
-          return;
-        }
-        if (channel.rekeys != avantRekeys) {
-          TransportTrace.drop(
-            DropKind.sessionRebuilt,
-            linkId,
-            'le pair avait perdu la sienne (${channel.rekeys}e fois)',
-          );
-          // Une session neuve est une session sans profil envoyé.
-          session.profileSent = false;
-        }
-        await _tell(session, await channel.answer());
-        if (channel.sessionSerial != avantSession) {
-          await _sendProfile(session);
-        }
-
-      case HelloAckFrame(
-        :final version,
-        :final ephemeralPublicKey,
-        :final devicePublicKey,
-        :final signature,
-      ):
-        final avantAck = channel.sessionSerial;
-        final refus = await channel.acceptHello(
-          version: version,
-          peerEphemeral: ephemeralPublicKey,
-          peerDeviceKey: devicePublicKey,
-          signature: signature,
-          // Nous ne répondons pas à une réponse : renouveler notre clé
-          // éphémère ici la rendrait inconnue du pair.
-          weWillAnswer: false,
-        );
-        if (refus != null) {
-          TransportTrace.drop(DropKind.handshakeRefused, linkId, refus);
-          await _tell(session, ByeFrame(refus));
-          radio.disconnect(linkId);
-          return;
-        }
-        if (channel.sessionSerial != avantAck) {
-          session.profileSent = false;
-          await _sendProfile(session);
-        }
-
-      case EncryptedFrame():
-        final message = await channel.decrypt(frame);
-        if (message == null) {
-          TransportTrace.drop(
-            DropKind.decryptRefused,
-            linkId,
-            'compteur ${frame.counter}, canal ${channel.stage.name}',
-          );
-          return;
-        }
-        await _onMessage(session, message);
-
-      case ByeFrame():
-        radio.disconnect(linkId);
-    }
-  }
-
-  Future<void> _onMessage(PeerSession session, PeerMessage message) async {
-    if (message is ProfileMessage) {
-      await _onProfile(session, message);
-      return;
-    }
-    // ⚠️ **L'identité appartient à la SESSION, pas à la présence.** Elle est
-    // établie une fois par la poignée de main et le profil signé ; elle ne doit
-    // pas dépendre d'une entrée de proximité qui va et vient.
-    final snapshot = session.snapshot;
-    if (snapshot == null) {
-      // Sans identité, on ne saurait ni l'afficher, ni le ranger, ni décider
-      // s'il a le droit d'exister.
-      TransportTrace.drop(
-        DropKind.beforeProfile,
-        session.address,
-        '${message.runtimeType}, profil pas encore reçu',
-      );
-      return;
-    }
-    TransportTrace.noteDelivered();
-    _emit(PeerMessageReceived(session.address, snapshot, message));
-  }
-
-  Future<void> _onProfile(PeerSession session, ProfileMessage profile) async {
-    final channel = session.channel;
-    if (channel == null) return;
-
-    // ⚠️ Deux vérifications, et il en faut DEUX. La signature prouve QUI a
-    // écrit le profil ; la comparaison avec la clé de la poignée de main prouve
-    // QUI est en face. La première seule ne dit rien d'utile : n'importe qui
-    // pourrait rejouer le profil signé d'un autre, capté ailleurs.
-    final signatureOk = await ProximityIdentity.verify(
-      ProfileMessage.signedPayload(profile.userId, profile.username),
-      profile.signature,
-      profile.devicePublicKey,
-    );
-    if (!signatureOk || !channel.isPeerDeviceKey(profile.devicePublicKey)) {
-      TransportTrace.drop(
-        DropKind.profileRefused,
-        session.address,
-        signatureOk
-            ? 'clé différente de la poignée de main'
-            : 'signature invalide',
-      );
-      await _tell(session, const ByeFrame('profil non authentifié'));
-      radio.disconnect(session.address);
-      return;
-    }
-    if (profile.userId == myUserId) {
-      // Notre propre annonce, renvoyée par un relais.
-      TransportTrace.drop(DropKind.ownProfile, session.address);
-      _close(session);
-      return;
-    }
-
-    final result = presence.identify(session, profile.toSnapshot());
-    if (result.merged != null) _closeTransport(result.merged!);
-    final live = result.session;
-    _emit(PeerIdentified(live.address, live.snapshot!));
-    _publish();
-  }
-
-  /// ⚠️ **Notre profil est la PREMIÈRE trame applicative d'une session.**
-  ///
-  /// Sans cet invariant, un certificat de croisement pouvait partir avant notre
-  /// profil : en face, on ne savait pas encore qui parlait et la trame était
-  /// jetée — alors que `certified` était déjà marqué, donc plus aucune nouvelle
-  /// tentative. Le croisement était perdu pour de bon, en silence.
-  Future<void> _sendProfile(PeerSession session) async {
-    final channel = session.channel;
-    if (channel == null || channel.stage != ChannelStage.established) return;
-    final me = await myProfile();
-    final signature = await _identity.sign(
-      ProfileMessage.signedPayload(me.userId, me.username),
-    );
-    session.profileSent = true;
-    await _sendWire(
-      session,
-      await channel.encrypt(
-        ProfileMessage(
-          userId: me.userId,
-          username: me.username,
-          tagName: me.tagName,
-          devicePublicKey: await _identity.edPublicKey(),
-          signature: signature,
-        ),
-      ),
-    );
-    TransportTrace.noteHandshake();
-  }
-
-  // ------------------------------------------------------------------
-  // Sortie
-  // ------------------------------------------------------------------
-
-  /// Envoie un message applicatif à un pair, par son adresse.
-  ///
-  /// Lève si le canal n'est pas établi — **volontairement**. Un envoi qui échoue
-  /// en silence est ce qui a fait perdre des demandes d'amis sans que personne
-  /// ne le sache.
-  Future<void> send(String address, PeerMessage message) async {
-    final session = presence.byAddress(address);
-    final channel = session?.channel;
-    if (session == null ||
-        channel == null ||
-        channel.stage != ChannelStage.established) {
-      throw StateError('aucun canal établi avec $address');
-    }
-    // Notre profil d'abord, **toujours**.
-    if (!session.profileSent) await _sendProfile(session);
-    await _sendWire(session, await channel.encrypt(message));
-  }
-
-  /// Envoie à un utilisateur, en ouvrant le lien si besoin.
-  Future<void> sendToUser(String userId, PeerMessage message) async {
-    final session = presence.byUser(userId);
-    if (session == null || !session.isFresh(_clock())) {
-      throw StateError('$userId n\'est pas à portée');
-    }
-    await ensureChannel(session.address);
-    await send(session.address, message);
-  }
-
-  /// Garantit un canal établi avec [address], en attendant la poignée de main.
-  ///
-  /// ⚠️ **Contourne le seuil de stabilité, et c'est voulu** : c'est le chemin
-  /// des gestes explicites de l'utilisateur (demander en ami, écrire). Quand
-  /// quelqu'un agit, on n'attend pas dix secondes de contact continu.
-  Future<void> ensureChannel(String address) async {
-    final session = presence.byAddress(address);
-    if (session == null) throw StateError('aucun pair sur $address');
-    if (session.hasChannel) return;
-    if (session.channel == null) await _open(session);
-
-    // La poignée de main est asynchrone : on attend qu'elle aboutisse, avec une
-    // borne. Sans borne, un pair muet bloquerait l'appelant pour toujours.
-    final deadline = _clock().add(const Duration(seconds: 8));
-    while (_clock().isBefore(deadline)) {
-      if (session.hasChannel) return;
-      if (session.channel?.stage == ChannelStage.closed) break;
-      await Future<void>.delayed(const Duration(milliseconds: 120));
-    }
-    throw StateError('poignée de main impossible avec $address');
-  }
-
-  Future<void> _sendWire(PeerSession session, WireFrame frame) async {
-    final link = session.link;
-    if (link == null) throw StateError('aucun lien ${session.address}');
-    await link.send(frame.encode());
-  }
-
-  /// Trame de SERVICE (poignée de main, congé) : son échec n'intéresse personne.
-  ///
-  /// ⚠️ Deux régimes, et la distinction est délibérée. Un `hello` qui meurt avec
-  /// son lien est un non-événement. Un message **applicatif** perdu, lui, doit
-  /// toujours remonter.
-  Future<void> _tell(PeerSession session, WireFrame frame) async {
-    try {
-      await _sendWire(session, frame);
-    } catch (_) {
-      // Lien déjà tombé : rien à faire, et rien à signaler.
-    }
-  }
+  // | Il portait | Désormais |
+  // |---|---|
+  // | révéler l'identité d'un inconnu | `ping_nearby`, après réciprocité |
+  // | la messagerie de proximité | conversation serveur (`ChatScreen`) |
+  // | la demande d'ami | `request_connection_from_proximity` |
+  // | le certificat de croisement co-signé | `report_sightings` (constat mutuel) |
+  //
+  // Le côté **receveur** avait été gardé le temps que le parc se mette à jour ;
+  // il n'y a que deux appareils de développement, tous deux à jour, et aucune
+  // production. Le garder revenait à maintenir un chemin d'entrée que plus
+  // personne n'emprunte — exactement la « règle la plus permissive qui gagne en
+  // silence » de `CLAUDE.md`.
 
   // ------------------------------------------------------------------
   // Entretien
   // ------------------------------------------------------------------
 
-  /// Ferme **tout** pour un pair : transport, radio, registre. Un seul geste.
-  void _close(PeerSession session) {
-    _closeTransport(session);
-    presence.remove(session);
-  }
-
-  void _closeTransport(PeerSession session) {
-    if (session.hasChannel) {
-      TransportTrace.drop(
-        DropKind.sessionDropped,
-        session.address,
-        'session refermée',
-      );
-    }
-    session.release();
-    for (final address in session.addresses) {
-      radio.disconnect(address);
-    }
-  }
-
-  /// Battement régulier : rotation de l'index, pairs oubliés, replis armés.
+  /// Battement régulier : rotation de l'index, pairs oubliés.
   Future<void> tick() async {
     final slot = ProximityIdentity.slotIndex(_clock());
     if (slot != _slot) await refreshFriends();
 
     for (final session in presence.expired()) {
       final peer = session.toPresence();
-      _close(session);
+      presence.remove(session);
       _emit(PeerLost(peer));
     }
 
@@ -793,10 +291,9 @@ class PeerNetwork {
   /// ## ⚠️ Un seul chemin, et une seule responsabilité
   ///
   /// Sept endroits émettaient `PresenceChanged` à la main, chacun quand son
-  /// auteur y pensait : une observation, une connexion en cours, un lien qui
-  /// monte, un lien qui tombe, un profil accepté… D'où des rafraîchissements en
-  /// double sur un même changement, et **aucun** quand un pair cessait
-  /// simplement d'être frais — personne n'émet pour un non-événement.
+  /// auteur y pensait. D'où des rafraîchissements en double sur un même
+  /// changement, et **aucun** quand un pair cessait simplement d'être frais —
+  /// personne n'émet pour un non-événement.
   ///
   /// ## ⚠️ Ce qui a changé le 2026-08-20 — règle de dissociation de Jay
   ///
@@ -819,15 +316,4 @@ class PeerNetwork {
   void _emit(PeerEvent event) {
     if (!_events.isClosed) _events.add(event);
   }
-}
-
-/// Les ORDRES qu'on peut donner à la radio.
-///
-/// Interface étroite et volontairement pauvre : c'est ce qui permet de faire
-/// tourner [PeerNetwork] en test, sans Bluetooth, avec deux réseaux branchés
-/// l'un sur l'autre.
-abstract class RadioCommands {
-  Future<int> connect(String address);
-  void disconnect(String linkId);
-  Future<void> send(String linkId, Uint8List chunk);
 }

@@ -226,11 +226,15 @@ class ProximitySync {
     for (final item in pending) {
       try {
         switch (item['type']) {
-          case 'encounter':
-            await client.rpc(
-              'report_encounter',
-              params: {'cert': item['certificate']},
-            );
+          // ⚠️ **`encounter` et `connection` ont été retirés le 2026-08-27**,
+          // avec le transport BLE qui les produisait : un certificat de
+          // croisement co-signé (`report_encounter`) et une demande d'ami
+          // co-signée (`submit_ble_connection`). Plus rien ne les met en file.
+          //
+          // Un cas de `switch` sans producteur n'est pas inoffensif : il fait
+          // croire que le chemin existe encore, et il maintient vivantes deux
+          // fonctions serveur que plus personne n'appelle (consignées dans
+          // `RAPPELS.md`).
           // ⚠️ **Les constats partent en LOT, et ils ne prouvent rien seuls.**
           //
           // Le serveur ne cree un croisement que si le constat inverse existe
@@ -241,11 +245,6 @@ class ProximitySync {
             await client.rpc(
               'report_sightings',
               params: {'items': item['items']},
-            );
-          case 'connection':
-            await client.rpc(
-              'submit_ble_connection',
-              params: {'record': item['record']},
             );
           case 'wave':
             await client.from('waves').insert({

@@ -358,10 +358,10 @@ class ProximityService : Service(), BleEngine.Listener {
     // jeton. Deux chemins vers la meme radio, c'est celui qui en sait le moins
     // qui gagne un jour, en silence.
     fun advertCapabilities(): Map<String, Any?> = engine.advertCapabilities()
-    fun connect(address: String, done: (String?) -> Unit) = engine.connect(address, done)
-    fun disconnect(linkId: String) = engine.disconnect(linkId)
-    fun send(linkId: String, data: ByteArray): Boolean = engine.send(linkId, data)
-    fun mtuOf(linkId: String): Int = engine.mtuOf(linkId)
+
+    // ⚠️ **`connect`, `disconnect`, `send` et `mtuOf` ont ete SUPPRIMES le
+    // 2026-08-27**, avec tout le bloc GATT de `BleEngine`. Le service ne relaie
+    // plus aucun ordre vers la radio : il n'en remonte que des constats.
 
     /**
      * Ce que la radio a reellement recu depuis le dernier demarrage.
@@ -438,10 +438,10 @@ class ProximityService : Service(), BleEngine.Listener {
         // pour l'UWB, ou la supposition aurait ete fausse dans les deux sens.
         "wifiDirect" to packageManager.hasSystemFeature("android.hardware.wifi.direct"),
         "wifiAware" to packageManager.hasSystemFeature("android.hardware.wifi.aware"),
-        // Les chemins physiques ouverts, par role. Voir `BleEngine.pathStats` :
-        // c'est la mesure qui dira si une meme adresse porte DEUX connexions
-        // GATT — hypothese des messages fantomes restants, non encore observee.
-    ) + engine.pathStats
+        // ⚠️ `engine.pathStats` (clientPaths / serverPaths / bothPaths) etait
+        // fusionne ici. Il comptait les connexions GATT ouvertes par role : plus
+        // aucune n'existe depuis le 2026-08-27.
+    )
 
     // ------------------------------------------------------------------
     // Écoute du moteur
@@ -495,17 +495,9 @@ class ProximityService : Service(), BleEngine.Listener {
         while (pendingScans.size > scanBufferMax) pendingScans.poll()
     }
 
-    override fun onLink(linkId: String, connected: Boolean, mtu: Int, incoming: Boolean) {
-        // Un lien sans Dart pour lui parler ne sert à rien : on ne le met pas en
-        // attente, on le laisse tomber. Le pair réessaiera.
-        bridge?.onLink(linkId, connected, mtu, incoming)
-    }
-
-    override fun onFrame(linkId: String, data: ByteArray) {
-        // Idem : une trame chiffrée que personne ne peut ouvrir est perdue, et
-        // c'est assumé. La rejouer plus tard casserait l'anti-rejeu du canal.
-        bridge?.onFrame(linkId, data)
-    }
+    // ⚠️ **`onLink` et `onFrame` ont ete SUPPRIMES le 2026-08-27**, avec le
+    // transport BLE. Ils relayaient au Dart la montee d'un lien GATT et les
+    // morceaux de trame recus. Le moteur ne les emet plus.
 
     /**
      * Rejoue l'état courant et les scans mis de côté au pont qui vient

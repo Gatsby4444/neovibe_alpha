@@ -311,8 +311,10 @@ class _Pair extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final etat = switch (peer.stage) {
+      // ⚠️ « poignée de main en cours » a disparu avec le transport BLE
+      // (2026-08-27). Un pair détecté et non identifié le reste : son identité
+      // ne peut plus venir que du serveur, jamais de la radio.
       PresenceStage.detected => 'détecté, identité inconnue',
-      PresenceStage.identifying => 'poignée de main en cours',
       PresenceStage.identified => 'identifié',
     };
     // Le statut d'ami se dérive du carnet — la présence ne le porte plus.

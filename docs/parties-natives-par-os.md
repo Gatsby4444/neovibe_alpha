@@ -30,7 +30,8 @@
 | Caméra | `neovibe/camera` | CameraX + Camera2 + OpenGL ES | AVFoundation + Metal/CoreImage + AVAssetWriter |
 | Anti-capture | (dans `neovibe/camera` : `setSecure`) | `WindowManager.FLAG_SECURE` | Pas d'équivalent strict → détection + occultation |
 | Média (hors caméra) | `neovibe/media` | `MediaMetadataRetriever` (image de couverture d'une vidéo) | `AVAssetImageGenerator` |
-| Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise/scan + GATT) | CoreBluetooth, **mode dégradé à concevoir** |
+| Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise + scan) | CoreBluetooth, **mode dégradé à concevoir** |
+| ~~Transport GATT (liens, trames)~~ | — | **SUPPRIMÉ le 2026-08-27** — le BLE ne fait plus que prouver la proximité | *sans objet* |
 | ~~Transfert média proximité~~ | — | **ABANDONNÉ le 2026-08-27** — tout le contenu passe par le serveur | *sans objet* |
 | Hôte / cycle de vie | — | `MainActivity : FlutterFragmentActivity` | `AppDelegate` / `FlutterViewController` |
 | Journal caméra (dev) | (dans `neovibe/camera`) | `CamLog` (fichier disque) | fichier disque (trivial) |
@@ -215,8 +216,8 @@ et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
 
 | Canal | Sens | Contenu |
 |---|---|---|
-| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `setAdvertPlan`, `setRecognitionTable`, `takeSightings`, `advertCapabilities`, `connect`, `disconnect`, `send`, `stats`, `openLocationSettings`. ⚠️ **`updateAdvert` a été supprimé le 2026-08-25** : second chemin vers l'émission, sans appelant depuis le plan d'annonces, et incapable de porter le TYPE du jeton. |
-| `neovibe/proximity/events` | natif → Dart | les **constats** : `status`, `scan`, `link`, `frame` |
+| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `setAdvertPlan`, `setRecognitionTable`, `takeSightings`, `advertCapabilities`, `stats`, `openLocationSettings`. ⚠️ **`updateAdvert` supprimé le 2026-08-25** (second chemin vers l'émission, incapable de porter le TYPE du jeton) ; ⚠️ **`connect`, `disconnect` et `send` supprimés le 2026-08-27**, avec tout le transport GATT. |
+| `neovibe/proximity/events` | natif → Dart | les **constats** : `status`, `scan`. ⚠️ **`link` et `frame` supprimés le 2026-08-27.** Le Dart ne sait plus les décoder : `RadioEvent.fromMap` les rendrait `null`. |
 | `setAdvertPlan` | Dart → natif | *(2026-08-20)* dépose des heures de jetons d'avance — correction du point H |
 | `advertCapabilities` | Dart → natif | *(2026-08-20)* ce que la radio sait faire en annonces simultanées — architecture adaptative |
 | `setRecognitionTable` | Dart → natif | *(2026-08-20)* jetons attendus → rangs, pour reconnaître sans le Dart |
@@ -232,15 +233,20 @@ au remplacement de l'interface.
 - **`RadioStatus.kt`** — l'**état réel** de la radio, et le calcul des
   permissions réellement exigées selon la version d'Android. C'est le cœur du
   chantier : plus aucun échec silencieux.
-- **`BleEngine.kt`** — advertising, scan, serveur et client GATT. **Ne dépend
-  d'aucune `Activity`.** Écoute `ACTION_STATE_CHANGED` : le Bluetooth rallumé
-  relance tout seul. Files d'écriture dans **les deux sens**.
-  ⚠️ **Deux chemins physiques par adresse** (`clientLinks` quand nous sommes
-  central, `serverCentrals` quand le pair l'est) et **un seul `linkId`, l'adresse**.
-  `pathStats` / `bothPathsPeak` les comptent — mesure ajoutée le 2026-08-17 pour
-  trancher l'hypothèse des messages fantômes restants. **À porter sur iOS avec la
-  même vigilance** : CoreBluetooth a la même dualité central/périphérique, et
-  l'identifiant y est un `CBPeripheral.identifier`, pas une adresse.
+- **`BleEngine.kt`** — advertising et scan. **Ne dépend d'aucune `Activity`.**
+  Écoute `ACTION_STATE_CHANGED` : le Bluetooth rallumé relance tout seul.
+  ⚠️ **Le serveur et le client GATT ont été SUPPRIMÉS le 2026-08-27** — environ
+  300 lignes et la moitié des imports Bluetooth du fichier. Avec eux partent
+  `connect` / `disconnect` / `send` / `mtuOf`, les files de notification, et les
+  compteurs `pathStats` / `bothPathsPeak` qui mesuraient la dualité
+  central/périphérique. **Conséquence pour iOS : `CBPeripheralManager` n'a plus
+  à servir de serveur GATT, et `CBCentralManager` plus à se connecter** — la
+  dualité disparaît, ce qui retire au portage sa difficulté la plus vicieuse.
+  ⚠️ **`BleConstants.SERVICE_UUID` part aussi** : vérifié à l'inventaire, il
+  n'apparaissait que dans le GATT — l'annonce ne porte que des
+  `manufacturerData`. **Attention au portage iOS** : le scan en arrière-plan y
+  exige justement un filtrage par UUID de service, donc il faudra peut-être en
+  réintroduire un pour iOS, et l'annoncer côté Android.
 - **`ProximityService.kt`** — service de premier plan qui **possède** le moteur
   et survit à la destruction de l'interface (décision de Jay). Sa notification
   dit l'état vrai.
@@ -319,6 +325,20 @@ Sans filtre, capter sa propre annonce revient à voir cet ami.
 `FOREGROUND_SERVICE_LOCATION` **non bornée** : à partir d'Android 14, tout type
 déclaré sur un `<service>` exige sa permission, utilisé ou non à l'exécution.
 
+⚠️ **`BLUETOOTH_CONNECT` a été retirée le 2026-08-27**, avec le bloc GATT. Sur
+Android 12+ elle ne sert qu'à ouvrir une connexion ou un serveur GATT ; annoncer
+et scanner relèvent de `BLUETOOTH_ADVERTISE` et `BLUETOOTH_SCAN`. Il ne reste
+donc que **deux** permissions Bluetooth à demander à l'exécution — une de moins à
+justifier à la Play Console. ⚠️ **C'est le seul changement de ce chantier qui ne
+peut se confirmer que sur l'appareil** : si la radio se tait au prochain test,
+c'est la première ligne à remettre, et le diagnostic le dira (`rawScans`,
+`advertMode`).
+
+⚠️ **Le type `connectedDevice` du service reste déclaré**, alors qu'il n'y a plus
+aucun appareil connecté. Il couvre l'usage BLE au sens large, mais c'est
+désormais **plus large que la vérité** — à revoir avec le point de `RAPPELS.md`
+#71 sur la justification par type à la Play Console.
+
 ⚠️ **`minSdk = 29` depuis le 2026-08-25 — le plancher a bougé deux fois.**
 
 | Date | Plancher | Pourquoi |
@@ -365,8 +385,8 @@ qu'aucun des trois ne lève d'erreur quand il manque. Voir `RAPPELS.md` #57.
 **iOS (à faire)** — **CoreBluetooth**, et il faudra concevoir un **mode
 dégradé** :
 
-- `CBPeripheralManager` (advertising + serveur GATT), `CBCentralManager` (scan +
-  client GATT) ;
+- `CBPeripheralManager` (advertising **seul**), `CBCentralManager` (scan
+  **seul**) — ⚠️ **plus aucun GATT depuis le 2026-08-27**, ni serveur ni client ;
 - ⚠️ **Le modèle Android ne se transpose pas.** iOS n'a pas d'équivalent du
   service de premier plan : le scan en arrière-plan est très restreint
   (filtrage obligatoire par UUID de service, pas de scan continu, réveils
@@ -375,8 +395,10 @@ dégradé** :
   silencieuse des amis app fermée devra donc être repensée, pas seulement
   portée.
 - ⚠️ **Ce qui se porte tel quel, en revanche** : tout ce qui est au-dessus de la
-  radio est en Dart pur et sans dépendance Android — transport, canal sécurisé,
-  protocole, présence, fonctions. Seule la couche 0 est à réécrire.
+  radio est en Dart pur et sans dépendance Android — présence, registre de pairs,
+  plan d'émission, table de reconnaissance. Seule la couche 0 est à réécrire.
+  *(Le transport, le canal sécurisé et le protocole de fil figuraient ici jusqu'au
+  2026-08-27 ; ils n'existent plus.)*
 - ⚠️ **`SightingBook` non plus.** Reconnaître sans le Dart suppose un processus
   qui scanne en continu et garde un état — iOS ne le donne pas. Mais la logique
   est pure et sans dépendance Android : elle se transpose en Swift telle quelle,

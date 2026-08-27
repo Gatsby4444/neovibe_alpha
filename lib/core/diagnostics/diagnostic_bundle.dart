@@ -8,7 +8,6 @@ import 'card_rules_trace.dart';
 import '../../features/proximity/geo/coarse_location.dart';
 import '../../features/proximity/net/ble_radio.dart';
 import '../../features/proximity/net/connection_trace.dart';
-import '../../features/proximity/net/transport_trace.dart';
 
 /// Tout ce qu'il faut pour diagnostiquer, en **un seul** copier-coller.
 ///
@@ -166,10 +165,6 @@ class DiagnosticBundle {
         'needsLocation',
         'fgsLocationType',
         'locationEnabled',
-        'clientPaths',
-        'serverPaths',
-        'bothPaths',
-        'bothPathsPeak',
         'uwb',
         'wifiRtt',
         'wifiDirect',
@@ -237,37 +232,30 @@ class DiagnosticBundle {
         );
       }
 
-      // ⚠️ **La ligne qui tranche une hypothèse, et rien de plus.** Deux
-      // connexions GATT sur une même adresse sont déduites de la lecture de
-      // `BleEngine.kt`, jamais observées. Ce compteur est là pour que le
-      // prochain rapport dise laquelle des deux lectures est la bonne — sans
-      // qu'on ait à toucher au natif d'ici là.
-      final pic = stats['bothPathsPeak'] as int?;
-      if (pic != null && pic > 0) {
-        buffer.writeln(
-          'LECTURE : une même adresse a porté DEUX connexions GATT à la fois '
-          '(pic $pic). Le lien n\'est donc pas identifiable par la seule '
-          'adresse — voir `BleEngine.pathStats`.',
-        );
-      }
+      // ⚠️ **`clientPaths`, `serverPaths`, `bothPaths` et `bothPathsPeak` ont
+      // été retirés le 2026-08-27**, avec les connexions GATT qu'ils
+      // comptaient. Ils avaient servi : `bothPathsPeak` valant zéro sur les
+      // deux appareils avait **réfuté** l'hypothèse des deux chemins
+      // simultanés, et donc évité une réécriture du natif fondée sur une
+      // déduction. Un instrument qui ne peut plus rien mesurer se retire avec
+      // ce qu'il mesurait.
       return buffer.toString();
     } catch (e) {
       return 'indisponible : $e';
     }
   }
 
-  /// Ce que le TRANSPORT a perdu, et ce qu'il a livré.
-  ///
-  /// ⚠️ **Section distincte de la précédente, et ce n'est pas cosmétique.**
-  /// « Ce que la radio a reçu » se demande au natif : des annonces, des
-  /// capacités matérielles. Ce qui suit vit côté Dart et parle de canaux et de
-  /// trames — deux couches, deux sources, deux durées de vie. Les mélanger dans
-  /// une section, c'est se condamner à ne plus savoir laquelle des deux a
-  /// menti.
-  ///
-  /// Cette section est née des messages fantômes du 2026-08-16 : trois causes
-  /// trouvées à la main, et pas un seul rapport capable d'en désigner une.
-  static String transport() => TransportTrace.report();
+  // 2026-08-27**, avec le transport BLE.
+  //
+  // Elle comptait les endroits où une trame disparaissait sans que personne ne
+  // lève : trame sur un lien inconnu, sur un lien sans canal, déchiffrement
+  // refusé, réassemblage abandonné. Elle était née des messages fantômes du
+  // 2026-08-16 et avait révélé une quatrième cause invisible autrement.
+  //
+  // Plus aucune trame ne circule sur la radio. Un journal de pertes pour un
+  // transport qui n'existe plus n'aurait rien à consigner — et une section
+  // toujours vide dans un rapport de diagnostic est une invitation à conclure
+  // « rien de perdu » là où il n'y a rien à perdre.
 
   /// Ce que le chemin des CONNEXIONS a fait — demandes et synchronisation.
   ///
@@ -338,8 +326,6 @@ class DiagnosticBundle {
       buffer
         ..writeln('\n===== PROXIMITÉ — CE QUE LA RADIO A REÇU =====')
         ..writeln(await proximity())
-        ..writeln('\n===== PROXIMITÉ — CE QUE LE TRANSPORT A PERDU =====')
-        ..writeln(transport())
         ..writeln('\n===== CONNEXIONS — DEMANDES ET SYNCHRONISATION =====')
         ..writeln(connections())
         ..writeln('\n===== POSITION — CE QU\'ANDROID A ACCORDÉ =====')

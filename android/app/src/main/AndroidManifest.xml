@@ -3,7 +3,12 @@
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- ⚠️ **BLUETOOTH_CONNECT retiree le 2026-08-27**, avec le bloc GATT.
+         Sur Android 12+ elle ne sert qu'a ouvrir une connexion ou un serveur
+         GATT ; annoncer et scanner relevent des deux permissions ci-dessus.
+         Verifie a l'inventaire : plus aucun appel du code natif n'en depend.
+         Si la radio se tait au prochain test, c'est la premiere ligne a
+         remettre — mais le diagnostic le dira (rawScans, advertMode). -->
     <!-- ⚠️ **Android 10 et 11 UNIQUEMENT — le `maxSdkVersion` est essentiel.**
          Avant Android 12, un scan BLE exige la localisation. À partir de 12,
          `neverForLocation` ci-dessus déclare que nous ne dérivons aucune

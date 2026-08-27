@@ -1,8 +1,6 @@
 import '../../../core/models/nearby_user.dart';
 import '../ping_store.dart';
 import 'distance_estimate.dart';
-import 'peer_link.dart';
-import 'secure_channel.dart';
 
 /// Les règles de présence, **en un seul endroit et en secondes**.
 ///
@@ -15,8 +13,8 @@ import 'secure_channel.dart';
 /// corrigée par un garde-fou qui a fabriqué la suivante.
 ///
 /// Il n'y a donc plus qu'**une** définition, [freshFor], et tout ce qui est
-/// visible ou irréversible s'y adosse : affichage, envoi d'un message,
-/// certificat de croisement, barrière du produit.
+/// visible ou irréversible s'y adosse : affichage, constat de croisement,
+/// barrière du produit.
 class PresenceRules {
   /// « Il est là **maintenant**. »
   ///
@@ -25,31 +23,30 @@ class PresenceRules {
   /// cinquantaine d'annonces manquées d'affilée.
   static const freshFor = Duration(seconds: 5);
 
-  /// Contact continu exigé avant de **dépenser une connexion** pour un inconnu.
+  /// Contact continu exigé avant de **constater un croisement**.
   ///
   /// ⚠️ C'est l'intention de Jay derrière « 15 pings en 20 secondes » : ne pas
-  /// ouvrir un lien avec les gens qu'on croise et les voitures qui passent.
-  /// La mesure, elle, est une **durée** et non un compte : l'advertising BLE
-  /// n'est pas cadencé à la seconde mais à ~100 ms, donc « 15 annonces » est
-  /// atteint en moins de deux secondes et ne filtre rien.
+  /// compter comme une rencontre les gens qu'on croise et les voitures qui
+  /// passent. La mesure, elle, est une **durée** et non un compte :
+  /// l'advertising BLE n'est pas cadencé à la seconde mais à ~100 ms, donc
+  /// « 15 annonces » est atteint en moins de deux secondes et ne filtre rien.
   ///
-  /// Même valeur que le certificat de croisement (décision de Jay du
-  /// 2026-07-13) : un seul seuil dit « ce n'est pas un passant », et il sert
-  /// aux deux. Un réglage en moins, pas un de plus.
+  /// ⚠️ **Elle gardait un second usage jusqu'au 2026-08-27** : le seuil
+  /// d'ouverture d'un lien GATT vers un inconnu. Ce chemin n'existe plus, et
+  /// avec lui la seule raison qu'avait ce seuil de servir à deux choses. Il ne
+  /// répond plus qu'à une question — « est-ce un passant ? ».
   static const stableAfter = Duration(seconds: 10);
 
-  /// Au-delà, la session est **oubliée** et son transport refermé.
+  /// Au-delà, la session est **oubliée**.
   ///
   /// ⚠️ **Distinct de [freshFor], et ce n'est pas un second délai de grâce.**
-  /// Cesser de dire « il est là » et démonter une session chiffrée sont deux
-  /// décisions différentes : la première est une réponse à l'utilisateur, la
-  /// seconde détruit un état partagé avec le pair. Les confondre, c'est
-  /// reconstruire le défaut d'origine — une session démontée d'un seul côté,
-  /// et des trames qui arrivent sur un lien sans canal.
+  /// Cesser de dire « il est là » et jeter ce qu'on a appris d'un pair sont
+  /// deux décisions différentes : la première est une réponse à l'utilisateur,
+  /// la seconde efface la durée de contact continu, donc le seuil anti-passant.
   ///
   /// Un pair non frais n'est **ni affiché, ni joignable** : il n'existe plus
   /// pour le produit dès [freshFor]. Ces 25 secondes supplémentaires ne servent
-  /// qu'à absorber un trou de radio sans payer une poignée de main complète.
+  /// qu'à absorber un trou de radio sans faire repartir [firstHeard] de zéro.
   static const forgetAfter = Duration(seconds: 30);
 
   /// Nombre minimal d'observations avant de considérer un contact continu.
@@ -78,15 +75,20 @@ class PresenceRules {
 ///
 /// ⚠️ **Dérivé, jamais stocké.** Le stade était un champ que trois chemins
 /// devaient penser à écrire — et l'un d'eux l'oubliait toujours. Il se calcule
-/// désormais depuis ce que la session possède réellement.
+/// depuis ce que la session possède réellement.
+///
+/// ⚠️ **`identifying` a été RETIRÉ le 2026-08-27, avec le transport BLE.**
+///
+/// Il voulait dire « poignée de main GATT en cours ». Plus aucun lien ne
+/// s'ouvre : une identité vient soit du jeton d'ami, reconnu à l'annonce, soit
+/// du serveur (`ping_nearby`). Il n'y a plus d'état intermédiaire à afficher,
+/// et un stade qui ne peut plus être atteint n'est pas une nuance, c'est du
+/// bruit dans un `switch`.
 enum PresenceStage {
   /// Vu par la radio. On ne sait pas qui c'est.
   detected,
 
-  /// Poignée de main en cours : il y a quelqu'un, on cherche qui.
-  identifying,
-
-  /// Identité connue — ami reconnu à son ID rotatif, ou inconnu révélé.
+  /// Identité connue — ami reconnu à son ID rotatif.
   identified,
 }
 
@@ -143,23 +145,21 @@ class PresencePeer {
 /// Le réseau tenait neuf collections indexées par adresse — présence, liens,
 /// canaux, identités, connexions en cours, replis armés, profils envoyés,
 /// croisements certifiés, plus le catalogue natif. Chaque défaut du chantier de
-/// proximité est le même : *la collection X a été nettoyée, la Y non*. Le canal
-/// survivait au lien, l'identité survivait au canal, le natif gardait une
-/// connexion que le Dart avait oubliée.
+/// proximité était le même : *la collection X a été nettoyée, la Y non*.
 ///
-/// Ce n'était pas une série de bugs mais **une conception qui en fabriquait un
-/// nouveau à chaque correction** — au point que la boucle de nettoyage
-/// `takeMergedAway` existait en deux exemplaires dont les corps avaient déjà
-/// divergé.
+/// Ici, un pair est **un objet**.
 ///
-/// Ici, un pair est **un objet**. Le fermer est **un geste** ([release]), qu'on
-/// ne peut pas faire à moitié.
+/// ⚠️ **Le transport a été retiré le 2026-08-27** : plus de lien, plus de
+/// canal, plus de `release()`. Ce qui restait à fermer « en un seul geste »
+/// n'existe plus du tout — la cause est supprimée, pas gardée sous surveillance.
+/// Une session n'est plus qu'une **observation**, et c'est tout ce qu'elle a
+/// jamais eu à être.
 ///
 /// ## L'adresse n'est pas l'identité
 ///
-/// Android renouvelle périodiquement son adresse MAC. Une session porte donc
-/// **plusieurs adresses** et sait laquelle porte le lien : il n'y a plus
-/// d'adresse « abandonnée » à refermer, ni de session sacrifiée par une fusion.
+/// Android renouvelle son adresse MAC à chaque redémarrage d'annonce. Une
+/// session porte donc **plusieurs adresses**, et c'est le **jeton** qui les
+/// regroupe — voir [PeerRegistry.observe].
 class PeerSession {
   PeerSession({
     required String address,
@@ -193,21 +193,15 @@ class PeerSession {
 
   String _advertAddress;
 
-  /// La dernière adresse entendue. C'est par elle qu'on ouvre un lien.
+  /// La dernière adresse entendue.
   String get advertAddress => _advertAddress;
 
-  /// L'adresse qui porte le lien ouvert, s'il y en a un.
+  /// L'adresse qui désigne ce pair dans l'interface.
   ///
-  /// ⚠️ **Peut différer de [advertAddress]** : une connexion GATT survit au
-  /// renouvellement de la MAC, puisqu'elle est liée au lien et non à l'adresse
-  /// annoncée. C'est exactement ce que l'ancienne fusion d'adresses cassait.
-  String? linkAddress;
-
-  /// L'adresse par laquelle on parle à ce pair : celle du lien s'il existe,
-  /// sinon la dernière annoncée. **Un seul endroit décide**, au lieu de laisser
-  /// chaque appelant choisir — c'est ce choix dispersé qui faisait viser une
-  /// adresse sans canal alors qu'une session vivante existait sur l'autre.
-  String get address => linkAddress ?? _advertAddress;
+  /// ⚠️ **C'était `linkAddress ?? _advertAddress` jusqu'au 2026-08-27**, parce
+  /// qu'une connexion GATT survivait au renouvellement de la MAC et devait
+  /// donc l'emporter. Sans transport, il n'y a plus qu'une adresse possible.
+  String get address => _advertAddress;
 
   /// Profil signé du pair, une fois son identité établie.
   PingPeerSnapshot? snapshot;
@@ -236,29 +230,11 @@ class PeerSession {
   double _trendAnchorRssi;
   DateTime _trendAnchorAt;
 
-  // -------------------------------------------------------------- transport
-  PeerLink? link;
-  SecureChannel? channel;
-
-  /// Une connexion est en cours d'ouverture.
-  bool connecting = false;
-
-  /// Notre profil est déjà parti sur cette session.
-  bool profileSent = false;
-
-  /// Un certificat de croisement a déjà été proposé.
-  bool certified = false;
-
   // ------------------------------------------------------------------ états
 
   /// Dérivé, jamais stocké.
-  PresenceStage get stage {
-    if (snapshot != null) return PresenceStage.identified;
-    if (connecting || link != null) return PresenceStage.identifying;
-    return PresenceStage.detected;
-  }
-
-  bool get hasChannel => channel?.stage == ChannelStage.established;
+  PresenceStage get stage =>
+      snapshot != null ? PresenceStage.identified : PresenceStage.detected;
 
   /// « Il est là **maintenant** » — la seule réponse, pour tout le monde.
   bool isFresh(DateTime now) =>
@@ -280,9 +256,8 @@ class PeerSession {
   /// Depuis combien de temps ce pair est en contact continu.
   ///
   /// ⚠️ **Point d'observation de test : aucun appelant dans `lib/`.** Vérifié à
-  /// l'audit du 2026-08-18 (point E). La règle d'ouverture de lien, elle, mesure
-  /// la durée directement contre [PresenceRules.stableAfter] — elle ne passe pas
-  /// par ici. **À retirer avant la mise en production** (`RAPPELS.md`).
+  /// l'audit du 2026-08-18 (point E), toujours vrai à l'inventaire du
+  /// 2026-08-27. **À retirer avant la mise en production** (`RAPPELS.md`).
   Duration contactDuration(DateTime now) => now.difference(firstHeard);
 
   // ------------------------------------------------------------- mise à jour
@@ -312,9 +287,6 @@ class PeerSession {
     }
   }
 
-  /// Une trame est arrivée du pair : c'est une observation, pas un souvenir.
-  void noteTraffic(DateTime now) => lastHeard = now;
-
   ProximityLevel _levelFor(double rssi) {
     if (level == ProximityLevel.veryClose) {
       return rssi <= PresenceRules.leaveVeryClose
@@ -330,7 +302,7 @@ class PeerSession {
   ///
   /// Arrive quand Android renouvelle sa MAC : on a d'abord vu deux appareils,
   /// puis leurs identités se révèlent identiques. On garde l'observation la
-  /// plus riche et **le lien vivant, d'où qu'il vienne**.
+  /// plus riche.
   void absorb(PeerSession other) {
     addresses.addAll(other.addresses);
     tokens.addAll(other.tokens);
@@ -345,37 +317,10 @@ class PeerSession {
       txPower = other.txPower;
     }
     snapshot ??= other.snapshot;
-    certified = certified || other.certified;
-
-    // Le lien vivant l'emporte, quel que soit son âge : une session chiffrée
-    // négociée coûte une poignée de main, une adresse ne coûte rien.
-    if (link == null && other.link != null) {
-      link = other.link;
-      channel = other.channel;
-      linkAddress = other.linkAddress;
-      profileSent = other.profileSent;
-      other.link = null;
-      other.channel = null;
-      other.linkAddress = null;
-    }
-  }
-
-  /// Défait **tout** le transport, en un seul geste.
-  ///
-  /// ⚠️ C'est la méthode qui rend impossible la famille de défauts « X nettoyé,
-  /// Y oublié ». Rien d'autre ne doit fermer un lien ou un canal.
-  void release() {
-    link?.close();
-    link = null;
-    channel?.close();
-    channel = null;
-    linkAddress = null;
-    profileSent = false;
-    connecting = false;
   }
 
   PresencePeer toPresence() => PresencePeer(
-    address: linkAddress ?? _advertAddress,
+    address: _advertAddress,
     stage: stage,
     rssi: rssi,
     level: level,
@@ -391,8 +336,7 @@ class PeerSession {
 /// Le registre des pairs : **une seule carte, un seul propriétaire**.
 ///
 /// Classe pure — aucune radio, aucun réseau, aucun Riverpod — donc testable
-/// exhaustivement. Elle ne ferme rien elle-même : le transport appartient au
-/// réseau, qui seul sait couper côté radio.
+/// exhaustivement.
 class PeerRegistry {
   PeerRegistry({DateTime Function()? clock}) : _now = clock ?? DateTime.now;
 
@@ -412,6 +356,11 @@ class PeerRegistry {
   Iterable<PeerSession> get sessions => _sessions;
   int get length => _sessions.length;
 
+  /// ⚠️ **Point d'observation de test : aucun appelant dans `lib/` depuis le
+  /// 2026-08-27.** Il en avait six, tous dans le transport BLE (trame reçue,
+  /// lien qui tombe, envoi, contre-signature). Conservé parce que l'index par
+  /// adresse existe de toute façon et que les tests du registre s'y adossent —
+  /// **à retirer avant la mise en production** (`RAPPELS.md`).
   PeerSession? byAddress(String address) => _byAddress[address];
 
   PeerSession? byUser(String userId) {
@@ -426,7 +375,7 @@ class PeerRegistry {
   /// ⚠️ Un pair non frais n'est pas affiché, même si sa session vit encore. Le
   /// commentaire du fournisseur de présence promettait déjà que « c'est la
   /// présence vivante qui répond, pas un historique » — le code, lui, tolérait
-  /// jusqu'à 25 secondes de souvenir, et l'infini pour un pair relié.
+  /// jusqu'à 25 secondes de souvenir.
   List<PresencePeer> get peers {
     final now = _now();
     final list = _sessions
@@ -443,9 +392,9 @@ class PeerRegistry {
   /// Combien de pairs sont identifiés à cet instant.
   ///
   /// ⚠️ **Point d'observation de test : aucun appelant dans `lib/`.** Vérifié à
-  /// l'audit du 2026-08-18 (point E). L'écran compte lui-même à partir de
-  /// `view.peers` — il ne lit pas le registre. **À retirer avant la mise en
-  /// production** (`RAPPELS.md`).
+  /// l'audit du 2026-08-18 (point E), toujours vrai au 2026-08-27. L'écran
+  /// compte lui-même à partir de `presenceKeysProvider` — il ne lit pas le
+  /// registre. **À retirer avant la mise en production** (`RAPPELS.md`).
   int get identifiedCount =>
       peers.where((p) => p.stage == PresenceStage.identified).length;
 
@@ -478,9 +427,8 @@ class PeerRegistry {
   /// clé de regroupement, et l'adresse redevient ce qu'elle est : une clé de
   /// **transport**, celle par laquelle on ouvre un lien.
   ///
-  /// ⚠️ [tokenHex] reste facultatif : un lien peut monter sans qu'aucune
-  /// annonce n'ait été entendue (voir [touch]), et un test peut légitimement
-  /// n'observer que des adresses.
+  /// ⚠️ [tokenHex] reste facultatif : un test peut légitimement n'observer que
+  /// des adresses.
   PeerSession observe(
     String address,
     int rssi, {
@@ -520,63 +468,41 @@ class PeerRegistry {
     }
   }
 
-  /// Un lien s'ouvre sur une adresse jamais annoncée.
-  ///
-  /// ⚠️ **Un lien est en soi une preuve de présence**, et il peut précéder la
-  /// première annonce : le côté qui *reçoit* la connexion n'a souvent rien vu
-  /// du tout. Sans cette porte d'entrée, la poignée de main aboutissait dans le
-  /// vide et l'écran du récepteur restait désespérément vide.
-  PeerSession touch(String address) {
-    final existing = _byAddress[address];
-    if (existing != null) {
-      existing.noteTraffic(_now());
-      return existing;
-    }
-    final now = _now();
-    final session = PeerSession(
-      address: address,
-      now: now,
-      // Aucune mesure : on prend une valeur prudente plutôt que d'inventer une
-      // proximité. La première annonce la corrigera.
-      rssi: PresenceRules.leaveVeryClose,
-    );
-    _sessions.add(session);
-    _index(session, address: address);
-    return session;
-  }
+  // ⚠️ **`touch` a été SUPPRIMÉE le 2026-08-27**, avec le transport BLE. Elle
+  // créait une session à partir d'un LIEN entrant, sur une adresse jamais
+  // annoncée — le côté qui *recevait* une connexion GATT n'ayant souvent rien
+  // entendu. Plus aucun lien ne monte : une session ne peut naître que d'une
+  // annonce, ce qui est la seule preuve de présence qui nous reste.
 
   /// Déclare l'identité d'une session, et **fusionne** si cette personne est
   /// déjà connue sous une autre adresse.
   ///
   /// ## Ce que remplace cette méthode
   ///
-  /// Android renouvelle périodiquement son adresse MAC : la même personne
-  /// apparaissait donc deux fois, puis l'ancienne ligne s'éteignait toute
-  /// seule. La correction d'alors — retirer l'entrée perdante et *se souvenir*
-  /// de refermer son transport plus tard — a produit la boucle `takeMergedAway`,
-  /// dupliquée à deux endroits qui ont divergé.
+  /// Android renouvelle son adresse MAC : la même personne apparaissait donc
+  /// deux fois, puis l'ancienne ligne s'éteignait toute seule. La correction
+  /// d'alors — retirer l'entrée perdante et *se souvenir* de nettoyer plus
+  /// tard — a produit la boucle `takeMergedAway`, dupliquée à deux endroits qui
+  /// ont divergé.
   ///
-  /// Ici, la fusion est **immédiate et complète**, et ce qui reste à refermer
-  /// est **rendu à l'appelant** au lieu d'être mis de côté : `merged` est la
-  /// session abandonnée, dont seul le réseau peut couper la radio. Rien n'est
-  /// différé, donc rien ne peut être oublié.
-  ({PeerSession session, PeerSession? merged}) identify(
-    PeerSession session,
-    PingPeerSnapshot snapshot,
-  ) {
+  /// Ici, la fusion est **immédiate et complète**.
+  ///
+  /// ⚠️ **Elle rendait un couple `(session, merged)` jusqu'au 2026-08-27** : la
+  /// session perdante était rendue à l'appelant quand elle tenait encore un
+  /// lien GATT, parce que seul le réseau pouvait couper la radio. Sans
+  /// transport, une session perdante n'a plus rien à refermer — la fusion se
+  /// suffit à elle-même et rend simplement la session vivante.
+  PeerSession identify(PeerSession session, PingPeerSnapshot snapshot) {
     session.snapshot = snapshot;
     for (final other in _sessions.toList()) {
       if (identical(other, session)) continue;
       if (other.userId != snapshot.userId) continue;
 
-      // Celle qui tient le lien vivant gagne — une session chiffrée coûte une
-      // poignée de main, une adresse ne coûte rien. À défaut, la plus ancienne,
-      // pour que la durée de contact ne reparte pas de zéro à chaque MAC.
-      final gagnante = (session.link != null)
+      // La plus ancienne gagne, pour que la durée de contact continu ne
+      // reparte pas de zéro à chaque renouvellement de MAC.
+      final gagnante = session.firstHeard.isBefore(other.firstHeard)
           ? session
-          : (other.link != null)
-          ? other
-          : (session.firstHeard.isBefore(other.firstHeard) ? session : other);
+          : other;
       final perdante = identical(gagnante, session) ? other : session;
 
       gagnante.absorb(perdante);
@@ -589,15 +515,9 @@ class PeerRegistry {
       for (final t in gagnante.tokens) {
         _byToken[t] = gagnante;
       }
-      // `absorb` a repris le lien de la perdante si la gagnante n'en avait pas.
-      // S'il en reste un, c'est un vrai doublon physique : au réseau de le
-      // couper, dans le même geste que ce retour.
-      return (
-        session: gagnante,
-        merged: perdante.link != null ? perdante : null,
-      );
+      return gagnante;
     }
-    return (session: session, merged: null);
+    return session;
   }
 
   /// Les sessions à oublier : plus rien entendu depuis [PresenceRules.forgetAfter].
@@ -606,8 +526,7 @@ class PeerRegistry {
     return _sessions.where((s) => s.isExpired(now)).toList();
   }
 
-  /// Retire une session du registre. **Ne ferme rien** — c'est au réseau de
-  /// le faire, dans le même geste.
+  /// Retire une session du registre.
   void _forget(PeerSession session) {
     _sessions.remove(session);
     _byAddress.removeWhere((_, s) => identical(s, session));
@@ -617,6 +536,9 @@ class PeerRegistry {
   void remove(PeerSession session) => _forget(session);
 
   /// La radio s'est arrêtée : plus rien n'est vrai.
+  ///
+  /// Rend les sessions abandonnées — l'appelant n'a plus qu'à en informer
+  /// l'interface. (Il devait aussi couper leur transport jusqu'au 2026-08-27.)
   List<PeerSession> drain() {
     final all = _sessions.toList();
     _sessions.clear();

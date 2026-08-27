@@ -8,7 +8,6 @@ import '../../core/utils/erreur_serveur.dart';
 import '../../core/widgets/avatar.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
-import '../../core/utils/formats.dart';
 import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
 import '../stories/stories_bar.dart';
@@ -20,12 +19,10 @@ import 'net/ping_nearby_feed.dart';
 import 'net/ping_repository.dart';
 import 'net/distance_estimate.dart';
 import 'net/proximity_controller.dart';
-import 'net/proximity_journal.dart';
 import 'net/proximity_supervisor.dart';
 import 'net/radio_status.dart';
 import 'ping_store.dart';
 import 'presence_feed.dart';
-import 'nearby_people.dart';
 
 /// Le Ping — découverte 100 % locale, chiffrée d'appareil à appareil.
 ///
@@ -48,44 +45,30 @@ class PingScreen extends ConsumerStatefulWidget {
 }
 
 class _PingScreenState extends ConsumerState<PingScreen> {
-  List<LocalEncounter> _encounters = const [];
-
-  /// Capturé à l'initialisation : `ref` est INTERDIT dans `dispose()`.
-  late final _store = ref.read(pingStoreProvider);
-
-  @override
-  void initState() {
-    super.initState();
-    _store.addListener(_reload);
-    _reload();
-  }
-
-  @override
-  void dispose() {
-    _store.removeListener(_reload);
-    super.dispose();
-  }
-
+  /// ⚠️ **Cet écran ne lit plus AUCUN fichier depuis le 2026-08-27.**
+  ///
+  /// Il en lisait deux à chaque rafraîchissement — les conversations ping et
+  /// les croisements locaux — tous deux alimentés par le transport BLE, qui est
+  /// supprimé. Ce qui reste vient du serveur ou de la radio, et se rafraîchit
+  /// tout seul.
   Future<void> _reload() async {
-    // ⚠️ **Les conversations locales ne sont plus lues** depuis le 2026-08-27 :
-    // la messagerie de proximité passe par le serveur, et cet écran n'a plus de
-    // section pour elles. Les charger aurait été une lecture disque à chaque
-    // rafraîchissement, pour un résultat que personne n'affiche.
-    final encounters = await _store.encounters();
-    if (!mounted) return;
-    setState(() => _encounters = encounters);
+    ref.invalidate(pingNearbyProvider);
   }
 
   @override
   Widget build(BuildContext context) {
-    final view = ref.watch(proximityControllerProvider).value;
+    // ⚠️ **Observé pour son EFFET, pas pour sa valeur.** Construire ce provider
+    // démarre le réseau de pairs, la synchro des clés et le balayage des
+    // constats de croisement. Il ne rend plus rien depuis le 2026-08-27 (les
+    // demandes d'amis de proximité vivent côté serveur) — mais le retirer
+    // d'ici couperait toute la proximité, sans la moindre erreur.
+    ref.watch(proximityControllerProvider);
     // ⚠️ **On observe la COMPOSITION de la liste, pas son contenu.** Le contenu
     // d'une tuile est observé par la tuile elle-même (`peerViewProvider`), donc
     // un pair qui se rapproche ne reconstruit que sa ligne — pas la barre de
     // stories, pas l'interrupteur, pas les autres tuiles. Règle de dissociation
     // de Jay, 2026-08-20 ; détail dans `presence_feed.dart`.
     final keys = ref.watch(presenceKeysProvider);
-    final nearbyIds = ref.watch(nearbyUserIdsProvider);
     // ⚠️ L'état de la radio se lit **au superviseur**, jamais à l'instantané du
     // contrôleur : c'est le superviseur qui en est l'autorité, et son état
     // change plus souvent que la liste des pairs. Le lire ailleurs, c'est
@@ -125,16 +108,24 @@ class _PingScreenState extends ConsumerState<PingScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
-                  'Découverte 100 % locale : ton identifiant change toutes les '
-                  '15 minutes et ton profil ne circule que dans un canal '
-                  'chiffré, d\'appareil à appareil.',
+                  // ⚠️ **Réécrit le 2026-08-27.** Il promettait « ton profil ne
+                  // circule que dans un canal chiffré, d'appareil à appareil » —
+                  // vrai tant que le BLE transportait le mini-profil, faux
+                  // depuis que l'identité d'un inconnu vient du serveur. Une
+                  // promesse de confidentialité périmée est pire qu'aucune.
+                  'Ton identifiant Bluetooth change toutes les 15 minutes, et '
+                  'personne ne peut le relier à ton compte sans être à côté de '
+                  'toi.',
                   style: TextStyle(color: context.faint, fontSize: 11),
                 ),
               ),
 
-            for (final request
-                in view?.requests ?? const <PendingFriendRequest>[])
-              _CarteDemande(request: request),
+            // ⚠️ **La carte « X veut se connecter avec toi » a été retirée le
+            // 2026-08-27.** Elle affichait une demande d'ami arrivée par le
+            // canal BLE, gardée dans un fichier local faute de ligne serveur.
+            // Une demande est désormais une ligne de `connection_requests`, et
+            // l'écran « Demandes & rencontres » la montre déjà — c'est
+            // d'ailleurs là que Jay était allé la chercher le 2026-08-17.
 
             // ⚠️ **UNE seule section depuis le 2026-08-27.** Les deux chemins
             // coexistaient « le temps du test » (`RAPPELS.md` #65) ; le test a
@@ -154,24 +145,26 @@ class _PingScreenState extends ConsumerState<PingScreen> {
             ..._autourDeToiAmis(runtime, keys),
             ..._autourDeToiV2(ref, runtime),
 
-            // ⚠️ **La section « Conversations ping » a été retirée le
-            // 2026-08-27.** Elle listait les conversations BLE **locales**, et
-            // permettait d'y écrire : c'était donc un second chemin d'émission,
-            // à côté de la messagerie serveur qui vient d'être branchée.
+            // ⚠️ **Les sections « Conversations ping » et « Croisés
+            // récemment » ont été retirées les 2026-08-27.**
             //
-            // On n'en crée plus aucune. Celles qui existaient restent sur le
-            // disque mais ne sont plus atteignables — perte assumée : ce sont
-            // des messages éphémères, contre la suppression d'un doublon de
-            // chemin. `PingChatScreen` et le transport BLE forment désormais un
-            // bloc mort, à retirer ensemble (`RAPPELS.md`).
-            if (_encounters.any((e) => !nearbyIds.contains(e.peer.userId))) ...[
-              const _TitreSection('Croisés récemment'),
-              for (final rencontre in _encounters.where(
-                (e) => !nearbyIds.contains(e.peer.userId),
-              ))
-                _TuileRencontre(encounter: rencontre),
-            ],
-
+            // La première listait les conversations BLE locales : un second
+            // chemin d'émission à côté de la messagerie serveur.
+            //
+            // La seconde listait les croisements **certifiés en BLE**, une
+            // preuve co-signée d'appareil à appareil. Décision de Jay du
+            // 2026-08-27 : *« on ne garde que le certificat de croisement côté
+            // serveur »*. Le constat mutuel (`report_sightings`) remplit déjà
+            // la table `encounters`, qui est ce qui ouvre l'accès aux profils et
+            // aux stories — la barre de stories en haut de cet écran en vit.
+            //
+            // ⚠️ **Le certificat BLE n'a jamais rien produit** : vérifié en base
+            // le 2026-08-27, la seule ligne de `encounters` porte
+            // `proof = 'mutual_sighting'` alors que le défaut de la colonne est
+            // `'certificate'`. Cette section était donc vide en permanence.
+            //
+            // 📌 **La rebrancher sur `encounters` est un chantier à part**,
+            // consigné dans `RAPPELS.md`.
             const SizedBox(height: 24),
           ],
         ),
@@ -380,113 +373,15 @@ class _BandeauEtat extends ConsumerWidget {
   Permission? _permissionAndroid(String nom) => switch (nom) {
     'android.permission.BLUETOOTH_SCAN' => Permission.bluetoothScan,
     'android.permission.BLUETOOTH_ADVERTISE' => Permission.bluetoothAdvertise,
-    'android.permission.BLUETOOTH_CONNECT' => Permission.bluetoothConnect,
+    // ⚠️ `BLUETOOTH_CONNECT` a été retirée du natif le 2026-08-27, avec le bloc
+    // GATT. Sa traduction part avec elle : la garder pour « au cas où » ferait
+    // demander une permission que rien ne réclame plus.
     'android.permission.ACCESS_FINE_LOCATION' => Permission.locationWhenInUse,
     _ => null,
   };
 }
 
-/// Une demande d'ami reçue en proximité.
-///
-/// ⚠️ **Plusieurs peuvent coexister**, et elles survivent à la fermeture de
-/// l'app. L'ancienne version n'en gardait qu'une, en mémoire : la seconde
-/// écrasait la première sans trace.
-class _CarteDemande extends ConsumerWidget {
-  const _CarteDemande({required this.request});
-  final PendingFriendRequest request;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Card(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              '${request.snapshot.displayName} veut se connecter avec toi',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            Text(
-              'Reçue ${vagueTimeAgo(request.receivedAt)}',
-              style: TextStyle(color: context.muted, fontSize: 12),
-            ),
-            const SizedBox(height: 8),
-            // ⚠️ **`Expanded` sur les deux, et ce n'est pas de la cosmétique.**
-            //
-            // Le style des `FilledButton` pose `minimumSize:
-            // Size.fromHeight(52)`, ce qui vaut `Size(infinity, 52)` : une
-            // largeur minimale **infinie**. Une `Row` ne borne pas la largeur de
-            // ses enfants non-flexibles — « Accepter » réclamait donc l'infini
-            // et était peint **hors de l'écran**. En debug Flutter lève ; en
-            // release l'assertion est compilée hors du binaire et il n'y a
-            // aucun signe.
-            //
-            // Jay n'a vu que « Refuser », et la demande d'ami était donc
-            // impossible à accepter (2026-08-17). `Expanded` borne la largeur,
-            // et donne au passage deux boutons de largeur égale.
-            Row(
-              children: [
-                Expanded(
-                  child: TextButton(
-                    onPressed: () => _repondre(context, ref, accept: false),
-                    child: const Text('Refuser'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton(
-                    onPressed: () => _repondre(context, ref, accept: true),
-                    child: const Text('Accepter'),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// ⚠️ **L'échec se DIT, et la demande reste.**
-  ///
-  /// L'ancienne version effaçait la carte puis abandonnait en silence si le
-  /// lien BLE était tombé : la demande disparaissait pour toujours, sans copie
-  /// serveur, et l'émetteur n'apprenait jamais rien.
-  Future<void> _repondre(
-    BuildContext context,
-    WidgetRef ref, {
-    required bool accept,
-  }) async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await ref
-          .read(proximityControllerProvider.notifier)
-          .respondToRequest(request.fromUserId, accept: accept);
-      if (accept) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text(
-              'Vous êtes connectés avec '
-              '${request.snapshot.displayName}.',
-            ),
-          ),
-        );
-      }
-    } catch (_) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            '${request.snapshot.displayName} n\'est plus à portée. La demande '
-            'est gardée : réessaie quand vous serez de nouveau proches.',
-          ),
-        ),
-      );
-    }
-  }
-}
-
+/// **Un ami à portée**, reconnu par la radio à son jeton rotatif.
 class _TuilePair extends ConsumerWidget {
   const _TuilePair({required this.address});
 
@@ -513,10 +408,6 @@ class _TuilePair extends ConsumerWidget {
     // Le champ n'existe plus. La question se pose au carnet, au moment du
     // rendu, là où elle ne peut pas se désynchroniser.
     final estAmi = ref.watch(isFriendProvider(snapshot.userId)).value ?? false;
-    final demande = ref
-        .watch(proximityControllerProvider)
-        .value
-        ?.outgoingTo(snapshot.userId);
     return ListTile(
       leading: CircleAvatar(
         child: Text(snapshot.displayName.characters.first.toUpperCase()),
@@ -595,48 +486,32 @@ class _TuilePair extends ConsumerWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ⚠️ **Trois états, et chacun se voit.**
+          // ⚠️ **Un seul état depuis le 2026-08-27, contre trois avant.**
           //
-          // Il n'y en avait qu'un : le bouton « demander », réaffiché à
-          // l'identique après un envoi réussi. Jay a donc cliqué plusieurs
-          // fois, et lu « Demande envoyée » à chaque fois — l'app ne gardait
-          // aucune trace de ce qu'elle venait de faire, et ne pouvait donc rien
-          // en dire.
+          // Les trois — « demander », « envoyée, en attente », « déclinée,
+          // appuie pour oublier » — se lisaient dans un journal LOCAL de
+          // demandes sortantes, qui n'existait que parce qu'une demande d'ami
+          // voyageait d'appareil à appareil sans laisser de ligne serveur. Ce
+          // journal est supprimé : le serveur se souvient à sa place, et c'est
+          // lui qui répond « demande déjà envoyée » quand on insiste.
           //
-          // Une action doit aboutir à un état **visible**, sans quoi
-          // l'utilisateur n'a d'autre choix que de recommencer.
+          // ⚠️ **C'est un recul d'interface, et il est assumé** : Jay avait
+          // cliqué plusieurs fois faute de voir l'état (2026-08-17). La bonne
+          // réponse est de lire l'état SERVEUR de la demande, pas de garder un
+          // second journal local — un état affiché depuis une source que le
+          // serveur peut contredire, c'est deux vérités. Consigné dans
+          // `RAPPELS.md`. En attendant, le refus du serveur est **montré**, ce
+          // qui n'était pas le cas en 2026-08-17.
           if (!estAmi)
-            switch (demande) {
-              null => IconButton(
-                icon: const Icon(Icons.person_add_alt),
-                tooltip: 'Demander à se connecter',
-                onPressed: () => _demander(context, ref, snapshot),
-              ),
-              final d when d.isDeclined => IconButton(
-                icon: Icon(Icons.person_off_outlined, color: context.muted),
-                tooltip: 'Demande déclinée — appuie pour oublier',
-                onPressed: () => _oublier(context, ref, snapshot),
-              ),
-              _ => IconButton(
-                icon: Icon(Icons.hourglass_top, color: context.muted),
-                // Désactivé, mais il DIT pourquoi. Un bouton grisé muet est
-                // indiscernable d'une fonction absente (leçon du 2026-08-16).
-                tooltip: 'Demande envoyée — en attente de sa réponse',
-                onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'Demande déjà envoyée à ${snapshot.displayName}. '
-                      'En attente de sa réponse.',
-                    ),
-                  ),
-                ),
-              ),
-            },
-          // ⚠️ **La conversation SERVEUR, plus le chat BLE local** (2026-08-27).
+            IconButton(
+              icon: const Icon(Icons.person_add_alt),
+              tooltip: 'Demander à se connecter',
+              onPressed: () => _demander(context, ref, snapshot),
+            ),
+          // ⚠️ **La conversation SERVEUR, et elle seule** (2026-08-27).
           //
-          // Depuis que l'identité d'un inconnu vient du serveur, cette tuile
-          // n'affiche plus que des **amis** : eux seuls sont reconnus par la
-          // radio. Or un ami a déjà une conversation directe partout ailleurs
+          // Cette tuile n'affiche que des **amis** : eux seuls sont reconnus par
+          // la radio. Or un ami a déjà une conversation directe partout ailleurs
           // dans l'app — ouvrir ici un second fil, local et éphémère, faisait
           // deux historiques pour une même personne.
           IconButton(
@@ -650,34 +525,9 @@ class _TuilePair extends ConsumerWidget {
     );
   }
 
-  /// Oublie une demande **déclinée**. Geste explicite : une demande refusée ne
-  /// s'efface pas toute seule, sinon l'utilisateur ne saurait jamais qu'on lui
-  /// a dit non — il verrait juste le bouton revenir.
-  Future<void> _oublier(
-    BuildContext context,
-    WidgetRef ref,
-    PingPeerSnapshot snapshot,
-  ) async {
-    try {
-      await ref
-          .read(proximityControllerProvider.notifier)
-          .dismissOutgoing(snapshot.userId);
-    } catch (_) {
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Impossible d'oublier cette demande.")),
-      );
-      return;
-    }
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '${snapshot.displayName} n\'a pas accepté. Tu peux redemander.',
-        ),
-      ),
-    );
-  }
+  // ⚠️ **`_oublier` a été SUPPRIMÉE le 2026-08-27**, avec le journal local des
+  // demandes sortantes qu'elle effaçait. Elle n'avait plus de bouton pour
+  // l'appeler.
 
   /// Demande en ami quelqu'un que la radio a identifié.
   ///
@@ -713,24 +563,6 @@ class _TuilePair extends ConsumerWidget {
   }
 }
 
-class _TuileRencontre extends ConsumerWidget {
-  const _TuileRencontre({required this.encounter});
-  final LocalEncounter encounter;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => ListTile(
-    leading: CircleAvatar(
-      child: Text(encounter.peer.displayName.characters.first.toUpperCase()),
-    ),
-    title: Text(encounter.peer.displayName),
-    subtitle: Text('Croisé ${vagueTimeAgo(encounter.at)}'),
-    trailing: const Icon(Icons.chevron_right),
-    onTap: () => _ouvrirProfil(context, ref, encounter.peer),
-  );
-}
-
-/// Ouvre le profil complet (serveur). Sans internet, retombe sur la
-/// conversation ping locale.
 Future<void> _ouvrirProfil(
   BuildContext context,
   WidgetRef ref,

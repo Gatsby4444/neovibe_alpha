@@ -42,7 +42,7 @@ import 'package:path_provider/path_provider.dart';
 ///
 /// **1. Cinq instances, cinq caches, et une course au premier lancement.**
 /// Cette classe se construisait avec `new` dans le superviseur, le contrôleur,
-/// la synchro, `PeerNetwork` et **chaque** `SecureChannel`. `_ensureLoaded`
+/// la synchro, `PeerNetwork` et **chaque canal chiffré**. `_ensureLoaded`
 /// n'avait aucun verrou : au tout premier démarrage, deux instances lancées en
 /// parallèle ne trouvaient rien en stockage, **généraient chacune leur clé** et
 /// l'écrivaient toutes les deux. On pouvait donc diffuser un ID dérivé de la
@@ -163,7 +163,10 @@ class ProximityIdentity {
   /// un redémarrage change donc tous les identifiants publics émis, ce qui
   /// coupe net toute tentative de suivi d'une session à l'autre. Personne n'a
   /// besoin de la retrouver — l'identifiant public n'est justement reconnu par
-  /// personne, il sert à se faire découvrir par poignée de main.
+  /// personne. Il sert à se faire découvrir : le serveur, lui, sait relier ce
+  /// jeton à un compte, et ne le fait que si la proximité est prouvée des deux
+  /// côtés. (Avant le 2026-08-27, c'était une poignée de main BLE qui révélait
+  /// l'identité — le jeton, lui, n'a pas changé de rôle.)
   Uint8List? _pingSeed;
 
   Future<Uint8List> edPublicKey() async {
@@ -188,7 +191,7 @@ class ProximityIdentity {
   ///
   /// Le passage par HKDF n'est pas décoratif : le résultat brut d'un X25519
   /// n'est pas uniformément distribué, et on ne dérive jamais un jeton
-  /// directement dessus. Même construction que [SecureChannel].
+  /// directement dessus.
   Future<Uint8List> pairSecret(Uint8List friendX25519Pub) async {
     await _ensureLoaded();
     final key = hex(friendX25519Pub);
@@ -270,6 +273,22 @@ class ProximityIdentity {
   }
 
   /// Signe [message] avec la clé d'appareil.
+  ///
+  /// ⚠️ **AUCUN APPELANT DANS `lib/` DEPUIS LE 2026-08-27**, tout comme
+  /// [verify]. Les cinq qui restaient vivaient dans le transport BLE : poignée
+  /// de main signée, mini-profil, certificat de croisement, demande d'ami et
+  /// son acceptation co-signées. Ils sont partis avec lui.
+  ///
+  /// ⚠️ **Conservés délibérément, et c'est une décision à trancher — pas un
+  /// oubli.** La clé Ed25519 d'appareil est toujours **publiée** au serveur
+  /// (`device_keys.ed_pub`, voir `proximity_sync`), et deux chantiers écrits
+  /// s'appuient dessus : l'attestation serveur du couple (userId, username)
+  /// contre l'usurpation hors ligne (`RAPPELS.md` #2), et toute preuve
+  /// co-signée future. Les supprimer emporterait la clé, sa publication, les
+  /// deux fonctions serveur qui la vérifient et `private.verify_ed25519`.
+  ///
+  /// 📌 **À trancher avec Jay** — consigné dans `RAPPELS.md`. En attendant,
+  /// c'est ici que se lit l'état réel, pas dans un document.
   Future<Uint8List> sign(List<int> message) async {
     await _ensureLoaded();
     final sig = await Ed25519().sign(message, keyPair: _keyPair!);

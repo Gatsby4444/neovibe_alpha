@@ -160,16 +160,16 @@ class BleRadio {
       await _methods.invokeMapMethod<String, dynamic>('advertCapabilities') ??
       const {};
 
-  /// Ouvre un lien sortant. Rend le MTU négocié, ou lève.
-  Future<int> connect(String address) async {
-    final res = await _methods.invokeMapMethod<String, dynamic>('connect', {
-      'address': address,
-    });
-    return res?['mtu'] as int? ?? 23;
-  }
-
-  Future<void> disconnect(String linkId) =>
-      _methods.invokeMethod('disconnect', {'linkId': linkId});
+  // ⚠️ **`connect`, `disconnect` et `send` ont été SUPPRIMÉS le 2026-08-27**,
+  // avec tout le transport BLE. Ils ouvraient un lien GATT, le refermaient, et
+  // y poussaient des morceaux de trame. Plus rien ne transporte de contenu par
+  // la radio : le BLE ne fait que **prouver** la proximité, et tout ce qui
+  // circule passe par le serveur (décision de Jay du 2026-08-27).
+  //
+  // Les trois méthodes natives correspondantes sont parties dans le même geste
+  // — `ProximityBridge.kt`, `ProximityService.kt`, `BleEngine.kt`. Un canal de
+  // méthodes qui répond encore à un ordre que plus personne ne donne est une
+  // porte ouverte, pas une compatibilité.
 
   /// Ce que la radio a reçu depuis le dernier démarrage.
   ///
@@ -179,8 +179,4 @@ class BleRadio {
   /// confondait.
   Future<Map<String, dynamic>> stats() async =>
       await _methods.invokeMapMethod<String, dynamic>('stats') ?? const {};
-
-  /// Envoie un **morceau** brut. Le découpage est l'affaire du transport.
-  Future<void> send(String linkId, Uint8List data) =>
-      _methods.invokeMethod('send', {'linkId': linkId, 'data': data});
 }

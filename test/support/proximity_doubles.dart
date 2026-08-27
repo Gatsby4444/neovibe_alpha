@@ -2,8 +2,6 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
-import 'package:neovibe/features/proximity/net/peer_network.dart';
-import 'package:neovibe/features/proximity/net/radio_status.dart';
 import 'package:neovibe/features/proximity/proximity_identity.dart';
 
 /// Identité en mémoire.
@@ -191,76 +189,17 @@ class CarnetMemoire implements FriendKeyStore {
   }
 }
 
-/// Une radio simulée, branchée sur une autre.
-///
-/// Ce qui sort d'un côté entre de l'autre, avec le même découpage en morceaux et
-/// les mêmes événements de lien que le natif. C'est ce qui permet de faire
-/// tourner **deux piles complètes** dans un test unitaire.
-class RadioSimulee implements RadioCommands {
-  RadioSimulee(this.adresse);
-
-  final String adresse;
-  RadioSimulee? pair;
-  PeerNetwork? reseau;
-
-  /// Simule un appareil qu'on ne peut pas joindre (hors de portée au moment de
-  /// la connexion, pile GATT occupée, refus).
-  var injoignable = false;
-
-  /// Adresses vers lesquelles on a tenté d'ouvrir un lien.
-  final connexions = <String>[];
-
-  /// Adresses qu'on a demandé de couper.
-  final coupures = <String>[];
-
-  @override
-  Future<int> connect(String address) async {
-    connexions.add(address);
-    final autre = pair;
-    if (autre == null || autre.injoignable) {
-      throw StateError('injoignable');
-    }
-    // ⚠️ **Le RÉCEPTEUR est prévenu en premier, et l'ordre n'est pas un
-    // détail.** Sur la vraie pile, le périphérique voit l'abonnement à sa
-    // caractéristique AVANT que le central ne reçoive la confirmation
-    // d'écriture. Prévenir l'initiateur d'abord le faisait envoyer son `hello`
-    // à un pair qui n'avait pas encore de canal.
-    await autre.reseau?.onRadioEvent(
-      RadioLink(linkId: adresse, connected: true, mtu: 185, incoming: true),
-    );
-    await reseau?.onRadioEvent(
-      RadioLink(
-        linkId: autre.adresse,
-        connected: true,
-        mtu: 185,
-        incoming: false,
-      ),
-    );
-    return 185;
-  }
-
-  @override
-  void disconnect(String linkId) {
-    coupures.add(linkId);
-    final autre = pair;
-    reseau?.onRadioEvent(
-      RadioLink(linkId: linkId, connected: false, mtu: 0, incoming: false),
-    );
-    autre?.reseau?.onRadioEvent(
-      RadioLink(linkId: adresse, connected: false, mtu: 0, incoming: true),
-    );
-  }
-
-  @override
-  Future<void> send(String linkId, Uint8List chunk) async {
-    final autre = pair;
-    if (autre == null || autre.injoignable) return;
-    // Asynchrone comme la vraie pile : c'est ce délai qui révèle les défauts
-    // d'ordre et d'entrelacement.
-    await Future<void>.delayed(Duration.zero);
-    await autre.reseau?.onRadioEvent(RadioFrame(adresse, chunk));
-  }
-}
+// ⚠️ **`RadioSimulee` a été SUPPRIMÉE le 2026-08-27**, avec l'interface
+// `RadioCommands` qu'elle implémentait et tout le transport BLE.
+//
+// Elle branchait deux piles complètes l'une sur l'autre : ce qui sortait d'un
+// côté entrait de l'autre, avec le même découpage en morceaux et les mêmes
+// événements de lien que le natif. C'était le montage qui avait remplacé « deux
+// téléphones dans les mains de Jay » par quelques millisecondes de test.
+//
+// Le réseau de pairs ne donne plus **aucun** ordre à la radio : il ne fait
+// qu'écouter ce qu'elle constate. Il n'y a donc plus de commandes à simuler,
+// et un `RadioScan` suffit à tout ce qui reste à éprouver.
 
 /// Horloge pilotée, pour les échéances.
 ///

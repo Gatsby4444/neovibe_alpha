@@ -8,7 +8,6 @@ import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.Build
 import androidx.core.content.ContextCompat
-import java.util.UUID
 
 /**
  * Constantes du fil BLE NeoVibe.
@@ -67,13 +66,14 @@ object BleConstants {
     /** 2 octets "NV" + 1 de version + 1 de type + 16 d'identifiant. */
     const val ADVERT_PAYLOAD_SIZE = 20
 
-    val SERVICE_UUID: UUID = UUID.fromString("53d70001-8a3f-4f95-9b6c-4e656f566962")
-    val RX_UUID: UUID = UUID.fromString("53d70002-8a3f-4f95-9b6c-4e656f566962")
-    val TX_UUID: UUID = UUID.fromString("53d70003-8a3f-4f95-9b6c-4e656f566962")
-    val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-
-    /** MTU par défaut du BLE tant que la négociation n'a pas abouti. */
-    const val DEFAULT_MTU = 23
+    // ⚠️ **`SERVICE_UUID`, `RX_UUID`, `TX_UUID`, `CCCD_UUID` et `DEFAULT_MTU`
+    // ont ete SUPPRIMES le 2026-08-27**, avec le bloc GATT.
+    //
+    // ⚠️ **Verifie avant de couper, pas deduit** : `SERVICE_UUID` n'apparaissait
+    // QUE dans le serveur et le client GATT. L'annonce, elle, ne porte que des
+    // `manufacturerData` (`BleEngine.advertDataFor`) — aucun UUID de service.
+    // Les retirer ne change donc rien a ce que les autres appareils entendent,
+    // et le format d'annonce reste en PROTOCOL_VERSION 5.
 }
 
 /**
@@ -209,10 +209,14 @@ object BlePermissions {
      */
     fun required(): List<String> =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // ⚠️ **`BLUETOOTH_CONNECT` a ete retiree le 2026-08-27**, avec le
+            // bloc GATT : sur Android 12+, elle ne sert qu'a ouvrir une
+            // connexion ou un serveur GATT, jamais a annoncer ni a scanner.
+            // Une permission demandee sans usage est une permission qu'on ne
+            // sait plus justifier — et il faudra la justifier a la Play Console.
             listOf(
                 Manifest.permission.BLUETOOTH_SCAN,
                 Manifest.permission.BLUETOOTH_ADVERTISE,
-                Manifest.permission.BLUETOOTH_CONNECT,
             )
         } else {
             listOf(

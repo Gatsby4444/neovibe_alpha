@@ -148,15 +148,11 @@ sealed class RadioEvent {
           txPower: map['txPower'] as int? ?? RadioScan.txPowerUnknown,
           type: AdvertType.fromWire(map['advertType'] as int?),
         );
-      case 'link':
-        return RadioLink(
-          linkId: '${map['linkId']}',
-          connected: map['connected'] == true,
-          mtu: map['mtu'] as int? ?? 23,
-          incoming: map['incoming'] == true,
-        );
-      case 'frame':
-        return RadioFrame('${map['linkId']}', map['data'] as Uint8List);
+      // ⚠️ **`link` et `frame` ont été RETIRÉS le 2026-08-27**, avec le
+      // transport BLE. Le natif ne les émet plus. Une trame reçue d'un appareil
+      // resté sur une version antérieure retombe donc dans `default` et vaut
+      // `null` — écartée, sans erreur : c'est exactement le contrat de cette
+      // méthode pour tout ce qu'elle ne comprend pas.
       default:
         return null;
     }
@@ -219,23 +215,4 @@ class RadioScan extends RadioEvent {
   final int txPower;
 
   bool get hasTxPower => txPower != txPowerUnknown;
-}
-
-class RadioLink extends RadioEvent {
-  const RadioLink({
-    required this.linkId,
-    required this.connected,
-    required this.mtu,
-    required this.incoming,
-  });
-  final String linkId;
-  final bool connected;
-  final int mtu;
-  final bool incoming;
-}
-
-class RadioFrame extends RadioEvent {
-  const RadioFrame(this.linkId, this.data);
-  final String linkId;
-  final Uint8List data;
 }

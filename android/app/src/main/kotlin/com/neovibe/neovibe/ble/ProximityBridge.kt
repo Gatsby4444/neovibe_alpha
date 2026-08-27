@@ -213,40 +213,11 @@ class ProximityBridge(
                     result.success(ProximityService.instance?.advertCapabilities() ?: mapOf<String, Any?>())
                 }
 
-                "connect" -> {
-                    val address = call.argument<String>("address")
-                        ?: return result.error("ARG", "address manquante", null)
-                    val service = ProximityService.instance
-                        ?: return result.error("NO_SERVICE", "Le service ne tourne pas", null)
-                    service.connect(address) { error ->
-                        if (error == null) {
-                            result.success(mapOf("linkId" to address, "mtu" to service.mtuOf(address)))
-                        } else {
-                            result.error("CONNECT_FAILED", error, null)
-                        }
-                    }
-                }
-
-                "disconnect" -> {
-                    val linkId = call.argument<String>("linkId")
-                        ?: return result.error("ARG", "linkId manquant", null)
-                    ProximityService.instance?.disconnect(linkId)
-                    result.success(null)
-                }
-
-                "send" -> {
-                    val linkId = call.argument<String>("linkId")
-                        ?: return result.error("ARG", "linkId manquant", null)
-                    val data = call.argument<ByteArray>("data")
-                        ?: return result.error("ARG", "data manquante", null)
-                    val service = ProximityService.instance
-                        ?: return result.error("NO_SERVICE", "Le service ne tourne pas", null)
-                    if (service.send(linkId, data)) {
-                        result.success(null)
-                    } else {
-                        result.error("NO_LINK", "Lien $linkId introuvable", null)
-                    }
-                }
+                // ⚠️ **`connect`, `disconnect` et `send` ont ete SUPPRIMES le
+                // 2026-08-27**, avec tout le transport BLE. Un ordre que plus
+                // personne ne donne mais auquel le natif repond encore est une
+                // porte ouverte, pas une compatibilite : ils tombent maintenant
+                // dans `notImplemented`.
 
                 else -> result.notImplemented()
             }
@@ -303,18 +274,9 @@ class ProximityBridge(
         ),
     )
 
-    override fun onLink(linkId: String, connected: Boolean, mtu: Int, incoming: Boolean) = emit(
-        mapOf(
-            "event" to "link",
-            "linkId" to linkId,
-            "connected" to connected,
-            "mtu" to mtu,
-            "incoming" to incoming,
-        ),
-    )
-
-    override fun onFrame(linkId: String, data: ByteArray) =
-        emit(mapOf("event" to "frame", "linkId" to linkId, "data" to data))
+    // ⚠️ **`onLink` et `onFrame` ont ete SUPPRIMES le 2026-08-27**, avec les
+    // evenements `link` et `frame` du flux. Le Dart ne sait plus les decoder :
+    // `RadioEvent.fromMap` les rend `null`, donc les ecarte sans erreur.
 
     /**
      * Le repli du mode parallele **ne remonte pas au Dart**, et c'est voulu.

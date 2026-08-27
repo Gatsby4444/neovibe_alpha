@@ -42,8 +42,7 @@ void main() {
       expect(s.stage, PresenceStage.identified);
 
       // ⚠️ Le stade était un champ que trois chemins devaient penser à écrire,
-      // et l'un d'eux l'oubliait toujours : un ami identifié par poignée de
-      // main s'affichait comme un inconnu. Un état dérivé ne peut pas être
+      // et l'un d'eux l'oubliait toujours. Un état dérivé ne peut pas être
       // oublié.
       expect(r.peers.single.stage, PresenceStage.identified);
     });
@@ -132,13 +131,10 @@ void main() {
       final fusion = r.identify(b, profil);
 
       expect(r.length, 1);
-      expect(fusion.session.tokens, containsAll(['jeton-public', 'jeton-ami']));
+      expect(fusion.tokens, containsAll(['jeton-public', 'jeton-ami']));
       // Et la prochaine annonce de l'un OU l'autre jeton retombe dessus.
       expect(
-        identical(
-          r.observe('CC', -60, tokenHex: 'jeton-public'),
-          fusion.session,
-        ),
+        identical(r.observe('CC', -60, tokenHex: 'jeton-public'), fusion),
         isTrue,
       );
     });
@@ -167,20 +163,12 @@ void main() {
       );
     });
 
-    test('une trame reçue rafraîchit autant qu\'une annonce', () {
-      final h = Horloge();
-      final r = PeerRegistry(clock: h.call);
-      final s = r.identify(r.observe('AA', -70), profil).session;
-
-      h.avance(PresenceRules.freshFor + const Duration(seconds: 1));
-      expect(r.isPresent('u-1'), isFalse);
-
-      // ⚠️ Sans cette règle, il faudrait un SECOND délai de grâce pour ne pas
-      // couper une conversation en cours — et l'on aurait de nouveau deux
-      // horloges qui se contredisent, ce qui a coûté cinq itérations.
-      s.noteTraffic(h.call());
-      expect(r.isPresent('u-1'), isTrue);
-    });
+    // ⚠️ **« une trame reçue rafraîchit autant qu'une annonce » a été retiré le
+    // 2026-08-27**, avec `noteTraffic` et le transport. Une trame reçue était
+    // une preuve de présence au même titre qu'une annonce — c'est ce qui rendait
+    // tenable une fraîcheur de 5 s sans second délai de grâce. Plus rien ne
+    // circule : l'annonce est redevenue la **seule** preuve, et la règle des 5 s
+    // ne repose plus que sur elle.
 
     test('la session est oubliée, et pas seulement masquée', () {
       final h = Horloge();
@@ -297,10 +285,7 @@ void main() {
       final apres = r.identify(r.observe('BB:nouvelle', -65), profil);
 
       expect(r.length, 1);
-      expect(
-        apres.session.addresses,
-        containsAll(['AA:ancienne', 'BB:nouvelle']),
-      );
+      expect(apres.addresses, containsAll(['AA:ancienne', 'BB:nouvelle']));
       expect(r.byUser('u-1'), isNotNull);
     });
 
@@ -310,9 +295,8 @@ void main() {
       r.identify(r.observe('BB', -65), profil);
 
       // ⚠️ **C'est ce qui supprime la famille « adresse abandonnée ».** L'ancien
-      // code retirait l'entrée perdante et se promettait de refermer son
-      // transport au battement suivant — jusqu'à 3 secondes pendant lesquelles
-      // une adresse sans identité gardait un canal vivant.
+      // code retirait l'entrée perdante et se promettait de nettoyer au
+      // battement suivant — jusqu'à 3 secondes d'incohérence.
       expect(identical(r.byAddress('AA'), r.byAddress('BB')), isTrue);
     });
 
@@ -324,24 +308,9 @@ void main() {
       final apres = r.identify(r.observe('BB', -65), profil);
 
       // Sinon un renouvellement de MAC remettrait la durée de contact à zéro,
-      // et un croisement ne serait jamais certifié sur un appareil qui change
+      // et un croisement ne serait jamais constaté sur un appareil qui change
       // d'adresse souvent.
-      expect(apres.session.contactDuration(h.call()).inSeconds, 8);
-    });
-
-    test('l\'adresse annoncée suit, l\'adresse du lien ne bouge pas', () {
-      final h = Horloge();
-      final r = PeerRegistry(clock: h.call);
-      final s = r.identify(r.observe('AA', -70), profil).session;
-      s.linkAddress = 'AA';
-      h.avance(const Duration(seconds: 2));
-      r.identify(r.observe('BB', -65), profil);
-
-      // Une connexion GATT survit au renouvellement de la MAC : elle est liée
-      // au lien, pas à l'adresse annoncée. Viser aveuglément la plus récente
-      // rouvrait une connexion alors qu'une session vivante existait déjà.
-      expect(s.advertAddress, 'BB');
-      expect(s.address, 'AA', reason: 'on parle par le lien tant qu\'il vit');
+      expect(apres.contactDuration(h.call()).inSeconds, 8);
     });
 
     test('deux personnes distinctes ne fusionnent jamais', () {
@@ -352,25 +321,12 @@ void main() {
     });
   });
 
-  test('fermer une session ne peut pas se faire à moitié', () {
-    final r = PeerRegistry();
-    final s = r.identify(r.observe('AA', -70), profil).session;
-    s.linkAddress = 'AA';
-    s.profileSent = true;
-    s.certified = true;
-    s.connecting = true;
-
-    s.release();
-
-    // ⚠️ **La raison d'être de cet objet.** Chaque défaut du chantier était « la
-    // collection X a été nettoyée, la Y non » — au point que la boucle de
-    // nettoyage existait en deux exemplaires aux corps divergents.
-    expect(s.link, isNull);
-    expect(s.channel, isNull);
-    expect(s.linkAddress, isNull);
-    expect(s.profileSent, isFalse);
-    expect(s.connecting, isFalse);
-  });
+  // ⚠️ **« fermer une session ne peut pas se faire à moitié » et « l'adresse
+  // annoncée suit, l'adresse du lien ne bouge pas » ont été retirés le
+  // 2026-08-27.** Ils gardaient `release()` honnête et vérifiaient qu'une
+  // connexion GATT survivait au renouvellement de MAC. Il n'y a plus rien à
+  // fermer, donc plus rien à fermer à moitié : la famille de défauts « X nettoyé,
+  // Y oublié » n'a plus de X.
 
   test('la radio qui s\'arrête rend TOUTES les sessions à fermer', () {
     final r = PeerRegistry();
@@ -379,9 +335,7 @@ void main() {
 
     final restantes = r.drain();
 
-    // Garder la liste présenterait un souvenir comme une observation ; la vider
-    // sans rendre les sessions laisserait des canaux vivants que plus rien ne
-    // désigne — le second chemin, jamais soupçonné avant le 2026-08-18.
+    // Garder la liste présenterait un souvenir comme une observation.
     expect(restantes.length, 2);
     expect(r.length, 0);
     expect(r.isPresent('u-1'), isFalse);
