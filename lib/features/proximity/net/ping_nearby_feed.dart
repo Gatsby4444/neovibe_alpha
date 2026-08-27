@@ -140,14 +140,36 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
   /// faisait l'ancienne boucle : une fois la personne connue, sa présence se
   /// constate en local, et redemander au serveur n'apprend rien de plus.
   Future<void> _peutEtre() async {
-    final creneau = ProximityIdentity.slotIndex(DateTime.now());
-    if (creneau != _slot) {
+    if (doitDemander(
+      creneauCourant: ProximityIdentity.slotIndex(DateTime.now()),
+      creneauDernierAppel: _slot,
+      jetonsConnus: _last.map((p) => p.token),
+      jetonsEntendus: ref.read(ecouteLocaleProvider).keys,
+    )) {
       await refresh();
-      return;
     }
-    final connus = {for (final p in _last) p.token}..remove(null);
-    final entendus = ref.read(ecouteLocaleProvider).keys;
-    if (entendus.any((jeton) => !connus.contains(jeton))) await refresh();
+  }
+
+  /// **Faut-il redemander au serveur ?** Fonction pure, donc éprouvable.
+  ///
+  /// ⚠️ **Elle est ici, séparée et sans état, parce que se tromper ici ne lève
+  /// RIEN.** Répondre « oui » trop souvent rend l'économie nulle sans que rien
+  /// ne s'affiche de faux ; répondre « non » à tort rend des gens invisibles.
+  /// Les deux défauts se comptent, ils ne se voient pas — d'où le test.
+  static bool doitDemander({
+    required int creneauCourant,
+    required int creneauDernierAppel,
+    required Iterable<String?> jetonsConnus,
+    required Iterable<String> jetonsEntendus,
+  }) {
+    // ① Le créneau a tourné : tous les jetons du monde ont changé, celui de
+    // chacun est à réapprendre. Sans ça, on croirait tout le monde parti.
+    if (creneauCourant != creneauDernierAppel) return true;
+
+    // ② On entend quelqu'un qu'on ne sait pas nommer : découverte en cours.
+    //    C'est le seul cas qui presse.
+    final connus = jetonsConnus.whereType<String>().toSet();
+    return jetonsEntendus.any((jeton) => !connus.contains(jeton));
   }
 
   Future<void> refresh() async {

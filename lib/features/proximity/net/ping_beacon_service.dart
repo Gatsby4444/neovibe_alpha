@@ -79,6 +79,13 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   /// ⚠️ **Elle existait déjà — on la jetait.** Le téléphone entendait l'autre
   /// dix fois par seconde, et allait quand même demander au serveur, toutes les
   /// dix secondes, s'il était encore là. On garde maintenant ce qu'on entend.
+  ///
+  /// ⚠️ **Elle se PURGE, et c'est vital.** Sans purge, les jetons s'accumulent :
+  /// au changement de créneau (15 min) les anciens restent, `_peutEtre` les voit
+  /// comme « entendus mais pas encore nommés », et **force un appel serveur
+  /// toutes les dix secondes, pour toujours**. Toute l'économie disparaîtrait —
+  /// en silence, sans qu'aucun écran n'affiche quoi que ce soit de faux.
+  /// (Défaut introduit et corrigé le 2026-08-27, avant le premier test.)
   final _heardAt = <String, DateTime>{};
 
   @override
@@ -134,6 +141,10 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     _radioFeed = null;
     _shortlist = const {};
     _heard.clear();
+    // ⚠️ Le ping s'arrête : ce qu'on a entendu n'est plus une observation, c'est
+    // un souvenir. Le garder ferait afficher des gens partis au redémarrage.
+    _heardAt.clear();
+    ref.read(ecouteLocaleProvider.notifier).clear();
   }
 
   /// Un tour : publier ma balise, puis récupérer la liste à écouter.
@@ -209,9 +220,22 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     // dissociation : l'acquisition ne décide pas si l'écran doit se redessiner.
     // Le coût est absorbé en aval par l'égalité de valeur des vues dérivées —
     // même conception que `presence_feed.dart` pour les amis.
+    _oublieLesVieux();
     ref.read(ecouteLocaleProvider.notifier).publish(Map.of(_heardAt));
 
     if (nouveau) unawaited(_flushHeard());
+  }
+
+  /// Jette ce qu'on n'a plus entendu depuis assez longtemps pour que ça ne
+  /// serve plus à personne.
+  ///
+  /// ⚠️ **La borne est celle du dernier lecteur** — [kPingGraceServeur]. Au-delà,
+  /// ni l'affichage ni la décision d'appeler le serveur ne s'en servent : garder
+  /// l'entrée ne ferait que déclencher des appels pour un jeton dont plus rien
+  /// ne dépend.
+  void _oublieLesVieux() {
+    final limite = DateTime.now().subtract(kPingGraceServeur);
+    _heardAt.removeWhere((_, vu) => vu.isBefore(limite));
   }
 
   Future<void> _flushHeard() async {

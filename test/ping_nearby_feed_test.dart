@@ -81,6 +81,7 @@ void _entend(ProviderContainer c, DateTime quand, List<String> jetons) => c
     .publish({for (final j in jetons) j: quand});
 
 void main() {
+  _decision();
   group("Le délai de grâce — qui est ENCORE là", () {
     test("quelqu'un vu à l'instant est affiché", () async {
       final h = _harnais();
@@ -424,4 +425,101 @@ class _DepotFaux extends PingRepository {
   Future<List<NearbyPerson>> nearby() async => [
     _personne('a', DateTime.now().toUtc()),
   ];
+}
+
+/// **Ce que ce groupe MESURE : les appels serveur qu'on ne fait plus.**
+///
+/// Question de Jay du 2026-08-27 : *« pourquoi on redemande toujours au serveur
+/// une fois qu'une connexion a été vérifiée ? »* La réponse fut de ne plus le
+/// faire — et **ce fichier est la seule chose qui garantit que ça reste vrai**.
+///
+/// ⚠️ **Ce défaut ne s'affiche jamais.** Une boucle qui redemande trop souvent
+/// montre exactement la bonne chose à l'écran ; seule la facture change. Il a
+/// d'ailleurs été introduit **et corrigé** le jour même : les jetons entendus
+/// s'accumulaient sans jamais être purgés, si bien qu'au changement de créneau
+/// les anciens passaient pour « pas encore nommés » et forçaient un appel toutes
+/// les dix secondes, pour toujours. Aucun test ne le voyait. Celui-ci le voit.
+void _decision() {
+  group('quand redemande-t-on au serveur ?', () {
+    test("seul, radio muette : JAMAIS", () {
+      expect(
+        PingNearbySource.doitDemander(
+          creneauCourant: 42,
+          creneauDernierAppel: 42,
+          jetonsConnus: const [],
+          jetonsEntendus: const [],
+        ),
+        isFalse,
+        reason:
+            "C'est le cas le plus courant, et l'ancienne boucle y faisait "
+            "360 appels par heure pour s'entendre répondre « personne ».",
+      );
+    });
+
+    test("quelqu'un de déjà connu, entendu : JAMAIS", () {
+      expect(
+        PingNearbySource.doitDemander(
+          creneauCourant: 42,
+          creneauDernierAppel: 42,
+          jetonsConnus: const ['JETON-A'],
+          jetonsEntendus: const ['JETON-A'],
+        ),
+        isFalse,
+        reason:
+            "Sa présence se constate en local. Redemander n'apprendrait rien.",
+      );
+    });
+
+    test("un jeton entendu qu'on ne sait pas nommer : OUI", () {
+      expect(
+        PingNearbySource.doitDemander(
+          creneauCourant: 42,
+          creneauDernierAppel: 42,
+          jetonsConnus: const ['JETON-A'],
+          jetonsEntendus: const ['JETON-A', 'JETON-INCONNU'],
+        ),
+        isTrue,
+        reason:
+            "C'est une découverte en cours, et c'est le seul cas qui presse.",
+      );
+    });
+
+    test("le créneau a tourné : OUI, même sans rien entendre", () {
+      expect(
+        PingNearbySource.doitDemander(
+          creneauCourant: 43,
+          creneauDernierAppel: 42,
+          jetonsConnus: const ['JETON-A'],
+          jetonsEntendus: const [],
+        ),
+        isTrue,
+        reason:
+            "Tous les jetons ont changé. Sans cet appel, on croirait tout le "
+            "monde parti — toutes les 15 minutes.",
+      );
+    });
+
+    test(
+      "un jeton PÉRIMÉ ne doit plus rien déclencher — le défaut du 2026-08-27",
+      () {
+        // ⚠️ **Le cas exact du défaut.** Après une rotation de créneau, les
+        // anciens jetons restaient dans la table d'écoute. Ils n'étaient dans
+        // aucune liste connue, donc chaque tour de 10 s les prenait pour une
+        // découverte en cours — et rappelait le serveur, indéfiniment.
+        //
+        // La purge vit dans `PingBeaconService._oublieLesVieux` : ce test dit
+        // ce qu'on attend d'elle, vu d'ici.
+        expect(
+          PingNearbySource.doitDemander(
+            creneauCourant: 42,
+            creneauDernierAppel: 42,
+            jetonsConnus: const ['JETON-A'],
+            // La table a été purgée : le vieux jeton n'y est plus.
+            jetonsEntendus: const ['JETON-A'],
+          ),
+          isFalse,
+        );
+      },
+    );
+  });
 }
