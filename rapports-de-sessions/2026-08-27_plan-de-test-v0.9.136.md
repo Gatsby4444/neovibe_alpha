@@ -228,3 +228,55 @@ croisement d'amis, lui, fonctionne app fermée (tout est en Kotlin).
 2. **à quel test ça a cassé**, si ça a cassé, et ce que tu as vu à l'écran ;
 3. l'heure approximative du début et de la fin, pour que je cadre la mesure des
    appels dans les journaux.
+
+---
+
+# 🔴 Correctif du 2026-08-27, 19 h 50 — l'APK ne s'installait pas
+
+**Constaté par Jay sur la tablette** : « Application non installée », sans autre
+explication, à chaque tentative.
+
+## La cause, mesurée sur les artefacts publiés
+
+| Release | Signataires | S'installe sur la tablette |
+|---|---|---|
+| v0.9.134 | **V3.0** `CN=Android Debug` (API 24-32) + **V3.1** `CN=NeoVibe` (API 33+) | ✅ |
+| v0.9.135 | **v2** seul, `CN=NeoVibe` | ❌ |
+| v0.9.136 (initiale) | **v2** seul, `CN=NeoVibe` | ❌ |
+
+La tablette (Android 10) avait installé v0.9.134 sous l'identité **`Android
+Debug`** — c'est le signataire que la rotation lui destine. Les deux APK publiés
+ensuite se présentaient sous `NeoVibe`, **sans la preuve de rotation** : Android
+voit un signataire étranger et refuse la mise à jour.
+
+## C'était écrit, et je ne l'ai pas appliqué
+
+`RAPPELS.md` #61, depuis le 2026-08-25 :
+
+> Ne plus jamais publier un APK produit par `flutter build apk --release` seul :
+> il est signé par la nouvelle clé **sans la preuve de rotation** et ne
+> s'installera pas — **sans que rien ne le signale**.
+
+`tool/build-release.sh` existait. Je ne m'en suis pas servi.
+
+## ⚠️ Et ma vérification ne pouvait pas voir le défaut
+
+J'avais bien contrôlé la signature — en comparant l'empreinte de la v0.9.136 à
+celle de la **v0.9.135**. Deux APK cassés de la même façon. **Un instrument qui
+compare le neuf au neuf ne peut pas contenir la preuve du contraire.** Il fallait
+comparer à la dernière version qui **s'était installée**.
+
+## Ce qui a été fait
+
+1. **v0.9.136 reconstruite et re-signée** par `tool/build-release.sh`. L'artefact
+   publié porte maintenant le certificat V3.0 `4df8a044…` — **exactement celui de
+   la v0.9.134**, donc celui sous lequel la tablette a installé.
+2. **v0.9.135 marquée inutilisable** dans ses notes de release.
+3. **La cause est supprimée** : `tool/publish-release.sh` refuse de publier un
+   APK qui ne porte pas les deux empreintes attendues, écrites **en dur** dans le
+   script — donc indépendantes de la build précédente. Il vérifie aussi que le
+   `versionCode` progresse, en lisant l'**artefact** de la release précédente.
+   **Éprouvé dans les deux sens** : il refuse l'APK cassé de la v0.9.135, il
+   accepte celui de la v0.9.136 re-signé.
+
+👉 **Retélécharge la v0.9.136** — le fichier a été remplacé, le lien est le même.
