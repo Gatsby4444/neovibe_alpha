@@ -499,6 +499,48 @@ void _decision() {
       );
     });
 
+    test("🔴 un jeton que le serveur NE NOMMERA JAMAIS : on renonce", () {
+      // ⚠️ **Le défaut mesuré chez Jay le 2026-08-27 à 20 h 16, en pleine
+      // session de test.** `ping_nearby` écarte délibérément les amis — cette
+      // liste sert à découvrir des inconnus. Mais deux amis continuent de
+      // crier leur identifiant PUBLIC : chacun entend donc de l'autre un
+      // jeton que le serveur refusera toujours de nommer.
+      //
+      // La règle « je demande tant que j'entends un jeton inconnu » ne
+      // terminait jamais : **122 appels en 7 minutes** dans les journaux du
+      // serveur, huit par minute et par appareil — exactement le gaspillage
+      // que ce chantier supprimait.
+      //
+      // ⚠️ **Rien ne l'affichait.** L'écran montrait la bonne chose ; seule
+      // la facture changeait. Aucun test ne le voyait : celui-ci le voit.
+      expect(
+        PingNearbySource.doitDemander(
+          creneauCourant: 42,
+          creneauDernierAppel: 42,
+          jetonsConnus: const [],
+          jetonsEntendus: const ['JETON-D-UN-AMI'],
+          abandonnes: const {'JETON-D-UN-AMI'},
+        ),
+        isFalse,
+      );
+    });
+
+    test("mais on INSISTE tant qu'on n'a pas renoncé", () {
+      // ⚠️ **Renoncer au premier refus casserait la découverte.** Quand deux
+      // inconnus se croisent, le serveur ne peut nommer personne tant qu'il n'a
+      // pas reçu le constat des DEUX côtés — il faut donc réessayer.
+      expect(
+        PingNearbySource.doitDemander(
+          creneauCourant: 42,
+          creneauDernierAppel: 42,
+          jetonsConnus: const [],
+          jetonsEntendus: const ['JETON-D-UN-INCONNU'],
+          abandonnes: const {},
+        ),
+        isTrue,
+      );
+    });
+
     test(
       "un jeton PÉRIMÉ ne doit plus rien déclencher — le défaut du 2026-08-27",
       () {

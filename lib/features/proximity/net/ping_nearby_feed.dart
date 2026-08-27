@@ -112,13 +112,53 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
     }
 
     _poll = Timer.periodic(pollEvery, (_) => unawaited(_peutEtre()));
-    Future.microtask(refresh);
+    // ⚠️ **Un appel FORCÉ seulement au premier tour.** `build` se ré-exécute à
+    // chaque changement de `pingBeaconProvider` — donc à chaque tour de balise
+    // et à chaque dépôt de jetons. Y appeler `refresh()` sans condition
+    // ajoutait deux appels par minute que rien ne demandait.
+    Future.microtask(() => _last.isEmpty ? refresh() : _peutEtre());
     return _last;
   }
 
   /// Le créneau du dernier appel : au changement, les jetons de tout le monde
   /// changent et il faut les réapprendre.
   int _slot = -1;
+
+  /// Les jetons qu'on a demandés au serveur **et qu'il n'a pas nommés**, avec
+  /// le nombre de demandes.
+  ///
+  /// ## 🔴 Le défaut que ceci corrige — mesuré le 2026-08-27 à 20 h 16
+  ///
+  /// `ping_nearby` écarte délibérément les **amis** : cette liste sert à
+  /// découvrir des inconnus, et un ami est déjà reconnu par la radio, avec une
+  /// meilleure information. Mais les deux appareils continuent de **crier leur
+  /// identifiant public** — donc, une fois devenus amis, chacun entend de
+  /// l'autre un jeton que le serveur **refusera toujours** de nommer.
+  ///
+  /// La règle « je demande tant que j'entends un jeton que je ne sais pas
+  /// nommer » ne terminait donc jamais : **122 appels à `ping_nearby` en
+  /// 7 minutes** relevés dans les journaux du serveur, soit huit par minute et
+  /// par appareil — exactement le gaspillage que ce chantier devait supprimer.
+  ///
+  /// ⚠️ **Rien ne l'affichait.** L'écran montrait la bonne chose ; seule la
+  /// facture changeait. Il a fallu **compter dans les journaux** pour le voir.
+  ///
+  /// ## Pourquoi un COMPTEUR et pas un simple abandon
+  ///
+  /// Renoncer au premier refus casserait la découverte : au moment où deux
+  /// inconnus se croisent, le serveur ne peut nommer personne tant qu'il n'a
+  /// pas reçu le constat **des deux côtés**. Il faut donc insister — mais pas
+  /// indéfiniment. [_maxDemandes] tours couvrent largement le délai de
+  /// publication de la balise d'en face (60 s).
+  final _sansReponse = <String, int>{};
+
+  /// Au-delà, on cesse de demander ce jeton **jusqu'au prochain créneau**.
+  ///
+  /// Six tours de 10 s = une minute. Un jeton non nommé au bout d'une minute
+  /// appartient à un ami, ou à quelqu'un qui ne nous confirme pas : dans les
+  /// deux cas, redemander n'apprendra rien. Les jetons tournant toutes les
+  /// 15 minutes, le renoncement se réarme tout seul.
+  static const _maxDemandes = 6;
 
   /// **N'appelle le serveur que s'il a quelque chose à nous apprendre.**
   ///
@@ -139,12 +179,33 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
   /// ⚠️ **Ne PAS ajouter « et quand quelqu'un est présent ».** C'est ce que
   /// faisait l'ancienne boucle : une fois la personne connue, sa présence se
   /// constate en local, et redemander au serveur n'apprend rien de plus.
+  /// Compte les jetons entendus que la réponse du serveur n'a pas nommés.
+  ///
+  /// ⚠️ **Appelé APRÈS chaque réponse, jamais avant.** C'est ce qui distingue
+  /// « le serveur n'a pas encore le constat des deux côtés » (on réessaie) de
+  /// « le serveur ne nommera jamais ce jeton » (on renonce).
+  void _noteCeQuiResteSansNom() {
+    final connus = {for (final p in _last) p.token}.whereType<String>().toSet();
+    for (final jeton in ref.read(ecouteLocaleProvider).keys) {
+      if (connus.contains(jeton)) {
+        // Nommé : s'il l'avait été refusé avant, on oublie ce refus.
+        _sansReponse.remove(jeton);
+      } else {
+        _sansReponse[jeton] = (_sansReponse[jeton] ?? 0) + 1;
+      }
+    }
+  }
+
   Future<void> _peutEtre() async {
     if (doitDemander(
       creneauCourant: ProximityIdentity.slotIndex(DateTime.now()),
       creneauDernierAppel: _slot,
       jetonsConnus: _last.map((p) => p.token),
       jetonsEntendus: ref.read(ecouteLocaleProvider).keys,
+      abandonnes: {
+        for (final e in _sansReponse.entries)
+          if (e.value >= _maxDemandes) e.key,
+      },
     )) {
       await refresh();
     }
@@ -161,6 +222,7 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
     required int creneauDernierAppel,
     required Iterable<String?> jetonsConnus,
     required Iterable<String> jetonsEntendus,
+    Set<String> abandonnes = const {},
   }) {
     // ① Le créneau a tourné : tous les jetons du monde ont changé, celui de
     // chacun est à réapprendre. Sans ça, on croirait tout le monde parti.
@@ -168,14 +230,26 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
 
     // ② On entend quelqu'un qu'on ne sait pas nommer : découverte en cours.
     //    C'est le seul cas qui presse.
+    //
+    // ⚠️ **Sauf ceux qu'on a déjà renoncé à nommer.** Le serveur écarte les
+    // amis de cette liste, et deux amis continuent de crier leur identifiant
+    // public : sans ce filtre, chacun redemande éternellement le nom d'un
+    // jeton que le serveur ne donnera jamais. Voir [_sansReponse].
     final connus = jetonsConnus.whereType<String>().toSet();
-    return jetonsEntendus.any((jeton) => !connus.contains(jeton));
+    return jetonsEntendus.any(
+      (jeton) => !connus.contains(jeton) && !abandonnes.contains(jeton),
+    );
   }
 
   Future<void> refresh() async {
-    _slot = ProximityIdentity.slotIndex(DateTime.now());
+    final creneau = ProximityIdentity.slotIndex(DateTime.now());
+    // Les jetons ont tous changé : ce qu'on avait renoncé à nommer redevient
+    // une question ouverte.
+    if (creneau != _slot) _sansReponse.clear();
+    _slot = creneau;
     try {
       state = _last = await ref.read(pingRepositoryProvider).nearby();
+      _noteCeQuiResteSansNom();
     } catch (_) {
       // ⚠️ **On ne vide PAS sur erreur.** Une panne réseau ferait alors
       // disparaître tout le monde de l'écran, ce qui est indiscernable de
