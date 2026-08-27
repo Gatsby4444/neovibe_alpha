@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/notifications/notification_service.dart';
 import '../../../core/supabase_providers.dart';
 import '../ping_store.dart';
 import '../proximity_identity.dart';
@@ -226,15 +225,6 @@ class ProximitySync {
     for (final item in pending) {
       try {
         switch (item['type']) {
-          // ⚠️ **`encounter` et `connection` ont été retirés le 2026-08-27**,
-          // avec le transport BLE qui les produisait : un certificat de
-          // croisement co-signé (`report_encounter`) et une demande d'ami
-          // co-signée (`submit_ble_connection`). Plus rien ne les met en file.
-          //
-          // Un cas de `switch` sans producteur n'est pas inoffensif : il fait
-          // croire que le chemin existe encore, et il maintient vivantes deux
-          // fonctions serveur que plus personne n'appelle (consignées dans
-          // `RAPPELS.md`).
           // ⚠️ **Les constats partent en LOT, et ils ne prouvent rien seuls.**
           //
           // Le serveur ne cree un croisement que si le constat inverse existe
@@ -255,6 +245,13 @@ class ProximitySync {
           default:
             // Type inconnu : il ne partira jamais. L'abandonner tout de suite
             // vaut mieux que de le traîner à chaque synchronisation.
+            //
+            // ⚠️ **C'est ce qui absorbe les reliquats du transport BLE.** Les
+            // appareils de Jay peuvent encore porter des `encounter` (certificat
+            // de croisement) et des `connection` (demande d'ami co-signée)
+            // déposés avant le 2026-08-27, dont les deux fonctions serveur sont
+            // en fin de vie. Ils sont **abandonnés proprement et comptés**, au
+            // lieu d'être retentés indéfiniment.
             ConnectionTrace.note(
               ConnectionEvent.outboxAbandoned,
               detail: 'type inconnu : ${item['type']}',
@@ -271,22 +268,23 @@ class ProximitySync {
             ConnectionEvent.outboxAbandoned,
             detail: '${item['type']} après $attempts tentatives — $e',
           );
-          // ⚠️ **Une CONNEXION abandonnée ne peut pas partir en silence.**
+          // ⚠️ **Une notification « Connexion non enregistrée » vivait ici,
+          // et elle est devenue INATTEIGNABLE le 2026-08-27.**
           //
-          // L'utilisateur a lu « Vous êtes connectés » au moment d'accepter :
-          // c'est la promesse la plus forte du produit. Si l'enregistrement
-          // n'atteint jamais le serveur, l'amitié n'existe pas — et personne ne
-          // le lui dit. Les autres types (croisement, wave) sont du confort ;
-          // celui-ci est le mécanisme d'entrée.
-          if (item['type'] == 'connection') {
-            await NotificationService.instance.schedule(
-              NotifChannel.waves,
-              'Connexion non enregistrée',
-              'Une connexion faite en proximité n\'a pas pu être enregistrée. '
-                  'Recroisez-vous pour réessayer.',
-              DateTime.now(),
-            );
-          }
+          // Elle prévenait l'utilisateur quand un `connection` — une demande
+          // d'ami co-signée en BLE — mourait après `maxAttempts`. Il avait lu
+          // « Vous êtes connectés » en acceptant : sans cette notification,
+          // l'amitié n'existait pas et personne ne le lui disait.
+          //
+          // Ce type ne peut plus entrer dans la file : plus aucun producteur, et
+          // il tomberait de toute façon dans `default` juste au-dessus, qui
+          // `continue` avant de pouvoir lever. Un `if` que rien ne peut
+          // satisfaire est un garde-fou qui rassure sans protéger.
+          //
+          // ⚠️ **Ce que la promesse est devenue** : accepter une demande est un
+          // appel serveur direct, qui réussit ou lève **devant l'utilisateur**.
+          // Il n'y a plus de file, donc plus d'échec différé et silencieux à
+          // rattraper — la cause a disparu avec le chemin.
           abandoned++;
           continue;
         }

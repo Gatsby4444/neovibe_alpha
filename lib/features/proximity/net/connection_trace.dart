@@ -27,22 +27,20 @@ abstract final class ConnectionTrace {
   /// Dénominateurs : ce qui s'est bien passé. **Toujours affichés, même à
   /// zéro** — un zéro mesuré et un seau vide ne se ressemblent que dans un
   /// rapport qui cache les zéros.
-  static const requestsSent = 'demandes émises';
-  static const requestsReceived = 'demandes reçues';
-  static const accepted = 'demandes acceptées';
-  static const declined = 'demandes refusées';
+  /// ⚠️ **Quatre compteurs retirés le 2026-08-27** — `demandes émises`,
+  /// `demandes reçues`, `demandes acceptées`, `demandes refusées`.
+  ///
+  /// Ils comptaient les demandes d'amis **co-signées en BLE**, qui n'existent
+  /// plus : une demande est désormais une ligne de `connection_requests`, donc
+  /// une question à poser au serveur, pas un compteur local.
+  ///
+  /// Les laisser aurait affiché **quatre zéros permanents** dans le rapport de
+  /// diagnostic. Un compteur qui ne peut plus bouger n'est pas une mesure —
+  /// c'est une invitation à conclure « aucune demande » là où il n'y a rien à
+  /// compter.
   static const friendsPulled = 'synchros du carnet réussies';
 
-  static final instance = EventTrace(
-    'connexions',
-    counters: [
-      requestsSent,
-      requestsReceived,
-      accepted,
-      declined,
-      friendsPulled,
-    ],
-  );
+  static final instance = EventTrace('connexions', counters: [friendsPulled]);
 
   static void count(String kind) => instance.count(kind);
 
@@ -54,39 +52,20 @@ abstract final class ConnectionTrace {
 
 /// Les motifs consignés, nommés une seule fois.
 abstract final class ConnectionEvent {
-  /// Une demande a été émise vers quelqu'un qui est **déjà un ami**.
-  ///
-  /// Ne devrait plus arriver : le bouton ne s'affiche plus dans ce cas depuis
-  /// que le statut se dérive du carnet. S'il bouge, c'est que l'interface et le
-  /// carnet ont recommencé à diverger — exactement le défaut du 2026-08-17.
-  static const requestToFriend = 'demande vers un ami déjà connecté';
+  // ⚠️ **Sept motifs retirés le 2026-08-27**, avec les demandes d'amis en BLE :
+  // `requestToFriend`, `requestFromFriend`, `badSignature`, `acceptNotOurs`,
+  // `notForUs`, `declineWithoutRequest` et `acceptUndeliverable`.
+  //
+  // ⚠️ **`acceptNotOurs` était le plus important de la liste** — il guettait
+  // quelqu'un qui essaie de s'inscrire lui-même comme ami accepté, la barrière
+  // fondatrice du produit. Ce qu'il surveillait est désormais tenu par le
+  // serveur (`request_connection_from_proximity`, qui exige une paire mutuelle
+  // fraîche), donc **ça ne se surveille plus ici — ça se surveille en base**.
+  // À garder en tête : la surveillance n'a pas disparu, elle a changé d'endroit,
+  // et cet endroit-là n'est pas dans le rapport de diagnostic de Jay.
 
-  /// Une demande **reçue** de quelqu'un qui est déjà un ami. Ignorée.
-  static const requestFromFriend = 'demande reçue d\'un ami déjà connecté';
-
-  /// La signature de la demande n'est pas valide — la demande est jetée.
-  static const badSignature = 'signature de demande invalide';
-
-  /// Une **acceptation** reçue ne correspond à aucune demande de notre part.
-  ///
-  /// ⚠️ **Le motif le plus important de cette liste.** Il ne devrait jamais
-  /// bouger. S'il bouge, quelqu'un essaie de se faire passer pour un ami
-  /// accepté — voir `_onFriendAccept`.
-  static const acceptNotOurs = 'acceptation sans demande de notre part';
-
-  /// La demande ne nous est pas adressée, ou son émetteur ne correspond pas au
-  /// pair qui l'apporte.
-  static const notForUs = 'demande mal adressée';
-
-  /// Un refus reçu alors que nous n'avions rien demandé à cette personne.
-  static const declineWithoutRequest = 'refus sans demande de notre part';
-
-  /// L'acceptation n'a pas pu partir : le pair n'était plus joignable. **La
-  /// demande reste**, elle sera rejouable.
-  static const acceptUndeliverable = 'acceptation non remise';
-
-  /// Le carnet a changé : le réseau reconstruit son index rotatif.
-  static const bookChanged = 'carnet modifié';
+  // ⚠️ `bookChanged` retiré le 2026-08-27 : il était **déjà** sans producteur
+  // avant ce chantier (vérifié sur `HEAD~1`), donc jamais consigné par personne.
 
   /// La synchronisation a retiré des amis que le serveur ne renvoie plus.
   static const friendsRemoved = 'amis retirés du carnet';

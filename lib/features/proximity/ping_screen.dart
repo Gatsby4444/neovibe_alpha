@@ -45,15 +45,23 @@ class PingScreen extends ConsumerStatefulWidget {
 }
 
 class _PingScreenState extends ConsumerState<PingScreen> {
-  /// ⚠️ **Cet écran ne lit plus AUCUN fichier depuis le 2026-08-27.**
+  /// Le geste « tirer pour rafraîchir » : on redemande au SERVEUR.
   ///
-  /// Il en lisait deux à chaque rafraîchissement — les conversations ping et
-  /// les croisements locaux — tous deux alimentés par le transport BLE, qui est
-  /// supprimé. Ce qui reste vient du serveur ou de la radio, et se rafraîchit
-  /// tout seul.
-  Future<void> _reload() async {
-    ref.invalidate(pingNearbyProvider);
-  }
+  /// ⚠️ **On s'adresse à l'ACQUISITION, jamais à la vue dérivée.**
+  /// `pingNearbyProvider` est l'**usage** — il filtre la source sur le délai de
+  /// grâce. L'invalider ne fait que recalculer le même filtre sur les mêmes
+  /// données : le geste de l'utilisateur ne produit alors **rien du tout**, et
+  /// rien ne le signale. Seule la source sait aller rechercher.
+  ///
+  /// (C'est exactement le défaut introduit puis corrigé le 2026-08-27, en
+  /// remplaçant la lecture des fichiers locaux du chat BLE par ce geste.)
+  ///
+  /// ⚠️ **Cet écran ne lit plus AUCUN fichier.** Il en lisait deux à chaque
+  /// rafraîchissement — conversations ping et croisements locaux — tous deux
+  /// alimentés par le transport BLE. La radio, elle, se rafraîchit toute seule :
+  /// il n'y a rien à lui redemander.
+  Future<void> _reload() =>
+      ref.read(pingNearbySourceProvider.notifier).refresh();
 
   @override
   Widget build(BuildContext context) {

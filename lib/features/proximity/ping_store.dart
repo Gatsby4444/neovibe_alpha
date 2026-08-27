@@ -30,7 +30,14 @@ import 'proximity_identity.dart';
 /// insistant **dans un fil local que nous seuls arbitrions** ; un fil serveur a
 /// ses propres règles, et en garder une seconde, muette et invisible, c'était
 /// deux arbitres pour une même conversation.
-class PingStore extends ChangeNotifierBase {
+/// ⚠️ **N'est plus un `ChangeNotifier` depuis le 2026-08-27.**
+///
+/// Son unique observateur était `PingScreen`, qui rechargeait conversations et
+/// croisements à chaque écriture. Les deux ont disparu avec le transport BLE :
+/// ce qui reste — la file d'envoi — n'a **aucun lecteur d'interface**, elle est
+/// drainée par `proximity_sync`. Un notifieur que personne n'écoute est un
+/// nœud orphelin qui donne l'illusion qu'un écran se met à jour.
+class PingStore {
   PingStore();
 
   Directory? _dir;
@@ -57,7 +64,6 @@ class PingStore extends ChangeNotifierBase {
         if (entry is File) await entry.delete();
       }
     }
-    notifyListeners();
   }
 
   // ⚠️ **`conversation`, `conversations`, `append`, `_write`, `sweep`,
@@ -98,17 +104,6 @@ class PingStore extends ChangeNotifierBase {
 }
 
 /// ChangeNotifier minimal sans dépendre de Flutter (testable en pur Dart).
-class ChangeNotifierBase {
-  final _listeners = <void Function()>[];
-  void addListener(void Function() listener) => _listeners.add(listener);
-  void removeListener(void Function() listener) => _listeners.remove(listener);
-  void notifyListeners() {
-    for (final l in List.of(_listeners)) {
-      l();
-    }
-  }
-}
-
 /// Instantané du profil d'un pair présent à côté de nous.
 ///
 /// ⚠️ **Il venait du BLE jusqu'au 2026-08-27** — un mini-profil signé, reçu
