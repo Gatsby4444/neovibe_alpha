@@ -6,24 +6,21 @@ import 'package:neovibe/features/proximity/proximity_identity.dart';
 
 /// Identité en mémoire.
 ///
-/// ⚠️ **La cryptographie est exactement celle de la production** — Ed25519, même
+/// ⚠️ **La cryptographie est exactement celle de la production** — X25519, même
 /// dérivation d'ID rotatif. On ne remplace que le **stockage** (le Keystore
 /// Android, indisponible en test). Un double qui simulerait aussi l'algorithme
 /// ne prouverait rien de ce qui tourne vraiment sur l'appareil.
+///
+/// ⚠️ **Le tampon Ed25519 a été retiré le 2026-08-27**, ici comme en production.
+/// Un double qui garderait une capacité que l'objet réel n'a plus laisserait
+/// passer des tests qui ne prouvent plus rien.
 ///
 /// ⚠️ **Un seul exemplaire pour toute la suite de tests.** Il en existait deux —
 /// celui-ci et une copie dans `secure_channel_test.dart` — avec des graines
 /// différentes et des méthodes qui ont divergé. Deux doubles d'un même objet
 /// finissent toujours par tester deux choses différentes.
 class IdentiteMemoire implements ProximityIdentity {
-  IdentiteMemoire._(
-    this.userId,
-    this._pair,
-    this._pub,
-    this._x,
-    this._xPub,
-    this._pingSeed,
-  );
+  IdentiteMemoire._(this.userId, this._x, this._xPub, this._pingSeed);
 
   /// L'identifiant de compte de **cet appareil**.
   ///
@@ -36,10 +33,6 @@ class IdentiteMemoire implements ProximityIdentity {
     int graine = 1,
     String userId = 'u-double',
   }) async {
-    final pair = await Ed25519().newKeyPairFromSeed(
-      List<int>.generate(32, (i) => (i * 7 + graine) % 256),
-    );
-    final pub = await pair.extractPublicKey();
     // ⚠️ **Une VRAIE paire X25519, pas un tableau d'octets quelconque.** Tout
     // l'intérêt du secret par paire est que les deux côtés obtiennent la même
     // valeur ; un double qui inventerait le partage ne prouverait rien.
@@ -49,24 +42,17 @@ class IdentiteMemoire implements ProximityIdentity {
     final xPub = await x.extractPublicKey();
     return IdentiteMemoire._(
       userId,
-      pair,
-      Uint8List.fromList(pub.bytes),
       x,
       Uint8List.fromList(xPub.bytes),
       Uint8List.fromList(List<int>.generate(32, (i) => (i * graine + 3) % 256)),
     );
   }
 
-  final SimpleKeyPair _pair;
-  final Uint8List _pub;
   final SimpleKeyPair _x;
   final Uint8List _xPub;
   Uint8List _pingSeed;
 
   final _secrets = <String, Uint8List>{};
-
-  @override
-  Future<Uint8List> edPublicKey() async => _pub;
 
   @override
   Future<Uint8List> x25519PublicKey() async => _xPub;
@@ -114,12 +100,6 @@ class IdentiteMemoire implements ProximityIdentity {
   @override
   Future<void> forget() async {
     _secrets.clear();
-  }
-
-  @override
-  Future<Uint8List> sign(List<int> message) async {
-    final sig = await Ed25519().sign(message, keyPair: _pair);
-    return Uint8List.fromList(sig.bytes);
   }
 
   @override

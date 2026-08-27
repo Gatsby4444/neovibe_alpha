@@ -133,7 +133,6 @@ class Appareil {
       FriendKeys(
         userId: autre.identite.userId,
         username: autre.nom,
-        edPublicKey: await autre.identite.edPublicKey(),
         x25519PublicKey: await autre.identite.x25519PublicKey(),
       ),
     );

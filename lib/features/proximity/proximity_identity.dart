@@ -10,7 +10,8 @@ import 'package:path_provider/path_provider.dart';
 
 /// Identité cryptographique locale du ping.
 ///
-/// - **Clé d'appareil Ed25519** : signe les certificats de croisement, les
+/// - ~~**Clé d'appareil Ed25519**~~ : retirée le 2026-08-27. Elle signait les
+///   certificats de croisement, les
 ///   demandes d'amis co-signées, la poignée de main et le mini-profil. Le seed
 ///   vit dans le Keystore Android.
 /// - **Clé X25519** : elle ne sert jamais à chiffrer directement. Elle sert à
@@ -64,6 +65,11 @@ class ProximityIdentity {
   ProximityIdentity();
 
   static const _storage = FlutterSecureStorage();
+
+  /// ⚠️ **Vestige.** La clé de signature Ed25519 a été retirée le 2026-08-27 :
+  /// ce qu'elle signait voyageait par la radio, et la radio ne transporte plus
+  /// rien. Sa graine reste listée ici pour être **effacée** du Keystore — un
+  /// secret orphelin reste un secret. Voir [_deadKeys].
   static const _seedKey = 'nv_ed25519_seed';
 
   /// Graine de la clé X25519 (secret par paire).
@@ -73,7 +79,18 @@ class ProximityIdentity {
   /// Ce ne sont plus des clés, ce sont des secrets orphelins : les laisser dans
   /// le Keystore, c'est garder un secret que plus rien ne protège ni ne fait
   /// tourner. On les supprime, on ne se contente pas de les ignorer.
-  static const _deadBroadcastKeys = ['nv_broadcast_key', 'nv_broadcast_v2'];
+  /// Les secrets que plus rien n'utilise, et qu'on **efface** au lieu de les
+  /// ignorer.
+  ///
+  /// ⚠️ **Ignorer un secret n'est pas le supprimer.** Une graine qui dort dans
+  /// le Keystore n'est ni tournée, ni révoquée, ni protégée par quoi que ce
+  /// soit — elle attend juste que quelqu'un la retrouve.
+  ///
+  /// - `nv_broadcast_key` / `nv_broadcast_v2` : la clé de diffusion partagée,
+  ///   remplacée par le secret de paire le 2026-08-20.
+  /// - `nv_ed25519_seed` : le tampon de signature de l'appareil, retiré le
+  ///   2026-08-27 avec le transport BLE.
+  static const _deadKeys = ['nv_broadcast_key', 'nv_broadcast_v2', _seedKey];
 
   /// Durée d'un créneau de rotation des jetons diffusés (~15 min).
   ///
@@ -95,7 +112,6 @@ class ProximityIdentity {
   /// 3 = secret par paire (2026-08-20). 2 = clé de diffusion + rotation.
   static const protocolVersion = 3;
 
-  SimpleKeyPair? _keyPair;
   SimpleKeyPair? _x25519Pair;
 
   /// Secrets de paire déjà dérivés, indexés par clé publique de l'ami (hex).
@@ -129,17 +145,6 @@ class ProximityIdentity {
   }
 
   Future<void> _load() async {
-    final ed = Ed25519();
-    final storedSeed = await _storage.read(key: _seedKey);
-    if (storedSeed != null) {
-      _keyPair = await ed.newKeyPairFromSeed(base64Decode(storedSeed));
-    } else {
-      final pair = await ed.newKeyPair();
-      final seed = await pair.extractPrivateKeyBytes();
-      await _storage.write(key: _seedKey, value: base64Encode(seed));
-      _keyPair = pair;
-    }
-
     final x = X25519();
     final storedX = await _storage.read(key: _x25519Key);
     if (storedX != null) {
@@ -151,8 +156,8 @@ class ProximityIdentity {
       _x25519Pair = pair;
     }
 
-    // Les vestiges de la clé de diffusion : voir [_deadBroadcastKeys].
-    for (final dead in _deadBroadcastKeys) {
+    // Les secrets qui n'ont plus d'usage : voir [_deadKeys].
+    for (final dead in _deadKeys) {
       await _storage.delete(key: dead);
     }
   }
@@ -168,12 +173,6 @@ class ProximityIdentity {
   /// côtés. (Avant le 2026-08-27, c'était une poignée de main BLE qui révélait
   /// l'identité — le jeton, lui, n'a pas changé de rôle.)
   Uint8List? _pingSeed;
-
-  Future<Uint8List> edPublicKey() async {
-    await _ensureLoaded();
-    final pub = await _keyPair!.extractPublicKey();
-    return Uint8List.fromList(pub.bytes);
-  }
 
   /// Ma clé PUBLIQUE X25519 — celle qui part au serveur et à mes amis.
   Future<Uint8List> x25519PublicKey() async {
@@ -260,54 +259,30 @@ class ProximityIdentity {
       // Un chargement en échec n'a rien laissé derrière lui.
     }
     _loading = null;
-    _keyPair = null;
     _x25519Pair = null;
     _pingSeed = null;
     // ⚠️ Les secrets dérivés aussi : ils valent les clés dont ils sortent.
     _pairSecrets.clear();
-    await _storage.delete(key: _seedKey);
     await _storage.delete(key: _x25519Key);
-    for (final dead in _deadBroadcastKeys) {
+    for (final dead in _deadKeys) {
       await _storage.delete(key: dead);
     }
   }
 
-  /// Signe [message] avec la clé d'appareil.
-  ///
-  /// ⚠️ **AUCUN APPELANT DANS `lib/` DEPUIS LE 2026-08-27**, tout comme
-  /// [verify]. Les cinq qui restaient vivaient dans le transport BLE : poignée
-  /// de main signée, mini-profil, certificat de croisement, demande d'ami et
-  /// son acceptation co-signées. Ils sont partis avec lui.
-  ///
-  /// ⚠️ **Conservés délibérément, et c'est une décision à trancher — pas un
-  /// oubli.** La clé Ed25519 d'appareil est toujours **publiée** au serveur
-  /// (`device_keys.ed_pub`, voir `proximity_sync`), et deux chantiers écrits
-  /// s'appuient dessus : l'attestation serveur du couple (userId, username)
-  /// contre l'usurpation hors ligne (`RAPPELS.md` #2), et toute preuve
-  /// co-signée future. Les supprimer emporterait la clé, sa publication, les
-  /// deux fonctions serveur qui la vérifient et `private.verify_ed25519`.
-  ///
-  /// 📌 **À trancher avec Jay** — consigné dans `RAPPELS.md`. En attendant,
-  /// c'est ici que se lit l'état réel, pas dans un document.
-  Future<Uint8List> sign(List<int> message) async {
-    await _ensureLoaded();
-    final sig = await Ed25519().sign(message, keyPair: _keyPair!);
-    return Uint8List.fromList(sig.bytes);
-  }
-
-  static Future<bool> verify(
-    List<int> message,
-    Uint8List signature,
-    Uint8List publicKey,
-  ) {
-    return Ed25519().verify(
-      message,
-      signature: Signature(
-        signature,
-        publicKey: SimplePublicKey(publicKey, type: KeyPairType.ed25519),
-      ),
-    );
-  }
+  // ⚠️ **`edPublicKey`, `sign` et `verify` ont été SUPPRIMÉES le 2026-08-27**,
+  // avec la clé Ed25519 elle-même.
+  //
+  // Elles signaient et vérifiaient ce qui voyageait **par la radio** : poignée
+  // de main, mini-profil, certificat de croisement, demande d'ami co-signée.
+  // La radio ne transporte plus rien depuis ce jour-là.
+  //
+  // ⚠️ **L'argument qui les gardait en vie est tombé.** Je les avais conservées
+  // pour l'attestation contre l'usurpation de pseudo hors ligne
+  // (`RAPPELS.md` #2) — chantier qui n'existait que parce qu'un pseudo pouvait
+  // être annoncé en BLE. Le BLE ne crie plus que des jetons opaques que seul le
+  // serveur sait nommer : **il n'y a plus de pseudo à usurper hors ligne.**
+  // C'est la règle 6 de `CLAUDE.md`, appliquée à une décision que j'avais moi
+  // même justifiée douze heures plus tôt.
 
   static int slotIndex(DateTime at) =>
       at.toUtc().millisecondsSinceEpoch ~/ slotDuration.inMilliseconds;
@@ -522,7 +497,6 @@ class FriendKeys {
     required this.username,
     this.tagName,
     this.avatarUrl,
-    required this.edPublicKey,
     required this.x25519PublicKey,
   });
 
@@ -530,9 +504,6 @@ class FriendKeys {
   final String username;
   final String? tagName;
   final String? avatarUrl;
-
-  /// Sa clé de signature : certificats, demandes d'amis, poignée de main.
-  final Uint8List edPublicKey;
 
   /// Sa clé PUBLIQUE X25519 : avec ma privée, elle donne le secret de la paire.
   ///
@@ -548,7 +519,6 @@ class FriendKeys {
     'username': username,
     'tagName': tagName,
     'avatarUrl': avatarUrl,
-    'edPub': base64Encode(edPublicKey),
     'x25519Pub': base64Encode(x25519PublicKey),
   };
 
@@ -557,7 +527,6 @@ class FriendKeys {
     username: json['username'] as String,
     tagName: json['tagName'] as String?,
     avatarUrl: json['avatarUrl'] as String?,
-    edPublicKey: base64Decode(json['edPub'] as String),
     x25519PublicKey: base64Decode(json['x25519Pub'] as String),
   );
 
@@ -568,7 +537,6 @@ class FriendKeys {
       username == other.username &&
       tagName == other.tagName &&
       avatarUrl == other.avatarUrl &&
-      _sameBytes(edPublicKey, other.edPublicKey) &&
       _sameBytes(x25519PublicKey, other.x25519PublicKey);
 
   static bool _sameBytes(Uint8List? a, Uint8List? b) {

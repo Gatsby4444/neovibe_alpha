@@ -97,7 +97,6 @@ class ProximitySync {
   /// remplacer dès que l'un d'eux partait. Elle ne porte plus que ce que le
   /// monde entier peut lire sans rien en tirer :
   ///
-  /// - `ed_pub` : pour vérifier nos signatures ;
   /// - `x25519_pub` : pour que chaque ami dérive, de son côté, le secret **de
   ///   sa paire** avec nous. Sans sa propre clé privée, elle ne vaut rien.
   ///
@@ -106,7 +105,6 @@ class ProximitySync {
   Future<void> _publishKeys(dynamic client, String me) async {
     await client.from('device_keys').upsert({
       'user_id': me,
-      'ed_pub': base64Encode(await _identity.edPublicKey()),
       'x25519_pub': base64Encode(await _identity.x25519PublicKey()),
     });
   }
@@ -178,9 +176,6 @@ class ProximitySync {
           username: profile['display_name'] as String,
           tagName: profile['tag_name'] as String?,
           avatarUrl: profile['avatar_url'] as String?,
-          edPublicKey: Uint8List.fromList(
-            base64Decode(row['ed_pub'] as String),
-          ),
           // ⚠️ **La clé publique de l'ami, telle que le serveur la donne
           // MAINTENANT.** On ne stocke aucun secret dérivé : il se recalcule à
           // partir d'elle. C'est ce qui rend une réinstallation indolore — sa

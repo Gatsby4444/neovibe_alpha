@@ -77,11 +77,9 @@ void main() {
     // appelaient chacun le leur en parallèle ; aucun ne trouvait de clé, **les
     // deux en généraient une et l'écrivaient**.
     //
-    // Conséquences possibles, toutes silencieuses : diffuser un ID dérivé de la
-    // clé A pendant que le serveur reçoit la clé B — donc n'être jamais reconnu
-    // par ses amis — ou signer la poignée de main avec une clé d'appareil et le
-    // profil avec une autre, ce qui fait échouer `isPeerDeviceKey` et renvoie
-    // « profil non authentifié ».
+    // Conséquence possible, et silencieuse : diffuser un ID dérivé de la clé A
+    // pendant que le serveur reçoit la clé B — donc n'être **jamais reconnu par
+    // ses amis**, sans qu'aucune erreur ne soit levée nulle part.
     //
     // La latence force le croisement : sans elle, le premier appel finirait
     // avant que le second ne commence, et le test serait vert sans rien prouver.
@@ -89,37 +87,48 @@ void main() {
     final identite = ProximityIdentity();
 
     final resultats = await Future.wait([
-      identite.edPublicKey(),
       identite.x25519PublicKey(),
       identite.currentPublicPingId(),
-      identite.edPublicKey(),
+      identite.x25519PublicKey(),
+      identite.x25519PublicKey(),
     ]);
 
-    expect(
-      keystore.ecritures.where((k) => k == 'nv_ed25519_seed').length,
-      1,
-      reason: 'la clé d\'appareil ne doit être créée qu\'une fois',
-    );
     expect(
       keystore.ecritures.where((k) => k == 'nv_x25519_seed').length,
       1,
       reason: "la clé X25519 ne doit être créée qu'une fois",
     );
+    expect(resultats[0], resultats[2]);
     expect(resultats[0], resultats[3]);
   });
 
-  test('les vestiges de la clé de diffusion sont EFFACÉS au chargement', () async {
-    // ⚠️ **Un secret orphelin reste un secret.** La clé de diffusion n'a plus
-    // aucun usage depuis le 2026-08-20, mais la laisser dormir dans le Keystore
-    // reviendrait à garder un secret que plus rien ne protège, ne fait tourner
-    // ni ne révoque. On le supprime, on ne se contente pas de l'ignorer.
+  test('les secrets ORPHELINS sont effacés au chargement', () async {
+    // ⚠️ **Un secret orphelin reste un secret.** Le laisser dormir dans le
+    // Keystore, c'est garder une graine que plus rien ne protège, ne fait
+    // tourner ni ne révoque — elle attend juste qu'on la retrouve. On la
+    // supprime, on ne se contente pas de l'ignorer.
+    //
+    // Deux générations de secrets morts :
+    //   - la clé de diffusion partagée, remplacée par le secret de paire le
+    //     2026-08-20 ;
+    //   - le tampon de signature Ed25519, retiré le 2026-08-27 avec le
+    //     transport BLE. ⚠️ C'est une **clé privée** : sur les appareils qui
+    //     l'ont déjà, ce test est la seule chose qui garantit qu'elle part.
     keystore.valeurs['nv_broadcast_key'] = 'AAAA';
     keystore.valeurs['nv_broadcast_v2'] = '{"key":"AAAA"}';
+    keystore.valeurs['nv_ed25519_seed'] = 'BBBB';
 
-    await ProximityIdentity().edPublicKey();
+    await ProximityIdentity().x25519PublicKey();
 
     expect(keystore.valeurs.containsKey('nv_broadcast_key'), isFalse);
     expect(keystore.valeurs.containsKey('nv_broadcast_v2'), isFalse);
+    expect(
+      keystore.valeurs.containsKey('nv_ed25519_seed'),
+      isFalse,
+      reason:
+          'le tampon de signature retiré le 2026-08-27 doit être EFFACÉ, '
+          'pas seulement ignoré',
+    );
   });
 
   test('deux appareils dérivent LE MÊME secret de paire', () async {
@@ -179,7 +188,7 @@ void main() {
     'oublier l\'identité efface le Keystore, et la suite en recrée une neuve',
     () async {
       final identite = ProximityIdentity();
-      final avant = await identite.edPublicKey();
+      final avant = await identite.x25519PublicKey();
 
       await identite.forget();
       expect(keystore.valeurs, isEmpty);
@@ -188,7 +197,7 @@ void main() {
       // compte connecté : après une déconnexion, l'appareil continuait de diffuser
       // l'ID rotatif du compte précédent, et les amis de A voyaient « A est là »
       // pendant que B utilisait le téléphone.
-      final apres = await identite.edPublicKey();
+      final apres = await identite.x25519PublicKey();
       expect(apres, isNot(avant));
     },
   );
