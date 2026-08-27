@@ -169,6 +169,7 @@ class NearbyPerson {
     required this.lastSeenAt,
     this.tagName,
     this.avatarUrl,
+    this.token,
   });
 
   final String userId;
@@ -176,11 +177,25 @@ class NearbyPerson {
   final String? tagName;
   final String? avatarUrl;
 
-  /// Dernier instant où la proximité mutuelle a été constatée.
+  /// Dernier instant où la proximité mutuelle a été constatée **par le
+  /// serveur**.
   ///
   /// ⚠️ **C'est un FAIT, pas un état d'affichage.** « Est-il encore là ? » se
-  /// décide en aval, contre une horloge.
+  /// décide en aval — et, depuis le 2026-08-27, **en local** dès qu'on connaît
+  /// son [token]. Cette date ne sert plus que de filet.
   final DateTime lastSeenAt;
+
+  /// Le jeton qu'il crie **en ce moment**, ou `null` si sa balise a expiré.
+  ///
+  /// ⚠️ **C'est ce qui rend l'écran autonome.** Sans lui, le téléphone entendait
+  /// « le jeton X » sans savoir que X était Bob : il devait redemander au
+  /// serveur toutes les dix secondes si Bob était encore là, alors que sa radio
+  /// le lui criait déjà. Avec lui, la question « est-il encore là ? » se répond
+  /// **sans réseau**.
+  ///
+  /// ⚠️ **Il change de créneau en créneau** (15 min). Quand il devient nul ou
+  /// périmé, on retombe sur [lastSeenAt] le temps de le réapprendre.
+  final String? token;
 
   factory NearbyPerson.fromJson(Map<String, dynamic> json) => NearbyPerson(
     userId: json['user_id'] as String,
@@ -188,6 +203,7 @@ class NearbyPerson {
     tagName: json['tag_name'] as String?,
     avatarUrl: json['avatar_url'] as String?,
     lastSeenAt: DateTime.parse(json['last_seen_at'] as String),
+    token: json['token'] as String?,
   );
 
   @override
@@ -197,11 +213,12 @@ class NearbyPerson {
       other.displayName == displayName &&
       other.tagName == tagName &&
       other.avatarUrl == avatarUrl &&
-      other.lastSeenAt == lastSeenAt;
+      other.lastSeenAt == lastSeenAt &&
+      other.token == token;
 
   @override
   int get hashCode =>
-      Object.hash(userId, displayName, tagName, avatarUrl, lastSeenAt);
+      Object.hash(userId, displayName, tagName, avatarUrl, lastSeenAt, token);
 }
 
 final pingRepositoryProvider = Provider(PingRepository.new);

@@ -102,9 +102,14 @@ ami donné** n'est lisible que par **lui**. Tes autres amis ne le comprennent pa
 
 ### Quand quelqu'un disparaît de l'écran
 
-Il reste affiché **30 secondes** après le dernier signe de vie. C'est voulu : le
-Bluetooth perd des signaux en permanence, et une porte qui s'ouvre suffit à
-couper le contact une seconde. Sans ce délai, les gens clignoteraient.
+Il reste affiché **une dizaine de secondes** après le dernier signe de vie.
+C'est voulu : le Bluetooth perd des signaux en permanence, et une porte qui
+s'ouvre suffit à couper le contact une seconde. Sans ce délai, les gens
+clignoteraient.
+
+Ton téléphone en juge **tout seul** : il entend l'autre, ou il ne l'entend plus.
+Il ne demande rien au serveur pour ça — c'est ce qui rend le ping économe en
+batterie et en données.
 
 ---
 
@@ -116,6 +121,19 @@ couper le contact une seconde. Sans ce délai, les gens clignoteraient.
 | **un inconnu prouvé à côté de toi** | une conversation de proximité, ouverte depuis l'écran Ping |
 
 Les messages disparaissent au bout de **24 heures**.
+
+### La conversation de proximité se ferme quand vous vous quittez
+
+Elle n'existe **que tant que vous êtes ensemble**. Dès que vous vous séparez,
+elle passe en **lecture seule** : tu peux relire ce qui s'est dit, tu ne peux
+plus écrire. Si vous vous recroisez, elle se rouvre.
+
+Et **24 heures après le dernier message**, quand il n'y a plus rien dedans, elle
+disparaît de ta liste.
+
+> **Pourquoi** : ce n'est pas une messagerie, c'est une conversation de moment.
+> Pour continuer à se parler après, il faut s'ajouter en ami — et c'est
+> exactement le choix que l'app te demande de faire.
 
 ---
 

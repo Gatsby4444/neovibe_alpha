@@ -9,19 +9,37 @@ import 'package:neovibe/features/proximity/net/ping_repository.dart';
 import 'package:neovibe/features/proximity/net/proximity_supervisor.dart';
 import 'package:neovibe/features/proximity/net/radio_status.dart';
 
-/// Ce que ces tests protègent : **le délai de grâce de 30 s, et son coût.**
+/// Ce que ces tests protègent : **la présence se constate EN LOCAL.**
 ///
-/// Décision de Jay : quelqu'un qui sort de portée reste affiché 30 secondes.
-/// Sans elle, une personne à la limite clignoterait — le BLE perd des annonces
-/// en permanence, et une porte qui s'ouvre suffit à couper le signal.
+/// ## ⚠️ Ce qui a changé le 2026-08-27
 ///
-/// ⚠️ **Le piège est que l'indulgence se paie en réveils.** Une horloge qui bat
-/// toutes les 5 s pourrait reconstruire l'écran 12 fois par minute pour ne rien
-/// changer. C'est le défaut mesuré au checkup du 2026-08-25 (`RAPPELS.md` #52),
-/// et il ne se voit qu'en **comptant**.
+/// Cette vue filtrait sur `last_seen_at`, une date **serveur** — donc il fallait
+/// la rechercher toutes les dix secondes pour qu'elle reste vraie. C'était tout
+/// le coût réseau du ping, pour une question à laquelle la radio répond déjà :
+/// *j'entends son jeton, donc il est là*.
+///
+/// Question de Jay : *« pourquoi on redemande toujours au serveur une fois
+/// qu'une connexion a été vérifiée ? Cela consomme beaucoup de réseau et de
+/// batterie. »* Il avait raison.
+///
+/// ## Les deux régimes, et le second n'est qu'un filet
+///
+/// | Quand | Ce qui décide | Délai |
+/// |---|---|---|
+/// | on connaît son jeton | **la radio, en local** | 10 s |
+/// | on ne le connaît pas encore | la date du serveur | 2 min |
+///
+/// ⚠️ **Le piège reste le même qu'avant** : l'indulgence se paie en réveils. Une
+/// horloge qui bat toutes les 5 s pourrait reconstruire l'écran douze fois par
+/// minute pour ne rien changer (`RAPPELS.md` #52). Ça ne se voit qu'en
+/// **comptant**, et ces tests comptent.
 
-NearbyPerson _personne(String id, DateTime vu) =>
-    NearbyPerson(userId: id, displayName: 'P-$id', lastSeenAt: vu);
+NearbyPerson _personne(String id, DateTime vu, {String? jeton}) => NearbyPerson(
+  userId: id,
+  displayName: 'P-$id',
+  lastSeenAt: vu,
+  token: jeton,
+);
 
 /// La source, pilotable à la main — pas de réseau, pas de radio.
 class _SourceFausse extends PingNearbySource {
@@ -57,6 +75,11 @@ _harnais() {
 Future<void> _propage() =>
     Future<void>.delayed(const Duration(milliseconds: 20));
 
+/// « La radio vient d'entendre ces jetons, à cet instant. »
+void _entend(ProviderContainer c, DateTime quand, List<String> jetons) => c
+    .read(ecouteLocaleProvider.notifier)
+    .publish({for (final j in jetons) j: quand});
+
 void main() {
   group("Le délai de grâce — qui est ENCORE là", () {
     test("quelqu'un vu à l'instant est affiché", () async {
@@ -73,7 +96,7 @@ void main() {
     });
 
     test(
-      "il reste affiché pendant 30 s après avoir cessé d'être vu, puis part",
+      "jeton connu : il part au bout de 10 s de SILENCE RADIO, sans un appel",
       () async {
         final h = _harnais();
         addTearDown(h.container.dispose);
@@ -81,15 +104,17 @@ void main() {
 
         final t0 = DateTime.utc(2026, 8, 26, 12);
         h.horloge.add(t0);
-        h.source.publier([_personne('a', t0)]);
+        h.source.publier([_personne('a', t0, jeton: 'JETON-A')]);
+        _entend(h.container, t0, ['JETON-A']);
         await _propage();
         expect(h.container.read(pingNearbyProvider), hasLength(1));
 
         var reveils = 0;
         h.container.listen(pingNearbyProvider, (_, _) => reveils++);
 
-        // 25 s plus tard : encore dans la grâce.
-        h.horloge.add(t0.add(const Duration(seconds: 25)));
+        // 8 s de silence : encore là. Le BLE perd des annonces en permanence,
+        // une porte qui s'ouvre suffit — on ne fait pas clignoter les gens.
+        h.horloge.add(t0.add(const Duration(seconds: 8)));
         await _propage();
         expect(h.container.read(pingNearbyProvider), hasLength(1));
         expect(
@@ -101,8 +126,13 @@ void main() {
               "celui qu'on installe.",
         );
 
-        // 31 s : la grâce est dépassée.
-        h.horloge.add(t0.add(const Duration(seconds: 31)));
+        // 11 s de silence : parti.
+        //
+        // ⚠️ **Et `lastSeenAt` n'a pas bougé d'un pouce.** C'est tout le sujet :
+        // la personne disparaît sans qu'on ait posé la moindre question au
+        // serveur. Avant le 2026-08-27, il aurait fallu six appels pour
+        // apprendre ce que la radio savait déjà.
+        h.horloge.add(t0.add(const Duration(seconds: 11)));
         await _propage();
 
         expect(h.container.read(pingNearbyProvider), isEmpty);
@@ -110,6 +140,85 @@ void main() {
           reveils,
           1,
           reason: "Exactement un réveil, quand le contenu change vraiment.",
+        );
+      },
+    );
+
+    test("entendre de nouveau le ramène, toujours sans appel", () async {
+      final h = _harnais();
+      addTearDown(h.container.dispose);
+      addTearDown(h.horloge.close);
+
+      final t0 = DateTime.utc(2026, 8, 26, 12);
+      h.horloge.add(t0);
+      h.source.publier([_personne('a', t0, jeton: 'JETON-A')]);
+      _entend(h.container, t0, ['JETON-A']);
+      await _propage();
+
+      h.horloge.add(t0.add(const Duration(seconds: 11)));
+      await _propage();
+      expect(h.container.read(pingNearbyProvider), isEmpty);
+
+      // Il repasse derrière la porte : la radio l'entend, il revient.
+      final t1 = t0.add(const Duration(seconds: 12));
+      _entend(h.container, t1, ['JETON-A']);
+      h.horloge.add(t1);
+      await _propage();
+
+      expect(h.container.read(pingNearbyProvider), hasLength(1));
+    });
+
+    test(
+      "jeton INCONNU : on retombe sur la date du serveur, pas sur le silence",
+      () async {
+        final h = _harnais();
+        addTearDown(h.container.dispose);
+        addTearDown(h.horloge.close);
+
+        final t0 = DateTime.utc(2026, 8, 26, 12);
+        h.horloge.add(t0);
+        // Pas de jeton : la balise du pair a expiré, ou le créneau vient de
+        // tourner et son nouveau jeton n'est pas encore connu.
+        h.source.publier([_personne('a', t0)]);
+        await _propage();
+
+        // ⚠️ **Sans ce filet, TOUT LE MONDE disparaîtrait de l'écran à chaque
+        // changement de créneau** — toutes les 15 minutes, pendant une minute.
+        h.horloge.add(t0.add(const Duration(seconds: 40)));
+        await _propage();
+        expect(
+          h.container.read(pingNearbyProvider),
+          hasLength(1),
+          reason: "jeton inconnu : le silence radio ne prouve rien",
+        );
+
+        // Mais le filet a une fin : deux minutes.
+        h.horloge.add(t0.add(const Duration(minutes: 2, seconds: 1)));
+        await _propage();
+        expect(h.container.read(pingNearbyProvider), isEmpty);
+      },
+    );
+
+    test(
+      "un jeton entendu qui n'est PAS le sien ne le fait pas apparaître",
+      () async {
+        final h = _harnais();
+        addTearDown(h.container.dispose);
+        addTearDown(h.horloge.close);
+
+        final t0 = DateTime.utc(2026, 8, 26, 12);
+        h.horloge.add(t0);
+        h.source.publier([_personne('a', t0, jeton: 'JETON-A')]);
+        // On entend quelqu'un d'autre, fort et clair.
+        _entend(h.container, t0, ['JETON-DE-QUELQU-UN-DAUTRE']);
+        await _propage();
+
+        expect(
+          h.container.read(pingNearbyProvider),
+          isEmpty,
+          reason:
+              "Entendre du monde n'est pas entendre CETTE personne. Sans cette "
+              "distinction, une foule ferait apparaître n'importe qui.",
         );
       },
     );

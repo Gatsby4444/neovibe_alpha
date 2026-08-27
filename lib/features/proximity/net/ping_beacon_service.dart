@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../geo/coarse_location.dart';
 import '../proximity_identity.dart';
+import 'ping_nearby_feed.dart';
 import 'ping_repository.dart';
 import 'proximity_supervisor.dart';
 import 'radio_status.dart';
@@ -45,12 +46,22 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   /// les 60 s laisse quatre échecs réseau d'affilée avant de disparaître.
   static const refreshEvery = Duration(seconds: 60);
 
-  /// Cadence de dépôt des jetons entendus.
+  /// Cadence de **rafraîchissement** des jetons entendus.
   ///
   /// ⚠️ **On groupe, on n'envoie pas à chaque annonce.** Un émetteur crie ~10
   /// fois par seconde : un appel serveur par annonce serait des centaines
   /// d'appels par minute pour un seul voisin.
-  static const flushEvery = Duration(seconds: 10);
+  ///
+  /// ⚠️ **Passée de 10 s à 60 s le 2026-08-27.** Ce dépôt ne sert plus qu'à
+  /// entretenir la fenêtre du serveur (`private.fenetre_canal()` = 3 min) :
+  /// une fois par minute, c'est **deux battements manqués tolérés**. Savoir si
+  /// l'autre est encore là ne passe plus par le serveur — la radio le dit
+  /// (voir [kPingLocalGrace]).
+  ///
+  /// ⚠️ **La découverte, elle, n'attend pas 60 secondes** : un jeton entendu
+  /// pour la **première fois** déclenche un dépôt immédiat. Sans ça, rencontrer
+  /// quelqu'un prendrait une minute au lieu de quinze secondes.
+  static const flushEvery = Duration(seconds: 60);
 
   Timer? _refresh;
   Timer? _flush;
@@ -61,6 +72,14 @@ class PingBeaconService extends Notifier<PingBeaconState> {
 
   /// Ce qu'on a entendu depuis le dernier dépôt.
   final _heard = <String>{};
+
+  /// **Quand chaque jeton a été entendu pour la dernière fois, ici, par la
+  /// radio.** C'est la donnée qui rend l'écran autonome.
+  ///
+  /// ⚠️ **Elle existait déjà — on la jetait.** Le téléphone entendait l'autre
+  /// dix fois par seconde, et allait quand même demander au serveur, toutes les
+  /// dix secondes, s'il était encore là. On garde maintenant ce qu'on entend.
+  final _heardAt = <String, DateTime>{};
 
   @override
   PingBeaconState build() {
@@ -178,7 +197,21 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     // inconnu du quartier — c'est-à-dire à lui redonner le rôle d'annuaire que
     // toute cette conception lui retire.
     if (!_shortlist.contains(hex)) return;
+
+    // ⚠️ **Un jeton JAMAIS entendu déclenche un dépôt immédiat.** C'est ce qui
+    // garde la découverte à une quinzaine de secondes malgré une cadence de
+    // rafraîchissement passée à 60 s : on ne fait attendre personne qui arrive.
+    final nouveau = !_heardAt.containsKey(hex);
     _heard.add(hex);
+    _heardAt[hex] = DateTime.now();
+
+    // ⚠️ **Publié à chaque annonce, fidèlement.** C'est la règle de
+    // dissociation : l'acquisition ne décide pas si l'écran doit se redessiner.
+    // Le coût est absorbé en aval par l'égalité de valeur des vues dérivées —
+    // même conception que `presence_feed.dart` pour les amis.
+    ref.read(ecouteLocaleProvider.notifier).publish(Map.of(_heardAt));
+
+    if (nouveau) unawaited(_flushHeard());
   }
 
   Future<void> _flushHeard() async {
