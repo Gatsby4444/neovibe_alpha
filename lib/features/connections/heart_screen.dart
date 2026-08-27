@@ -70,7 +70,22 @@ class _RequestsTab extends ConsumerWidget {
     // la vue qui la contournait.
 
     return RefreshIndicator(
-      onRefresh: () async => ref.invalidate(requestHistoryProvider),
+      // ⚠️ **Le geste doit servir dans le cas où on le fait.**
+      //
+      // Cet onglet montre trois choses : l'historique (une requête ponctuelle)
+      // et **deux flux temps réel** — les demandes reçues et les liens partiels.
+      // On n'invalidait que l'historique.
+      //
+      // Or quelqu'un qui tire sur cet écran le fait précisément parce qu'il
+      // **n'a pas vu arriver** une demande. Et la panne connue est là : le
+      // 2026-08-17, le socle temps réel gardait un jeton expiré depuis 80
+      // minutes, et les demandes cessaient d'arriver **sans le moindre
+      // symptôme** (`realtimeEpochProvider`). Le geste ne réparait pas le seul
+      // cas où l'on en a besoin.
+      onRefresh: () async {
+        realtimeEpoch.value++;
+        ref.invalidate(requestHistoryProvider);
+      },
       child: ListView(
         children: [
           if (incoming.isNotEmpty) ...[

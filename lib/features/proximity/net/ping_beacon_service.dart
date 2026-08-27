@@ -257,6 +257,15 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     }
   }
 
+  /// Republie la balise et **redemande la liste d'écoute**, sans attendre.
+  ///
+  /// ⚠️ Sert au geste « tirer pour rafraîchir » de l'écran Ping. Sans lui, ce
+  /// geste ne redemandait que la liste des personnes **déjà appariées** : si
+  /// quelqu'un venait d'arriver dans les 300 m, il fallait attendre le tour de
+  /// 60 s pour que son jeton entre dans la liste d'écoute. Le geste ne pouvait
+  /// donc rien accélérer de ce que l'utilisateur attend en le faisant.
+  Future<void> refreshNow() => _tick();
+
   /// Redemande la permission de localisation, puis reprend **tout de suite**.
   ///
   /// ⚠️ Sert aussi à demander la position *précise* quand seule

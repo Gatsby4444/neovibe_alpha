@@ -61,8 +61,13 @@ class _PingScreenState extends ConsumerState<PingScreen> {
   /// rafraîchissement — conversations ping et croisements locaux — tous deux
   /// alimentés par le transport BLE. La radio, elle, se rafraîchit toute seule :
   /// il n'y a rien à lui redemander.
-  Future<void> _reload() =>
-      ref.read(pingNearbySourceProvider.notifier).refresh();
+  Future<void> _reload() async {
+    // ⚠️ **Les DEUX étages, et dans cet ordre.** Republier la balise et
+    // récupérer la liste d'écoute d'abord : sans ça, on redemanderait la liste
+    // des gens déjà appariés sans jamais pouvoir en apparier de nouveaux.
+    await ref.read(pingBeaconProvider.notifier).refreshNow();
+    await ref.read(pingNearbySourceProvider.notifier).refresh();
+  }
 
   @override
   Widget build(BuildContext context) {
