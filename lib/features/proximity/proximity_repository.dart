@@ -1,12 +1,9 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/connection_request.dart';
 import '../../core/clock.dart';
 import '../../core/derived_list.dart';
 import '../../core/supabase_providers.dart';
-import 'nearby_people.dart';
 
 /// Les demandes de connexion, **et il n'y a plus qu'un seul endroit où elles
 /// vivent** : la table `connection_requests`.
@@ -85,22 +82,14 @@ class _LiveIncoming extends Notifier<List<ConnectionRequest>>
 final liveIncomingRequestsProvider =
     NotifierProvider<_LiveIncoming, List<ConnectionRequest>>(_LiveIncoming.new);
 
-/// Mes demandes sortantes encore en attente **maintenant**.
-class _LiveOutgoing extends Notifier<List<ConnectionRequest>>
-    with DerivedList<ConnectionRequest> {
-  @override
-  List<ConnectionRequest> build() {
-    final now = ref.watch(expiryClockProvider);
-    return (ref.watch(outgoingRequestsProvider).value ?? const [])
-        .where(
-          (r) => r.status == RequestStatus.pending && r.expiresAt.isAfter(now),
-        )
-        .toList(growable: false);
-  }
-}
-
-final liveOutgoingRequestsProvider =
-    NotifierProvider<_LiveOutgoing, List<ConnectionRequest>>(_LiveOutgoing.new);
+// ⚠️ **`liveOutgoingRequestsProvider` a été SUPPRIMÉ le 2026-08-27**, avec le
+// battement de cœur qui était son unique lecteur — et encore, par un `ref.read`,
+// donc sans même s'y abonner.
+//
+// Ce que l'interface a besoin de savoir d'une demande sortante, c'est **son
+// état pour UNE personne**, pas la liste entière : c'est [etatDemandeProvider],
+// juste en dessous. Garder les deux aurait fait deux vues dérivées de la même
+// source, avec deux définitions de « encore valide » à tenir d'accord.
 
 // ---------------------------------------------------------------------------
 // L'état d'UNE demande, pour UNE tuile
@@ -164,38 +153,33 @@ final etatDemandeProvider = Provider.family<EtatDemande, String>((ref, userId) {
   return declinee ? EtatDemande.declinee : EtatDemande.aucune;
 });
 
+/// Répondre à une demande de connexion. **Il ne reste que ça.**
+///
+/// ## ⚠️ Le battement de cœur a été SUPPRIMÉ le 2026-08-27 — décision de Jay
+///
+/// Un minuteur de 30 secondes réécrivait `expires_at = now() + 90 s` pour toute
+/// demande sortante dont le destinataire était à portée. Son commentaire disait
+/// *« on prolonge »* : il **raccourcissait**, de sept jours à une minute et
+/// demie, dans les trente secondes suivant l'envoi.
+///
+/// ⚠️ **Et il ne masquait pas — il détruisait.** Le cron `neovibe_purge` passe
+/// toutes les cinq minutes et fait basculer en `expired` toute demande `pending`
+/// dont l'échéance est passée. Une demande était donc **perdue définitivement**
+/// 90 secondes après que les deux personnes se soient séparées.
+///
+/// ⚠️ **La prémisse était morte, pas la règle.** « La demande expire à la sortie
+/// de portée » (spec 4.2) était juste tant qu'il fallait **être à portée pour
+/// répondre** — la réponse voyageait dans le canal BLE co-signé. Répondre est
+/// maintenant un appel serveur : on accepte de n'importe où, n'importe quand.
+///
+/// ⚠️ **La barrière de présence physique n'est pas affaiblie** : elle est
+/// vérifiée **à l'émission** par `request_connection_from_proximity`, qui exige
+/// une paire mutuelle de moins de dix minutes. Ce qui a changé n'est pas qui
+/// peut demander, c'est le temps laissé pour répondre.
 class ProximityRepository {
-  ProximityRepository(this.ref) {
-    // Heartbeat : tant que le destinataire d'une demande sortante reste en
-    // portée BLE, on prolonge expires_at. Sortie de portée → la demande
-    // expire d'elle-même (spec 4.2 : pas de connexion en attente indéfinie).
-    _heartbeat = Timer.periodic(const Duration(seconds: 30), (_) => _refresh());
-    ref.onDispose(() => _heartbeat.cancel());
-  }
+  const ProximityRepository(this.ref);
 
   final Ref ref;
-  late final Timer _heartbeat;
-
-  Future<void> _refresh() async {
-    final nearby = ref.read(nearbyUserIdsProvider);
-    // Le battement de cœur ne prolonge que des demandes ENCORE valides.
-    final outgoing = ref.read(liveOutgoingRequestsProvider);
-    final client = ref.read(supabaseProvider);
-    for (final request in outgoing) {
-      final inRange = nearby.contains(request.receiverId);
-      if (inRange) {
-        await client
-            .from('connection_requests')
-            .update({
-              'expires_at': DateTime.now()
-                  .add(const Duration(seconds: 90))
-                  .toUtc()
-                  .toIso8601String(),
-            })
-            .eq('id', request.id);
-      }
-    }
-  }
 
   // ⚠️ `sendRequest` a été supprimée le 2026-08-16 : plus aucun appelant.
   //
