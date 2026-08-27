@@ -8,7 +8,6 @@ import '../../core/motion.dart';
 
 import '../../core/widgets/avatar.dart';
 import '../../core/models/card.dart';
-import '../../core/models/connection.dart';
 import '../../core/models/message.dart';
 import '../stories/story_viewer_screen.dart';
 import '../library/publication_viewer_screen.dart';
@@ -209,12 +208,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final isGroup = conversation?.type == ConversationType.group;
     final peer = conversation?.otherMember(me);
 
-    // Lien partiel éventuel avec ce pair (canal proximité)
-    final partials = ref.watch(partialConnectionsProvider);
-    final partial = peer == null
-        ? null
-        : partials.where((c) => c.peerIdFor(me) == peer.id).firstOrNull;
-
     // ⚠️ **Ce commentaire affirmait le contraire jusqu'au 2026-08-27** : « les
     // conversations ping sont 100 % locales — il n'en est plus créé de
     // nouvelles ». C'était vrai depuis le chantier BLE du 2026-07-13, et c'est
@@ -250,7 +243,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // où les deux se sont connectés, le canal s'est déclaré fermé et a donné une
     // raison **fausse** — ils étaient côte à côte. ② `partial == null` figurait
     // dans la condition : un lien partiel **désactivait silencieusement** toute
-    // la règle de proximité.
+    // la règle de proximité. ⚠️ **Le lien partiel lui-même a été supprimé le
+    // 2026-08-28** (décision de Jay) : il n'y a plus qu'une porte vers l'amitié,
+    // la demande.
     //
     // ⚠️ **La présence se demande à `peerInRangeProvider`, qui combine les deux
     // sources** — la radio pour les amis, le ping pour les inconnus. C'est la
@@ -338,7 +333,6 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       ),
       body: Column(
         children: [
-          if (partial != null) _PartialBanner(partial: partial, me: me),
           // ⚠️ **Ce bandeau promettait une fermeture que RIEN n'implémentait**
           // jusqu'au 2026-08-27 : ni l'écran (le champ de saisie restait
           // actif), ni le serveur (aucune condition de proximité), ni aucune
@@ -628,45 +622,6 @@ class _SendButton extends StatelessWidget {
 }
 
 /// Bandeau de lien partiel : 3 jours pour confirmer des deux côtés (spec 4.4).
-class _PartialBanner extends ConsumerWidget {
-  const _PartialBanner({required this.partial, required this.me});
-  final Connection partial;
-  final String me;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final confirmed = partial.confirmedBy(me);
-    return Container(
-      width: double.infinity,
-      color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.12),
-      padding: const EdgeInsets.all(10),
-      child: Column(
-        children: [
-          Text(
-            'Lien partiel — expire dans ${remaining(partial.partialExpiresAt!)}. '
-            'Confirmez tous les deux pour devenir de vraies connexions.',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 6),
-          confirmed
-              ? const Text('✓ Tu as confirmé — en attente de l\'autre')
-              : FilledButton.tonal(
-                  onPressed: () => ref
-                      .read(connectionsRepositoryProvider)
-                      .confirmPartial(partial.id),
-                  child: const Text('Confirmer la connexion'),
-                ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Titre d'un DM, façon iMessage (2026-08-10) : photo de profil **au-dessus**
-/// du pseudo, le tout centré et cliquable, menant au profil du pair (consigne
-/// Jay 2026-08-01 — « on n'affiche pas uniquement le pseudo mais aussi sa
-/// photo de profil, et le tout est cliquable »).
 class _PeerTitle extends ConsumerWidget {
   const _PeerTitle({required this.peerId});
   final String peerId;

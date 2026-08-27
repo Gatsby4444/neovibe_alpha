@@ -53,7 +53,6 @@ class _RequestsTab extends ConsumerWidget {
     final me = ref.watch(currentUserIdProvider)!;
     // La vue VIVANTE : une demande expirée disparaît d'elle-même.
     final incoming = ref.watch(liveIncomingRequestsProvider);
-    final partial = ref.watch(partialConnectionsProvider);
     final history = ref.watch(requestHistoryProvider);
 
     // ⚠️ **Il n'y a plus qu'UN stockage de demandes depuis le 2026-08-27.**
@@ -72,9 +71,9 @@ class _RequestsTab extends ConsumerWidget {
     return RefreshIndicator(
       // ⚠️ **Le geste doit servir dans le cas où on le fait.**
       //
-      // Cet onglet montre trois choses : l'historique (une requête ponctuelle)
-      // et **deux flux temps réel** — les demandes reçues et les liens partiels.
-      // On n'invalidait que l'historique.
+      // Cet onglet montre deux choses : l'historique (une requête ponctuelle) et
+      // **un flux temps réel** — les demandes reçues. On n'invalidait que
+      // l'historique.
       //
       // Or quelqu'un qui tire sur cet écran le fait précisément parce qu'il
       // **n'a pas vu arriver** une demande. Et la panne connue est là : le
@@ -92,11 +91,6 @@ class _RequestsTab extends ConsumerWidget {
             const _SectionTitle('En attente — vous êtes à proximité'),
             for (final request in incoming)
               _IncomingRequestTile(request: request),
-          ],
-          if (partial.isNotEmpty) ...[
-            const _SectionTitle('Liens partiels — à confirmer'),
-            for (final connection in partial)
-              _PartialTile(connectionId: connection.id, me: me),
           ],
           const _SectionTitle('Historique'),
           history.when(
@@ -176,42 +170,6 @@ class _IncomingRequestTile extends ConsumerWidget {
   }
 }
 
-class _PartialTile extends ConsumerWidget {
-  const _PartialTile({required this.connectionId, required this.me});
-  final String connectionId;
-  final String me;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final connection = ref
-        .watch(partialConnectionsProvider)
-        .where((c) => c.id == connectionId)
-        .firstOrNull;
-    if (connection == null) return const SizedBox.shrink();
-    final peer = ref.watch(profileByIdProvider(connection.peerIdFor(me))).value;
-    final confirmed = connection.confirmedBy(me);
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: ListTile(
-        leading: const Icon(Icons.hourglass_bottom, color: Colors.amber),
-        title: Text(peer?.displayName ?? '…'),
-        subtitle: Text(
-          'Expire dans ${remaining(connection.partialExpiresAt!)}'
-          '${confirmed ? ' · tu as confirmé ✓' : ''}',
-        ),
-        trailing: confirmed
-            ? null
-            : FilledButton.tonal(
-                onPressed: () => ref
-                    .read(connectionsRepositoryProvider)
-                    .confirmPartial(connection.id),
-                child: const Text('Confirmer'),
-              ),
-      ),
-    );
-  }
-}
-
 class _HistoryTile extends ConsumerWidget {
   const _HistoryTile({required this.request, required this.me});
   final ConnectionRequest request;
@@ -223,11 +181,14 @@ class _HistoryTile extends ConsumerWidget {
     final peerId = sent ? request.receiverId : request.senderId;
     final peer = ref.watch(profileByIdProvider(peerId)).value;
     final label = switch (request.status) {
+      // ⚠️ **« hors de portée » était devenu faux le 2026-08-27.** Une demande
+      // vit 7 jours et se répond de n'importe où : elle n'expire plus parce
+      // qu'on s'est éloigné, mais parce que personne n'a répondu.
       RequestStatus.pending =>
-        request.isActive ? 'en attente' : 'expirée (hors de portée)',
+        request.isActive ? 'en attente' : 'expirée (sans réponse)',
       RequestStatus.accepted => 'acceptée ✓',
       RequestStatus.declined => 'refusée',
-      RequestStatus.expired => 'expirée (hors de portée)',
+      RequestStatus.expired => 'expirée (sans réponse)',
     };
     return ListTile(
       dense: true,

@@ -24,6 +24,13 @@ lui** — ou qu'un ami commun vous présente.
 
 Il y a **deux chemins, et seulement deux**.
 
+> ⚠️ **Se parler ne suffit pas, et ne suffit plus.** Jusqu'au 28 août 2026, une
+> troisième porte existait sans que personne ne la demande : dès que deux
+> inconnus avaient échangé un message, l'app leur proposait de « confirmer la
+> connexion ». Elle a été supprimée — deux portes vers la même chose, avec deux
+> délais différents. **Discuter avec quelqu'un ne crée aucun lien** : il faut le
+> demander, et l'autre doit accepter.
+
 ### a) Vous vous êtes croisés
 
 Vos deux téléphones doivent s'être vus **en même temps, au même endroit**. Ce
@@ -213,6 +220,11 @@ c'est que ce n'est ni discret ni gratuit.
 - **Les quiz et mini-jeux entre amis** — décidés, pas construits.
 - **Le ping quand l'app est fermée** — le croisement entre amis fonctionne app
   fermée ; la découverte d'inconnus s'arrête.
+- **Les paliers de relation** — décidés le 28 août 2026, pas construits.
+  Aujourd'hui il n'y a qu'un seul niveau : ami ou pas. Demain, des cercles à
+  plusieurs paliers donneront accès à plus ou moins de choses sur quelqu'un.
+  ⚠️ Ce chantier **ne touchera pas au ping** : le ping prouve une rencontre, il
+  ne décide d'aucun palier.
 
 ---
 

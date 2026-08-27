@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/clock.dart';
 import '../../core/derived_list.dart';
 import '../../core/models/connection.dart';
 import '../../core/models/connection_request.dart';
@@ -25,7 +24,7 @@ final profileByIdProvider = FutureProvider.family<Profile?, String>((
   return data == null ? null : Profile.fromJson(data);
 });
 
-/// Mes connexions (partielles et complètes), temps réel.
+/// Mes connexions, temps réel.
 final connectionsStreamProvider = StreamProvider<List<Connection>>((ref) {
   // ⚠️ Fait repartir l'abonnement quand le jeton temps réel est renouvelé.
   // Sans ça, le socket garde le jeton avec lequel il s'est ouvert et tombe
@@ -37,28 +36,41 @@ final connectionsStreamProvider = StreamProvider<List<Connection>>((ref) {
   return client
       .from('connections')
       .stream(primaryKey: ['id'])
+      // ⚠️ **Trié par identifiant, et ce tri n'est pas décoratif.** Il triait
+      // par statut, ce qui n'a plus de sens depuis que `partial` a disparu
+      // (2026-08-28) — mais le RETIRER aurait été pire que le remplacer : sans
+      // ordre imposé, deux émissions du même contenu peuvent arriver dans un
+      // ordre différent, et [DerivedList] compare **élément par élément**. La
+      // vue se croirait changée et réveillerait ses lecteurs pour rien —
+      // exactement le défaut que ce fichier a été écrit pour supprimer.
       .map(
         (rows) =>
             rows.map(Connection.fromJson).toList()
-              ..sort((a, b) => a.status.index.compareTo(b.status.index)),
+              ..sort((a, b) => a.id.compareTo(b.id)),
       );
 });
 
 // ---------------------------------------------------------------------------
-// L'USAGE — trois vues, trois raisons de changer
+// L'USAGE — deux vues, deux raisons de changer
 // ---------------------------------------------------------------------------
 //
-// ⚠️ **Réécrit le 2026-08-25** (checkup `RAPPELS.md` #52). Ces trois vues
-// étaient deux `Provider` qui refabriquaient une `List` à chaque passage. En
-// Dart l'égalité d'une liste est l'IDENTITÉ : une connexion *partielle* qui
-// changeait réveillait donc la liste des connexions *complètes*, observée par
-// **7 écrans de 6 modules**, alors que son contenu était identique champ pour
-// champ. Mesuré, jamais visible à l'écran.
+// ⚠️ **Réécrit le 2026-08-25** (checkup `RAPPELS.md` #52). Ces vues étaient des
+// `Provider` qui refabriquaient une `List` à chaque passage. En Dart l'égalité
+// d'une liste est l'IDENTITÉ : une connexion qui changeait réveillait donc la
+// liste entière, observée par **7 écrans de 6 modules**, alors que son contenu
+// était identique champ pour champ. Mesuré, jamais visible à l'écran.
 //
-// Chaque vue est maintenant un `Notifier` avec [DerivedList] : elle recalcule
-// librement, et ne notifie que si le RÉSULTAT change.
+// Chaque vue est un `Notifier` avec [DerivedList] : elle recalcule librement, et
+// ne notifie que si le RÉSULTAT change.
+//
+// ⚠️ **Il y en avait TROIS jusqu'au 2026-08-28** : les deux vues du lien partiel
+// sont parties avec lui. Elles étaient les seules de ce fichier à dépendre de
+// l'horloge — une connexion n'expire pas.
 
-/// Mes amis. **Ne dépend pas du temps** : une connexion complète n'expire pas.
+/// Mes amis.
+///
+/// ⚠️ **Ne dépend pas du temps**, et c'est la seule vue de ce fichier dans ce
+/// cas depuis que le lien partiel a disparu : une connexion ne périme pas.
 class _FullConnections extends Notifier<List<Connection>>
     with DerivedList<Connection> {
   @override
@@ -72,52 +84,6 @@ class _FullConnections extends Notifier<List<Connection>>
 
 final fullConnectionsProvider =
     NotifierProvider<_FullConnections, List<Connection>>(_FullConnections.new);
-
-/// Les liens partiels **tels qu'ils sont en base**, sans considération d'heure.
-///
-/// ⚠️ **Séparé de la vue « encore valide » juste en dessous, et c'est le cœur
-/// de la correction.** Mélanger les deux, c'était faire dépendre une liste de
-/// deux sources — la base ET l'horloge — dont une seule était observée. La
-/// seconde ne l'était pas : un lien partiel expiré restait affiché tant que
-/// personne n'écrivait dans la table.
-class _PartialConnections extends Notifier<List<Connection>>
-    with DerivedList<Connection> {
-  @override
-  List<Connection> build() {
-    final all = ref.watch(connectionsStreamProvider).value ?? const [];
-    return all
-        .where((c) => c.status == ConnectionStatus.partial)
-        .toList(growable: false);
-  }
-}
-
-final allPartialConnectionsProvider =
-    NotifierProvider<_PartialConnections, List<Connection>>(
-      _PartialConnections.new,
-    );
-
-/// Les liens partiels **encore valides à cet instant**.
-///
-/// Observe deux sources, chacune à son rythme : la base (rare) et l'horloge de
-/// péremption (`core/clock.dart`, 5 s). L'horloge bat sans rien réveiller —
-/// [DerivedList] arrête la propagation tant que la liste ne change pas — et
-/// c'est exactement à la seconde où un lien expire que l'écran l'apprend.
-class _LivePartialConnections extends Notifier<List<Connection>>
-    with DerivedList<Connection> {
-  @override
-  List<Connection> build() {
-    final now = ref.watch(expiryClockProvider);
-    return ref
-        .watch(allPartialConnectionsProvider)
-        .where((c) => c.partialExpiresAt?.isAfter(now) ?? false)
-        .toList(growable: false);
-  }
-}
-
-final partialConnectionsProvider =
-    NotifierProvider<_LivePartialConnections, List<Connection>>(
-      _LivePartialConnections.new,
-    );
 
 /// **Qui sont mes amis, vus comme des IDENTIFIANTS.**
 ///
@@ -197,20 +163,15 @@ class ConnectionsRepository {
   ConnectionsRepository(this.ref);
   final Ref ref;
 
-  /// ⚠️ **Les trois écritures qui changent le graphe d'amis relancent la
-  /// synchro.** Le carnet local porte les clés qui permettent de reconnaître un
-  /// ami par la radio : sans ce rappel, un ami ajouté reste invisible en BLE, et
-  /// un ami retiré reste reconnu — jusqu'au prochain démarrage de l'app.
-  /// Constaté pendant la session de test du 2026-08-27.
-  Future<void> confirmPartial(String connectionId) async {
-    await _confirmPartial(connectionId);
-    unawaited(ref.read(proximitySyncProvider).run());
-  }
-
-  Future<void> _confirmPartial(String connectionId) => ref
-      .read(supabaseProvider)
-      .rpc('confirm_partial_connection', params: {'conn_id': connectionId});
-
+  /// ⚠️ **Toute écriture qui change le graphe d'amis relance la synchro.** Le
+  /// carnet local porte les clés qui permettent de reconnaître un ami par la
+  /// radio : sans ce rappel, un ami ajouté reste invisible en BLE, et un ami
+  /// retiré reste reconnu — jusqu'au prochain démarrage de l'app. Constaté
+  /// pendant la session de test du 2026-08-27.
+  ///
+  /// ⚠️ **`confirmPartial` a été retirée le 2026-08-28** avec le lien partiel :
+  /// l'acceptation d'une demande est désormais le seul chemin vers l'amitié, et
+  /// elle relance la synchro depuis `proximity_repository.dart`.
   Future<void> remove(String connectionId) async {
     await _remove(connectionId);
     unawaited(ref.read(proximitySyncProvider).run());

@@ -10,8 +10,13 @@ enum RequestStatus {
       RequestStatus.values.byName(value);
 }
 
-/// Demande de connexion envoyée pendant une proximité BLE active.
-/// Expire dès que les appareils sortent de portée (heartbeat sur expires_at).
+/// Demande de connexion, née d'une rencontre physique prouvée par le ping.
+///
+/// ⚠️ **Elle n'expire plus par la distance.** Ce commentaire promettait un
+/// « heartbeat sur `expires_at` » qui coupait la demande dès la sortie de
+/// portée : le battement a été supprimé le 2026-08-27 et la durée de vie portée
+/// à **7 jours**, pour qu'on puisse répondre plus tard, de n'importe où. La
+/// présence physique est exigée pour DEMANDER, pas pour répondre.
 class ConnectionRequest {
   const ConnectionRequest({
     required this.id,

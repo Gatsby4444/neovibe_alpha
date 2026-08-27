@@ -1,7 +1,17 @@
 import 'profile.dart';
 
+/// Le **palier** d'une relation.
+///
+/// ⚠️ **Une seule valeur aujourd'hui, et ce n'est pas un oubli.** `partial` a
+/// été retirée le 2026-08-28 avec le lien partiel : il n'était pas un palier,
+/// c'était une **deuxième porte** vers ce même et unique statut, ouverte
+/// automatiquement dès que deux inconnus avaient échangé un message.
+///
+/// C'est ici que viendront les **paliers de relation** annoncés par Jay le
+/// 2026-08-28 — des cercles donnant accès à plus ou moins de fonctionnalités.
+/// Ce chantier-là est **séparé du ping** : le ping prouve une rencontre, il ne
+/// décide d'aucun palier.
 enum ConnectionStatus {
-  partial,
   full;
 
   static ConnectionStatus fromDb(String value) =>
@@ -14,9 +24,6 @@ class Connection {
     required this.userLow,
     required this.userHigh,
     required this.status,
-    this.partialExpiresAt,
-    this.confirmedLow = false,
-    this.confirmedHigh = false,
     this.peer,
   });
 
@@ -24,17 +31,11 @@ class Connection {
   final String userLow;
   final String userHigh;
   final ConnectionStatus status;
-  final DateTime? partialExpiresAt;
-  final bool confirmedLow;
-  final bool confirmedHigh;
 
   /// Profil de l'autre membre (joint côté requête).
   final Profile? peer;
 
   String peerIdFor(String me) => me == userLow ? userHigh : userLow;
-
-  /// Est-ce que MOI ([me]) j'ai déjà confirmé ce lien partiel ?
-  bool confirmedBy(String me) => me == userLow ? confirmedLow : confirmedHigh;
 
   factory Connection.fromJson(Map<String, dynamic> json, {Profile? peer}) =>
       Connection(
@@ -42,11 +43,6 @@ class Connection {
         userLow: json['user_low'] as String,
         userHigh: json['user_high'] as String,
         status: ConnectionStatus.fromDb(json['status'] as String),
-        partialExpiresAt: json['partial_expires_at'] == null
-            ? null
-            : DateTime.parse(json['partial_expires_at'] as String),
-        confirmedLow: json['confirmed_low'] as bool? ?? false,
-        confirmedHigh: json['confirmed_high'] as bool? ?? false,
         peer: peer,
       );
 
@@ -63,20 +59,8 @@ class Connection {
       other.userLow == userLow &&
       other.userHigh == userHigh &&
       other.status == status &&
-      other.partialExpiresAt == partialExpiresAt &&
-      other.confirmedLow == confirmedLow &&
-      other.confirmedHigh == confirmedHigh &&
       other.peer == peer;
 
   @override
-  int get hashCode => Object.hash(
-    id,
-    userLow,
-    userHigh,
-    status,
-    partialExpiresAt,
-    confirmedLow,
-    confirmedHigh,
-    peer,
-  );
+  int get hashCode => Object.hash(id, userLow, userHigh, status, peer);
 }
