@@ -340,6 +340,19 @@ tranche** (`BlePermissions.required()`), jamais le Dart :
   `ACCESS_BACKGROUND_LOCATION` n'est **pas** demandée : elle ne servirait qu'à
   démarrer un scan sans interface, ce que nous ne faisons jamais.
 
+⚠️ **Le type `location` est déclaré sur TOUTES les versions depuis le
+2026-08-27** — cette section disait le contraire, et c'était juste tant que le
+service ne faisait que du BLE. **Le ping v2 a changé la prémisse** : le service
+lit désormais une vraie position, et Android ne la rend fine en arrière-plan
+qu'à une app portant ce type. Sans lui, l'incertitude annoncée passait de 129 m
+à **449 m**, la balise cessait d'être republiée, et l'utilisateur disparaissait
+de l'écran d'en face. Voir `RAPPELS.md` #71.
+
+⚠️ **`ACCESS_BACKGROUND_LOCATION` reste inutile pour autant** : avec ce type,
+« pendant l'utilisation » suffit — y compris pour lire une position. C'est ce
+qui évite l'invite la plus dissuasive d'Android sur une app dont la thèse est la
+confiance.
+
 ⚠️ **Sur API 29/30, l'interrupteur de localisation du SYSTÈME doit être allumé** —
 la permission ne le remplace pas. Sinon `startScan` réussit et ne rend jamais
 rien. C'est l'état `RadioStatus.LocationOff`, rendu inatteignable au-dessus de
