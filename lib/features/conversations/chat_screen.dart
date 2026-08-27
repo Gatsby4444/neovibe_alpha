@@ -29,7 +29,7 @@ import '../library_vibes/library_target.dart';
 import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
 import 'video_player_screen.dart';
-import '../proximity/net/ping_nearby_feed.dart';
+import '../proximity/ping_store.dart';
 import '../proximity/net/proximity_controller.dart';
 import 'conversations_repository.dart';
 import 'group_settings_screen.dart';
@@ -229,32 +229,46 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     // ET le ping. Le demander à la seule présence BLE affichait « Hors de
     // portée » en permanence sur ces conversations-là : un inconnu n'est plus
     // jamais identifié par la radio.
-    final outOfRange =
-        isProximity &&
-        peer != null &&
-        partial == null &&
-        !ref.watch(peerInRangeProvider(peer.id));
+    // ⚠️ **`outOfRange` a été retiré le 2026-08-27.** Il doublait
+    // `horsDePortee` ci-dessous, avec la même source — deux noms pour une seule
+    // question, dont l'un servait à peindre un bandeau et l'autre à décider du
+    // droit d'écrire. C'est exactement ce genre de doublon qui a laissé les deux
+    // se contredire pendant le test de Jay.
 
-    // ⚠️ **DEUX états distincts, et il en faut deux.**
+    // ⚠️ **TROIS situations, et deux d'entre elles se lisaient pareil.**
     //
-    // | | Seuil | Ce que ça veut dire |
-    // |---|---|---|
-    // | `outOfRange` | 30 s | « il vient de s'éloigner » — informatif |
-    // | `canalFerme` | 10 min | **la règle** : le serveur refuse d'écrire |
+    // Constaté par Jay le 2026-08-27, deux symptômes opposés dans le même test :
     //
-    // Les confondre ferait l'un des deux défauts suivants : fermer le canal au
-    // premier signal perdu (le BLE en perd en permanence — une porte suffit), ou
-    // laisser croire qu'on peut écrire alors que le serveur refusera.
+    //   ① « le chat côté mimi est passé en connexion close avec le bandeau
+    //     orange et elle ne pouvait plus écrire, il n'y a aucune raison logique
+    //     à cela puisque j'étais revenu à côté » ;
+    //   ② « lorsque je me suis éloigné hors de portée j'étais toujours dans le
+    //     chat et je pouvais toujours envoyer des messages ».
     //
-    // ⚠️ **La règle vit côté SERVEUR** (`messages_insert_member` →
-    // `private.can_write_in_conversation`), et c'est le seul endroit où elle
-    // vaille quelque chose. Ce qui suit n'est que sa traduction à l'écran : sans
-    // elle, l'utilisateur taperait un message pour se le voir refuser.
-    final canalFerme =
+    // **Les deux venaient du même endroit.** ① `canalProximiteOuvert` se lisait
+    // sur `pingNearbyProvider`, qui **écarte délibérément les amis** : au moment
+    // où les deux se sont connectés, le canal s'est déclaré fermé et a donné une
+    // raison **fausse** — ils étaient côte à côte. ② `partial == null` figurait
+    // dans la condition : un lien partiel **désactivait silencieusement** toute
+    // la règle de proximité.
+    //
+    // ⚠️ **La présence se demande à `peerInRangeProvider`, qui combine les deux
+    // sources** — la radio pour les amis, le ping pour les inconnus. C'est la
+    // seule vue qui répond juste dans les deux cas.
+    final horsDePortee =
+        isProximity && peer != null && !ref.watch(peerInRangeProvider(peer.id));
+
+    // ⚠️ **Devenir amis termine le canal de proximité, et ce n'est pas une
+    // panne.** Ce canal existe pour les gens qui ne sont pas connectés ; une
+    // fois qu'ils le sont, ils ont une vraie conversation. Ce qui manquait,
+    // c'est de le DIRE : le bandeau parlait de portée alors que la portée
+    // n'était pour rien dans l'affaire.
+    final desormaisAmis =
         isProximity &&
         peer != null &&
-        partial == null &&
-        !ref.watch(canalProximiteOuvertProvider(peer.id));
+        (ref.watch(isFriendProvider(peer.id)).value ?? false);
+
+    final canalFerme = desormaisAmis || horsDePortee;
 
     return Scaffold(
       appBar: AppBar(
@@ -331,17 +345,17 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           // purge. Un canal ouvert une fois servait pour toujours, à des
           // kilomètres — la barrière de présence physique se contournait en
           // l'ouvrant une seule fois. Il dit maintenant ce qui est appliqué.
-          if (canalFerme || outOfRange)
+          if (canalFerme)
             Container(
               width: double.infinity,
               color: Colors.orange.withValues(alpha: 0.15),
               padding: const EdgeInsets.all(10),
               child: Text(
-                canalFerme
-                    ? 'Canal fermé — vous n\'êtes plus à proximité. '
-                          'Tu peux relire, plus écrire.'
-                    : 'Hors de portée — le canal se ferme si vous ne vous '
-                          'recroisez pas.',
+                desormaisAmis
+                    ? "Vous êtes connectés — cette conversation de proximité "
+                          "s'arrête ici. Continuez dans votre conversation."
+                    : "Canal fermé — vous n'êtes plus à proximité. "
+                          "Tu peux relire, plus écrire.",
                 textAlign: TextAlign.center,
               ),
             ),

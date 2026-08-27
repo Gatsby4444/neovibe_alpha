@@ -1,5 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../features/cards/cards_repository.dart';
+import '../../features/connections/connections_repository.dart';
+import '../../features/proximity/net/proximity_sync.dart';
 import '../models/profile.dart';
 import '../supabase_providers.dart';
 
@@ -63,13 +68,43 @@ class ModerationRepository {
   /// voit le contenu de l'autre, et aucun relais ne peut contourner le
   /// blocage. Celui qui est bloqué n'en est pas informé — c'est le propre d'un
   /// blocage utile.
-  Future<void> block(String userId) => ref
-      .read(supabaseProvider)
-      .rpc('block_user', params: {'p_user_id': userId});
+  Future<void> block(String userId) async {
+    await ref
+        .read(supabaseProvider)
+        .rpc('block_user', params: {'p_user_id': userId});
+    _rafraichir();
+  }
 
-  Future<void> unblock(String userId) => ref
-      .read(supabaseProvider)
-      .rpc('unblock_user', params: {'p_user_id': userId});
+  Future<void> unblock(String userId) async {
+    await ref
+        .read(supabaseProvider)
+        .rpc('unblock_user', params: {'p_user_id': userId});
+    _rafraichir();
+  }
+
+  /// ⚠️ **Bloquer change le graphe d'amis — il faut le dire aux vues.**
+  ///
+  /// Constaté par Jay le 2026-08-27 : *« lorsque j'ai bloqué mimi elle
+  /// n'apparaissait plus dans la liste des amis mais le compteur des amis
+  /// restait à 5 »*. Deux vues, deux sources, une seule rafraîchie :
+  ///
+  /// - la **liste** vient d'un flux temps réel sur `connections` ;
+  /// - le **compteur** vient de `profileStatsProvider`, un `FutureProvider`
+  ///   **mis en cache**, que rien n'invalidait.
+  ///
+  /// ⚠️ Et le flux lui-même n'est pas fiable ici : une **suppression** de ligne
+  /// n'est pas toujours diffusée par le temps réel Postgres. On réinvalide donc
+  /// la source, au lieu d'espérer qu'elle se réveille.
+  ///
+  /// ⚠️ **L'invalidation appartient à l'ÉCRITURE** (règle de `CLAUDE.md`) :
+  /// posée ici, tout chemin de blocage en profite — le menu « … » d'une story,
+  /// celui d'une Vibe, celui d'un profil.
+  void _rafraichir() {
+    ref.invalidate(blockedProfilesProvider);
+    ref.invalidate(connectionsStreamProvider);
+    ref.invalidate(profileStatsProvider);
+    unawaited(ref.read(proximitySyncProvider).run());
+  }
 }
 
 final moderationRepositoryProvider = Provider(ModerationRepository.new);
