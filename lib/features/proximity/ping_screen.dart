@@ -5,6 +5,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
 import '../../core/utils/erreur_serveur.dart';
+import '../../core/utils/formats.dart';
 import '../../core/widgets/avatar.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
@@ -153,26 +154,22 @@ class _PingScreenState extends ConsumerState<PingScreen> {
             ..._autourDeToiAmis(runtime, keys),
             ..._autourDeToiV2(ref, runtime),
 
-            // ⚠️ **Les sections « Conversations ping » et « Croisés
-            // récemment » ont été retirées les 2026-08-27.**
+            ..._croisesRecemment(ref),
+
+            // ⚠️ **La section « Conversations ping » a été retirée le
+            // 2026-08-27.** Elle listait les conversations BLE locales : un
+            // second chemin d'émission à côté de la messagerie serveur.
             //
-            // La première listait les conversations BLE locales : un second
-            // chemin d'émission à côté de la messagerie serveur.
+            // ✅ **« Croisés récemment » est REVENUE le 2026-08-27**, sur une
+            // source qui marche. L'ancienne lisait les certificats BLE
+            // co-signés — vérifié en base : la seule ligne de `encounters`
+            // portait `proof = 'mutual_sighting'` alors que le défaut de la
+            // colonne est `'certificate'`, donc **aucun certificat n'a jamais
+            // abouti** et la section était vide en permanence.
             //
-            // La seconde listait les croisements **certifiés en BLE**, une
-            // preuve co-signée d'appareil à appareil. Décision de Jay du
-            // 2026-08-27 : *« on ne garde que le certificat de croisement côté
-            // serveur »*. Le constat mutuel (`report_sightings`) remplit déjà
-            // la table `encounters`, qui est ce qui ouvre l'accès aux profils et
-            // aux stories — la barre de stories en haut de cet écran en vit.
-            //
-            // ⚠️ **Le certificat BLE n'a jamais rien produit** : vérifié en base
-            // le 2026-08-27, la seule ligne de `encounters` porte
-            // `proof = 'mutual_sighting'` alors que le défaut de la colonne est
-            // `'certificate'`. Cette section était donc vide en permanence.
-            //
-            // 📌 **La rebrancher sur `encounters` est un chantier à part**,
-            // consigné dans `RAPPELS.md`.
+            // Elle se dérive maintenant de `croisesRecemmentProvider` : la
+            // différence entre les paires fraîches du serveur et ceux qu'on
+            // entend. Aucune requête de plus.
             const SizedBox(height: 24),
           ],
         ),
@@ -700,9 +697,18 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
 /// — avec une information meilleure, sa distance. Les afficher ici produisait le
 /// même profil deux fois, et un bouton de chat qui ne pouvait qu'échouer.
 class _TuileInconnu extends ConsumerWidget {
-  const _TuileInconnu({required this.personne});
+  const _TuileInconnu({required this.personne, this.aPortee = true});
 
   final NearbyPerson personne;
+
+  /// Faux dans « Croisés récemment » : la personne est partie.
+  ///
+  /// ⚠️ **Le bouton « Écrire » disparaît alors, et ce n'est pas cosmétique.**
+  /// Le canal de proximité se ferme dès qu'on ne s'entend plus : le laisser
+  /// afficherait un bouton dont le seul effet possible est un refus du serveur.
+  /// Le bouton « demander en ami », lui, reste — c'est justement la fenêtre
+  /// pendant laquelle il marche encore.
+  final bool aPortee;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -718,7 +724,9 @@ class _TuileInconnu extends ConsumerWidget {
       leading: Avatar(stored: personne.avatarUrl, fallback: Text(initiale)),
       title: Text(personne.displayName),
       subtitle: Text(
-        personne.tagName == null ? "À portée" : "@${personne.tagName}",
+        aPortee
+            ? (personne.tagName == null ? "À portée" : "@${personne.tagName}")
+            : "Croisé ${vagueTimeAgo(personne.lastSeenAt)} — plus à portée",
       ),
       // Deux gestes, deux boutons : écrire, ou demander en ami. Les confondre
       // obligerait l'utilisateur à deviner lequel il déclenche.
@@ -729,11 +737,12 @@ class _TuileInconnu extends ConsumerWidget {
             userId: personne.userId,
             displayName: personne.displayName,
           ),
-          IconButton(
-            tooltip: "Écrire",
-            icon: const Icon(Icons.chat_bubble_outline),
-            onPressed: () => _ouvrirChatProximite(ref, personne),
-          ),
+          if (aPortee)
+            IconButton(
+              tooltip: "Écrire",
+              icon: const Icon(Icons.chat_bubble_outline),
+              onPressed: () => _ouvrirChatProximite(ref, personne),
+            ),
         ],
       ),
     );
@@ -933,4 +942,19 @@ class _BandeauSimple extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// **Croisés récemment** : plus à portée, mais encore ajoutables.
+///
+/// ⚠️ **Elle ne s'affiche que si elle a quelque chose à dire.** Une section
+/// permanente et vide apprend à l'œil à ne plus la regarder — et le jour où
+/// elle se remplit, personne ne la voit.
+List<Widget> _croisesRecemment(WidgetRef ref) {
+  final gens = ref.watch(croisesRecemmentProvider);
+  if (gens.isEmpty) return const [];
+  return [
+    const _TitreSection('Croisés récemment'),
+    for (final personne in gens)
+      _TuileInconnu(personne: personne, aPortee: false),
+  ];
 }

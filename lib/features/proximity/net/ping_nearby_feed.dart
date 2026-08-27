@@ -242,6 +242,39 @@ class PingNearby extends Notifier<List<NearbyPerson>>
   }
 }
 
+/// **Croisés récemment** : ceux qu'on peut encore ajouter, mais qui ne sont
+/// plus à portée.
+///
+/// ## ⚠️ Cette liste ne coûte AUCUNE requête
+///
+/// Elle est la **différence entre deux vues qui existaient déjà** :
+///
+/// | | Ce que c'est |
+/// |---|---|
+/// | [pingNearbySourceProvider] | tout le monde apparié depuis moins de 10 min (le serveur) |
+/// | [pingNearbyProvider] | ceux qu'on **entend maintenant** (la radio) |
+/// | **cette liste** | la différence — croisés, plus là |
+///
+/// ## Pourquoi cette fenêtre-là, et pas 24 h
+///
+/// ⚠️ **Une liste doit permettre d'agir.** Au-delà de dix minutes, le serveur
+/// refuse la demande d'ami (`private.fenetre_rencontre()`) : afficher des gens
+/// croisés il y a six heures produirait une liste de boutons qui ne peuvent que
+/// dire non. Ces dix minutes **sont** la définition utile de « récemment » —
+/// c'est le temps qu'il te reste pour ajouter quelqu'un que tu viens de croiser.
+///
+/// ⚠️ **Ce n'est PAS l'ancienne section « Croisés récemment »**, retirée le
+/// 2026-08-27. Celle-là lisait les certificats BLE co-signés — qui n'ont jamais
+/// abouti une seule fois, donc elle était **vide en permanence**. Celle-ci a une
+/// source qui marche.
+final croisesRecemmentProvider = Provider<List<NearbyPerson>>((ref) {
+  final aPortee = {for (final p in ref.watch(pingNearbyProvider)) p.userId};
+  return ref
+      .watch(pingNearbySourceProvider)
+      .where((p) => !aPortee.contains(p.userId))
+      .toList(growable: false);
+});
+
 /// Le filet, quand on ne connaît pas encore le jeton de quelqu'un.
 ///
 /// ⚠️ **Il doit couvrir un changement de créneau** : le pair republie sa balise
