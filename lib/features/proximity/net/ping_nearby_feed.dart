@@ -118,3 +118,43 @@ class PingNearby extends Notifier<List<NearbyPerson>>
 final pingNearbyProvider = NotifierProvider<PingNearby, List<NearbyPerson>>(
   PingNearby.new,
 );
+
+/// **Le canal de proximité avec [userId] est-il encore OUVERT ?**
+///
+/// ## ⚠️ La même question que le serveur, posée à la même source
+///
+/// Écrire dans un canal de proximité exige, **côté serveur**, une paire mutuelle
+/// constatée depuis moins de dix minutes (politique `messages_insert_member` →
+/// `private.can_write_in_conversation`, 2026-08-27). Or `ping_nearby` rend
+/// exactement les paires de moins de dix minutes : c'est donc
+/// [pingNearbySourceProvider] — la source, **pas** la vue à 30 s — qui répond à
+/// la question du serveur, sans requête de plus.
+///
+/// ⚠️ **Ne pas prendre [pingNearbyProvider] ici.** Il applique le délai de grâce
+/// d'affichage de 30 secondes, qui répond à « est-il là *maintenant* ? ». Le
+/// canal, lui, ne se ferme pas parce qu'une porte a coupé le signal trois
+/// secondes — le BLE en perd en permanence, et c'est précisément pour ça que ce
+/// délai de grâce existe. Deux questions, deux seuils, et il faut prendre celui
+/// que le serveur applique, sinon l'écran interdit ce que le serveur accepte.
+///
+/// ⚠️ **Ping coupé = canal fermé**, et c'est volontaire. La liste se vide quand
+/// l'utilisateur coupe sa visibilité ; l'écran est alors **plus strict que le
+/// serveur** pendant au plus dix minutes. C'est le bon sens du produit : le
+/// canal vit tant que la proximité est *prouvée*, et couper le ping, c'est
+/// cesser de la prouver. Une interface plus stricte que le serveur ne laisse
+/// jamais passer ce que la règle refuse — l'inverse serait un défaut.
+///
+/// ⚠️ **Le `.select` n'est pas décoratif** : il réduit une liste à un booléen,
+/// donc l'écran de conversation n'est réveillé que quand **cette** personne
+/// entre ou sort de la fenêtre — pas à chaque tour du ping, toutes les dix
+/// secondes.
+final canalProximiteOuvertProvider = Provider.family<bool, String>((
+  ref,
+  userId,
+) {
+  return ref.watch(
+    pingNearbySourceProvider.select(
+      (gens) => gens.any((p) => p.userId == userId),
+    ),
+  );
+});

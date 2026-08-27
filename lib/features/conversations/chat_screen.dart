@@ -29,6 +29,7 @@ import '../library_vibes/library_target.dart';
 import '../connections/connections_repository.dart';
 import '../library/user_library_screen.dart';
 import 'video_player_screen.dart';
+import '../proximity/net/ping_nearby_feed.dart';
 import '../proximity/net/proximity_controller.dart';
 import 'conversations_repository.dart';
 import 'group_settings_screen.dart';
@@ -234,6 +235,27 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         partial == null &&
         !ref.watch(peerInRangeProvider(peer.id));
 
+    // ⚠️ **DEUX états distincts, et il en faut deux.**
+    //
+    // | | Seuil | Ce que ça veut dire |
+    // |---|---|---|
+    // | `outOfRange` | 30 s | « il vient de s'éloigner » — informatif |
+    // | `canalFerme` | 10 min | **la règle** : le serveur refuse d'écrire |
+    //
+    // Les confondre ferait l'un des deux défauts suivants : fermer le canal au
+    // premier signal perdu (le BLE en perd en permanence — une porte suffit), ou
+    // laisser croire qu'on peut écrire alors que le serveur refusera.
+    //
+    // ⚠️ **La règle vit côté SERVEUR** (`messages_insert_member` →
+    // `private.can_write_in_conversation`), et c'est le seul endroit où elle
+    // vaille quelque chose. Ce qui suit n'est que sa traduction à l'écran : sans
+    // elle, l'utilisateur taperait un message pour se le voir refuser.
+    final canalFerme =
+        isProximity &&
+        peer != null &&
+        partial == null &&
+        !ref.watch(canalProximiteOuvertProvider(peer.id));
+
     return Scaffold(
       appBar: AppBar(
         // En-tête façon iMessage (demande de Jay 2026-08-10) : flèche de
@@ -303,13 +325,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       body: Column(
         children: [
           if (partial != null) _PartialBanner(partial: partial, me: me),
-          if (outOfRange)
+          // ⚠️ **Ce bandeau promettait une fermeture que RIEN n'implémentait**
+          // jusqu'au 2026-08-27 : ni l'écran (le champ de saisie restait
+          // actif), ni le serveur (aucune condition de proximité), ni aucune
+          // purge. Un canal ouvert une fois servait pour toujours, à des
+          // kilomètres — la barrière de présence physique se contournait en
+          // l'ouvrant une seule fois. Il dit maintenant ce qui est appliqué.
+          if (canalFerme || outOfRange)
             Container(
               width: double.infinity,
               color: Colors.orange.withValues(alpha: 0.15),
               padding: const EdgeInsets.all(10),
-              child: const Text(
-                'Hors de portée — ce canal se fermera sans échange mutuel.',
+              child: Text(
+                canalFerme
+                    ? 'Canal fermé — vous n\'êtes plus à proximité. '
+                          'Tu peux relire, plus écrire.'
+                    : 'Hors de portée — le canal se ferme si vous ne vous '
+                          'recroisez pas.',
                 textAlign: TextAlign.center,
               ),
             ),
@@ -359,6 +391,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           _Composer(
             controller: _input,
+            // ⚠️ **Lecture seule, pas disparition.** Les messages restent
+            // lisibles jusqu'à leur expiration (24 h) : fermer le canal n'est
+            // pas effacer ce qui s'y est dit.
+            enabled: !canalFerme,
             onChanged: _notifyTyping,
             onSend: _sendText,
             // Le canal de proximité est limité au texte : ni Card, ni pièce
@@ -393,6 +429,7 @@ bool _sameGroup(Message? a, Message? b) {
 class _Composer extends StatefulWidget {
   const _Composer({
     required this.controller,
+    required this.enabled,
     required this.onChanged,
     required this.onSend,
     required this.onCard,
@@ -400,6 +437,12 @@ class _Composer extends StatefulWidget {
   });
 
   final TextEditingController controller;
+
+  /// Faux quand le canal est fermé : on peut relire, pas écrire.
+  ///
+  /// ⚠️ **Ce paramètre n'existait pas avant le 2026-08-27**, et c'est pour ça
+  /// que le bandeau « ce canal se fermera » ne fermait rien du tout.
+  final bool enabled;
   final VoidCallback onChanged;
   final VoidCallback onSend;
 
@@ -491,6 +534,7 @@ class _ComposerState extends State<_Composer> {
                     Expanded(
                       child: TextField(
                         controller: widget.controller,
+                        enabled: widget.enabled,
                         onChanged: (_) => _handleChanged(),
                         onSubmitted: (_) => widget.onSend(),
                         textInputAction: TextInputAction.send,
@@ -498,7 +542,9 @@ class _ComposerState extends State<_Composer> {
                         maxLines: 5,
                         style: const TextStyle(fontSize: 16),
                         decoration: InputDecoration(
-                          hintText: 'Message éphémère (24 h)…',
+                          hintText: widget.enabled
+                              ? 'Message éphémère (24 h)…'
+                              : 'Canal fermé',
                           hintStyle: TextStyle(color: iconColor, fontSize: 16),
                           isDense: true,
                           filled: false,
@@ -514,7 +560,7 @@ class _ComposerState extends State<_Composer> {
                     // Flèche d'envoi DANS la gélule, comme iMessage : elle
                     // n'existe que s'il y a quelque chose à envoyer.
                     AnimatedScale(
-                      scale: hasText ? 1 : 0,
+                      scale: hasText && widget.enabled ? 1 : 0,
                       duration: NeoMotion.fast,
                       curve: NeoMotion.spring,
                       child: Padding(

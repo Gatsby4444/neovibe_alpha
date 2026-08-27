@@ -35,6 +35,23 @@ final conversationsProvider = FutureProvider<List<Conversation>>((ref) async {
       last == null ? conv : conv.copyWith(lastMessage: Message.fromJson(last)),
     );
   }
+  // ⚠️ **Un canal de proximité VIDE ne figure pas dans la liste.**
+  //
+  // Décision de Jay du 2026-08-27 : *« après 24 h sans échange il disparaît de
+  // la liste (lorsqu'il n'y a plus aucun contenu) »*. Les messages expirent à
+  // 24 h : un canal sans message est donc soit tout juste ouvert et jamais
+  // utilisé, soit vieux de plus de 24 heures. Dans les deux cas il n'a rien à
+  // montrer.
+  //
+  // ⚠️ **Ce filtre ne fait que devancer la purge**, il ne la remplace pas : le
+  // cron `neovibe_purge_proximity_conversations` supprime réellement la ligne
+  // cinq minutes après sa création si elle est restée vide. Le filtre existe
+  // pour que l'écran ne montre rien pendant ces cinq minutes — masquer sans
+  // supprimer laisserait une `pair_key` qui empêche d'en rouvrir une.
+  result.removeWhere(
+    (c) => c.type == ConversationType.proximity && c.lastMessage == null,
+  );
+
   // Conversations avec activité récente d'abord
   result.sort(
     (a, b) => (b.lastMessage?.createdAt ?? b.createdAt).compareTo(
