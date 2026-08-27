@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/connection.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/utils/erreur_serveur.dart';
 import '../../core/widgets/content_overflow_menu.dart';
 import '../connections/connections_repository.dart';
 import '../conversations/chat_screen.dart';
@@ -39,6 +41,16 @@ class UserLibraryScreen extends ConsumerWidget {
         // menu n'existait que sur les stories et les publications. C'est aussi
         // le seul recours pour une Vibe reçue en DM, qui n'a pas de Content ID.
         actions: [
+          // ⚠️ **Retirer un ami n'avait AUCUN bouton** jusqu'au 2026-08-27.
+          // `ConnectionsRepository.remove` existait, la politique RLS aussi —
+          // seule l'entrée manquait. Un geste que le produit autorise mais que
+          // l'interface ne propose pas n'existe pas.
+          if (profile.id != me && isConnected)
+            IconButton(
+              tooltip: 'Retirer de mes amis',
+              icon: const Icon(Icons.person_remove_alt_1_outlined),
+              onPressed: () => _retirer(context, ref, connections, me),
+            ),
           if (profile.id != me)
             ContentOverflowMenu(
               authorId: profile.id,
@@ -163,6 +175,62 @@ class UserLibraryScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// Retire cette personne de mes amis.
+  ///
+  /// ⚠️ **Une confirmation, et qui dit le VRAI coût.** Depuis le 2026-08-27,
+  /// redevenir amis exige une **proximité physique prouvée** : le serveur refuse
+  /// toute demande sans paire mutuelle fraîche. Ce n'est donc plus un geste
+  /// qu'on défait d'un clic — il faut se recroiser. Le dire avant, c'est la
+  /// différence entre un choix et un accident.
+  Future<void> _retirer(
+    BuildContext context,
+    WidgetRef ref,
+    List<Connection> connections,
+    String me,
+  ) async {
+    final lien = connections
+        .where((c) => c.peerIdFor(me) == profile.id)
+        .firstOrNull;
+    if (lien == null) return;
+
+    final confirme = await showDialog<bool>(
+      context: context,
+      builder: (dialogue) => AlertDialog(
+        title: Text('Retirer ${profile.displayName} ?'),
+        content: const Text(
+          "Vous ne vous verrez plus en proximité, et vos croisements "
+          "s'arrêteront. Pour redevenir amis, il faudra vous RECROISER "
+          "PHYSIQUEMENT : une demande n'est acceptée que si la proximité "
+          "est prouvée des deux côtés.",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogue).pop(false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogue).pop(true),
+            child: const Text('Retirer'),
+          ),
+        ],
+      ),
+    );
+    if (confirme != true || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(connectionsRepositoryProvider).remove(lien.id);
+      // ⚠️ **L'invalidation appartient à l'ÉCRITURE**, pas à l'appelant : deux
+      // écrans qui retirent un ami doivent laisser le lecteur dans le même état.
+      ref.invalidate(fullConnectionsProvider);
+      messenger.showSnackBar(
+        SnackBar(content: Text('${profile.displayName} a été retiré.')),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(messageServeur(e))));
+    }
   }
 
   Future<void> _openDirect(BuildContext context, WidgetRef ref) async {
