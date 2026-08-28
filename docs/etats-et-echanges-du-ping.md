@@ -16,9 +16,16 @@ fichiers sur le disque, colonnes en base — est dans
 quand** ; celui-là dit **de quoi c'est fait**.
 
 ⚠️ **Tout ce qui suit est relevé à la source** — le code et la base — le
-2026-08-28, sur la **v0.9.143**. Aucune ligne ne vient d'un document antérieur.
+2026-08-28, sur la **v0.9.144**. Aucune ligne ne vient d'un document antérieur.
 Ce fichier a donc, lui aussi, une date de péremption : il dit ce qui était vrai
 ce jour-là.
+
+🔴 **Et il l'a prouvé le jour même.** Écrit le matin sur la v0.9.143, il
+décrivait `ping_shortlist` — une fonction **supprimée le soir**, quelques heures
+plus tard, précisément parce que ce recensement a permis de voir qu'elle ne
+servait plus à ce qu'on croyait. Trois lignes de ce fichier étaient déjà fausses
+avant la fin de la journée. **C'est la démonstration de la règle, pas une
+excuse** : on relit toujours le code, jamais le document.
 
 ---
 
@@ -52,8 +59,8 @@ Aucun des quatre n'aurait survécu à ce tableau écrit à l'avance.
 |---|---|---|
 | `publish_ping_beacon(lat, lon, token, slot, acc)` | **ma position exacte**, mon jeton public du créneau, le créneau, l'incertitude annoncée | rythme (60 s) |
 | `retire_ping_beacon()` | rien | action : couper le ping |
-| `ping_shortlist(limit)` | rien — c'est une demande | rythme (60 s) |
-| `confirm_ping(tokens[], slot)` | **les jetons publics ENTENDUS par la radio** + le créneau | 1ʳᵉ écoute d'un jeton, puis rythme (60 s) |
+| `ping_neighbour_count()` | rien — c'est une demande | rythme (60 s) |
+| `confirm_ping(tokens[], slot)` | **TOUS les jetons publics entendus par la radio** + le créneau | 1ʳᵉ écoute d'un jeton, puis rythme (60 s) |
 | `report_sightings(items[])` | par ami vu : son identifiant, le créneau, la **bande** | 1× par (ami, créneau) |
 | `request_connection_from_proximity(peer)` | l'identifiant du pair | action |
 | `accept_connection_request(req_id)` | l'identifiant de la demande | action |
@@ -94,7 +101,7 @@ Aucun des quatre n'aurait survécu à ce tableau écrit à l'avance.
 
 | Appel | Ce qui revient |
 |---|---|
-| `ping_shortlist` | **des jetons opaques** + leur créneau. Ni nom, ni identifiant, ni compte. |
+| `ping_neighbour_count` | **un entier**, et rien d'autre : combien de balises fraîches dans le voisinage |
 | `confirm_ping` | **un nombre**, rien d'autre : combien de constats ont été retenus |
 | `ping_nearby` | pour chaque paire **mutuelle** de moins de 10 min : identifiant, pseudo, tag, avatar, dernière vue, jeton |
 | `device_keys` (select) | **la liste d'amis elle-même** — identifiant + clé publique |
@@ -225,7 +232,7 @@ règle qui écoute le graphe s'occupe du reste. Auparavant chacune entretenait
 
 | Quoi | Cadence | Coût par tour |
 |---|---|---|
-| balise + liste d'écoute | **60 s** | 2 appels |
+| balise + compteur du quartier | **60 s** | 2 appels |
 | dépôt des jetons entendus | **60 s** + immédiat au 1ᵉʳ jeton neuf | 1 appel |
 | `ping_nearby` | **conditionnel** : seulement si un jeton entendu n'a pas de nom, ou au changement de créneau. Renoncement après 3 min | 1 appel |
 | constats de croisement | **1 par (ami, créneau)** — donc 1 par quart d'heure | 1 appel |
@@ -233,8 +240,13 @@ règle qui écoute le graphe s'occupe du reste. Auparavant chacune entretenait
 | carnet d'amis (événement) | **quand l'ensemble des amis change** | 2 appels |
 | ma clé publique | **1× par session** | 1 appel |
 
-**Total au repos, un ami à côté : environ 5 appels par minute.**
-Avant le 2026-08-28 : **~120 par minute**.
+**Total au repos, un ami à côté : environ 5 appels par minute, et ~600 octets.**
+
+| | appels/min | octets/min |
+|---|---|---|
+| avant le 2026-08-28 | ~120 | ~30 000 |
+| après (carnet + constats corrigés) | ~5 | ~9 000 |
+| après (liste d'écoute supprimée) | ~5 | **~600** |
 
 ## Ce qui ne parle à personne (local)
 

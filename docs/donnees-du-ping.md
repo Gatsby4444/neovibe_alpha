@@ -4,8 +4,15 @@
 [`etats-et-echanges-du-ping.md`](etats-et-echanges-du-ping.md) : celui-là dit
 **ce qui circule et quand**, celui-ci dit **de quoi c'est fait**.
 
-⚠️ Relevé à la source (code Dart, code Kotlin, base) sur la **v0.9.143**.
+⚠️ Relevé à la source (code Dart, code Kotlin, base) sur la **v0.9.144**.
 Ce fichier a une date de péremption comme tous les autres.
+
+🔴 **Corrigé le soir même de son écriture** : la **liste d'écoute**
+(`ping_shortlist`) a été supprimée le 2026-08-28, quelques heures après la
+première version de ce document. Elle ne protégeait aucune limite BLE — le
+filtre de scan accepte tout, et il n'y a plus une seule connexion GATT dans le
+ping. Ce qu'elle tenait réellement était la **barrière du blocage**, et elle la
+tenait **depuis le client**, donc pas du tout.
 
 ---
 

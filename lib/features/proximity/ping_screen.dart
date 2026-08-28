@@ -680,10 +680,9 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
             // Un compte tronque s'annonce comme un PLANCHER : afficher le
             // plafond de la requete comme un total serait presenter une limite
             // d'instrument pour une mesure.
-            : "${beacon.listeningTruncated ? 'Plus de ' : ''}"
-                  "${beacon.listening} personne(s) ont le ping actif autour de "
-                  "toi. Aucune n'est à portée pour l'instant — il faut être à "
-                  "une vingtaine de mètres.",
+            : "${beacon.listening} personne(s) ont le ping actif autour "
+                  "de toi. Aucune n'est à portée pour l'instant — il faut être "
+                  "à une vingtaine de mètres.",
       ),
     ];
   }

@@ -353,8 +353,6 @@ void main() {
     });
   });
 
-  _troncature();
-
   group("l'ACQUISITION démarre sans lire un état qui n'existe pas", () {
     // ⚠️ **La panne du 2026-08-26.** `build()` finissait par `return state;` —
     // or Riverpod n'expose pas l'état pendant la construction : au premier
@@ -408,75 +406,29 @@ void main() {
   });
 }
 
-/// Ce que ce groupe protège : **un plafond n'est pas une mesure.**
-///
-/// `ping_shortlist` coupe à 500. Le client affichait ce nombre comme un total —
-/// « 500 personne(s) ont le ping actif » — alors qu'il y en avait peut-être
-/// trois mille. C'est le motif que ce projet traque partout : un chiffre qui a
-/// l'air d'être un fait alors que c'est la limite de l'instrument.
-class _DepotPlein extends PingRepository {
-  _DepotPlein(super.ref, this.rendus);
-
-  final int rendus;
-  final limitesRecues = <int>[];
-
-  @override
-  Future<PingShortlist> shortlist({
-    int limit = PingRepository.shortlistLimit,
-  }) async {
-    limitesRecues.add(limit);
-    return PingShortlist(
-      tokens: {for (var i = 0; i < rendus; i++) 'jeton-$i'},
-      atLeast: rendus >= limit,
-    );
-  }
-}
-
-void _troncature() {
-  group("un plafond atteint se DIT, il ne se lit pas comme un total", () {
-    _DepotPlein depot(int rendus) {
-      final c = ProviderContainer(
-        overrides: [
-          pingRepositoryProvider.overrideWith(
-            (ref) => _DepotPlein(ref, rendus),
-          ),
-        ],
-      );
-      addTearDown(c.dispose);
-      return c.read(pingRepositoryProvider) as _DepotPlein;
-    }
-
-    test("liste pleine : le compte est un PLANCHER", () async {
-      final liste = await depot(500).shortlist();
-      expect(liste.length, 500);
-      expect(
-        liste.atLeast,
-        isTrue,
-        reason:
-            "recevoir exactement ce qu'on demande ne prouve pas qu'il n'y en "
-            "avait pas plus — donc on n'affiche pas un total",
-      );
-    });
-
-    test("liste partielle : le compte est un TOTAL", () async {
-      final liste = await depot(3).shortlist();
-      expect(liste.length, 3);
-      expect(liste.atLeast, isFalse);
-    });
-
-    test(
-      "le client impose SA limite, il ne subit pas celle du serveur",
-      () async {
-        // Une limite subie doit être connue de celui qui la subit : sans la
-        // passer, le client ne peut pas savoir si la liste a été coupée.
-        final d = depot(10);
-        await d.shortlist(limit: 10);
-        expect(d.limitesRecues, [10]);
-        expect(PingRepository.shortlistLimit, 500);
-      },
-    );
-  });
-}
+// ⚠️ **LE GROUPE « un plafond n'est pas une mesure » A ÉTÉ RETIRÉ le 2026-08-28,
+// avec son sujet.**
+//
+// Il protégeait ceci : `ping_shortlist` coupait à 500 jetons, et le client
+// affichait ce nombre — « 500 personne(s) ont le ping actif » — alors qu'il y en
+// avait peut-être trois mille. Un chiffre qui a l'air d'un fait alors que c'est
+// la limite de l'instrument.
+//
+// **La liste d'écoute n'existe plus.** Le compteur vient de
+// `ping_neighbour_count`, un `count(*)` : il rend le vrai nombre, il ne peut
+// plus être tronqué, et `listeningTruncated` a disparu avec lui.
+//
+// ⚠️ **La RÈGLE, elle, n'est pas abandonnée** — elle n'a simplement plus de
+// porteur dans ce module. Le jour où un compteur affiché redevient tronqué,
+// c'est ce texte qu'il faut relire, pas la règle qu'il faut réinventer.
+//
+// ⚠️ **Et ce qui a remplacé la liste ne se teste PAS ici.** Ce que la liste
+// tenait réellement — la barrière du blocage — est désormais dans
+// `confirm_ping`, donc en base. C'est là que c'est vérifié, sous les deux
+// identités, sécurité active : blocage → 0 confirmation, 0 paire, 0 demande
+// d'ami. Un test Dart ne pourrait que répéter ce que le client croit, pas ce
+// que le serveur impose — c'est exactement l'argument que ce fichier tenait
+// déjà pour la règle de réciprocité.
 
 /// Superviseur figé : on ne teste ici que l'intention, pas la radio.
 class _SuperviseurFaux extends ProximitySupervisor {

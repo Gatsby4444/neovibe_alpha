@@ -76,8 +76,10 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   Timer? _flush;
   StreamSubscription<RadioEvent>? _radioFeed;
 
-  /// Les jetons à écouter, en hexadécimal. Vide = on n'écoute rien.
-  Set<String> _shortlist = const {};
+  // ⚠️ **`_shortlist` a été SUPPRIMÉE le 2026-08-28.** Elle portait les jetons
+  // que le serveur nous autorisait à écouter, et son **unique** usage était le
+  // filtre logiciel de `_onRadioEvent`. Voir `PingRepository.neighbourCount`
+  // pour ce qui a été vérifié avant de la retirer.
 
   /// Ce qu'on a entendu depuis le dernier dépôt.
   final _heard = <String>{};
@@ -158,7 +160,6 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     _flush = null;
     _radioFeed?.cancel();
     _radioFeed = null;
-    _shortlist = const {};
     _heard.clear();
     // ⚠️ Le ping s'arrête : ce qu'on a entendu n'est plus une observation, c'est
     // un souvenir. Le garder ferait afficher des gens partis au redémarrage.
@@ -212,13 +213,10 @@ class PingBeaconService extends Notifier<PingBeaconState> {
         slot: slot,
       );
       _publishedAt = DateTime.now();
-      final liste = await repo.shortlist();
-      _shortlist = liste.tokens;
       state = state.copyWith(
         blocker: null,
         precision: precision,
-        listening: liste.length,
-        listeningTruncated: liste.atLeast,
+        listening: await repo.neighbourCount(),
         lastError: null,
       );
     } catch (e) {
@@ -251,12 +249,21 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     final now = DateTime.now();
     if (now.difference(event.at) > kPingLocalGrace) return;
 
+    // ⚠️ **On dépose tout ce qu'on entend, depuis le 2026-08-28.**
+    //
+    // Un filtre vivait ici : on ne déposait que les jetons figurant dans la
+    // liste rendue par le serveur. Il ne rendait pas le serveur « annuaire »
+    // pour autant — `confirm_ping` n'a **jamais** répondu autre chose qu'un
+    // nombre, et il ne le fait toujours pas. Ce qu'il protégeait vraiment,
+    // c'était le **blocage** ; et il le protégeait **depuis le client**, donc
+    // pas du tout : rejoué en base, un appel direct créait une paire entre deux
+    // personnes qui s'étaient bloquées. La barrière est maintenant dans
+    // `confirm_ping`, là où elle décide de quelque chose.
+    //
+    // ⚠️ **On n'entend que ce qui est à portée BLE** — une poignée de jetons,
+    // pas les centaines du carreau. C'est le bon dimensionnement, et c'est ce
+    // qui rend le dépôt intégral moins cher que la liste qu'il remplace.
     final hex = _hex(event.advertId);
-    // ⚠️ **On ne dépose que ce qui est dans la liste.** Déposer tout ce qu'on
-    // entend reviendrait à demander au serveur « qui est-ce ? » pour chaque
-    // inconnu du quartier — c'est-à-dire à lui redonner le rôle d'annuaire que
-    // toute cette conception lui retire.
-    if (!_shortlist.contains(hex)) return;
 
     // ⚠️ **Un jeton JAMAIS entendu déclenche un dépôt immédiat.** C'est ce qui
     // garde la découverte à une quinzaine de secondes malgré une cadence de
@@ -346,7 +353,6 @@ class PingBeaconState {
     this.blocker,
     this.precision = LocationPrecision.precise,
     this.listening = 0,
-    this.listeningTruncated = false,
     this.confirmed = 0,
     this.lastError,
   });
@@ -371,9 +377,11 @@ class PingBeaconState {
   /// Combien de jetons on écoute en ce moment.
   final int listening;
 
-  /// Vrai quand [listening] est un **plancher**, pas un total : le serveur
-  /// a rendu tout ce qu'on lui demandait, il y en avait peut-être plus.
-  final bool listeningTruncated;
+  // ⚠️ **`listeningTruncated` a été SUPPRIMÉ le 2026-08-28.** Il disait « ce
+  // nombre est un plancher » parce que la liste coupait à 500.
+  // `ping_neighbour_count` rend un `count(*)` : le nombre est exact, et un
+  // drapeau qui ne peut plus valoir vrai est pire qu'absent — il fait croire
+  // qu'une prudence subsiste.
 
   /// Combien de constats ont été retenus par le serveur depuis le démarrage.
   final int confirmed;
@@ -398,7 +406,6 @@ class PingBeaconState {
     Object? blocker = _nonFourni,
     LocationPrecision? precision,
     int? listening,
-    bool? listeningTruncated,
     int? confirmed,
     Object? lastError = _nonFourni,
   }) => PingBeaconState(
@@ -407,7 +414,6 @@ class PingBeaconState {
         : blocker as LocationBlocker?,
     precision: precision ?? this.precision,
     listening: listening ?? this.listening,
-    listeningTruncated: listeningTruncated ?? this.listeningTruncated,
     confirmed: confirmed ?? this.confirmed,
     lastError: identical(lastError, _nonFourni)
         ? this.lastError
@@ -420,19 +426,12 @@ class PingBeaconState {
       other.blocker == blocker &&
       other.precision == precision &&
       other.listening == listening &&
-      other.listeningTruncated == listeningTruncated &&
       other.confirmed == confirmed &&
       other.lastError == lastError;
 
   @override
-  int get hashCode => Object.hash(
-    blocker,
-    precision,
-    listening,
-    listeningTruncated,
-    confirmed,
-    lastError,
-  );
+  int get hashCode =>
+      Object.hash(blocker, precision, listening, confirmed, lastError);
 }
 
 final pingBeaconProvider = NotifierProvider<PingBeaconService, PingBeaconState>(

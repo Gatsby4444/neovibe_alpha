@@ -54,35 +54,31 @@ class PingRepository {
   Future<void> retireBeacon() =>
       ref.read(supabaseProvider).rpc('retire_ping_beacon');
 
-  /// Le plafond que **le client** demande.
+  /// **Combien de balises fraîches dans le voisinage. Un entier, rien d'autre.**
   ///
-  /// ⚠️ **Il est passé explicitement, et ce n'est pas cosmétique.** Il valait le
-  /// défaut du serveur : le client recevait donc une liste éventuellement
-  /// **coupée sans le savoir**, et l'écran affichait « 500 personnes » comme un
-  /// fait alors que c'était la limite de l'instrument. Une limite subie doit
-  /// être connue de celui qui la subit.
-  static const shortlistLimit = 500;
-
-  /// La liste des jetons à écouter.
+  /// ## 🔴 Ce qui a remplacé la liste d'écoute, le 2026-08-28
   ///
-  /// ⚠️ **Des jetons, jamais des profils.** Sans être physiquement à portée BLE
-  /// de l'un d'eux, cette liste n'apprend rigoureusement rien : ni qui, ni
-  /// combien de personnes distinctes, ni où. C'est une liste de choses à
-  /// écouter, pas une liste de gens.
-  Future<PingShortlist> shortlist({int limit = shortlistLimit}) async {
-    final rows = await ref
-        .read(supabaseProvider)
-        .rpc('ping_shortlist', params: {'p_limit': limit});
-    final tokens = {
-      for (final row in (rows as List? ?? const []))
-        (row as Map)['token'] as String,
-    };
-    // ⚠️ **On ne devine pas la troncature, on borne ce qu'on affirme.**
-    // Recevoir exactement ce qu'on a demandé ne prouve pas qu'il y en avait
-    // plus — mais faire porter le total par chaque ligne coûterait ~7 Ko de
-    // réseau sur les 48 Ko mesurés. « Au moins N » est vrai dans les deux cas ;
-    // « N » ne l'est que dans l'un des deux.
-    return PingShortlist(tokens: tokens, atLeast: tokens.length >= limit);
+  /// Cette méthode s'appelait `shortlist()` et rapatriait **jusqu'à 500 jetons**
+  /// — 30 Ko par minute et par appareil — dont le client ne faisait qu'une
+  /// chose : filtrer, **en logiciel**, les annonces que la radio lui avait déjà
+  /// livrées. Le seul de ces jetons visible à l'écran était… leur **nombre**.
+  ///
+  /// ⚠️ **Elle était dimensionnée par la mauvaise chose** : le carreau GPS
+  /// (1 à 3 km, des centaines de personnes) alors que ce qu'on entend est
+  /// dimensionné par la portée BLE (~30 m, une poignée). On téléchargeait des
+  /// centaines de jetons pour en reconnaître trois.
+  ///
+  /// ⚠️ **Et elle créait le trou du changement de créneau** : tous les jetons
+  /// tournent en même temps toutes les 15 minutes, la liste avait jusqu'à 60 s
+  /// de retard, et **tout le monde devenait aveugle quatre fois par heure**.
+  ///
+  /// Ce qui a été vérifié avant de la retirer, en base et dans le code natif :
+  /// le filtre de scan BLE accepte **tout** (`ScanFilter.Builder().build()`), il
+  /// n'y a **aucune connexion GATT** dans le ping, et la liste n'avait **qu'un
+  /// seul lecteur** en Dart. Elle ne protégeait donc aucune limite radio.
+  Future<int> neighbourCount() async {
+    final n = await ref.read(supabaseProvider).rpc('ping_neighbour_count');
+    return (n as num?)?.toInt() ?? 0;
   }
 
   /// Dépose ce que j'ai **entendu**. Rend le nombre de constats retenus.
@@ -144,22 +140,17 @@ class PingRepository {
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }
 
-/// La liste des jetons a ecouter, **et si elle a ete coupee**.
-///
-/// ⚠️ **Deux faits distincts, donc deux champs.** Le nombre de jetons rendus et
-/// « y en avait-il plus ? » ne répondent pas à la même question, et les
-/// confondre fait afficher une limite comme si c'était une mesure.
-class PingShortlist {
-  const PingShortlist({required this.tokens, required this.atLeast});
-
-  final Set<String> tokens;
-
-  /// Vrai quand le serveur a rendu **au moins** autant qu'on lui en demandait :
-  /// le compte affiche est alors un plancher, pas un total.
-  final bool atLeast;
-
-  int get length => tokens.length;
-}
+// ⚠️ **`PingShortlist` a été SUPPRIMÉE le 2026-08-28**, avec la liste d'écoute.
+//
+// Elle portait deux champs — le nombre de jetons rendus, et « y en avait-il
+// plus ? » — parce qu'un plafond de 500 pouvait tronquer la réponse sans le
+// dire. `ping_neighbour_count` rend un `count(*)`, donc **le vrai nombre** :
+// la question de la troncature n'a plus de sujet.
+//
+// ⚠️ La règle qu'elle défendait — *un plafond n'est pas une mesure* — n'est pas
+// abandonnée, elle est sans objet ici. Elle reste vraie partout où un
+// instrument coupe (`listeningTruncated` était son seul porteur dans ce
+// module).
 
 /// Quelqu'un dont la proximité a été **prouvée des deux côtés**.
 class NearbyPerson {
