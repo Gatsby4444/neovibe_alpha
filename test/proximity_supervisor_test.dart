@@ -36,6 +36,11 @@ class _RadioFactice implements BleRadio {
   /// Combien de fois une table de reconnaissance a été déposée.
   int tables = 0;
 
+  /// Combien de jetons par créneau porte la dernière table déposée. **Zéro =
+  /// table vide**, c'est-à-dire « je ne reconnais plus personne » — un message
+  /// qui doit être ENVOYÉ, pas déduit d'un silence.
+  int? derniereTablePerSlot;
+
   int demarrages = 0;
 
   /// Combien de fois la radio a été **arrêtée**. C'est ce chiffre qui prouve
@@ -96,7 +101,10 @@ class _RadioFactice implements BleRadio {
     required int slotCount,
     required int perSlot,
     required int tokenLength,
-  }) async => tables++;
+  }) async {
+    tables++;
+    derniereTablePerSlot = perSlot;
+  }
 
   @override
   Future<List<Map<String, dynamic>>> takeSightings() async => const [];
@@ -147,11 +155,22 @@ void main() {
       h.container.listen(proximitySupervisorProvider, (_, _) {});
       await _propage();
 
-      // Au démarrage : un plan (l'identifiant public), et aucune table — on n'a
-      // pas d'ami à reconnaître.
+      // ⚠️ **Ce test attendait `tables == 0` au démarrage, et il avait tort.**
+      //
+      // Il affirmait qu'on ne dépose pas de table quand on n'a pas d'ami. C'est
+      // exactement ce qui a produit **318 et 485 constats jetés** au test de la
+      // v0.9.146 : quand le dernier ami part, le natif garde son ancienne table
+      // et continue de reconnaître l'ex-ami. « Je n'ai plus d'amis » doit
+      // s'envoyer ; il ne se déduit pas d'un silence.
       expect(h.radio.plans, greaterThan(0));
-      expect(h.radio.tables, 0);
+      expect(h.radio.tables, greaterThan(0));
+      expect(
+        h.radio.derniereTablePerSlot,
+        0,
+        reason: 'sans ami, la table déposée est VIDE — pas absente',
+      );
       final avant = h.radio.plans;
+      final tablesAvant = h.radio.tables;
 
       final bob = await IdentiteMemoire.creer(graine: 7, userId: 'u-b');
       await h.carnet.replace([_ami('u-b', await bob.x25519PublicKey())]);
@@ -167,10 +186,15 @@ void main() {
       );
       expect(
         h.radio.tables,
-        greaterThan(0),
+        greaterThan(tablesAvant),
         reason:
             'Sans table déposée, le natif est vu sans voir : plus aucun '
             'croisement app fermée.',
+      );
+      expect(
+        h.radio.derniereTablePerSlot,
+        greaterThan(0),
+        reason: 'et cette fois elle porte bien le jeton attendu de Bob',
       );
     },
   );
@@ -247,6 +271,47 @@ void main() {
         reason:
             "Crier alors que l'utilisateur a coupé sa visibilité, c'est faire "
             "l'inverse de ce qu'il vient de demander.",
+      );
+    },
+  );
+
+  /// 🔴 **Le défaut qui a rempli le rapport de diagnostic de la v0.9.146.**
+  ///
+  /// 318 incidents chez Charles, 485 chez mimi, à raison d'un toutes les deux
+  /// secondes — et le journal ne garde que 200 entrées, donc **tout ce qui
+  /// aurait pu être utile en avait été chassé**. L'instrument de diagnostic
+  /// était saturé par un seul défaut.
+  test(
+    'le DERNIER ami retiré fait déposer une table VIDE, pas rien du tout',
+    () async {
+      final h = await _harnais();
+      addTearDown(h.container.dispose);
+      addTearDown(h.radio.fermer);
+      h.container.listen(proximitySupervisorProvider, (_, _) {});
+      await _propage();
+
+      final bob = await IdentiteMemoire.creer(graine: 7, userId: 'u-b');
+      await h.carnet.replace([_ami('u-b', await bob.x25519PublicKey())]);
+      await _propage();
+      expect(h.radio.derniereTablePerSlot, greaterThan(0));
+      final tablesAvant = h.radio.tables;
+
+      // Le dernier ami s'en va.
+      await h.carnet.replace(const []);
+      await _propage();
+
+      expect(
+        h.radio.tables,
+        greaterThan(tablesAvant),
+        reason:
+            'ne rien envoyer laisse le natif sur son ancienne table : il '
+            'continue de reconnaître l\'ex-ami, et le Dart jette ses constats '
+            'un par un, toutes les deux secondes',
+      );
+      expect(
+        h.radio.derniereTablePerSlot,
+        0,
+        reason: 'la nouvelle table ne reconnaît plus personne',
       );
     },
   );

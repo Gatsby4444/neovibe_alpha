@@ -541,29 +541,45 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
     // Le plan l'a rendu autonome pour ÉMETTRE ; sans table, il reste incapable
     // de VOIR. L'appareil serait alors vu sans voir — exactement le défaut
     // qu'on corrige. Les deux se déposent donc ensemble, toujours.
-    if (secrets.isNotEmpty) {
-      _tableId++;
-      final table = await const AdvertPlanner().nativeTable(
-        secrets: secrets,
-        fromSlot: _slot,
-        slots:
-            planHorizon.inMilliseconds ~/
-            ProximityIdentity.slotDuration.inMilliseconds,
-        tableId: _tableId,
-      );
-      _recognition = table;
-      await _radio.setRecognitionTable(
-        tableId: table.tableId,
-        tokens: table.tokens,
-        fromSlot: table.fromSlot,
-        slotMillis: ProximityIdentity.slotDuration.inMilliseconds,
-        slotCount: table.slotCount,
-        perSlot: table.perSlot,
-        tokenLength: ProximityIdentity.tokenLength,
-      );
-    } else {
-      _recognition = null;
-    }
+    //
+    // ## 🔴 « Toujours » était faux, et le test de la v0.9.146 l'a chiffré
+    //
+    // Ce bloc était enfermé dans `if (secrets.isNotEmpty)`. Quand le **dernier
+    // ami** disparaissait du carnet, le Dart mettait `_recognition = null` et
+    // **ne disait rien au natif** : celui-ci gardait la table précédente,
+    // continuait de reconnaître l'ex-ami, et remontait un constat toutes les
+    // deux secondes que le Dart jetait un par un — faute de table pour le lire.
+    //
+    // Relevé sur les deux appareils : **318 et 485 incidents** en une demi-heure.
+    //
+    // ⚠️ **Le pire n'est pas le gaspillage, c'est l'aveuglement.** Le journal
+    // d'incidents est un anneau de 200 entrées : ces rejets, à 30 par minute,
+    // **chassaient du rapport tout ce qui aurait pu s'y trouver d'utile**.
+    // L'instrument de diagnostic était saturé par un seul défaut.
+    //
+    // ⚠️ **Une table VIDE se dépose, elle ne se déduit pas.** Ne rien envoyer
+    // laisse le natif sur son ancienne table — « je n'ai plus d'amis » et « je
+    // ne t'ai rien dit » sont deux messages différents, et le silence était lu
+    // comme le second.
+    _tableId++;
+    final table = await const AdvertPlanner().nativeTable(
+      secrets: secrets,
+      fromSlot: _slot,
+      slots:
+          planHorizon.inMilliseconds ~/
+          ProximityIdentity.slotDuration.inMilliseconds,
+      tableId: _tableId,
+    );
+    _recognition = table;
+    await _radio.setRecognitionTable(
+      tableId: table.tableId,
+      tokens: table.tokens,
+      fromSlot: table.fromSlot,
+      slotMillis: ProximityIdentity.slotDuration.inMilliseconds,
+      slotCount: table.slotCount,
+      perSlot: table.perSlot,
+      tokenLength: ProximityIdentity.tokenLength,
+    );
   }
 }
 

@@ -40,7 +40,28 @@ abstract final class ConnectionTrace {
   /// compter.
   static const friendsPulled = 'synchros du carnet réussies';
 
-  static final instance = EventTrace('connexions', counters: [friendsPulled]);
+  /// Combien de constats du natif ont été jetés faute de table pour les lire.
+  ///
+  /// ## ⚠️ Pourquoi un COMPTEUR et pas un événement
+  ///
+  /// C'en était un — et sous le motif **faux** de « synchronisation hors
+  /// ligne », qui n'a rien à voir. Le test de la v0.9.146 en a produit **318 et
+  /// 485** en une demi-heure, à raison d'un toutes les deux secondes.
+  ///
+  /// 🔴 **Le journal est un anneau de 200 entrées.** Un événement qui se
+  /// répète trente fois par minute n'est pas un événement : c'est un **taux**,
+  /// et il chasse du rapport tout ce qui est réellement rare. L'instrument
+  /// devenait aveugle au moment précis où on en avait besoin.
+  ///
+  /// Un compteur, lui, est **toujours affiché, même à zéro**, et ne coûte
+  /// aucune place. La cause est corrigée par ailleurs (la table est désormais
+  /// déposée même vide) ; ce compteur reste pour que sa réapparition se voie.
+  static const nativeDropped = 'constats natifs jetés (table périmée)';
+
+  static final instance = EventTrace(
+    'connexions',
+    counters: [friendsPulled, nativeDropped],
+  );
 
   static void count(String kind) => instance.count(kind);
 

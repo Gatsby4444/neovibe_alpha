@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/clock.dart';
+import 'package:neovibe/core/supabase_providers.dart';
+import 'package:neovibe/features/connections/connections_repository.dart';
+import 'package:neovibe/core/models/connection.dart';
 import 'package:neovibe/features/proximity/net/ping_beacon_service.dart';
 import 'package:neovibe/features/proximity/net/ping_nearby_feed.dart';
 import 'package:neovibe/features/proximity/net/ping_repository.dart';
@@ -60,6 +63,12 @@ _harnais() {
   final container = ProviderContainer(
     overrides: [
       pingNearbySourceProvider.overrideWith(() => source),
+      // ⚠️ **Pas de compte connecté = pas de graphe d'amis à lire.**
+      // Depuis le 2026-08-28, ces vues écartent les amis (`inconnusVusProvider`)
+      // — c'est une règle d'AFFICHAGE, la section veut dire « inconnus ». Sans
+      // cet override, le test irait chercher Supabase pour une réponse qu'il
+      // connaît : personne n'est ami de personne ici.
+      currentUserIdProvider.overrideWithValue(null),
       // ⚠️ **Le temps est piloté, jamais attendu.** Un test qui dort mesure la
       // vitesse de la machine autant que le code.
       tickProvider(kExpiryTick).overrideWith((ref) => horloge.stream),
@@ -80,7 +89,75 @@ void _entend(ProviderContainer c, DateTime quand, List<String> jetons) => c
     .read(ecouteLocaleProvider.notifier)
     .publish({for (final j in jetons) j: quand});
 
+/// 🔴 **Le doublon de la capture de Jay, 2026-08-28 à 17 h 04.**
+///
+/// mimi y apparaît **deux fois** : en amie avec sa distance, et en inconnue avec
+/// le sablier de la demande en attente. Les deux tuiles étaient justes ; leur
+/// coexistence ne l'était pas.
+///
+/// `ping_nearby` écarte bien les amis **côté serveur** — mais la liste ne se
+/// remplace qu'à un appel serveur, et cet appel n'a plus de raison de partir une
+/// fois tous les jetons nommés. L'entrée d'avant l'amitié restait donc affichée
+/// **jusqu'au changement de créneau : quinze minutes**.
+void _amisJamaisInconnus() {
+  group('un ami n\'est jamais un inconnu', () {
+    test(
+      'devenir ami le retire de la liste des inconnus, sans appel serveur',
+      () async {
+        final source = _SourceFausse();
+        final amis = StreamController<List<Connection>>.broadcast();
+        final container = ProviderContainer(
+          overrides: [
+            pingNearbySourceProvider.overrideWith(() => source),
+            currentUserIdProvider.overrideWithValue('moi'),
+            connectionsStreamProvider.overrideWith((ref) => amis.stream),
+          ],
+        );
+        addTearDown(container.dispose);
+        container.listen(inconnusVusProvider, (_, _) {});
+        container.listen(connectionsStreamProvider, (_, _) {});
+
+        source.publier([
+          NearbyPerson(
+            userId: 'pair-a',
+            displayName: 'mimi',
+            lastSeenAt: DateTime.now(),
+            token: 'jeton-mimi',
+          ),
+        ]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(
+          container.read(inconnusVusProvider).length,
+          1,
+          reason: 'inconnue : elle a sa place dans « Autour de toi »',
+        );
+
+        // Ils deviennent amis. **Aucun appel serveur ne part** : c'est le graphe
+        // qui arrive, et la vue doit en tirer la conséquence toute seule.
+        amis.add([
+          const Connection(
+            id: 'c1',
+            userLow: 'moi',
+            userHigh: 'pair-a',
+            status: ConnectionStatus.full,
+          ),
+        ]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(
+          container.read(inconnusVusProvider),
+          isEmpty,
+          reason:
+              'sinon elle reste affichée en inconnue À CÔTÉ de sa tuile d\'amie, '
+              'jusqu\'au changement de créneau — quinze minutes',
+        );
+      },
+    );
+  });
+}
+
 void main() {
+  _amisJamaisInconnus();
   _decision();
 
   group('Croisés récemment — une liste où l\'on peut encore AGIR', () {
@@ -368,6 +445,9 @@ void main() {
         ),
         pingBeaconProvider.overrideWith(_BaliseFausse.new),
         pingRepositoryProvider.overrideWith((ref) => _DepotFaux(ref)),
+        // Même raison que dans `_harnais` : aucun compte connecté, donc aucun
+        // graphe d'amis à aller chercher.
+        currentUserIdProvider.overrideWithValue(null),
       ],
     );
 

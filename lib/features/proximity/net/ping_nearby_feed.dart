@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/clock.dart';
 import '../../../core/derived_list.dart';
+import '../../connections/connections_repository.dart';
 import '../proximity_identity.dart';
 import 'ping_beacon_service.dart';
 import 'ping_repository.dart';
@@ -287,6 +288,49 @@ final pingNearbySourceProvider =
       PingNearbySource.new,
     );
 
+/// **Les INCONNUS que le serveur a nommés — les amis retirés.**
+///
+/// ## 🔴 Le doublon vu par Jay le 2026-08-28 à 17 h 04
+///
+/// Sa capture montre **mimi deux fois** : une fois en amie, avec sa distance
+/// (« Tout près ≈ 4,3 m »), et une fois en inconnue, avec le sablier de la
+/// demande en attente. Les deux tuiles étaient justes ; c'est leur coexistence
+/// qui ne l'était pas.
+///
+/// **Pourquoi** : `ping_nearby` écarte bien les amis côté serveur — mais la
+/// liste ne se remplace qu'à un **appel** serveur, et cet appel n'a plus de
+/// raison de partir une fois que tous les jetons entendus sont nommés
+/// (`doitDemander`). L'entrée d'avant l'amitié restait donc affichée **jusqu'au
+/// changement de créneau — quinze minutes**.
+///
+/// ⚠️ **La règle du serveur et celle-ci ne disent pas la même chose, et c'est
+/// voulu.** Le serveur écarte les amis parce qu'il ne doit **pas révéler** leur
+/// profil par ce chemin : c'est une règle de sécurité. Ici, on les écarte parce
+/// que **cette section veut dire « inconnus »** : c'est une règle d'affichage.
+/// Deux raisons différentes, même prédicat — et celle d'affichage doit être
+/// **locale**, sinon elle attend le réseau pour dire une chose qu'on sait déjà.
+///
+/// ⚠️ **Une seule définition pour les deux vues** : « à portée » et « croisés
+/// récemment » lisaient toutes deux la source brute. Y écrire le filtre deux
+/// fois aurait été deux occasions de diverger.
+class InconnusVus extends Notifier<List<NearbyPerson>>
+    with DerivedList<NearbyPerson> {
+  @override
+  List<NearbyPerson> build() {
+    // `friendIdsProvider` est un `DerivedSet` : il ne réveille que si
+    // l'ENSEMBLE change. Un ami qui change d'avatar ne recalcule rien ici.
+    final amis = ref.watch(friendIdsProvider);
+    return ref
+        .watch(pingNearbySourceProvider)
+        .where((p) => !amis.contains(p.userId))
+        .toList(growable: false);
+  }
+}
+
+final inconnusVusProvider = NotifierProvider<InconnusVus, List<NearbyPerson>>(
+  InconnusVus.new,
+);
+
 /// **L'USAGE.** Qui est affiché à cet instant.
 ///
 /// ## ⚠️ La présence se constate EN LOCAL depuis le 2026-08-27
@@ -316,7 +360,7 @@ class PingNearby extends Notifier<List<NearbyPerson>>
     final now = ref.watch(expiryClockProvider);
     final entendus = ref.watch(ecouteLocaleProvider);
     return ref
-        .watch(pingNearbySourceProvider)
+        .watch(inconnusVusProvider)
         .where((p) => _present(p, entendus, now))
         .toList(growable: false);
   }
@@ -385,7 +429,7 @@ class CroisesRecemment extends Notifier<List<NearbyPerson>>
     final now = ref.watch(expiryClockProvider);
     final aPortee = {for (final p in ref.watch(pingNearbyProvider)) p.userId};
     return ref
-        .watch(pingNearbySourceProvider)
+        .watch(inconnusVusProvider)
         .where(
           (p) =>
               !aPortee.contains(p.userId) &&

@@ -331,11 +331,13 @@ class ProximityController extends AsyncNotifier<void> {
         ),
       );
     }
-    if (jetes > 0) {
-      ConnectionTrace.note(
-        ConnectionEvent.syncOffline,
-        detail: "$jetes constat(s) natif(s) d'une table périmée, jetés",
-      );
+    // ⚠️ **Compté, plus consigné** (2026-08-28). Ceci se produisait toutes les
+    // deux secondes et saturait l'anneau du journal — voir
+    // `ConnectionTrace.nativeDropped`. Et le motif employé, « synchronisation
+    // hors ligne », décrivait quelque chose qui ne s'était pas produit : un
+    // lecteur du rapport en aurait conclu à 318 pannes réseau.
+    for (var i = 0; i < jetes; i++) {
+      ConnectionTrace.count(ConnectionTrace.nativeDropped);
     }
   }
 
