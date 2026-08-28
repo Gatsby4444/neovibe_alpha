@@ -52,11 +52,23 @@ object PlanStore {
 
     private const val MAGIC = "NVPLAN2"
 
+    /**
+     * ⚠️ **Le `Context` ne sert qu'a trouver le fichier, et il s'arrete ici.**
+     *
+     * Tout ce qui suit travaille sur un `File`. C'est ce qui rend ce magasin
+     * eprouvable en test JVM ordinaire : sans cette separation, la seule facon
+     * de verifier l'ecriture et la relecture aurait ete de lancer l'app sur un
+     * telephone — donc de ne jamais les verifier, et de decouvrir une panne au
+     * seul moment ou personne ne regarde : un service repris apres avoir ete
+     * tue par Android.
+     */
     private fun fichier(context: Context) = File(context.filesDir, "proximity_plan.bin")
 
     /** Efface le plan persiste. Sans bruit s'il n'y en a pas. */
-    fun effacer(context: Context) {
-        runCatching { fichier(context).delete() }
+    fun effacer(context: Context) = effacer(fichier(context))
+
+    fun effacer(cible: File) {
+        runCatching { cible.delete() }
     }
 
     /**
@@ -67,10 +79,13 @@ object PlanStore {
      * plan un appareil qui voit sans etre vu — les deux se deposent ensemble
      * ou pas du tout.
      */
-    fun ecrire(context: Context, plan: AdvertSchedule?, table: RecognitionTable?): Boolean {
+    fun ecrire(context: Context, plan: AdvertSchedule?, table: RecognitionTable?): Boolean =
+        ecrire(fichier(context), plan, table)
+
+    fun ecrire(cible: File, plan: AdvertSchedule?, table: RecognitionTable?): Boolean {
         val amis = plan?.friendsOnly()
         if (amis == null || table == null) {
-            effacer(context)
+            effacer(cible)
             return false
         }
         return runCatching {
@@ -98,7 +113,7 @@ object PlanStore {
             buffer.putInt(table.rawTokenLength)
             buffer.putInt(table.rawTokens.size)
             buffer.put(table.rawTokens)
-            fichier(context).writeBytes(buffer.array())
+            cible.writeBytes(buffer.array())
             true
         }.getOrDefault(false)
     }
@@ -115,10 +130,12 @@ object PlanStore {
      * tout en ne se faisant reconnaitre par personne — c'est le point H, en
      * plus silencieux. Le silence, lui, se constate.
      */
-    fun relire(context: Context, nowMillis: Long): Repris? = runCatching {
-        val f = fichier(context)
-        if (!f.exists()) return null
-        val buffer = ByteBuffer.wrap(f.readBytes())
+    fun relire(context: Context, nowMillis: Long): Repris? =
+        relire(fichier(context), nowMillis)
+
+    fun relire(source: File, nowMillis: Long): Repris? = runCatching {
+        if (!source.exists()) return null
+        val buffer = ByteBuffer.wrap(source.readBytes())
         val entete = ByteArray(MAGIC.length)
         buffer.get(entete)
         if (String(entete, Charsets.US_ASCII) != MAGIC) return null
