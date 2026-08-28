@@ -10,6 +10,11 @@
 **Périmètre** : la proximité et le graphe d'amis. Pas la caméra, pas les Vibes,
 pas les stories.
 
+📎 **Le catalogue des données elles-mêmes** — clés, jetons, mesures radio,
+fichiers sur le disque, colonnes en base — est dans
+[`donnees-du-ping.md`](donnees-du-ping.md). Celui-ci dit **ce qui circule et
+quand** ; celui-là dit **de quoi c'est fait**.
+
 ⚠️ **Tout ce qui suit est relevé à la source** — le code et la base — le
 2026-08-28, sur la **v0.9.143**. Aucune ligne ne vient d'un document antérieur.
 Ce fichier a donc, lui aussi, une date de péremption : il dit ce qui était vrai
