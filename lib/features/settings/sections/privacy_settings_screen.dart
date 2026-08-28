@@ -5,6 +5,7 @@ import '../../../core/supabase_providers.dart';
 import '../blocked_screen.dart';
 import '../settings_common.dart';
 import '../../profile/profile_repository.dart';
+import '../../proximity/net/proximity_supervisor.dart';
 
 /// Sécurité, blocages et notifications de croisement.
 class PrivacySettingsScreen extends ConsumerWidget {
@@ -13,11 +14,41 @@ class PrivacySettingsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(myProfileProvider).value;
+    final runtime = ref.watch(proximitySupervisorProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Sécurité et confidentialité')),
       body: ListView(
         children: [
+          // ⚠️ **Ajouté le 2026-08-28, et il manquait.** Un seul interrupteur
+          // commandait les deux fonctions : couper « Visible à proximité » sur
+          // l'écran Ping coupait aussi le croisement des amis, donc les streaks
+          // et le « presque ». Ce sont deux choses différentes (consigne de
+          // Jay), elles ont maintenant deux réglages.
+          const SettingsHeader('Proximité'),
+          SwitchListTile(
+            title: const Text('Croiser mes amis'),
+            subtitle: const Text(
+              'Ton téléphone reconnaît tes amis quand vous vous croisez, même '
+              'application fermée. Rien n\'est envoyé à personne d\'autre : le '
+              'code émis n\'est lisible que par tes amis. Nécessaire aux '
+              'streaks et au « presque ».',
+            ),
+            value: runtime.wantsFriends,
+            // Inerte tant que l'intention n'est pas relue du disque : sinon
+            // l'interrupteur s'affiche éteint puis saute, et qui voit ça le
+            // rebascule — donc coupe ce qu'il voulait garder.
+            onChanged: runtime.intentLoaded
+                ? (v) => ref
+                      .read(proximitySupervisorProvider.notifier)
+                      .setFriendCrossing(v)
+                : null,
+          ),
+          const SettingsNote(
+            'Être découvrable par des INCONNUS est un réglage séparé, sur '
+            'l\'écran Ping. Celui-ci ne concerne que tes amis.',
+          ),
+          const Divider(),
           const SettingsHeader('Personnes'),
           ListTile(
             leading: const Icon(Icons.block),

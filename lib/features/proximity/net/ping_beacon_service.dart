@@ -107,8 +107,11 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     // Lier ce service à « la radio tourne » le ferait démarrer et s'arrêter au
     // rythme des aléas Bluetooth ; l'intention, elle, ne change que quand
     // l'utilisateur la change.
+    // ⚠️ **La DÉCOUVERTE, pas le croisement d'amis.** Ce service publie une
+    // balise au serveur et écoute les inconnus : il n'a rien à faire quand
+    // l'utilisateur veut seulement croiser ses amis (2026-08-28).
     final wants = ref.watch(
-      proximitySupervisorProvider.select((r) => r.wantsVisible),
+      proximitySupervisorProvider.select((r) => r.wantsDiscovery),
     );
     if (wants) {
       Future.microtask(_start);

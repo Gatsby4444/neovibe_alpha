@@ -138,8 +138,23 @@ pourquoi il existe un filet périodique (⑤).
 Six machines d'état vivent en parallèle. **Elles ne changent pas au même rythme
 et ne se déduisent pas les unes des autres** — c'est le point.
 
-### a. L'intention de l'utilisateur
-`wantsVisible` : vrai / faux · `intentLoaded` : lue du disque ou pas encore.
+### a. Les intentions de l'utilisateur — **il y en a DEUX**
+`wantsFriends` (**croiser mes amis**, Réglages → Sécurité et confidentialité) ·
+`wantsDiscovery` (**visible des inconnus**, écran Ping) · `intentLoaded` : lues
+du disque ou pas encore.
+
+🔴 **Il n'y en avait qu'une jusqu'au 2026-08-28**, et elle commandait les deux :
+couper « Visible à proximité » coupait aussi le croisement des amis — donc les
+streaks et le « presque ». Trois commentaires du code affirmaient le contraire.
+La séparation avait été **conçue** (`AdvertPlanner.plan` accepte une graine
+publique nulle depuis le 2026-08-20), jamais **branchée**.
+
+| | croiser mes amis | visible des inconnus |
+|---|---|---|
+| permission de position | **aucune** (Android 12+) | oui |
+| balise au serveur | **non** | oui |
+| app fermée | **oui** | non |
+| dans le plan d'émission | jeton d'ami, **12 h** | identifiant public, **75 min** |
 
 ### b. La radio *(`RadioStatus`, publié par le service natif)*
 `unsupported` · `permissionsMissing(liste)` · `adapterOff` · `locationOff` ·
@@ -262,7 +277,8 @@ règle qui écoute le graphe s'occupe du reste. Auparavant chacune entretenait
 | Durée | Valeur | Ce qu'elle décide |
 |---|---|---|
 | créneau | **15 min** | tous les jetons changent |
-| horizon du plan | **12 h** | combien de temps l'appareil reste reconnaissable **sans aucun code Dart vivant** |
+| horizon du plan — **amis** | **12 h** | combien de temps l'appareil reste reconnaissable **sans aucun code Dart vivant** |
+| horizon du plan — **public** | **75 min** | au-delà, plus personne ne peut nommer ce qu'on crie : la balise serveur est morte depuis longtemps |
 | silence radio | **10 s** | « il est parti » (décidé en local, sans réseau) |
 | filet serveur | **2 min** | « il est parti », quand on ne connaît pas encore son jeton |
 | durée de vie d'une balise | **5 min** | au-delà, le serveur nous a oubliés |

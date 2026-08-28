@@ -98,7 +98,8 @@ class _ProximityDiagnosticScreenState
           _Bloc(
             titre: 'Intention et état',
             enfants: [
-              _Texte('Tu veux être visible', '${runtime.wantsVisible}'),
+              _Texte('Croiser mes amis', '${runtime.wantsFriends}'),
+              _Texte('Visible des inconnus', '${runtime.wantsDiscovery}'),
               _Texte('Intention relue du disque', '${runtime.intentLoaded}'),
               _Texte('État publié par le natif', _nommer(runtime.status)),
             ],

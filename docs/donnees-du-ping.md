@@ -150,7 +150,8 @@ latitude et ~0,79 km en longitude.
 | 18 | `ping/friend_keys.json` | **le carnet d'amis** : par ami — identifiant, pseudo, tag, avatar, **clé publique X25519** |
 | 19 | `ping/outbox.json` | **la file d'envoi** : ce qui doit remonter au retour d'internet |
 | 20 | `proximity_plan.bin` (natif) | **le plan d'émission** et **la table de reconnaissance** |
-| 21 | l'intention « Visible à proximité » | vrai / faux |
+| 21 | l'intention **« croiser mes amis »** | vrai / faux (`proximity_friends`) |
+| 22 | l'intention **« visible des inconnus »** | vrai / faux (`proximity_visible`) |
 
 🔴 **Le n° 18 est le trou du recensement** : c'est de lui que dépend toute la
 reconnaissance Bluetooth, et **rien à l'écran ni au diagnostic ne dit s'il est
@@ -171,8 +172,8 @@ jetons eux-mêmes** — puis la même chose pour la table de reconnaissance, plu
 
 | # | Donnée | Où |
 |---|---|---|
-| 22 | **le rang** (index) dans la table de reconnaissance | le natif ne connaît **que ça** |
-| 23 | **le `tableId`** | versionne le carnet |
+| 23 | **le rang** (index) dans la table de reconnaissance | le natif ne connaît **que ça** |
+| 24 | **le `tableId`** | versionne le carnet |
 
 ⚠️ **Le natif n'apprend aucune identité, jamais.** Il répond « le rang 3 est
 passé », et c'est le Dart qui sait qui c'est. Lui donner les identifiants des
@@ -221,5 +222,5 @@ invisibles, et **chacune a déjà causé une panne ou en causera une** :
 | 4 | **le `txPower`** (E-10) | sans lui, toutes les distances sont fausses |
 | 5 | **l'adresse BLE** (E-8) | elle tourne toute seule et fabrique de fausses personnes |
 | 6 | **l'instant de l'annonce** (E-11) | un scan rejoué n'est pas une observation |
-| 7 | **le `tableId`** (I-23) | sans lui, un rang désigne peut-être quelqu'un d'autre |
+| 7 | **le `tableId`** (I-24) | sans lui, un rang désigne peut-être quelqu'un d'autre |
 | 8 | **l'état du carnet d'amis** (H-18) | **il n'existe pas encore** — c'est le prochain chantier |

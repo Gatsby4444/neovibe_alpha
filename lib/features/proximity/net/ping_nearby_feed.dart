@@ -90,7 +90,7 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
     });
 
     final wants = ref.watch(
-      proximitySupervisorProvider.select((r) => r.wantsVisible),
+      proximitySupervisorProvider.select((r) => r.wantsDiscovery),
     );
     // ⚠️ Le service de balise doit tourner : sans balise publiée, le serveur ne
     // rend rien, et interroger `ping_nearby` ne ferait que du bruit réseau.

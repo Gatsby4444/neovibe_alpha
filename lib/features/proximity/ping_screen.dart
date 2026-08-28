@@ -103,20 +103,23 @@ class _PingScreenState extends ConsumerState<PingScreen> {
             ),
 
             SwitchListTile(
+              // ⚠️ **Cet interrupteur ne commande QUE la découverte d'inconnus
+              // depuis le 2026-08-28.** Le croisement d'amis a le sien, dans
+              // Réglages → Sécurité et confidentialité.
               title: const Text('Visible à proximité'),
               subtitle: Text(_sousTitreInterrupteur(runtime)),
-              value: runtime.wantsVisible,
+              value: runtime.wantsDiscovery,
               // Tant que l'intention n'est pas relue, l'interrupteur est inerte
               // — sinon il s'afficherait éteint puis sauterait, et un
               // utilisateur qui voit ça le rebascule, donc coupe sa visibilité.
               onChanged: runtime.intentLoaded
                   ? (on) => ref
                         .read(proximitySupervisorProvider.notifier)
-                        .setVisible(on)
+                        .setDiscovery(on)
                   : null,
             ),
 
-            if (runtime.wantsVisible) _BandeauEtat(runtime: runtime),
+            if (runtime.wantsDiscovery) _BandeauEtat(runtime: runtime),
 
             if (runtime.isLive)
               Padding(
@@ -183,7 +186,7 @@ class _PingScreenState extends ConsumerState<PingScreen> {
   }
 
   String _sousTitreInterrupteur(ProximityRuntime runtime) {
-    if (!runtime.wantsVisible) {
+    if (!runtime.wantsDiscovery) {
       return 'Active pour rencontrer ceux qui te croisent';
     }
     if (runtime.isLive) {
@@ -200,13 +203,21 @@ class _PingScreenState extends ConsumerState<PingScreen> {
   /// **distance**. Ne pas la confondre avec la découverte d'inconnus, qui vient
   /// du ping v2 et qui, elle, a besoin du serveur.
   List<Widget> _autourDeToiAmis(ProximityRuntime runtime, PresenceKeys keys) {
-    if (!runtime.wantsVisible) {
+    // 🔴 **Cette ligne testait le MAUVAIS interrupteur jusqu'au 2026-08-28.**
+    //
+    // Elle lisait `wantsVisible`, c'est-à-dire « visible des inconnus ». Couper
+    // sa découverte vidait donc aussi la liste de ses amis à portée — alors que
+    // le croisement d'amis ne dépend ni du serveur, ni de la position, ni de la
+    // découverte. C'est le défaut rendu visible par la séparation des deux
+    // intentions ; il était **invisible** tant qu'un seul booléen commandait
+    // les deux.
+    if (!runtime.wantsFriends) {
       return const [
         _Vide(
           icon: Icons.bluetooth_disabled,
           text:
-              'Ta visibilité est coupée.\nPersonne ne peut te détecter, et tu '
-              'ne détectes personne.',
+              'Le croisement de tes amis est coupé.\nRéglages → Sécurité et '
+              'confidentialité pour le rallumer.',
         ),
       ];
     }
@@ -580,7 +591,7 @@ class _Vide extends StatelessWidget {
 /// écoute sans s'annoncer n'y apparaît jamais — et n'y fait apparaître
 /// personne. La règle vit côté serveur, pas ici (`confirm_ping`).
 List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
-  if (!runtime.wantsVisible) {
+  if (!runtime.wantsDiscovery) {
     return const [
       _Vide(
         icon: Icons.visibility_off_outlined,

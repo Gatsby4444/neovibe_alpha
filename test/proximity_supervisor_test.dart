@@ -38,6 +38,14 @@ class _RadioFactice implements BleRadio {
 
   int demarrages = 0;
 
+  /// Combien de fois la radio a été **arrêtée**. C'est ce chiffre qui prouve
+  /// qu'un interrupteur ne coupe pas la fonction de l'autre.
+  int arrets = 0;
+
+  /// Les octets de type du dernier plan déposé : `1` = identifiant public,
+  /// `2` = jeton d'ami. **C'est la seule façon de voir ce qu'on crie vraiment.**
+  Uint8List? derniersTypes;
+
   /// Fait échouer le dépôt du plan, pour éprouver le rétablissement.
   bool refusePlan = false;
 
@@ -51,7 +59,7 @@ class _RadioFactice implements BleRadio {
   Future<void> start(Uint8List advertId) async => demarrages++;
 
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async => arrets++;
 
   @override
   Future<void> openLocationSettings() async {}
@@ -68,6 +76,7 @@ class _RadioFactice implements BleRadio {
   }) async {
     if (refusePlan) throw StateError('service absent');
     plans++;
+    derniersTypes = types;
     return 0;
   }
 
@@ -98,9 +107,10 @@ Future<void> _propage() =>
 Future<
   ({ProviderContainer container, _RadioFactice radio, CarnetMemoire carnet})
 >
-_harnais({bool visible = true, String? me = 'u-moi'}) async {
+_harnais({bool? visible = true, bool? amis, String? me = 'u-moi'}) async {
   SharedPreferences.setMockInitialValues({
-    ProximitySupervisor.prefsKey: visible,
+    ProximitySupervisor.prefsKey: ?visible,
+    ProximitySupervisor.prefsKeyFriends: ?amis,
   });
   final radio = _RadioFactice();
   final carnet = CarnetMemoire();
@@ -233,4 +243,138 @@ void main() {
       );
     },
   );
+
+  _deuxInterrupteurs();
+}
+
+/// **Ce que ce groupe mesure : qu'un interrupteur ne coupe pas la fonction de
+/// l'autre.**
+///
+/// ## 🔴 Le défaut du 2026-08-28
+///
+/// Il n'y avait qu'un booléen. `setVisible(false)` appelait `_radio.stop()` :
+/// couper « Visible à proximité » coupait **aussi** le croisement des amis,
+/// donc les streaks et le « presque ». Trois commentaires du code affirmaient
+/// le contraire — la séparation avait été conçue, jamais branchée.
+///
+/// ⚠️ **Aucun test ne pouvait tomber** : l'app se comportait exactement comme un
+/// utilisateur qui a tout coupé. Ces tests comptent donc les **arrêts de radio**
+/// et les **octets de type du plan**, pas ce que l'écran affiche.
+void _deuxInterrupteurs() {
+  group('deux intentions, deux fonctions', () {
+    test('couper la découverte n\'arrête PAS la radio si les amis restent '
+        'allumés', () async {
+      final h = await _harnais(visible: true, amis: true);
+      addTearDown(h.container.dispose);
+      addTearDown(h.radio.fermer);
+      h.container.listen(proximitySupervisorProvider, (_, _) {});
+      await _propage();
+
+      await h.container
+          .read(proximitySupervisorProvider.notifier)
+          .setDiscovery(false);
+      await _propage();
+
+      expect(
+        h.radio.arrets,
+        0,
+        reason:
+            'le croisement d\'amis ne dépend ni du serveur, ni de la position, '
+            'ni de la découverte — il ne doit pas s\'arrêter avec elle',
+      );
+    });
+
+    test('tout couper arrête bien la radio', () async {
+      final h = await _harnais(visible: true, amis: true);
+      addTearDown(h.container.dispose);
+      addTearDown(h.radio.fermer);
+      h.container.listen(proximitySupervisorProvider, (_, _) {});
+      await _propage();
+
+      final notifier = h.container.read(proximitySupervisorProvider.notifier);
+      await notifier.setDiscovery(false);
+      await notifier.setFriendCrossing(false);
+      await _propage();
+
+      expect(h.radio.arrets, greaterThan(0));
+    });
+
+    test('découverte éteinte : AUCUN identifiant public dans le plan', () async {
+      final h = await _harnais(visible: false, amis: true);
+      addTearDown(h.container.dispose);
+      addTearDown(h.radio.fermer);
+      h.container.listen(proximitySupervisorProvider, (_, _) {});
+
+      final bob = await IdentiteMemoire.creer(graine: 7, userId: 'u-b');
+      await h.carnet.replace([_ami('u-b', await bob.x25519PublicKey())]);
+      await _propage();
+
+      expect(h.radio.plans, greaterThan(0), reason: 'la radio doit tourner');
+      expect(
+        h.radio.derniersTypes,
+        isNotNull,
+        reason: 'un plan a bien été déposé',
+      );
+      expect(
+        h.radio.derniersTypes!.contains(1),
+        isFalse,
+        reason:
+            'le type 1 est l\'identifiant PUBLIC : il n\'a rien à faire dans le '
+            'plan de quelqu\'un qui ne veut pas être découvert',
+      );
+      expect(
+        h.radio.derniersTypes!.contains(2),
+        isTrue,
+        reason: 'les jetons d\'ami, eux, doivent bien partir',
+      );
+    });
+
+    test('découverte allumée : le plan porte l\'identifiant public', () async {
+      final h = await _harnais(visible: true, amis: true);
+      addTearDown(h.container.dispose);
+      addTearDown(h.radio.fermer);
+      h.container.listen(proximitySupervisorProvider, (_, _) {});
+      await _propage();
+
+      expect(h.radio.derniersTypes!.contains(1), isTrue);
+    });
+
+    test('migration : un réglage déjà posé est REPRIS pour les amis', () async {
+      // Personne ne doit se mettre à émettre quelque chose qu'il n'avait pas
+      // demandé : celui qui avait tout coupé reste tout coupé.
+      final h = await _harnais(visible: false);
+      addTearDown(h.container.dispose);
+      addTearDown(h.radio.fermer);
+      h.container.listen(proximitySupervisorProvider, (_, _) {});
+      await _propage();
+
+      final runtime = h.container.read(proximitySupervisorProvider);
+      expect(runtime.wantsFriends, isFalse);
+      expect(runtime.wantsDiscovery, isFalse);
+      expect(runtime.radioNeeded, isFalse);
+    });
+
+    test('nouvelle installation : le croisement d\'amis est ALLUMÉ', () async {
+      final h = await _harnais(visible: null);
+      addTearDown(h.container.dispose);
+      addTearDown(h.radio.fermer);
+      h.container.listen(proximitySupervisorProvider, (_, _) {});
+      await _propage();
+
+      final runtime = h.container.read(proximitySupervisorProvider);
+      expect(
+        runtime.wantsFriends,
+        isTrue,
+        reason:
+            'c\'est le cœur du produit, il ne demande aucune permission de '
+            'localisation, et il n\'émet que des codes illisibles par qui '
+            'n\'est pas déjà votre ami',
+      );
+      expect(
+        runtime.wantsDiscovery,
+        isFalse,
+        reason: 'être découvrable par des inconnus reste un choix explicite',
+      );
+    });
+  });
 }

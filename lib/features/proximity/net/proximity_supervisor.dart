@@ -13,16 +13,48 @@ import 'radio_status.dart';
 
 /// Ce que l'utilisateur VEUT, et ce que le matériel FAIT — deux choses
 /// distinctes, réunies ici sans être confondues.
+///
+/// ## 🔴 DEUX intentions depuis le 2026-08-28, et il en manquait une
+///
+/// Il n'y avait qu'un booléen, `wantsVisible`, et `setVisible(false)` appelait
+/// `_radio.stop()` : **couper « Visible à proximité » coupait aussi le
+/// croisement de ses amis.**
+///
+/// ⚠️ **Le code affirmait pourtant le contraire à trois endroits** — *« les
+/// jetons d'amis, eux, partent toujours »*, *« deux fonctions distinctes qui
+/// partagent la même radio »*, et le contrat de `AdvertPlanner.plan` qui prévoit
+/// une graine publique **nulle**. La séparation avait été **conçue** ; elle
+/// n'avait jamais été **branchée**, et les commentaires décrivaient l'intention
+/// au lieu du code.
+///
+/// ⚠️ **Ce que ça coûtait à l'utilisateur** : refuser d'être découvrable par des
+/// inconnus — le réglage le plus naturel qui soit — lui faisait perdre ses
+/// croisements d'amis, donc ses streaks et ses « presque ». Alors que le
+/// croisement d'amis marche **app fermée** et ne demande **aucune permission de
+/// localisation** sur Android 12+.
+///
+/// Décision de Jay, 2026-08-28 : *« il est temps de vraiment tout séparer, on
+/// met un autre interrupteur juste pour les amis »*.
 class ProximityRuntime {
   const ProximityRuntime({
-    required this.wantsVisible,
+    required this.wantsFriends,
+    required this.wantsDiscovery,
     required this.status,
     this.intentLoaded = false,
   });
 
-  /// L'intention de l'utilisateur. **Persistée**, donc elle survit à la mort de
-  /// l'app, à un redémarrage du téléphone, à une coupure de Bluetooth.
-  final bool wantsVisible;
+  /// **Croiser mes amis.** Réglage de `Sécurité et confidentialité`.
+  ///
+  /// N'exige aucune permission de localisation sur Android 12+, ne publie
+  /// aucune balise au serveur, et fonctionne app fermée. C'est le cœur du
+  /// produit : les streaks et le « presque » en dépendent.
+  final bool wantsFriends;
+
+  /// **Être visible des inconnus.** L'interrupteur de l'écran Ping.
+  ///
+  /// C'est lui, et lui seul, qui ajoute l'identifiant PUBLIC au plan d'émission
+  /// et qui fait publier une balise au serveur.
+  final bool wantsDiscovery;
 
   /// Ce que la radio fait réellement, publié par le natif.
   final RadioStatus status;
@@ -32,17 +64,27 @@ class ProximityRuntime {
   /// utilisateur qui le voit sauter le rebascule, donc coupe sa visibilité.
   final bool intentLoaded;
 
-  /// Vrai quand tout marche : l'utilisateur veut être visible **et** la radio
-  /// scanne. C'est la seule condition sous laquelle « personne à proximité »
-  /// veut dire « personne ».
-  bool get isLive => wantsVisible && status.isDetecting;
+  /// **La radio doit-elle tourner ?** L'une OU l'autre suffit.
+  ///
+  /// ⚠️ C'est la seule question que la radio a le droit de poser : elle ne sait
+  /// pas *pourquoi* on l'allume, et elle n'a pas à le savoir. Ce qui distingue
+  /// les deux modes vit dans le **plan** (avec ou sans identifiant public), pas
+  /// dans le démarrage.
+  bool get radioNeeded => wantsFriends || wantsDiscovery;
+
+  /// Vrai quand la DÉCOUVERTE marche : l'utilisateur veut être visible des
+  /// inconnus **et** la radio scanne. C'est la seule condition sous laquelle
+  /// « personne à proximité » veut dire « personne ».
+  bool get isLive => wantsDiscovery && status.isDetecting;
 
   ProximityRuntime copyWith({
-    bool? wantsVisible,
+    bool? wantsFriends,
+    bool? wantsDiscovery,
     RadioStatus? status,
     bool? intentLoaded,
   }) => ProximityRuntime(
-    wantsVisible: wantsVisible ?? this.wantsVisible,
+    wantsFriends: wantsFriends ?? this.wantsFriends,
+    wantsDiscovery: wantsDiscovery ?? this.wantsDiscovery,
     status: status ?? this.status,
     intentLoaded: intentLoaded ?? this.intentLoaded,
   );
@@ -70,7 +112,12 @@ class ProximityRuntime {
 /// **jamais** l'intention : ce sont des états, et le superviseur les rattrape
 /// dès qu'ils redeviennent favorables.
 class ProximitySupervisor extends Notifier<ProximityRuntime> {
+  /// L'intention « visible des inconnus ». Nom historique conservé : le
+  /// renommer ferait repartir tout le monde à zéro sans rien gagner.
   static const prefsKey = 'proximity_visible';
+
+  /// L'intention « croiser mes amis », ajoutée le 2026-08-28.
+  static const prefsKeyFriends = 'proximity_friends';
 
   BleRadio get _radio => ref.read(bleRadioProvider);
 
@@ -142,7 +189,11 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
     _listen();
     _ecouteLesSourcesDuPlan();
     _restore();
-    return const ProximityRuntime(wantsVisible: false, status: RadioIdle());
+    return const ProximityRuntime(
+      wantsFriends: false,
+      wantsDiscovery: false,
+      status: RadioIdle(),
+    );
   }
 
   /// **Le plan d'émission suit ses sources.**
@@ -195,22 +246,61 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
   /// rien à refaire, et l'écran ne ment pas pendant la reprise.
   Future<void> _restore() async {
     final prefs = await SharedPreferences.getInstance();
-    final wanted = prefs.getBool(prefsKey) ?? false;
-    state = state.copyWith(wantsVisible: wanted, intentLoaded: true);
-    if (!wanted) {
+    final decouverte = prefs.getBool(prefsKey);
+    // ⚠️ **La migration du 2026-08-28, en une ligne.**
+    //
+    // - Réglage déjà posé → on le reprend tel quel : personne ne se retrouve à
+    //   émettre quelque chose qu'il n'avait pas demandé.
+    // - Aucune trace → nouvelle installation → **allumé**, parce que le
+    //   croisement d'amis est le cœur du produit, qu'il ne demande aucune
+    //   permission de localisation et qu'il n'émet que des jetons illisibles
+    //   par quiconque n'est pas déjà votre ami.
+    final amis = prefs.getBool(prefsKeyFriends) ?? decouverte ?? true;
+    state = state.copyWith(
+      wantsFriends: amis,
+      wantsDiscovery: decouverte ?? false,
+      intentLoaded: true,
+    );
+    if (!state.radioNeeded) {
       state = state.copyWith(status: await _radio.probe());
       return;
     }
     await _engage();
   }
 
-  /// Pose l'intention de l'utilisateur. Le seul point d'entrée qui la modifie.
-  Future<void> setVisible(bool wanted) async {
-    if (state.wantsVisible == wanted && state.intentLoaded) return;
-    state = state.copyWith(wantsVisible: wanted, intentLoaded: true);
+  /// **Être visible des inconnus.** Interrupteur de l'écran Ping.
+  Future<void> setDiscovery(bool wanted) async {
+    if (state.wantsDiscovery == wanted && state.intentLoaded) return;
+    state = state.copyWith(wantsDiscovery: wanted, intentLoaded: true);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(prefsKey, wanted);
-    if (wanted) {
+    await _appliquerIntention();
+  }
+
+  /// **Croiser mes amis.** Réglage de `Sécurité et confidentialité`.
+  Future<void> setFriendCrossing(bool wanted) async {
+    if (state.wantsFriends == wanted && state.intentLoaded) return;
+    state = state.copyWith(wantsFriends: wanted, intentLoaded: true);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefsKeyFriends, wanted);
+    await _appliquerIntention();
+  }
+
+  /// **Un seul endroit décide d'allumer ou d'éteindre la radio.**
+  ///
+  /// ⚠️ **C'est ce qui empêche le défaut de revenir.** Tant que chaque
+  /// interrupteur appelait lui-même `stop()`, il suffisait qu'un des deux
+  /// oublie de regarder l'autre pour couper une fonction qu'il ne commande pas.
+  /// Ici la question est posée une fois : *quelqu'un a-t-il encore besoin de la
+  /// radio ?*
+  ///
+  /// ⚠️ **Et on redépose TOUJOURS le plan**, même si la radio tournait déjà :
+  /// changer d'intention change ce qu'on doit crier — l'identifiant public
+  /// entre ou sort du plan. Ne redémarrer que la radio laisserait l'ancien plan
+  /// en place, donc continuerait de crier l'identifiant public d'un mode qu'on
+  /// vient d'éteindre.
+  Future<void> _appliquerIntention() async {
+    if (state.radioNeeded) {
       await _engage();
     } else {
       _rotation?.cancel();
@@ -237,7 +327,7 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
   Future<void> openLocationSettings() => _radio.openLocationSettings();
 
   Future<void> retry() async {
-    if (!state.wantsVisible) return;
+    if (!state.radioNeeded) return;
     await _engage();
   }
 
@@ -289,7 +379,7 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
   /// révocation est immédiate et locale), quand le mode ping bascule, et
   /// régulièrement pour repousser l'horizon.
   Future<void> refreshPlan() async {
-    if (!state.wantsVisible) return;
+    if (!state.radioNeeded) return;
     if (_planEnCours) {
       _planADemander = true;
       return;
@@ -326,7 +416,7 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
       await _deposePlan();
       return;
     } catch (premiere) {
-      if (!state.wantsVisible) return;
+      if (!state.radioNeeded) return;
       // ⚠️ **L'échec dit quelque chose : le service n'est plus là.** Une
       // première version l'ignorait — l'app restait « active » sans plus aucune
       // radio, et personne ne l'aurait su avant le prochain lancement.
@@ -374,14 +464,18 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
           planHorizon.inMilliseconds ~/
           ProximityIdentity.slotDuration.inMilliseconds,
       meUserId: ref.read(currentUserIdProvider),
-      pingSeed: _identity.pingSeed(),
+      // ⚠️ **C'est ICI que les deux modes deviennent réellement distincts.**
+      // La graine ne descend que si l'utilisateur veut être découvrable. Le
+      // planificateur prévoyait ce cas depuis le 2026-08-20 ; on lui passait la
+      // graine sans condition, donc l'identifiant public partait même quand
+      // seul le croisement d'amis était demandé.
+      pingSeed: state.wantsDiscovery ? _identity.pingSeed() : null,
     );
 
-    // ⚠️ **Un `if (plan.isEmpty)` vivait ici, et rien ne pouvait le
-    // satisfaire.** `pingSeed` n'est jamais nul ci-dessus, donc le plan porte
-    // toujours au moins l'identifiant public de chaque créneau. Un garde-fou
-    // qu'aucune exécution ne peut atteindre rassure sans protéger — c'est la
-    // règle 4 de `CLAUDE.md`, et il est retiré (2026-08-28).
+    // ⚠️ **Un plan vide est possible depuis le 2026-08-28** : découverte
+    // éteinte et carnet d'amis vide. Il n'y a alors rien à crier, et déposer un
+    // plan sans jeton ferait taire la radio de toute façon — on le laisse
+    // passer, le natif se tait tout seul (`AdvertSchedule.isEmpty`).
     final perSlot = plan.forSlot(_slot).length;
     final flat = Uint8List(plan.tokens.length * ProximityIdentity.tokenLength);
     // ⚠️ **Le type descend avec le jeton, il ne se déduit pas en bas.**

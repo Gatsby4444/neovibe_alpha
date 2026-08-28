@@ -129,6 +129,31 @@ const slotTolerance = 1;
 /// 12 h : couvre une nuit entière app fermée. À revoir sur mesure d'appareil.
 const planHorizon = Duration(hours: 12);
 
+/// Horizon de l'identifiant PUBLIC — **et il n'a rien à voir avec le précédent**.
+///
+/// ## ⚠️ Pourquoi les deux ne peuvent pas être le même nombre
+///
+/// Consigne de Jay, 2026-08-28 : *« les 12 heures, on s'en fout pour le ping
+/// inconnus, c'est uniquement utile pour le ping entre amis — c'est deux choses
+/// totalement différentes »*.
+///
+/// Un jeton d'ami reste **utile** douze heures : l'ami d'en face sait le
+/// reconnaître tout seul, sans réseau, app fermée. Un identifiant public, lui,
+/// ne vaut **rien** sans la balise déposée au serveur — et cette balise expire
+/// au bout de **5 minutes** sans rafraîchissement, or elle n'est rafraîchie que
+/// tant que l'app est à l'écran.
+///
+/// Conséquence mesurée avant ce correctif : app rangée par Android sans que le
+/// processus soit tué, le téléphone criait un identifiant public **jusqu'à
+/// douze heures** alors que plus personne ne pouvait le nommer depuis cinq
+/// minutes. Pas dangereux — mais de la batterie et une émission radio pour rien.
+///
+/// **75 minutes**, et ce n'est pas un chiffre rond : le plan est redéposé toutes
+/// les heures (`_rotation`), donc l'horizon doit dépasser 60 minutes, sinon un
+/// utilisateur en train de se servir de l'app cesserait d'être découvrable en
+/// attendant le tour suivant. Un quart d'heure de marge, soit cinq créneaux.
+const publicHorizon = Duration(minutes: 75);
+
 /// Calcule le plan d'émission et la table de reconnaissance.
 ///
 /// [secrets] : identifiant d'ami → secret de la paire, déjà dérivé
@@ -159,14 +184,25 @@ class AdvertPlanner {
     required int slots,
     required String? meUserId,
     Uint8List? pingSeed,
+    int? publicSlots,
   }) async {
     final tokens = <AdvertToken>[];
     final toSlot = fromSlot + slots - 1;
+    // ⚠️ **Deux horizons dans un seul plan** — voir [publicHorizon]. Le jeton
+    // d'ami vaut douze heures ; l'identifiant public ne vaut rien sans la balise
+    // qui le nomme, et cette balise meurt cinq minutes après la dernière fois
+    // que l'app était à l'écran.
+    final dernierPublic =
+        fromSlot +
+        (publicSlots ??
+            publicHorizon.inMilliseconds ~/
+                ProximityIdentity.slotDuration.inMilliseconds) -
+        1;
     for (var slot = fromSlot; slot <= toSlot; slot++) {
       // L'identifiant public d'abord : quand le ping est actif, c'est lui qu'un
       // inconnu doit pouvoir capter vite. Les amis, eux, ont tout le temps —
       // ils nous croisent, ils ne nous cherchent pas.
-      if (pingSeed != null) {
+      if (pingSeed != null && slot <= dernierPublic) {
         tokens.add(
           AdvertToken(
             slot: slot,

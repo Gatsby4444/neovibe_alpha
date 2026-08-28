@@ -33,6 +33,59 @@ void main() {
   const moi = 'u-moi';
 
   group('le plan d\'émission', () {
+    /// ## 🔴 Deux horizons dans un seul plan (2026-08-28)
+    ///
+    /// Consigne de Jay : *« les 12 heures, on s'en fout pour le ping inconnus,
+    /// c'est uniquement utile pour le ping entre amis »*.
+    ///
+    /// Un jeton d'ami reste **utile** douze heures : l'ami d'en face le
+    /// reconnaît tout seul, sans réseau, app fermée. Un identifiant public ne
+    /// vaut **rien** sans la balise qui le nomme au serveur — et cette balise
+    /// meurt cinq minutes après la dernière fois que l'app était à l'écran.
+    ///
+    /// ⚠️ **Le défaut ne levait rien** : le téléphone criait un identifiant
+    /// public jusqu'à douze heures alors que plus personne ne pouvait le
+    /// nommer. De la batterie et une émission radio pour rien.
+    test(
+      "l'identifiant public a un horizon BORNÉ, le jeton d'ami non",
+      () async {
+        final plan = await planner.plan(
+          secrets: {'u-a': secret(1)},
+          meUserId: moi,
+          fromSlot: slot,
+          slots: 48, // 12 h
+          pingSeed: secret(9),
+        );
+
+        final publics = plan.tokens.where((t) => t.audience == null).toList();
+        final amis = plan.tokens.where((t) => t.audience != null).toList();
+
+        expect(
+          amis.length,
+          48,
+          reason: "le jeton d'ami couvre toute la nuit — c'est le point H",
+        );
+        expect(
+          publics.length,
+          publicHorizon.inMilliseconds ~/
+              ProximityIdentity.slotDuration.inMilliseconds,
+          reason: "l'identifiant public s'arrête bien avant",
+        );
+        expect(
+          publics.length,
+          lessThan(amis.length),
+          reason:
+              'sinon les deux horizons sont confondus, et le défaut revient',
+        );
+      },
+    );
+
+    test("l'horizon public dépasse la cadence de redépôt du plan", () {
+      // ⚠️ Le plan est redéposé toutes les heures (`_rotation`). Un horizon
+      // public plus court laisserait quelqu'un en train de se servir de l'app
+      // cesser d'être découvrable en attendant le tour suivant.
+      expect(publicHorizon, greaterThan(const Duration(hours: 1)));
+    });
     test('couvre tout l\'horizon annoncé', () async {
       final plan = await planner.plan(
         secrets: {'u-a': secret(1), 'u-b': secret(2)},

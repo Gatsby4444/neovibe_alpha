@@ -437,7 +437,10 @@ class _SuperviseurFaux extends ProximitySupervisor {
 
   @override
   ProximityRuntime build() => ProximityRuntime(
-    wantsVisible: visible,
+    // Ce fichier teste la DÉCOUVERTE d'inconnus : le croisement d'amis a son
+    // propre interrupteur depuis le 2026-08-28 et n'a rien à faire ici.
+    wantsFriends: false,
+    wantsDiscovery: visible,
     status: const RadioIdle(),
     intentLoaded: true,
   );
