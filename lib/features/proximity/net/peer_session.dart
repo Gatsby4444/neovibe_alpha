@@ -188,8 +188,10 @@ class PeerSession {
 
   String _advertAddress;
 
-  /// La dernière adresse entendue.
-  String get advertAddress => _advertAddress;
+  // ⚠️ **`advertAddress` a été RETIRÉ le 2026-08-28** : c'était un second
+  // accesseur public rendant exactement le même champ que `address`, et il
+  // n'avait aucun lecteur. Deux noms pour une valeur, c'est deux façons de la
+  // désigner qui finiront par ne plus vouloir dire la même chose.
 
   /// L'adresse qui désigne ce pair dans l'interface.
   ///

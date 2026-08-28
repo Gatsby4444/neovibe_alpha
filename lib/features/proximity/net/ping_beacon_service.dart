@@ -185,7 +185,6 @@ class PingBeaconService extends Notifier<PingBeaconState> {
       state = state.copyWith(
         blocker: null,
         precision: precision,
-        cell: fix.toString(),
         listening: liste.length,
         listeningTruncated: liste.atLeast,
         lastError: null,
@@ -314,7 +313,6 @@ class PingBeaconState {
   const PingBeaconState({
     this.blocker,
     this.precision = LocationPrecision.precise,
-    this.cell,
     this.listening = 0,
     this.listeningTruncated = false,
     this.confirmed = 0,
@@ -328,8 +326,15 @@ class PingBeaconState {
   /// voir [LocationPrecision].
   final LocationPrecision precision;
 
-  /// Le carreau publié, pour le diagnostic.
-  final String? cell;
+  // ⚠️ **`cell` a été RETIRÉ le 2026-08-28.** Son commentaire promettait
+  // « pour le diagnostic » : ni l'écran de diagnostic ni le rapport ne le
+  // lisaient — le rapport recalcule le carreau depuis la position, à sa source.
+  //
+  // ⚠️ **Et il n'était pas gratuit** : il entrait dans l'égalité ci-dessous,
+  // donc changer de quartier reconstruisait l'écran Ping pour une valeur que
+  // personne n'affiche. C'est le même défaut que `PeerView.level`, corrigé le
+  // même jour : un champ que personne ne lit mais qui décide des redessins est
+  // le pire des deux mondes.
 
   /// Combien de jetons on écoute en ce moment.
   final int listening;
@@ -360,7 +365,6 @@ class PingBeaconState {
   PingBeaconState copyWith({
     Object? blocker = _nonFourni,
     LocationPrecision? precision,
-    String? cell,
     int? listening,
     bool? listeningTruncated,
     int? confirmed,
@@ -370,7 +374,6 @@ class PingBeaconState {
         ? this.blocker
         : blocker as LocationBlocker?,
     precision: precision ?? this.precision,
-    cell: cell ?? this.cell,
     listening: listening ?? this.listening,
     listeningTruncated: listeningTruncated ?? this.listeningTruncated,
     confirmed: confirmed ?? this.confirmed,
@@ -384,7 +387,6 @@ class PingBeaconState {
       other is PingBeaconState &&
       other.blocker == blocker &&
       other.precision == precision &&
-      other.cell == cell &&
       other.listening == listening &&
       other.listeningTruncated == listeningTruncated &&
       other.confirmed == confirmed &&
@@ -394,7 +396,6 @@ class PingBeaconState {
   int get hashCode => Object.hash(
     blocker,
     precision,
-    cell,
     listening,
     listeningTruncated,
     confirmed,

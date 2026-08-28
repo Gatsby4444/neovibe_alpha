@@ -496,21 +496,20 @@ class _TuilePair extends ConsumerWidget {
           ),
         ],
       ),
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // ⚠️ **La conversation SERVEUR, et elle seule** (2026-08-27).
-          //
-          // Cette tuile n'affiche que des **amis** : eux seuls sont reconnus par
-          // la radio. Or un ami a déjà une conversation directe partout ailleurs
-          // dans l'app — ouvrir ici un second fil, local et éphémère, faisait
-          // deux historiques pour une même personne.
-          IconButton(
-            icon: const Icon(Icons.chat_bubble_outline),
-            tooltip: 'Message',
-            onPressed: () => _ouvrirConversation(context, ref, snapshot.userId),
-          ),
-        ],
+      // ⚠️ **La conversation SERVEUR, et elle seule** (2026-08-27).
+      //
+      // Cette tuile n'affiche que des **amis** : eux seuls sont reconnus par la
+      // radio. Or un ami a déjà une conversation directe partout ailleurs dans
+      // l'app — ouvrir ici un second fil, local et éphémère, faisait deux
+      // historiques pour une même personne.
+      //
+      // ⚠️ **Un `Row` enveloppait ce bouton, et il n'a plus qu'un enfant depuis
+      // que le bouton « demander en ami » est parti** (2026-08-28) : une rangée
+      // d'un seul élément est un reste de mise en page, pas une intention.
+      trailing: IconButton(
+        icon: const Icon(Icons.chat_bubble_outline),
+        tooltip: 'Message',
+        onPressed: () => _ouvrirConversation(context, ref, snapshot.userId),
       ),
       onTap: () => _ouvrirProfil(context, ref, snapshot),
     );
