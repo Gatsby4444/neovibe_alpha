@@ -410,17 +410,19 @@ class _TuilePair extends ConsumerWidget {
     // Il vient de partir entre la composition de la liste et ce build.
     if (peer == null || peer.snapshot == null) return const SizedBox.shrink();
     final snapshot = peer.snapshot!;
-    // ⚠️ **Le statut d'ami se DÉRIVE ici, il ne vient pas de la présence.**
+    // ⚠️ **Cette tuile n'affiche QUE des amis, et c'est désormais vrai par
+    // construction** (2026-08-28).
     //
-    // Il venait de `peer.isFriend`, un champ de l'entrée de présence — écrit
-    // par le chemin de l'ID rotatif, et **pas** par celui de la poignée de
-    // main. Un ami identifié par poignée de main s'affichait donc comme un
-    // inconnu, avec ce bouton. Jay, 2026-08-17 : « il manque une connexion
-    // entre la vérification et l'affichage. »
+    // Elle interrogeait le carnet à chaque rendu pour savoir si la personne
+    // qu'elle affiche est une amie — alors qu'une identité ne peut venir que du
+    // carnet. La réponse était donc toujours « oui »… sauf pendant la fenêtre
+    // où un ami venait d'être retiré et où sa session gardait son nom. C'est
+    // cette fenêtre qui est supprimée : `PeerNetwork.refreshFriends` retire
+    // maintenant l'identité des sessions que le carnet ne connaît plus.
     //
-    // Le champ n'existe plus. La question se pose au carnet, au moment du
-    // rendu, là où elle ne peut pas se désynchroniser.
-    final estAmi = ref.watch(isFriendProvider(snapshot.userId)).value ?? false;
+    // Le bouton « demander en ami » qui s'affichait dans ce cas est parti avec :
+    // il ne pouvait de toute façon que se faire refuser par le serveur, qui
+    // n'accepte pas de demande entre gens déjà connectés.
     return ListTile(
       leading: CircleAvatar(
         child: Text(snapshot.displayName.characters.first.toUpperCase()),
@@ -476,10 +478,8 @@ class _TuilePair extends ConsumerWidget {
               ),
             ),
           ],
-          if (estAmi) ...[
-            const SizedBox(width: 10),
-            const Icon(Icons.link, size: 14),
-          ],
+          const SizedBox(width: 10),
+          const Icon(Icons.link, size: 14),
           // ⚠️ **Affiché à la demande de Jay pour les relevés du 2026-08-16**,
           // et présenté comme ce que c'est : une ESTIMATION, avec sa
           // fourchette. Il veut juger la fiabilité sur le terrain plutôt que
@@ -499,27 +499,6 @@ class _TuilePair extends ConsumerWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ⚠️ **Un seul état depuis le 2026-08-27, contre trois avant.**
-          //
-          // Les trois — « demander », « envoyée, en attente », « déclinée,
-          // appuie pour oublier » — se lisaient dans un journal LOCAL de
-          // demandes sortantes, qui n'existait que parce qu'une demande d'ami
-          // voyageait d'appareil à appareil sans laisser de ligne serveur. Ce
-          // journal est supprimé : le serveur se souvient à sa place, et c'est
-          // lui qui répond « demande déjà envoyée » quand on insiste.
-          //
-          // ⚠️ **C'est un recul d'interface, et il est assumé** : Jay avait
-          // cliqué plusieurs fois faute de voir l'état (2026-08-17). La bonne
-          // réponse est de lire l'état SERVEUR de la demande, pas de garder un
-          // second journal local — un état affiché depuis une source que le
-          // serveur peut contredire, c'est deux vérités. Consigné dans
-          // `RAPPELS.md`. En attendant, le refus du serveur est **montré**, ce
-          // qui n'était pas le cas en 2026-08-17.
-          if (!estAmi)
-            _BoutonDemande(
-              userId: snapshot.userId,
-              displayName: snapshot.displayName,
-            ),
           // ⚠️ **La conversation SERVEUR, et elle seule** (2026-08-27).
           //
           // Cette tuile n'affiche que des **amis** : eux seuls sont reconnus par

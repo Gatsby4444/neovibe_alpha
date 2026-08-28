@@ -1,4 +1,3 @@
-import '../../../core/models/nearby_user.dart';
 import '../ping_store.dart';
 import 'distance_estimate.dart';
 
@@ -61,11 +60,12 @@ class PresenceRules {
   /// l'autre. Sans lissage, l'étiquette de distance clignoterait.
   static const smoothing = 0.35;
 
-  /// Seuils **asymétriques** : −58 dBm pour devenir « très proche », −66 pour
-  /// cesser de l'être. Sans cette marge, un appareil posé sur le seuil bascule
-  /// à chaque mesure.
-  static const enterVeryClose = -58;
-  static const leaveVeryClose = -66;
+  // ⚠️ **`enterVeryClose` / `leaveVeryClose` ont été RETIRÉS le 2026-08-28**,
+  // avec `ProximityLevel`. C'était un **second modèle de distance**, avec ses
+  // propres seuils (−58 / −66) et sa propre hystérésis, à côté de
+  // `ProximityBand` (−55 / −70 / −85, hystérésis 6 dB). Deux modèles pour une
+  // même question finissent toujours par se contredire — et celui-ci n'était
+  // affiché nulle part.
 
   /// Une pente se mesure sur une fenêtre, jamais entre deux mesures voisines.
   static const trendWindow = Duration(seconds: 3);
@@ -103,7 +103,6 @@ class PresencePeer {
     required this.address,
     required this.stage,
     required this.rssi,
-    required this.level,
     required this.firstSeen,
     required this.lastSeen,
     required this.band,
@@ -120,7 +119,6 @@ class PresencePeer {
   /// RSSI lissé, pas la dernière mesure brute.
   final double rssi;
 
-  final ProximityLevel level;
   final DateTime firstSeen;
   final DateTime lastSeen;
   final ProximityBand band;
@@ -172,9 +170,6 @@ class PeerSession {
        lastHeard = now,
        rssi = rssi.toDouble(),
        band = DistanceModel.bandFor(rssi.toDouble(), null),
-       level = rssi >= PresenceRules.enterVeryClose
-           ? ProximityLevel.veryClose
-           : ProximityLevel.close,
        _trendAnchorRssi = rssi.toDouble(),
        _trendAnchorAt = now;
 
@@ -225,7 +220,6 @@ class PeerSession {
   int txPower;
   ProximityBand band;
   ProximityTrend trend = ProximityTrend.stable;
-  ProximityLevel level;
 
   double _trendAnchorRssi;
   DateTime _trendAnchorAt;
@@ -271,7 +265,6 @@ class PeerSession {
     if (txPower != 127) this.txPower = txPower;
 
     this.rssi = this.rssi + (rssi - this.rssi) * PresenceRules.smoothing;
-    level = _levelFor(this.rssi);
     band = DistanceModel.bandFor(this.rssi, band);
 
     // La pente se mesure sur une fenêtre glissante : on ne déplace l'ancre que
@@ -285,17 +278,6 @@ class PeerSession {
       _trendAnchorRssi = this.rssi;
       _trendAnchorAt = now;
     }
-  }
-
-  ProximityLevel _levelFor(double rssi) {
-    if (level == ProximityLevel.veryClose) {
-      return rssi <= PresenceRules.leaveVeryClose
-          ? ProximityLevel.close
-          : ProximityLevel.veryClose;
-    }
-    return rssi >= PresenceRules.enterVeryClose
-        ? ProximityLevel.veryClose
-        : ProximityLevel.close;
   }
 
   /// Absorbe une autre session décrivant la **même personne**.
@@ -312,7 +294,6 @@ class PeerSession {
       _advertAddress = other._advertAddress;
       rssi = other.rssi;
       band = other.band;
-      level = other.level;
       trend = other.trend;
       txPower = other.txPower;
     }
@@ -323,7 +304,6 @@ class PeerSession {
     address: _advertAddress,
     stage: stage,
     rssi: rssi,
-    level: level,
     firstSeen: firstHeard,
     lastSeen: lastHeard,
     band: band,
@@ -519,6 +499,19 @@ class PeerRegistry {
     }
     return session;
   }
+
+  /// **Retire l'identité d'une session, sans la supprimer.**
+  ///
+  /// ⚠️ **Le pendant exact d'[identify], et il manquait.** Une identité vient
+  /// du carnet d'amis ; quand le carnet ne connaît plus la personne, la session
+  /// doit redevenir une détection anonyme. Sans ce chemin, l'identité survivait
+  /// au retrait de l'ami jusqu'à l'expiration de la session — la radio
+  /// continuait de le nommer alors qu'elle n'avait plus le droit de le
+  /// reconnaître.
+  ///
+  /// On ne supprime PAS la session : elle est toujours entendue, et
+  /// l'observation reste vraie. C'est le nom qui n'est plus à nous.
+  void deidentify(PeerSession session) => session.snapshot = null;
 
   /// Les sessions à oublier : plus rien entendu depuis [PresenceRules.forgetAfter].
   List<PeerSession> expired() {

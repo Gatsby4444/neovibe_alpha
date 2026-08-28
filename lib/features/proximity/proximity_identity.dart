@@ -101,16 +101,18 @@ class ProximityIdentity {
   /// survit au changement d'architecture : il vient du créneau, pas de la clé.
   static const slotDuration = Duration(minutes: 15);
 
-  /// Version du protocole d'annonce, portée dans chaque annonce.
-  ///
-  /// ⚠️ **Un octet aujourd'hui, une migration entière si on l'oublie.** Sans
-  /// lui, deux versions qui ne se comprennent pas ne se voient simplement
-  /// **pas** — sans erreur, sans trace, et sans que personne puisse le
-  /// diagnostiquer. Avec lui, une version future peut décider de parler
-  /// l'ancienne langue au lieu de disparaître.
-  ///
-  /// 3 = secret par paire (2026-08-20). 2 = clé de diffusion + rotation.
-  static const protocolVersion = 3;
+  // ⚠️ **`protocolVersion` a été SUPPRIMÉ d'ici le 2026-08-28.**
+  //
+  // Il valait **3**, n'avait **aucun lecteur**, et surtout il en contredisait
+  // un autre : la version réellement portée par chaque annonce est
+  // `BleConstants.PROTOCOL_VERSION`, côté Kotlin, qui vaut **5** — c'est elle
+  // qu'écrit `advertDataFor`, elle que compare `onScanResult`, et elle que le
+  // diagnostic affiche.
+  //
+  // Deux constantes du même nom avec deux valeurs différentes, dont une seule
+  // compte : le jour où quelqu'un aurait lu celle-ci pour raisonner sur la
+  // compatibilité, elle aurait menti sans jamais lever d'erreur. La version
+  // vit là où elle est écrite sur le fil, et nulle part ailleurs.
 
   SimpleKeyPair? _x25519Pair;
 
@@ -373,8 +375,14 @@ final proximityIdentityProvider = Provider<ProximityIdentity>(
 /// Ce dont le réseau a besoin d'un carnet d'amis — et rien de plus.
 abstract class FriendKeyStore {
   Future<Map<String, FriendKeys>> all();
-  Future<void> put(FriendKeys keys);
-  Future<void> remove(String userId);
+
+  // ⚠️ **`put` et `remove` ont été RETIRÉS le 2026-08-28** : aucun appelant.
+  //
+  // Le carnet est **remplacé en bloc** par ce que le serveur renvoie
+  // (`replace`), et c'est la seule façon correcte de le tenir : `put` seul
+  // n'ajoute que, donc une amitié rompue serait restée vraie sur l'appareil
+  // pour toujours. Les garder aurait laissé, à côté du chemin juste, deux
+  // chemins partiels qu'un futur appel aurait pu croire suffisants.
 
   /// ⚠️ **Le carnet RANGE, il ne CALCULE pas.** `rotatingIndex` vivait ici :
   /// le magasin dérivait lui-même les identifiants attendus, donc il fallait
@@ -430,19 +438,6 @@ class FriendKeyBook implements FriendKeyStore {
     } catch (_) {
       return _cache = {};
     }
-  }
-
-  @override
-  Future<void> put(FriendKeys keys) async {
-    final map = await all();
-    map[keys.userId] = keys;
-    await _save(map);
-  }
-
-  @override
-  Future<void> remove(String userId) async {
-    final map = await all();
-    if (map.remove(userId) != null) await _save(map);
   }
 
   @override

@@ -124,13 +124,15 @@ class PeerNetwork {
 
   Timer? _housekeeping;
 
-  /// Jetons privés captés qui ne nous sont pas destinés, écartés.
-  ///
-  /// ⚠️ **Doit rester visible même à zéro.** C'est ce chiffre qui dit combien
-  /// de fausses détections l'ancien format produisait — et, s'il repart, que
-  /// quelque chose a rouvert ce chemin.
-  int _foreignTokens = 0;
-  int get foreignTokenScans => _foreignTokens;
+  // ⚠️ **`foreignTokenScans` a été RETIRÉ d'ici le 2026-08-28.** Il comptait
+  // les jetons privés d'autres paires, et **aucun lecteur ne l'affichait** — le
+  // rapport de diagnostic publie celui du natif. Deux compteurs pour une même
+  // question, dont un invisible, c'est deux chiffres qui finiront par ne plus
+  // dire la même chose sans que personne ne s'en aperçoive.
+  //
+  // Le natif est le bon endroit : sa table couvre douze heures de créneaux et
+  // il compte **aussi quand l'interface est absente**, ce que cette couche-ci
+  // ne peut pas faire. Voir `ProximityService.foreignTokenScans`.
 
   Future<void> start() async {
     // On s'abonne au carnet, on ne le relit pas à heure fixe : peu importe qui
@@ -165,6 +167,23 @@ class PeerNetwork {
       for (final f in _friends.values) f.userId: f.x25519PublicKey,
     });
     _recognition = await _planner.table(secrets: secrets, slot: _slot);
+
+    // ⚠️ **Une identité vient du carnet ; elle s'en va avec lui.**
+    //
+    // Sans ces lignes, une session identifiée gardait son identité après le
+    // retrait de l'ami : la tuile continuait de le nommer, et l'écran lui
+    // proposait un bouton « demander en ami » — sur une personne que la radio
+    // n'a plus aucun droit de reconnaître. Le carnet est la seule source de la
+    // question « qui est-ce ? » : quand il ne répond plus, la session
+    // redevient une simple détection anonyme.
+    var change = false;
+    for (final session in presence.sessions) {
+      final userId = session.userId;
+      if (userId == null || _friends.containsKey(userId)) continue;
+      presence.deidentify(session);
+      change = true;
+    }
+    if (change) _publish();
   }
 
   // ------------------------------------------------------------------
@@ -187,7 +206,20 @@ class PeerNetwork {
         :final rssi,
         :final txPower,
         :final type,
+        :final at,
       ):
+        // ⚠️ **Une annonce trop vieille n'est pas une présence.**
+        //
+        // Le service natif met de côté ce qu'il capte quand l'interface est
+        // absente, et le rejoue à son retour. Ici, la seule définition qui
+        // vaille est celle de la présence — [PresenceRules.freshFor] : au-delà,
+        // le registre ne le dirait de toute façon plus « là », mais il aurait
+        // entre-temps émis `PeerIdentified`, donc **envoyé un « presque » pour
+        // quelqu'un parti depuis des heures** (défaut du 2026-08-28).
+        //
+        // C'est le consommateur qui tranche, avec SA définition : le service de
+        // balise, lui, en a une autre. L'acquisition, elle, publie tout.
+        if (_clock().difference(at) > PresenceRules.freshFor) return;
         await _onScan(address, advertId, rssi, txPower, type);
     }
   }
@@ -214,10 +246,9 @@ class PeerNetwork {
     // ⚠️ **Un jeton PRIVÉ qu'on ne reconnaît pas n'est PAS un inconnu.** C'est
     // le jeton d'une autre paire, capté au passage. L'afficher comme une
     // découverte, c'est inventer des gens qui n'existent pas.
-    if (type == AdvertType.friend && friend == null) {
-      _foreignTokens++;
-      return;
-    }
+    // Le natif les compte (`ProximityService.foreignTokenScans`) : ici, on se
+    // contente de ne pas inventer quelqu'un.
+    if (type == AdvertType.friend && friend == null) return;
 
     // ⚠️ **Le jeton descend jusqu'au registre.** C'est lui, et non l'adresse,
     // qui regroupe les annonces d'un même appareil : l'adresse change à chaque

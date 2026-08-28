@@ -147,6 +147,10 @@ sealed class RadioEvent {
           rssi: map['rssi'] as int,
           txPower: map['txPower'] as int? ?? RadioScan.txPowerUnknown,
           type: AdvertType.fromWire(map['advertType'] as int?),
+          at: DateTime.fromMillisecondsSinceEpoch(
+            (map['atMillis'] as num?)?.toInt() ??
+                DateTime.now().millisecondsSinceEpoch,
+          ),
         );
       // ⚠️ **`link` et `frame` ont été RETIRÉS le 2026-08-27**, avec le
       // transport BLE. Le natif ne les émet plus. Une trame reçue d'un appareil
@@ -192,8 +196,23 @@ class RadioScan extends RadioEvent {
     required this.advertId,
     required this.rssi,
     required this.type,
+    required this.at,
     this.txPower = txPowerUnknown,
   });
+
+  /// **Quand cette annonce a été entendue.**
+  ///
+  /// ⚠️ **Obligatoire, et ce n'est pas une commodité.** Le service natif met de
+  /// côté ce qu'il capte pendant que l'interface est absente, et le rejoue à son
+  /// retour. Sans cette date, un consommateur prend un souvenir vieux de
+  /// plusieurs heures pour une observation faite maintenant : le pair
+  /// réapparaissait « à portée », et une notification « Le presque… » partait
+  /// pour quelqu'un de parti depuis longtemps (défaut du 2026-08-28).
+  ///
+  /// ⚠️ **L'acquisition la publie, elle ne juge pas.** Ce que « trop vieux »
+  /// veut dire appartient à chaque consommateur : le réseau de pairs et le
+  /// service de balise n'ont pas la même définition, et c'est normal.
+  final DateTime at;
 
   /// Publique ou privée — voir [AdvertType].
   final AdvertType type;
@@ -214,5 +233,8 @@ class RadioScan extends RadioEvent {
   /// recevoir supprime une inconnue ; elle n'en supprime pas les autres.
   final int txPower;
 
-  bool get hasTxPower => txPower != txPowerUnknown;
+  // ⚠️ **`hasTxPower` a été RETIRÉ le 2026-08-28** : aucun appelant. La
+  // question « la puissance est-elle annoncée ? » se pose une seule fois, dans
+  // `DistanceModel.estimate`, qui compare directement à [txPowerUnknown] — un
+  // second endroit où la poser aurait été un second seuil à tenir d'accord.
 }

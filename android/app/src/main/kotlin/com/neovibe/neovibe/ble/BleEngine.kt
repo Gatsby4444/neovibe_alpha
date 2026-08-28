@@ -60,7 +60,24 @@ class BleEngine(private val context: Context, private val listener: Listener) {
          * [txPower] est la puissance d'emission annoncee par le pair, en dBm,
          * ou [TX_POWER_UNKNOWN] s'il ne l'annonce pas.
          */
-        fun onScan(address: String, advertId: ByteArray, rssi: Int, txPower: Int, type: Byte)
+        /**
+         * [atMillis] est l'instant ou l'annonce a ete recue.
+         *
+         * ⚠️ **Il voyage avec l'annonce, il ne se rededuit pas en aval.** Un
+         * scan mis de cote pendant que l'interface etait absente est rejoue
+         * plus tard : sans sa date, le consommateur le prend pour une
+         * observation faite MAINTENANT, et une annonce vieille de plusieurs
+         * heures redevient une presence. C'est la couche qui observe qui sait
+         * quand ; c'est au consommateur de decider si c'est encore vrai.
+         */
+        fun onScan(
+            address: String,
+            advertId: ByteArray,
+            rssi: Int,
+            txPower: Int,
+            type: Byte,
+            atMillis: Long,
+        )
 
         /**
          * Le mode d'emission PARALLELE n'a pas pu tenir, il faut revenir au
@@ -122,12 +139,22 @@ class BleEngine(private val context: Context, private val listener: Listener) {
     private var parallelExpected = 0
 
     /**
-     * Le parallele a echoue une fois : on ne le retente plus de la session.
+     * Jusqu'a quand on s'interdit de retenter le mode parallele.
      *
-     * ⚠️ Sans ce drapeau, un appareil qui refuse le multi-advertising
-     * reessaierait a chaque creneau et passerait son temps a basculer.
+     * ⚠️ **C'etait un drapeau DEFINITIF jusqu'au 2026-08-28**, et c'etait un
+     * defaut : un seul refus — y compris transitoire, pile occupee ou jeu
+     * refuse une fois — condamnait l'appareil au mode cycle pour toute la vie
+     * du service. Or en cycle, le jeton d'un ami n'est en l'air que 1/N du
+     * temps : le defaut d'echelle que le mode parallele existe pour supprimer
+     * revenait par la petite porte, et **rien ne le retablissait jamais**.
+     *
+     * Une interdiction qui ne peut pas s'annuler n'est pas une protection,
+     * c'est une panne qui dure. On borne donc dans le temps : un refus reel se
+     * re-latche tout seul au bout de [PARALLEL_COOLDOWN_MILLIS] (une tentative
+     * ratee toutes les dix minutes ne coute rien), un refus transitoire se
+     * repare tout seul.
      */
-    private var parallelRefused = false
+    private var parallelRefusedUntil = 0L
 
     /** Vrai quand l'emission tourne en mode parallele. Lu par le diagnostic. */
     var parallelAdvertising = false
@@ -156,15 +183,15 @@ class BleEngine(private val context: Context, private val listener: Listener) {
     var selfScans = 0
         private set
 
-    /**
-     * Jetons d'ami PRIVES qui ne nous sont pas destines, ecartes.
-     *
-     * Ce sont les jetons que l'emetteur crie pour ses AUTRES amis. Les compter
-     * plutot que les ignorer : c'est ce chiffre qui dit combien de fausses
-     * detections l'ancien format produisait.
-     */
-    var foreignTokenScans = 0
-        private set
+    // ⚠️ **`foreignTokenScans` a ete RETIRE d'ici le 2026-08-28.** Il etait
+    // declare, publie dans `stats()`... et **jamais incremente** : le rapport de
+    // diagnostic affichait donc un zero permanent presente comme une mesure.
+    //
+    // Ce moteur ne peut pas le compter : il ne detient pas la table de
+    // reconnaissance, donc il ne sait pas distinguer « jeton d'ami qui ne
+    // m'est pas destine » de « jeton d'ami que j'attends ». Celui qui le sait,
+    // c'est `ProximityService`, qui interroge la table — c'est la que le
+    // compteur vit desormais.
 
     /**
      * Ce que la radio sait faire en matiere d'annonces simultanees.
@@ -264,6 +291,11 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         scanRetried = false
         rawScans = 0
         neoScans = 0
+        // ⚠️ **Une session neuve reessaie le parallele.** Le repli est une
+        // constatation sur un instant, pas une propriete de l'appareil : le
+        // reconduire sans le retester, c'est transformer un incident en
+        // limitation permanente.
+        parallelRefusedUntil = 0L
         val blocker = evaluateRadio(context)
         if (blocker != null) {
             publish(blocker)
@@ -319,7 +351,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * raisonnement que [advertCapabilities].
      */
     private fun parallelPossible(count: Int): Boolean =
-        !parallelRefused &&
+        System.currentTimeMillis() >= parallelRefusedUntil &&
             count in 2..maxParallelSets &&
             (adapter?.isMultipleAdvertisementSupported == true)
 
@@ -434,8 +466,9 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * amis annonces et d'autres muets, sans qu'aucun compteur ne le montre.
      */
     private fun fallbackFromParallel(reason: String) {
-        if (parallelRefused && !parallelAdvertising && advertSets.isEmpty()) return
-        parallelRefused = true
+        val dejaReplie = System.currentTimeMillis() < parallelRefusedUntil
+        if (dejaReplie && !parallelAdvertising && advertSets.isEmpty()) return
+        parallelRefusedUntil = System.currentTimeMillis() + PARALLEL_COOLDOWN_MILLIS
         stopParallelAdverts()
         advertising = false
         main.post { listener.onParallelAdvertLost(reason) }
@@ -505,6 +538,9 @@ class BleEngine(private val context: Context, private val listener: Listener) {
 
     private companion object {
         const val OWN_TOKENS_MAX = 64
+
+        /** Combien de temps on s'interdit de retenter le mode parallele. */
+        const val PARALLEL_COOLDOWN_MILLIS = 10 * 60 * 1000L
     }
 
     private fun rememberOwnToken(token: ByteArray) {
@@ -690,7 +726,13 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             } else {
                 TX_POWER_UNKNOWN
             }
-            main.post { listener.onScan(result.device.address, id, result.rssi, tx, type) }
+            // ⚠️ **La date est relevee ICI**, au moment de la reception, et non
+            // au moment ou le consommateur la traite : entre les deux il peut
+            // s'ecouler des heures si l'interface est absente.
+            val recuA = System.currentTimeMillis()
+            main.post {
+                listener.onScan(result.device.address, id, result.rssi, tx, type, recuA)
+            }
         }
 
         /**

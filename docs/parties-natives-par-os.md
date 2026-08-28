@@ -216,12 +216,20 @@ et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
 
 | Canal | Sens | Contenu |
 |---|---|---|
-| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `setAdvertPlan`, `setRecognitionTable`, `takeSightings`, `advertCapabilities`, `stats`, `openLocationSettings`. ⚠️ **`updateAdvert` supprimé le 2026-08-25** (second chemin vers l'émission, incapable de porter le TYPE du jeton) ; ⚠️ **`connect`, `disconnect` et `send` supprimés le 2026-08-27**, avec tout le transport GATT. |
-| `neovibe/proximity/events` | natif → Dart | les **constats** : `status`, `scan`. ⚠️ **`link` et `frame` supprimés le 2026-08-27.** Le Dart ne sait plus les décoder : `RadioEvent.fromMap` les rendrait `null`. |
+| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `setAdvertPlan`, `setRecognitionTable`, `takeSightings`, `stats`, `openLocationSettings`. ⚠️ **`updateAdvert` supprimé le 2026-08-25** (second chemin vers l'émission, incapable de porter le TYPE du jeton) ; ⚠️ **`connect`, `disconnect` et `send` supprimés le 2026-08-27**, avec tout le transport GATT ; ⚠️ **`advertCapabilities` supprimé le 2026-08-28** — aucun appelant Dart depuis que `stats()` fusionne la map entière des capacités (2026-08-26). |
+| `neovibe/proximity/events` | natif → Dart | les **constats** : `status`, `scan`. ⚠️ **`link` et `frame` supprimés le 2026-08-27.** Le Dart ne sait plus les décoder : `RadioEvent.fromMap` les rendrait `null`. ⚠️ **`scan` porte `atMillis` depuis le 2026-08-28** — voir ci-dessous. |
 | `setAdvertPlan` | Dart → natif | *(2026-08-20)* dépose des heures de jetons d'avance — correction du point H |
-| `advertCapabilities` | Dart → natif | *(2026-08-20)* ce que la radio sait faire en annonces simultanées — architecture adaptative |
 | `setRecognitionTable` | Dart → natif | *(2026-08-20)* jetons attendus → rangs, pour reconnaître sans le Dart |
 | `takeSightings` | Dart → natif | *(2026-08-20)* récupère et vide ce que le service a constaté seul |
+
+⚠️ **`scan` porte la DATE de l'observation (`atMillis`), depuis le 2026-08-28 —
+et c'est obligatoire côté iOS aussi.** Le service met de côté ce qu'il capte
+quand l'interface est absente et le rejoue à son retour : sans cette date, le
+Dart prend un souvenir vieux de plusieurs heures pour une présence, réaffiche le
+pair « à portée » et envoie une notification « Le presque… » pour quelqu'un de
+parti depuis longtemps. **Le natif publie quand il a entendu ; c'est le
+consommateur Dart qui décide si c'est encore vrai** — et les deux consommateurs
+n'ont pas le même seuil.
 
 L'ancien code faisait remonter les événements par `invokeMethod` sur le canal de
 commandes. Un flux qui remonte n'a pas les mêmes règles qu'un ordre qui descend —
@@ -310,11 +318,20 @@ produit, elle vit d'un seul côté.
 visibles même à zéro — le jour où ils montent, ils expliquent une détection
 fantôme que rien d'autre n'expliquerait :
 
-| Compteur | Ce qu'il dit |
-|---|---|
-| `otherVersionScans` | des annonces d'une **autre version** du protocole : les appareils ne sont pas à jour ensemble |
-| `selfScans` | on capte **sa propre** annonce — sans filtre, on se reconnaîtrait comme l'ami à qui on crie |
-| `foreignTokenScans` | des jetons privés **destinés à quelqu'un d'autre**, écartés |
+| Compteur | Où il est compté | Ce qu'il dit |
+|---|---|---|
+| `otherVersionScans` | `BleEngine` | des annonces d'une **autre version** du protocole : les appareils ne sont pas à jour ensemble |
+| `selfScans` | `BleEngine` | on capte **sa propre** annonce — sans filtre, on se reconnaîtrait comme l'ami à qui on crie |
+| `foreignTokenScans` | **`ProximityService`** | des jetons privés **destinés à quelqu'un d'autre**, écartés |
+
+🔴 **`foreignTokenScans` a changé de maison le 2026-08-28, et c'est une leçon à
+porter sur iOS.** Il était déclaré dans `BleEngine`, publié dans `stats()`… et
+**jamais incrémenté** : le rapport de diagnostic affichait donc un zéro
+permanent présenté comme une mesure — exactement le « seau vide » que ces trois
+compteurs existent pour éviter. Le moteur radio **ne peut pas** le compter : il
+ne détient pas la table de reconnaissance, donc il ne sait pas distinguer un
+jeton étranger d'un jeton attendu. Celui qui le sait, c'est le service.
+**Un compteur se place là où vit l'information qu'il mesure.**
 
 ⚠️ **Auto-filtre obligatoire** (`BleEngine.ownTokens`) : le jeton de paire est
 **symétrique**, donc celui qu'on émet pour un ami est celui qu'on attend de lui.

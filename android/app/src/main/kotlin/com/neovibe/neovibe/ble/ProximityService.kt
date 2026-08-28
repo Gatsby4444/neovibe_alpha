@@ -119,6 +119,18 @@ class ProximityService : Service(), BleEngine.Listener {
         val rssi: Int,
         val txPower: Int,
         val type: Byte,
+        /**
+         * ⚠️ **Le champ qui manquait, et il rendait le rejeu MENSONGER.**
+         *
+         * Sans date, une annonce captee il y a des heures etait rejouee au
+         * retour de l'interface comme une observation faite maintenant : le
+         * pair reapparaissait « a portee », et une notification « Le presque… »
+         * partait pour quelqu'un qui n'etait plus la depuis longtemps.
+         *
+         * On publie donc QUAND on a entendu ; c'est au consommateur de decider
+         * si c'est encore une presence ou seulement un souvenir.
+         */
+        val atMillis: Long,
     )
 
     private val pendingScans = ConcurrentLinkedQueue<BufferedScan>()
@@ -260,6 +272,24 @@ class ProximityService : Service(), BleEngine.Listener {
     @Volatile
     private var recognition: RecognitionTable? = null
 
+    /**
+     * Jetons d'ami PRIVES qui ne nous sont pas destines, ecartes.
+     *
+     * ⚠️ **Compte ICI, et nulle part ailleurs.** Ce sont les jetons qu'un
+     * emetteur crie pour ses AUTRES amis. Les distinguer d'un jeton qu'on
+     * attend demande la table de reconnaissance — que le moteur radio n'a pas.
+     * Il portait pourtant ce compteur jusqu'au 2026-08-28, sans jamais
+     * l'incrementer : le diagnostic affichait un zero permanent presente comme
+     * une mesure.
+     *
+     * ⚠️ **Compte seulement quand une table existe.** Sans table, on ne peut
+     * pas dire qu'un jeton nous est etranger — on peut seulement dire qu'on ne
+     * sait pas. Compter ce cas ferait passer « je n'ai pas d'amis » pour « on
+     * m'a crie des jetons qui ne sont pas les miens ».
+     */
+    @Volatile
+    private var foreignTokenScans = 0
+
     private val sightings = SightingBuffer()
 
     /** Duree d'un creneau, deposee avec la table. */
@@ -281,7 +311,10 @@ class ProximityService : Service(), BleEngine.Listener {
     /** Rend les constats accumules et vide le tampon. */
     fun takeSightings(): List<NativeSighting> = sightings.drain()
 
-    fun sightingCount(): Int = sightings.size
+    // ⚠️ **`sightingCount()` a ete RETIRE le 2026-08-28** : aucun appelant, ni
+    // dans le pont, ni dans les tests. Le tampon se lit par `takeSightings`,
+    // qui le vide — un compteur a cote aurait donne un second chiffre a tenir
+    // d'accord avec le premier.
 
     override fun onCreate() {
         super.onCreate()
@@ -357,7 +390,11 @@ class ProximityService : Service(), BleEngine.Listener {
     // aucun appelant Dart (verifie), et il ne pouvait pas porter le TYPE du
     // jeton. Deux chemins vers la meme radio, c'est celui qui en sait le moins
     // qui gagne un jour, en silence.
-    fun advertCapabilities(): Map<String, Any?> = engine.advertCapabilities()
+    // ⚠️ **`advertCapabilities()` a ete RETIRE le 2026-08-28**, avec le cas du
+    // pont et la methode Dart qui l'appelait : aucun appelant depuis que
+    // `stats()` fusionne la map entiere du moteur (2026-08-26). Un second
+    // chemin vers la meme mesure, c'est deux reponses possibles a une question
+    // qui n'en a qu'une.
 
     // ⚠️ **`connect`, `disconnect`, `send` et `mtuOf` ont ete SUPPRIMES le
     // 2026-08-27**, avec tout le bloc GATT de `BleEngine`. Le service ne relaie
@@ -393,7 +430,7 @@ class ProximityService : Service(), BleEngine.Listener {
         // jour ou ils montent, ils expliquent un ami fantome ou une detection
         // multipliee que rien d'autre n'expliquerait.
         "selfScans" to engine.selfScans,
-        "foreignTokenScans" to engine.foreignTokenScans,
+        "foreignTokenScans" to foreignTokenScans,
         "protocolVersion" to BleConstants.PROTOCOL_VERSION.toInt(),
         // ⚠️ **Le mode d'emission, rendu VISIBLE.** En `cycle`, un ami n'est
         // annonce que 1/N du temps : c'est la premiere chose a regarder quand un
@@ -453,7 +490,14 @@ class ProximityService : Service(), BleEngine.Listener {
         updateNotification(status)
     }
 
-    override fun onScan(address: String, advertId: ByteArray, rssi: Int, txPower: Int, type: Byte) {
+    override fun onScan(
+        address: String,
+        advertId: ByteArray,
+        rssi: Int,
+        txPower: Int,
+        type: Byte,
+        atMillis: Long,
+    ) {
         // ⚠️ **On reconnait TOUJOURS, que le Dart soit la ou non.**
         //
         // C'est le point de tout ce fichier : avant, l'appariement jeton -> ami
@@ -471,27 +515,29 @@ class ProximityService : Service(), BleEngine.Listener {
         // reponse (consigne de Jay, 2026-08-25 : deux formats, deux chemins).
         val table = if (type == BleConstants.TYPE_FRIEND) recognition else null
         if (table != null) {
-            val now = System.currentTimeMillis()
-            val rang = table.match(advertId, now)
+            val rang = table.match(advertId, atMillis)
             if (rang != null) {
                 sightings.note(
                     NativeSighting(
                         tableId = table.tableId,
                         friendIndex = rang,
-                        slot = now / slotMillis,
+                        slot = atMillis / slotMillis,
                         rssi = rssi,
                         txPower = txPower,
                     ),
                 )
+            } else {
+                // Un jeton prive qu'on n'attend pas est celui d'une AUTRE paire.
+                foreignTokenScans++
             }
         }
 
         val target = bridge
         if (target != null) {
-            target.onScan(address, advertId, rssi, txPower, type)
+            target.onScan(address, advertId, rssi, txPower, type, atMillis)
             return
         }
-        pendingScans.add(BufferedScan(address, advertId, rssi, txPower, type))
+        pendingScans.add(BufferedScan(address, advertId, rssi, txPower, type, atMillis))
         while (pendingScans.size > scanBufferMax) pendingScans.poll()
     }
 
@@ -514,7 +560,14 @@ class ProximityService : Service(), BleEngine.Listener {
         target.onStatus(lastStatus)
         while (true) {
             val scan = pendingScans.poll() ?: break
-            target.onScan(scan.address, scan.advertId, scan.rssi, scan.txPower, scan.type)
+            target.onScan(
+                scan.address,
+                scan.advertId,
+                scan.rssi,
+                scan.txPower,
+                scan.type,
+                scan.atMillis,
+            )
         }
     }
 

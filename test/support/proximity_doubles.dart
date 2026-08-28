@@ -143,14 +143,17 @@ class CarnetMemoire implements FriendKeyStore {
   @override
   Future<Map<String, FriendKeys>> all() async => _amis;
 
-  @override
+  // ⚠️ **Ce ne sont plus des `@override` depuis le 2026-08-28** : `put` et
+  // `remove` ont été retirés de `FriendKeyStore`, qui ne sait plus que
+  // **remplacer** — la seule façon correcte de tenir un carnet dont le serveur
+  // est la source. Ces deux-là restent ici comme **outils de montage de test**,
+  // pour préparer un carnet ligne à ligne sans passer par un `replace`.
   Future<void> put(FriendKeys keys) async {
     _amis[keys.userId] = keys;
     _changes.ping();
   }
 
-  @override
-  Future<void> remove(String userId) async {
+  Future<void> retire(String userId) async {
     if (_amis.remove(userId) != null) _changes.ping();
   }
 

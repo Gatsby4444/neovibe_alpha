@@ -63,6 +63,12 @@ class ProximityController extends AsyncNotifier<void> {
   /// Le compte auquel le local du ping appartient actuellement.
   String? _boundUserId;
 
+  /// ⚠️ **Relevé pendant `build`, jamais pendant `onDispose`.** [_teardown]
+  /// s'exécute au démontage du provider ; y lire un autre provider revient à
+  /// interroger un conteneur peut-être en cours de destruction. On garde donc
+  /// la référence prise pendant qu'on avait le droit de la prendre.
+  PresenceFeed? _presence;
+
   @override
   Future<void> build() async {
     // ⚠️ **On ne surveille QUE le compte.**
@@ -80,6 +86,7 @@ class ProximityController extends AsyncNotifier<void> {
     // doit être remise à nul dans le même geste**. Un champ non nul vers un
     // cadavre est un nœud orphelin — il ment à tous ceux qui le consultent.
     final me = ref.watch(currentUserIdProvider);
+    _presence = ref.read(presenceProvider.notifier);
     ref.onDispose(_teardown);
 
     // ⚠️ **Changement de compte : on efface le local du ping.**
@@ -114,7 +121,7 @@ class ProximityController extends AsyncNotifier<void> {
     // Le flux de présence appartient au réseau : sans réseau, il n'y a pas de
     // constat, et un constat périmé présenté comme une observation est
     // exactement ce que ce chantier supprime partout.
-    ref.read(presenceProvider.notifier).clear();
+    _presence?.clear();
     unawaited(network?.dispose());
   }
 
@@ -213,9 +220,10 @@ class ProximityController extends AsyncNotifier<void> {
   }
 
   /// Le canal natif, pour récupérer ce que le service a constaté seul.
-  /// Un seul exemplaire : `BleRadio` est sans état, mais en construire un à
-  /// chaque battement de 2 s serait payer une allocation pour rien.
-  final _radio = BleRadio();
+  ///
+  /// ⚠️ **Vient du provider depuis le 2026-08-28**, comme le carnet et
+  /// l'identité : un seul point de construction pour un objet partagé.
+  BleRadio get _radio => ref.read(bleRadioProvider);
 
   /// Les constats en attente d'envoi.
   ///
@@ -366,9 +374,7 @@ class ProximityController extends AsyncNotifier<void> {
   /// son travail : `presence_feed.dart` compare, avec la définition de
   /// « différent » qui appartient à l'affichage.
   void _publishPresence() {
-    ref
-        .read(presenceProvider.notifier)
-        .publish(_network?.presence.peers ?? const []);
+    _presence?.publish(_network?.presence.peers ?? const []);
   }
 }
 

@@ -79,8 +79,10 @@ class RecognitionTable(
         return attendu.index
     }
 
-    /** Jusqu'a quand cette table reste utile. */
-    fun validUntilMillis(slotCount: Int): Long = (fromSlot + slotCount) * slotMillis
+    // ⚠️ **`validUntilMillis` a ete RETIRE le 2026-08-28** : aucun appelant, ni
+    // dans le service, ni dans le pont, ni dans les tests. Il reprenait de plus
+    // `slotCount` en parametre alors que la table en detient un — deux sources
+    // pour une meme borne, dont la mauvaise etait la plus facile a appeler.
 
     private companion object {
         private val CHIFFRES = "0123456789abcdef".toCharArray()

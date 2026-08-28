@@ -43,11 +43,11 @@ void main() {
 
       expect(plan.fromSlot, slot);
       expect(plan.toSlot, slot + 47);
-      expect(plan.covers(slot), isTrue);
-      expect(plan.covers(slot + 47), isTrue);
+      expect(plan.forSlot(slot), isNotEmpty);
+      expect(plan.forSlot(slot + 47), isNotEmpty);
       expect(
-        plan.covers(slot + 48),
-        isFalse,
+        plan.forSlot(slot + 48),
+        isEmpty,
         reason:
             'un plan qui prétend couvrir plus qu\'il ne porte est le '
             'point H avec un délai plus long',
@@ -82,7 +82,7 @@ void main() {
         fromSlot: slot,
         slots: 2,
       );
-      expect(plan.tokens.every((t) => !t.isPublic), isTrue);
+      expect(plan.tokens.every((t) => t.audience != null), isTrue);
     });
 
     test(
@@ -98,7 +98,7 @@ void main() {
           slots: 1,
           pingSeed: secret(9),
         );
-        expect(avec.forSlot(slot).where((t) => t.isPublic).length, 1);
+        expect(avec.forSlot(slot).where((t) => t.audience == null).length, 1);
         expect(avec.forSlot(slot).where((t) => t.audience == 'u-a').length, 1);
       },
     );
@@ -204,7 +204,7 @@ void main() {
         slots: 2,
         pingSeed: secret(9),
       );
-      expect(plan.tokens.every((t) => t.isPublic), isTrue);
+      expect(plan.tokens.every((t) => t.audience == null), isTrue);
       expect(
         plan.tokens.length,
         2,
@@ -220,9 +220,11 @@ void main() {
         slot: slot,
       );
       expect(table.byToken.length, 3, reason: 'slot-1, slot, slot+1');
-      expect(table.covers(slot - 1), isTrue);
-      expect(table.covers(slot + 1), isTrue);
-      expect(table.covers(slot + 2), isFalse);
+      // ⚠️ **Les bornes elles-mêmes, et non un accesseur qui les recopie.**
+      // `covers()` valait exactement `slot >= fromSlot && slot <= toSlot` :
+      // deux façons d'énoncer la même chose, dont une seule pouvait se tromper.
+      expect(table.fromSlot, slot - 1);
+      expect(table.toSlot, slot + 1);
     });
 
     test('reconnaît le jeton que l\'ami émet, et lui seul', () async {
@@ -261,7 +263,7 @@ void main() {
         slots: 48,
       );
       final table = await planner.table(secrets: secrets, slot: slot);
-      expect(table.length, 30);
+      expect(table.byToken.length, 30);
       expect(plan.tokens.length, 480);
     });
   });
@@ -350,7 +352,7 @@ void main() {
         slots: 4,
         tableId: 1,
       );
-      expect(table.isEmpty, isTrue);
+      expect(table.order, isEmpty);
     });
   });
 }

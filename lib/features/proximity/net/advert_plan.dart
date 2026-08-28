@@ -52,9 +52,12 @@ class AdvertToken {
   final Uint8List bytes;
 
   /// L'identifiant de l'ami visé, ou `null` pour l'identifiant public du ping.
+  ///
+  /// ⚠️ **Un accesseur `isPublic` vivait ici et n'avait aucun appelant**
+  /// (retiré le 2026-08-28). La question se pose une seule fois, dans le
+  /// superviseur, qui traduit l'audience en octet de type pour le natif — un
+  /// second endroit où la poser aurait été une seconde définition de « public ».
   final String? audience;
-
-  bool get isPublic => audience == null;
 }
 
 /// Le plan d'émission : tout ce que l'appareil doit crier, et quand.
@@ -81,13 +84,11 @@ class AdvertPlan {
       if (t.slot == slot) t,
   ];
 
-  /// Le plan couvre-t-il encore ce créneau ?
-  ///
-  /// ⚠️ **La question à poser avant de se reposer dessus.** Un plan périmé
-  /// n'échoue pas : il fait émettre des jetons que plus personne n'attend, ce
-  /// qui est indiscernable d'une radio éteinte. C'est le point H, en plus
-  /// silencieux encore.
-  bool covers(int slot) => slot >= fromSlot && slot <= toSlot;
+  // ⚠️ **`covers` a été RETIRÉ le 2026-08-28** : aucun appelant côté Dart. La
+  // question « le plan couvre-t-il cet instant ? » se pose là où elle a des
+  // conséquences — dans le natif, qui se **tait** quand la réponse est non
+  // (`AdvertSchedule.covers`). La poser ici aussi aurait été un second juge
+  // pour une décision qui n'appartient qu'à l'émetteur.
 }
 
 /// La table de reconnaissance : jeton reçu (hex) → identifiant de l'ami.
@@ -104,9 +105,11 @@ class RecognitionTable {
 
   String? match(Uint8List advertId) => byToken[ProximityIdentity.hex(advertId)];
 
-  bool covers(int slot) => slot >= fromSlot && slot <= toSlot;
-
-  int get length => byToken.length;
+  // ⚠️ **`covers` et `length` ont été RETIRÉS le 2026-08-28** : aucun appelant.
+  // Cette table est reconstruite à chaque changement de créneau par
+  // `PeerNetwork.tick`, donc elle couvre toujours l'instant présent — demander
+  // à un objet toujours valide s'il est valide, c'est entretenir un doute que
+  // sa construction a déjà levé.
 }
 
 /// Combien de créneaux de tolérance de part et d'autre du créneau courant.
@@ -294,7 +297,10 @@ class NativeRecognitionTable {
 
   int get perSlot => order.length;
 
-  bool get isEmpty => order.isEmpty || slotCount <= 0;
+  // ⚠️ **`isEmpty` a été RETIRÉ le 2026-08-28** : aucun appelant. Le
+  // superviseur ne construit cette table que lorsqu'il a des secrets, donc elle
+  // n'est jamais vide à la sortie ; et le natif a le sien
+  // (`AdvertSchedule.isEmpty`), qui porte sur le plan d'émission.
 
   /// Qui est le rang [index] ? `null` si le rang n'existe pas dans cette table.
   String? friendAt(int index) =>

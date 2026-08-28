@@ -47,8 +47,11 @@ class ProximitySync {
   /// cherche à borner, c'est l'élément qui ne passera **jamais**.
   static const maxAttempts = 8;
 
-  /// Éléments abandonnés depuis le lancement — visible au diagnostic.
-  var abandoned = 0;
+  // ⚠️ **`abandoned` a été SUPPRIMÉ le 2026-08-28.** Il était incrémenté à deux
+  // endroits et **jamais lu** : son commentaire promettait « visible au
+  // diagnostic », ce qui était faux. Ce qui rend l'abandon visible, c'est le
+  // `ConnectionTrace.note` qui l'accompagne — et lui, il figure bien dans le
+  // rapport, avec le motif et le type de l'élément.
 
   Future<void> run() async {
     if (_running) return;
@@ -269,7 +272,6 @@ class ProximitySync {
               ConnectionEvent.outboxAbandoned,
               detail: 'type inconnu : ${item['type']}',
             );
-            abandoned++;
             continue;
         }
       } catch (e) {
@@ -298,7 +300,6 @@ class ProximitySync {
           // appel serveur direct, qui réussit ou lève **devant l'utilisateur**.
           // Il n'y a plus de file, donc plus d'échec différé et silencieux à
           // rattraper — la cause a disparu avec le chemin.
-          abandoned++;
           continue;
         }
         remaining.add({...item, 'attempts': attempts, 'lastError': '$e'});

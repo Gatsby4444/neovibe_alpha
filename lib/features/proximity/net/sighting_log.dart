@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import '../proximity_identity.dart';
 import 'distance_estimate.dart';
 
@@ -127,12 +125,14 @@ class SightingLog {
     return out;
   }
 
-  void clear() => _pending.clear();
+  // ⚠️ **`clear()` a été RETIRÉ le 2026-08-28** : aucun appelant, ni dans le
+  // code ni dans les tests. `drain()` vide déjà — et lui, il rend ce qu'il
+  // vide. Une seconde façon de vider, qui perd le contenu sans le confier à la
+  // file d'envoi, était une occasion silencieuse de jeter des croisements.
 }
 
-/// Ce que la couche de reconnaissance sait dire d'un jeton capté.
-///
-/// Existe pour que le journal n'ait **jamais** à connaître un jeton : il ne
-/// manipule que des identifiants d'amis déjà résolus. Un journal qui verrait
-/// passer des jetons serait un journal qu'il faudrait protéger.
-typedef TokenResolver = String? Function(Uint8List advertId);
+// ⚠️ **`TokenResolver` a été SUPPRIMÉ le 2026-08-28** : ce typedef n'était
+// utilisé nulle part, ni dans le code ni dans les tests. Ce qu'il décrivait
+// reste vrai — ce journal ne manipule que des identifiants d'amis déjà
+// résolus, jamais de jetons — mais un type que rien n'implémente n'impose
+// rien : c'est la construction de `Sighting` qui le garantit.

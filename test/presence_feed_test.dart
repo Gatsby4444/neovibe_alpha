@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:neovibe/core/models/nearby_user.dart';
 import 'package:neovibe/features/proximity/net/distance_estimate.dart';
 import 'package:neovibe/features/proximity/net/peer_session.dart';
 import 'package:neovibe/features/proximity/ping_store.dart';
@@ -26,7 +25,6 @@ PresencePeer _peer({
     address: address,
     stage: stage,
     rssi: rssi,
-    level: ProximityLevel.close,
     firstSeen: now,
     lastSeen: now,
     band: band,

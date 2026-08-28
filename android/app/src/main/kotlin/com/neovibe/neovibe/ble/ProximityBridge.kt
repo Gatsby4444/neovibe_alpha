@@ -209,9 +209,11 @@ class ProximityBridge(
                     )
                 }
 
-                "advertCapabilities" -> {
-                    result.success(ProximityService.instance?.advertCapabilities() ?: mapOf<String, Any?>())
-                }
+                // ⚠️ **`advertCapabilities` a ete SUPPRIME le 2026-08-28.** Aucun
+                // appelant Dart : `stats()` fusionne deja la map entiere du
+                // moteur depuis le 2026-08-26. Un ordre auquel le natif repond
+                // encore mais que personne ne donne est une porte ouverte, pas
+                // une compatibilite.
 
                 // ⚠️ **`connect`, `disconnect` et `send` ont ete SUPPRIMES le
                 // 2026-08-27**, avec tout le transport BLE. Un ordre que plus
@@ -260,6 +262,7 @@ class ProximityBridge(
         rssi: Int,
         txPower: Int,
         type: Byte,
+        atMillis: Long,
     ) = emit(
         mapOf(
             "event" to "scan",
@@ -267,6 +270,11 @@ class ProximityBridge(
             "advertId" to advertId,
             "rssi" to rssi,
             "txPower" to txPower,
+            // ⚠️ **QUAND on l'a entendue.** Le pont peut naitre longtemps apres
+            // le scan : le service met de cote ce qu'il a vu en l'absence
+            // d'interface, et le rejoue. Sans cette date, le Dart prendrait un
+            // souvenir pour une observation.
+            "atMillis" to atMillis,
             // ⚠️ Le type monte jusqu'au Dart : c'est LUI qui detient la table
             // de reconnaissance faisant autorite, donc c'est lui qui decide
             // qu'un jeton prive inconnu se jette au lieu de s'afficher.

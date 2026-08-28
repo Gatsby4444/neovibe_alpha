@@ -181,14 +181,24 @@ final friendBookProvider = Provider<FriendKeyStore>((ref) => FriendKeyBook());
 final isFriendProvider = StreamProvider.family<bool, String>((ref, userId) {
   final book = ref.watch(friendBookProvider);
   final controller = StreamController<bool>();
+  // ⚠️ **Le test de fermeture doit venir APRÈS l'attente, pas avant.**
+  //
+  // Il ne se faisait qu'en tête de `emit` : entre ce test et le `add`, il y a
+  // une lecture du carnet, donc un `await`. Si la disposition tombait dans cet
+  // intervalle — un écran fermé pendant que le carnet se relit — `add` levait
+  // un `StateError` **asynchrone et non rattrapé**, puisque le `Future` de cet
+  // écouteur n'est attendu par personne (défaut relevé le 2026-08-28).
+  var ferme = false;
 
   Future<void> emit() async {
-    if (controller.isClosed) return;
-    controller.add((await book.all()).containsKey(userId));
+    final ami = (await book.all()).containsKey(userId);
+    if (ferme || controller.isClosed) return;
+    controller.add(ami);
   }
 
   book.changes.addListener(emit);
   ref.onDispose(() {
+    ferme = true;
     book.changes.removeListener(emit);
     controller.close();
   });

@@ -77,9 +77,21 @@ class Appareil {
   /// quand le mode ping est actif. Simuler « je vois quelqu'un » demande donc
   /// de choisir **lequel des deux** — et c'est une bonne chose : le test ne
   /// peut plus confondre les deux publics.
+  /// ⚠️ **La date de l'annonce vient de l'horloge PILOTÉE de cet appareil.**
+  ///
+  /// `PeerNetwork` écarte depuis le 2026-08-28 les annonces plus vieilles que
+  /// [PresenceRules.freshFor] — le natif rejoue ce qu'il a capté en l'absence
+  /// d'interface, et un souvenir n'est pas une présence. Dater ces scans avec
+  /// `DateTime.now()` pendant que le réseau juge avec une horloge simulée
+  /// faisait diverger les deux : dès qu'un test avançait sa montre de plus de
+  /// cinq secondes, **toutes** ses annonces étaient jetées comme périmées.
+  ///
+  /// C'est la même règle que partout ailleurs ici : l'instant qu'on observe et
+  /// l'instant qui juge doivent venir de la même autorité.
   Future<void> voit(Appareil autre, {int rssi = -60, String? depuis}) async {
     await reseau.onRadioEvent(
       RadioScan(
+        at: horloge.instant,
         address: depuis ?? autre.adresse,
         advertId: await autre.identite.currentPublicPingId(),
         rssi: rssi,
@@ -103,6 +115,7 @@ class Appareil {
   }) async {
     await reseau.onRadioEvent(
       RadioScan(
+        at: horloge.instant,
         address: depuis ?? autre.adresse,
         advertId: await autre.identite.jetonPour(
           destinataire.identite,
@@ -119,6 +132,7 @@ class Appareil {
   Future<void> voitAmi(Appareil autre, {int rssi = -60, String? depuis}) async {
     await reseau.onRadioEvent(
       RadioScan(
+        at: horloge.instant,
         address: depuis ?? autre.adresse,
         advertId: await autre.identite.jetonPour(identite, slot: null),
         rssi: rssi,
@@ -179,7 +193,6 @@ void main() {
             "d'une autre paire. L'afficher, c'est inventer quelqu'un — et "
             "c'est ce qui a produit « 13 détections » le 2026-08-25.",
       );
-      expect(a.reseau.foreignTokenScans, 1);
     });
 
     test("le jeton privé de Bob destiné à Alice, lui, identifie Bob", () async {
@@ -189,11 +202,15 @@ void main() {
       await a.reseau.refreshFriends();
 
       await a.voitAmi(b);
-      expect(a.reseau.presence.byUser('u-b'), isNotNull);
+      final session = a.reseau.presence.byUser('u-b');
+      expect(session, isNotNull);
       expect(
-        a.reseau.foreignTokenScans,
-        0,
-        reason: "Un jeton reconnu ne doit jamais être compté comme étranger.",
+        session!.snapshot?.userId,
+        'u-b',
+        reason:
+            "Un jeton reconnu doit NOMMER son émetteur : c'est toute la "
+            "différence avec le jeton d'une autre paire, écarté juste "
+            "au-dessus.",
       );
     });
 
@@ -211,6 +228,57 @@ void main() {
         );
       },
     );
+  });
+
+  group("Un scan REJOUÉ n'est pas une présence", () {
+    test("une annonce plus vieille que la fraîcheur est écartée", () async {
+      // ⚠️ **Le défaut du 2026-08-28.** Le service natif met de côté ce qu'il
+      // capte pendant que l'interface est absente (jusqu'à 200 annonces) et le
+      // rejoue à son retour. Ces annonces n'avaient **aucune date** : le
+      // registre les datait donc de « maintenant ». Un pair croisé il y a des
+      // heures réapparaissait « à portée », et — le plus visible — une
+      // notification « Le presque… » partait pour quelqu'un de parti depuis
+      // longtemps.
+      await a.ajouteAmi(b);
+      await a.reseau.refreshFriends();
+
+      await a.reseau.onRadioEvent(
+        RadioScan(
+          at: a.horloge.instant.subtract(const Duration(hours: 3)),
+          address: 'ZZ',
+          advertId: await b.identite.jetonPour(a.identite),
+          rssi: -60,
+          type: AdvertType.friend,
+        ),
+      );
+
+      expect(
+        a.reseau.presence.sessions,
+        isEmpty,
+        reason:
+            "Une annonce de trois heures n'ouvre aucune session : ce n'est pas "
+            "une observation, c'est un souvenir.",
+      );
+    });
+
+    test("une annonce de l'instant, elle, passe", () async {
+      // Le pendant du test précédent : sans lui, un filtre trop large
+      // passerait pour un correctif alors qu'il aurait tout coupé.
+      await a.ajouteAmi(b);
+      await a.reseau.refreshFriends();
+
+      await a.reseau.onRadioEvent(
+        RadioScan(
+          at: a.horloge.instant,
+          address: 'ZZ',
+          advertId: await b.identite.jetonPour(a.identite),
+          rssi: -60,
+          type: AdvertType.friend,
+        ),
+      );
+
+      expect(a.reseau.presence.byUser('u-b'), isNotNull);
+    });
   });
 
   test('un inconnu détecté EXISTE, et il RESTE inconnu', () async {
@@ -267,6 +335,7 @@ void main() {
     final pourAlice = await b.identite.jetonPour(a.identite);
     await c.reseau.onRadioEvent(
       RadioScan(
+        at: c.horloge.instant,
         address: 'BB',
         advertId: pourAlice,
         rssi: -60,
@@ -282,6 +351,7 @@ void main() {
     // Alice, elle, le reconnaît.
     await a.reseau.onRadioEvent(
       RadioScan(
+        at: a.horloge.instant,
         address: 'BB',
         advertId: pourAlice,
         rssi: -60,
@@ -309,11 +379,23 @@ void main() {
     expect(a.reseau.presence.byUser('u-b'), isNotNull);
 
     // Bob est retiré. Carole ne doit rien perdre au passage.
-    await a.carnet.remove('u-b');
+    await a.carnet.retire('u-b');
     await a.reseau.refreshFriends();
+
+    // ⚠️ **La session déjà ouverte perd son NOM, tout de suite** (2026-08-28).
+    // Sans ça, l'identité survivait au retrait jusqu'à l'expiration de la
+    // session : la tuile continuait de nommer Bob, et l'écran lui proposait un
+    // bouton « demander en ami » sur quelqu'un que la radio n'a plus le droit
+    // de reconnaître.
+    expect(
+      a.reseau.presence.byUser('u-b'),
+      isNull,
+      reason: "Une identité vient du carnet ; elle s'en va avec lui.",
+    );
 
     await a.reseau.onRadioEvent(
       RadioScan(
+        at: a.horloge.instant,
         address: 'DD',
         advertId: await b.identite.jetonPour(a.identite),
         type: AdvertType.friend,
@@ -328,6 +410,7 @@ void main() {
 
     await a.reseau.onRadioEvent(
       RadioScan(
+        at: a.horloge.instant,
         address: 'EE',
         advertId: await c.identite.jetonPour(a.identite),
         type: AdvertType.friend,

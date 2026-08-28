@@ -82,6 +82,87 @@ void _entend(ProviderContainer c, DateTime quand, List<String> jetons) => c
 
 void main() {
   _decision();
+
+  group('Croisés récemment — une liste où l\'on peut encore AGIR', () {
+    test(
+      'quelqu\'un croisé il y a plus de dix minutes disparaît de la liste',
+      () async {
+        // ⚠️ **Le défaut du 2026-08-28.** Cette liste soustrayait simplement
+        // ceux qu'on entend, sans aucune borne de temps. Or sa source n'est
+        // remplacée qu'à un appel serveur, qui peut n'arriver qu'au changement
+        // de créneau — quinze minutes — alors que le serveur refuse la demande
+        // d'ami au-delà de dix (`private.fenetre_rencontre()`). La section
+        // affichait donc des gens dont le bouton ne peut plus que dire non.
+        final h = _harnais();
+        addTearDown(h.container.dispose);
+        addTearDown(h.horloge.close);
+
+        final t0 = DateTime.utc(2026, 8, 28, 12);
+        h.horloge.add(t0);
+        // ⚠️ **Son jeton est connu, mais on ne l'entend pas** : c'est
+        // exactement la définition de « croisé, plus à portée ». Sans jeton,
+        // on retomberait sur le filet serveur et il compterait comme présent.
+        h.source.publier([_personne('a', t0, jeton: 'JETON-A')]);
+        await _propage();
+
+        expect(
+          h.container.read(pingNearbyProvider),
+          isEmpty,
+          reason: "jeton connu, jamais entendu : il n'est pas à portée",
+        );
+        await _propage();
+
+        expect(
+          h.container.read(croisesRecemmentProvider),
+          hasLength(1),
+          reason:
+              'croisé à l\'instant, plus entendu : il est bien dans la liste',
+        );
+
+        var reveils = 0;
+        h.container.listen(croisesRecemmentProvider, (_, _) => reveils++);
+
+        // Neuf minutes : la demande passe encore, la tuile a un sens.
+        h.horloge.add(t0.add(const Duration(minutes: 9)));
+        await _propage();
+        expect(h.container.read(croisesRecemmentProvider), hasLength(1));
+        expect(
+          reveils,
+          0,
+          reason:
+              'La liste est inchangée. Un battement d\'horloge qui reconstruit '
+              'la section pour rien est le défaut qu\'on remplace.',
+        );
+
+        // Onze minutes : le serveur dirait non, donc on n'affiche plus.
+        h.horloge.add(t0.add(const Duration(minutes: 11)));
+        await _propage();
+        expect(h.container.read(croisesRecemmentProvider), isEmpty);
+        expect(reveils, 1, reason: 'un seul réveil, au moment du changement');
+      },
+    );
+
+    test('quelqu\'un qu\'on ENTEND n\'est pas « croisé », il est là', () async {
+      final h = _harnais();
+      addTearDown(h.container.dispose);
+      addTearDown(h.horloge.close);
+
+      final t0 = DateTime.utc(2026, 8, 28, 12);
+      h.horloge.add(t0);
+      h.source.publier([_personne('a', t0, jeton: 'JETON-A')]);
+      _entend(h.container, t0, ['JETON-A']);
+      await _propage();
+
+      expect(h.container.read(pingNearbyProvider), hasLength(1));
+      expect(
+        h.container.read(croisesRecemmentProvider),
+        isEmpty,
+        reason:
+            'Les deux listes sont exclusives : la même personne dans les deux '
+            'donnerait deux tuiles pour une seule présence.',
+      );
+    });
+  });
   group("Le délai de grâce — qui est ENCORE là", () {
     test("quelqu'un vu à l'instant est affiché", () async {
       final h = _harnais();

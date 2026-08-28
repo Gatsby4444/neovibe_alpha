@@ -163,9 +163,13 @@ class PingBeaconService extends Notifier<PingBeaconState> {
       final precision = await geo.precision();
       final fix = await geo.current();
       if (fix == null) {
+        // La dernière panne réseau ne décrit plus la situation : ce qui bloque
+        // maintenant, c'est la position. En garder deux ferait afficher deux
+        // causes pour un seul symptôme.
         state = state.copyWith(
           blocker: await geo.blocker(),
           precision: precision,
+          lastError: null,
         );
         return;
       }
@@ -202,6 +206,20 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   void _onRadioEvent(RadioEvent event) {
     if (event is! RadioScan) return;
     if (event.type != AdvertType.public) return;
+
+    // ⚠️ **Un scan rejoué n'est pas une observation.** Le service natif met de
+    // côté ce qu'il capte quand l'interface est absente et le rejoue à son
+    // retour : sans ce test, un jeton entendu il y a des heures serait déposé
+    // au serveur avec le créneau **courant** — un constat de proximité pour une
+    // rencontre qui n'a pas lieu (défaut du 2026-08-28).
+    //
+    // ⚠️ **Le seuil est celui de CE consommateur**, et il diffère de celui du
+    // réseau de pairs : ici, la question est « puis-je encore l'affirmer au
+    // serveur ? », et [kPingLocalGrace] est exactement la borne que la vue
+    // appliquera ensuite.
+    final now = DateTime.now();
+    if (now.difference(event.at) > kPingLocalGrace) return;
+
     final hex = _hex(event.advertId);
     // ⚠️ **On ne dépose que ce qui est dans la liste.** Déposer tout ce qu'on
     // entend reviendrait à demander au serveur « qui est-ce ? » pour chaque
@@ -214,7 +232,9 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     // rafraîchissement passée à 60 s : on ne fait attendre personne qui arrive.
     final nouveau = !_heardAt.containsKey(hex);
     _heard.add(hex);
-    _heardAt[hex] = DateTime.now();
+    // ⚠️ **La date de l'ANNONCE, pas celle du traitement.** Les deux sont
+    // presque toujours égales — sauf au rejeu, le seul cas où ça compte.
+    _heardAt[hex] = event.at;
 
     // ⚠️ **Publié à chaque annonce, fidèlement.** C'est la règle de
     // dissociation : l'acquisition ne décide pas si l'écran doit se redessiner.
@@ -285,6 +305,10 @@ class PingBeaconService extends Notifier<PingBeaconState> {
       bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 }
 
+/// Sentinelle de [PingBeaconState.copyWith] : distingue « non fourni » de
+/// « explicitement nul ».
+const Object _nonFourni = Object();
+
 /// Ce que l'acquisition du ping constate. **Des faits, pas un affichage.**
 class PingBeaconState {
   const PingBeaconState({
@@ -321,22 +345,38 @@ class PingBeaconState {
   /// panne réseau doivent rester distinguables.
   final String? lastError;
 
+  /// ## 🔴 Le défaut corrigé le 2026-08-28
+  ///
+  /// `blocker` et `lastError` valaient directement le paramètre, sans
+  /// `?? this.…` : **tout appel qui ne les passait pas les effaçait**. En
+  /// particulier `_flushHeard`, qui écrit `confirmed` toutes les 60 secondes,
+  /// **supprimait le bandeau de permission de localisation** posé par `_tick`.
+  /// L'écran cachait donc un blocage encore vrai, jusqu'au tour suivant.
+  ///
+  /// ⚠️ **Un `?? this.…` ne suffisait pas** : ces deux champs doivent aussi
+  /// pouvoir être **remis à nul** (un blocage levé, une panne réseau résolue).
+  /// « Non fourni » et « explicitement nul » sont deux intentions différentes,
+  /// et un `null` ne sait pas les distinguer — d'où la sentinelle.
   PingBeaconState copyWith({
-    LocationBlocker? blocker,
+    Object? blocker = _nonFourni,
     LocationPrecision? precision,
     String? cell,
     int? listening,
     bool? listeningTruncated,
     int? confirmed,
-    String? lastError,
+    Object? lastError = _nonFourni,
   }) => PingBeaconState(
-    blocker: blocker,
+    blocker: identical(blocker, _nonFourni)
+        ? this.blocker
+        : blocker as LocationBlocker?,
     precision: precision ?? this.precision,
     cell: cell ?? this.cell,
     listening: listening ?? this.listening,
     listeningTruncated: listeningTruncated ?? this.listeningTruncated,
     confirmed: confirmed ?? this.confirmed,
-    lastError: lastError,
+    lastError: identical(lastError, _nonFourni)
+        ? this.lastError
+        : lastError as String?,
   );
 
   @override

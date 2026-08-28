@@ -36,7 +36,12 @@ class ProximityDiagnosticScreen extends ConsumerStatefulWidget {
 
 class _ProximityDiagnosticScreenState
     extends ConsumerState<ProximityDiagnosticScreen> {
-  final _radio = BleRadio();
+  /// ⚠️ **Le canal natif vient du provider depuis le 2026-08-28.** Cet écran
+  /// construisait son propre `BleRadio()` : un client qui va lui-même en
+  /// cuisine. La classe est sans état, donc rien ne cassait — mais la règle
+  /// « un seul chemin vers le natif » ne peut pas s'énoncer si chacun peut
+  /// s'en fabriquer un.
+  BleRadio get _radio => ref.read(bleRadioProvider);
   Map<String, dynamic> _stats = const {};
   Timer? _poll;
 

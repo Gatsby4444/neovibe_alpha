@@ -1,6 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/models/nearby_user.dart';
 import 'net/distance_estimate.dart';
 import 'net/peer_session.dart';
 import 'ping_store.dart';
@@ -56,7 +55,6 @@ class PeerView {
     required this.stage,
     required this.band,
     required this.trend,
-    required this.level,
     required this.distanceLabel,
     required this.snapshot,
   });
@@ -65,7 +63,12 @@ class PeerView {
   final PresenceStage stage;
   final ProximityBand band;
   final ProximityTrend trend;
-  final ProximityLevel level;
+
+  // ⚠️ **`level` a été RETIRÉ le 2026-08-28.** Il était calculé, lissé,
+  // transporté jusqu'ici **et compté dans l'égalité ci-dessous** — donc un
+  // basculement de niveau reconstruisait la tuile. Or **aucun écran ne
+  // l'affichait**. C'est exactement le « pire des deux mondes » reproché plus
+  // haut au champ `pending` : invisible, mais décideur de redessins.
 
   /// Déjà formatée : voir la note d'égalité ci-dessus.
   final String distanceLabel;
@@ -79,7 +82,6 @@ class PeerView {
     stage: peer.stage,
     band: peer.band,
     trend: peer.trend,
-    level: peer.level,
     distanceLabel: peer.distance.metersLabel,
     snapshot: peer.snapshot,
   );
@@ -91,7 +93,6 @@ class PeerView {
       other.stage == stage &&
       other.band == band &&
       other.trend == trend &&
-      other.level == level &&
       other.distanceLabel == distanceLabel &&
       other.snapshot?.userId == snapshot?.userId &&
       other.snapshot?.displayName == snapshot?.displayName &&
@@ -103,7 +104,6 @@ class PeerView {
     stage,
     band,
     trend,
-    level,
     distanceLabel,
     snapshot?.userId,
     snapshot?.displayName,

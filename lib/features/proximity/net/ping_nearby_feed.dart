@@ -22,17 +22,11 @@ import 'proximity_supervisor.dart';
 /// c'est [DerivedList] qui arrête la propagation. Ce n'est qu'à la seconde où
 /// quelqu'un dépasse le délai de grâce que l'écran l'apprend.
 
-/// Le délai de grâce quand quelqu'un sort de portée.
-///
-/// ⚠️ **Décision de Jay** : 30 s avant de retirer quelqu'un de l'écran. Sans
-/// elle, une personne à la limite de portée clignoterait — le BLE perd des
-/// annonces en permanence, et une porte qui s'ouvre suffit à couper le signal
-/// une seconde.
-///
-/// ⚠️ **Elle vit ICI, pas côté serveur.** Le serveur publie un fait
-/// (`last_seen_at`) ; l'indulgence est une décision d'affichage, et deux écrans
-/// pourraient légitimement en vouloir deux différentes.
-const kPingGrace = Duration(seconds: 30);
+// ⚠️ **kPingGrace (30 s) a été SUPPRIMÉE le 2026-08-28** : plus aucun lecteur
+// depuis que la présence se constate en local. Les deux délais qui décident
+// vraiment sont [kPingLocalGrace] (la radio) et [kPingGraceServeur] (le filet).
+// Une constante que seuls des commentaires citent finit par être lue comme la
+// règle appliquée — elle ne l'était plus.
 
 /// Le silence radio au bout duquel on considère que la personne est partie.
 ///
@@ -40,10 +34,10 @@ const kPingGrace = Duration(seconds: 30);
 /// ne coûte **aucun appel réseau** : la radio crie ~10 fois par seconde, donc
 /// dix secondes de silence sont une centaine d'annonces manquées d'affilée.
 ///
-/// ⚠️ **Il remplace [kPingGrace] quand on connaît le jeton de la personne.** Le
-/// délai de grâce de 30 s se comptait sur une date **serveur**, qu'il fallait
-/// aller chercher toutes les dix secondes pour qu'elle reste vraie. Ici, la
-/// question « est-il encore là ? » se répond avec ce que la radio entend déjà.
+/// ⚠️ **Il a remplacé un délai de 30 s compté sur une date SERVEUR**, qu'il
+/// fallait aller rechercher toutes les dix secondes pour qu'elle reste vraie.
+/// Ici, la question « est-il encore là ? » se répond avec ce que la radio
+/// entend déjà.
 const kPingLocalGrace = Duration(seconds: 10);
 
 /// **Ce que la radio entend, ici, maintenant** : jeton → dernier instant entendu.
@@ -125,7 +119,7 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
   int _slot = -1;
 
   /// Les jetons qu'on a demandés au serveur **et qu'il n'a pas nommés**, avec
-  /// le nombre de demandes.
+  /// l'instant du **premier** refus.
   ///
   /// ## 🔴 Le défaut que ceci corrige — mesuré le 2026-08-27 à 20 h 16
   ///
@@ -147,18 +141,34 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
   ///
   /// Renoncer au premier refus casserait la découverte : au moment où deux
   /// inconnus se croisent, le serveur ne peut nommer personne tant qu'il n'a
-  /// pas reçu le constat **des deux côtés**. Il faut donc insister — mais pas
-  /// indéfiniment. [_maxDemandes] tours couvrent largement le délai de
-  /// publication de la balise d'en face (60 s).
-  final _sansReponse = <String, int>{};
-
-  /// Au-delà, on cesse de demander ce jeton **jusqu'au prochain créneau**.
+  /// pas reçu le constat **des deux côtés**.
   ///
-  /// Six tours de 10 s = une minute. Un jeton non nommé au bout d'une minute
-  /// appartient à un ami, ou à quelqu'un qui ne nous confirme pas : dans les
-  /// deux cas, redemander n'apprendra rien. Les jetons tournant toutes les
-  /// 15 minutes, le renoncement se réarme tout seul.
-  static const _maxDemandes = 6;
+  /// ## 🔴 Deux défauts corrigés le 2026-08-28
+  ///
+  /// **1. Le seuil était calibré trop court.** Il valait six tours de dix
+  /// secondes, soit **60 s** — exactement l'ordre de grandeur du pire cas
+  /// d'appariement : le jeton d'en face n'entre dans ma liste d'écoute qu'après
+  /// **sa** republication de balise (PingBeaconService.refreshEvery = 60 s),
+  /// plus un aller-retour serveur. On renonçait donc au moment précis où le
+  /// serveur devenait capable de répondre.
+  ///
+  /// **2. Un compte de tours dépend d'un rythme qu'il ne nomme pas.** Changer
+  /// [pollEvery] changeait silencieusement la durée du renoncement. On énonce
+  /// la règle telle qu'elle se pense — voir [_abandonApres].
+  final _sansReponse = <String, DateTime>{};
+
+  /// Au bout de combien de temps on cesse de demander le nom d'un jeton.
+  ///
+  /// Trois minutes couvrent largement les 60 s de republication d'en face, son
+  /// dépôt et le nôtre. Au-delà, le jeton appartient à un ami (que
+  /// `ping_nearby` écarte par construction) ou à quelqu'un qui ne nous confirme
+  /// pas : redemander n'apprendra rien.
+  ///
+  /// ⚠️ **Le renoncement se RÉARME**, et c'est la seconde moitié du correctif :
+  /// [_noteCeQuiResteSansNom] oublie tout jeton qu'on n'entend plus. Un jeton
+  /// réentendu après une coupure repart donc de zéro, au lieu de rester
+  /// abandonné jusqu'au prochain créneau — soit jusqu'à quinze minutes.
+  static const _abandonApres = Duration(minutes: 3);
 
   /// **N'appelle le serveur que s'il a quelque chose à nous apprendre.**
   ///
@@ -185,13 +195,23 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
   /// « le serveur n'a pas encore le constat des deux côtés » (on réessaie) de
   /// « le serveur ne nommera jamais ce jeton » (on renonce).
   void _noteCeQuiResteSansNom() {
+    final entendus = ref.read(ecouteLocaleProvider);
     final connus = {for (final p in _last) p.token}.whereType<String>().toSet();
-    for (final jeton in ref.read(ecouteLocaleProvider).keys) {
+
+    // ⚠️ **Ce qu'on n'entend plus redevient une question ouverte.** Sans cette
+    // ligne, un jeton abandonné le restait jusqu'au changement de créneau —
+    // jusqu'à quinze minutes —, même réentendu entre-temps. La liste d'écoute
+    // se purge d'elle-même après [kPingGraceServeur] : s'y adosser fait
+    // repartir le compte à la prochaine rencontre, sans second réglage.
+    _sansReponse.removeWhere((jeton, _) => !entendus.containsKey(jeton));
+
+    final maintenant = DateTime.now();
+    for (final jeton in entendus.keys) {
       if (connus.contains(jeton)) {
-        // Nommé : s'il l'avait été refusé avant, on oublie ce refus.
+        // Nommé : s'il avait été refusé avant, on oublie ce refus.
         _sansReponse.remove(jeton);
       } else {
-        _sansReponse[jeton] = (_sansReponse[jeton] ?? 0) + 1;
+        _sansReponse.putIfAbsent(jeton, () => maintenant);
       }
     }
   }
@@ -202,14 +222,17 @@ class PingNearbySource extends Notifier<List<NearbyPerson>>
       creneauDernierAppel: _slot,
       jetonsConnus: _last.map((p) => p.token),
       jetonsEntendus: ref.read(ecouteLocaleProvider).keys,
-      abandonnes: {
-        for (final e in _sansReponse.entries)
-          if (e.value >= _maxDemandes) e.key,
-      },
+      abandonnes: _abandonnes(DateTime.now()),
     )) {
       await refresh();
     }
   }
+
+  /// Les jetons dont on a cessé d'attendre un nom, à cet instant.
+  Set<String> _abandonnes(DateTime maintenant) => {
+    for (final e in _sansReponse.entries)
+      if (maintenant.difference(e.value) >= _abandonApres) e.key,
+  };
 
   /// **Faut-il redemander au serveur ?** Fonction pure, donc éprouvable.
   ///
@@ -278,7 +301,7 @@ final pingNearbySourceProvider =
 /// | Quand | Ce qui décide | Délai |
 /// |---|---|---|
 /// | on connaît son jeton | **la radio, en local** | [kPingLocalGrace] (10 s) |
-/// | on ne le connaît pas encore | la date du serveur | [kPingGrace] élargi |
+/// | on ne le connaît pas encore | la date du serveur | [kPingGraceServeur] |
 ///
 /// ⚠️ **Le second cas n'est pas un oubli, il est nécessaire** : le jeton tourne
 /// toutes les 15 minutes, et le nouveau n'est connu qu'après que le pair a
@@ -341,13 +364,51 @@ class PingNearby extends Notifier<List<NearbyPerson>>
 /// 2026-08-27. Celle-là lisait les certificats BLE co-signés — qui n'ont jamais
 /// abouti une seule fois, donc elle était **vide en permanence**. Celle-ci a une
 /// source qui marche.
-final croisesRecemmentProvider = Provider<List<NearbyPerson>>((ref) {
-  final aPortee = {for (final p in ref.watch(pingNearbyProvider)) p.userId};
-  return ref
-      .watch(pingNearbySourceProvider)
-      .where((p) => !aPortee.contains(p.userId))
-      .toList(growable: false);
-});
+/// ## 🔴 Deux défauts corrigés le 2026-08-28
+///
+/// **1. Aucun filtre de temps.** La liste se contentait de soustraire ceux
+/// qu'on entend. Or la source n'est remplacée qu'à un appel serveur, qui peut
+/// n'arriver qu'au changement de créneau — **quinze minutes** — alors que le
+/// serveur refuse la demande d'ami au-delà de **dix**. La section pouvait donc
+/// afficher des gens dont le bouton ne peut plus que dire non : précisément ce
+/// que sa conception cherchait à éviter.
+///
+/// **2. Un Provider qui refabrique une List.** L'égalité d'une liste est
+/// l'identité en Dart : chaque recalcul réveillait l'écran, même à contenu
+/// identique. [DerivedList] compare le résultat.
+class CroisesRecemment extends Notifier<List<NearbyPerson>>
+    with DerivedList<NearbyPerson> {
+  @override
+  List<NearbyPerson> build() {
+    // ⚠️ **Le temps est une SOURCE.** Sans l'horloge, la fenêtre ne se
+    // fermerait qu'au prochain événement sans rapport.
+    final now = ref.watch(expiryClockProvider);
+    final aPortee = {for (final p in ref.watch(pingNearbyProvider)) p.userId};
+    return ref
+        .watch(pingNearbySourceProvider)
+        .where(
+          (p) =>
+              !aPortee.contains(p.userId) &&
+              now.difference(p.lastSeenAt) <= kFenetreRencontre,
+        )
+        .toList(growable: false);
+  }
+}
+
+final croisesRecemmentProvider =
+    NotifierProvider<CroisesRecemment, List<NearbyPerson>>(
+      CroisesRecemment.new,
+    );
+
+/// Le temps qu'il reste pour demander en ami quelqu'un qu'on vient de croiser.
+///
+/// ⚠️ **C'est la règle du serveur, recopiée ici en connaissance de cause** :
+/// `private.fenetre_rencontre()` vaut dix minutes, et
+/// `request_connection_from_proximity` refuse au-delà. L'écran ne peut pas
+/// l'interroger sans un appel de plus ; il l'applique donc lui-même, et
+/// **jamais plus large** — une interface plus stricte que la règle ne laisse
+/// passer que ce que la règle accepte, l'inverse serait un défaut.
+const kFenetreRencontre = Duration(minutes: 10);
 
 /// Le filet, quand on ne connaît pas encore le jeton de quelqu'un.
 ///
@@ -360,50 +421,13 @@ final pingNearbyProvider = NotifierProvider<PingNearby, List<NearbyPerson>>(
   PingNearby.new,
 );
 
-/// **Le canal de proximité avec [userId] est-il encore OUVERT ?**
-///
-/// ## ⚠️ La même question que le serveur, posée à la même source
-///
-/// Écrire dans un canal de proximité exige, **côté serveur**, une paire mutuelle
-/// constatée depuis moins de dix minutes (politique `messages_insert_member` →
-/// `private.can_write_in_conversation`, 2026-08-27). Or `ping_nearby` rend
-/// exactement les paires de moins de dix minutes : c'est donc
-/// [pingNearbySourceProvider] — la source, **pas** la vue à 30 s — qui répond à
-/// la question du serveur, sans requête de plus.
-///
-/// ⚠️ **Ne pas prendre [pingNearbyProvider] ici.** Il applique le délai de grâce
-/// d'affichage de 30 secondes, qui répond à « est-il là *maintenant* ? ». Le
-/// canal, lui, ne se ferme pas parce qu'une porte a coupé le signal trois
-/// secondes — le BLE en perd en permanence, et c'est précisément pour ça que ce
-/// délai de grâce existe. Deux questions, deux seuils, et il faut prendre celui
-/// que le serveur applique, sinon l'écran interdit ce que le serveur accepte.
-///
-/// ⚠️ **Ping coupé = canal fermé**, et c'est volontaire. La liste se vide quand
-/// l'utilisateur coupe sa visibilité ; l'écran est alors **plus strict que le
-/// serveur** pendant au plus dix minutes. C'est le bon sens du produit : le
-/// canal vit tant que la proximité est *prouvée*, et couper le ping, c'est
-/// cesser de la prouver. Une interface plus stricte que le serveur ne laisse
-/// jamais passer ce que la règle refuse — l'inverse serait un défaut.
-///
-/// ⚠️ **Le `.select` n'est pas décoratif** : il réduit une liste à un booléen,
-/// donc l'écran de conversation n'est réveillé que quand **cette** personne
-/// entre ou sort de la fenêtre — pas à chaque tour du ping, toutes les dix
-/// secondes.
-final canalProximiteOuvertProvider = Provider.family<bool, String>((
-  ref,
-  userId,
-) {
-  // ⚠️ **On lit la vue AFFICHÉE, pas la source.** La source, c'est « le serveur
-  // nous a appariés il y a moins de dix minutes » ; la vue, c'est « je l'entends
-  // maintenant ». Depuis que la présence se constate en local (2026-08-27), la
-  // seconde est à la fois plus juste et gratuite.
-  //
-  // ⚠️ **L'écran est donc plus strict que le serveur, et c'est le bon sens.**
-  // Le serveur tolère `private.fenetre_canal()` (3 min) parce qu'il ne peut pas
-  // savoir mieux — c'est son filet contre un client muet ou en retard. L'écran,
-  // lui, sait en dix secondes. Une interface plus stricte que la règle ne laisse
-  // jamais passer ce que la règle refuse ; l'inverse serait un défaut.
-  return ref.watch(
-    pingNearbyProvider.select((gens) => gens.any((p) => p.userId == userId)),
-  );
-});
+// ⚠️ **canalProximiteOuvertProvider a été SUPPRIMÉ le 2026-08-28.**
+//
+// Il répondait à « le canal de proximité avec cette personne est-il encore
+// ouvert ? ». ChatScreen a cessé de le lire le 2026-08-27, quand la question a
+// été reposée à `peerInRangeProvider` — la seule vue qui combine les deux
+// sources de présence, la radio pour les amis et le ping pour les inconnus.
+// Celui-ci ne lisait que le ping, donc il répondait **faux pour un ami**.
+//
+// Le garder aurait laissé deux réponses possibles à une même question, dont
+// une fausse : exactement ce que ce fichier existe pour empêcher.

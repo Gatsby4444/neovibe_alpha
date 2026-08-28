@@ -72,7 +72,7 @@ class ProximityRuntime {
 class ProximitySupervisor extends Notifier<ProximityRuntime> {
   static const prefsKey = 'proximity_visible';
 
-  final _radio = BleRadio();
+  BleRadio get _radio => ref.read(bleRadioProvider);
 
   /// ⚠️ **L'identité vient du provider.** C'est ce superviseur qui démarre la
   /// radio, donc lui qui calcule l'ID diffusé ; avec sa propre instance, il
@@ -114,6 +114,16 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
   Timer? _rotation;
   int _slot = -1;
 
+  /// Vrai pendant qu'un plan se calcule. **Deux sources peuvent demander en
+  /// même temps** — le carnet qui change et le minuteur horaire — et un plan
+  /// coûte 48 créneaux de HMAC par ami : les laisser se superposer paierait le
+  /// calcul deux fois pour un résultat identique.
+  bool _planEnCours = false;
+
+  /// Une demande arrivée pendant qu'un plan se calculait. On la rejoue **une
+  /// fois** à la fin : la dernière demande gagne, et elle n'est jamais perdue.
+  bool _planADemander = false;
+
   /// Les constats bruts, pour les couches du dessus (présence, transport).
   ///
   /// Le superviseur ne les interprète pas : il possède l'état de la RADIO, pas
@@ -130,9 +140,45 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
       _feed.close();
     });
     _listen();
+    _ecouteLesSourcesDuPlan();
     _restore();
     return const ProximityRuntime(wantsVisible: false, status: RadioIdle());
   }
+
+  /// **Le plan d'émission suit ses sources.**
+  ///
+  /// ## 🔴 Le défaut que ceci corrige — relevé à l'audit du 2026-08-28
+  ///
+  /// [refreshPlan] n'avait que **deux** déclencheurs : `_engage()` et un
+  /// minuteur d'une heure. **Rien n'écoutait le carnet d'amis.** Or tous les
+  /// jetons émis viennent du plan : accepter un ami ne le faisait donc entrer
+  /// ni dans ce qu'on crie, ni dans la table de reconnaissance déposée au
+  /// natif, **pendant jusqu'à une heure — et des deux côtés**. Aucune distance,
+  /// aucun constat, aucun croisement, sans qu'une seule erreur soit levée.
+  ///
+  /// Le contournement trouvé par Jay disait exactement cela : *« j'ai désactivé
+  /// et réactivé le ping sur chaque appareil et là ça remarche »* — rebasculer
+  /// l'interrupteur appelle `_engage()`.
+  ///
+  /// ⚠️ **Deux sources, deux abonnements, aucun `watch` sur ce notifieur.**
+  /// Surveiller l'identifiant de compte dans `build()` ré-exécuterait tout le
+  /// superviseur — donc rouvrirait le flux natif et relirait les préférences —
+  /// pour une donnée dont seul le plan dépend. `ref.listen` observe sans
+  /// reconstruire : le consommateur choisit ce qui l'intéresse, l'acquisition
+  /// n'en sait rien.
+  void _ecouteLesSourcesDuPlan() {
+    final carnet = ref.read(friendBookProvider);
+    carnet.changes.addListener(_replanifier);
+    ref.onDispose(() => carnet.changes.removeListener(_replanifier));
+
+    // ⚠️ **Le compte fait partie du plan** : un jeton d'ami porte le nom de
+    // celui qui l'émet (`ProximityIdentity.pairToken`). Tant qu'il est nul,
+    // `AdvertPlanner.plan` n'émet aucun jeton d'ami — donc se connecter après
+    // le démarrage de la radio laissait l'appareil muet pour ses amis.
+    ref.listen(currentUserIdProvider, (_, _) => _replanifier());
+  }
+
+  void _replanifier() => unawaited(refreshPlan());
 
   void _listen() {
     _events = _radio.events().listen((event) {
@@ -195,7 +241,15 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
     await _engage();
   }
 
-  Future<void> _engage() async {
+  /// Démarre la radio — **et rien d'autre**.
+  ///
+  /// ⚠️ **Séparé du dépôt du plan le 2026-08-28, et c'est ce qui supprime la
+  /// récursion.** Le `catch` du dépôt appelait `_engage()`, qui rappelle le
+  /// dépôt : un échec reproductible bouclait sans borne. La reprise a besoin de
+  /// **relancer la radio**, pas de rejouer tout l'engagement — les deux gestes
+  /// étaient collés dans une seule méthode, donc l'un ne pouvait pas se faire
+  /// sans l'autre.
+  Future<void> _demarreRadio() async {
     // ⚠️ **On sonde AVANT de démarrer.** Un obstacle connu — Bluetooth éteint,
     // permission manquante — se dit tout de suite, sans attendre qu'un
     // événement remonte. Sans cela, l'écran reste sur « Démarrage… » aussi
@@ -211,6 +265,10 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
     // Le démarrage a besoin d'un identifiant tout de suite ; le plan complet
     // arrive juste après et prend le relais.
     await _radio.start(await _identity.currentPublicPingId());
+  }
+
+  Future<void> _engage() async {
+    await _demarreRadio();
     await refreshPlan();
     _rotation?.cancel();
     // ⚠️ **Ce minuteur ne pousse plus d'identifiant, il RENOUVELLE le plan.**
@@ -232,101 +290,151 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
   /// régulièrement pour repousser l'horizon.
   Future<void> refreshPlan() async {
     if (!state.wantsVisible) return;
+    if (_planEnCours) {
+      _planADemander = true;
+      return;
+    }
+    _planEnCours = true;
+    try {
+      await _deposeOuRetablit();
+    } finally {
+      _planEnCours = false;
+    }
+    // Une source a bougé pendant le calcul : on rejoue **une** fois, la
+    // dernière demande gagne.
+    if (_planADemander) {
+      _planADemander = false;
+      await refreshPlan();
+    }
+  }
+
+  /// Dépose le plan, et **si le service a disparu, relance la radio une fois**.
+  ///
+  /// ## ⚠️ Ce qui remplace la récursion du 2026-08-28
+  ///
+  /// Le `catch` appelait `_engage()`, qui rappelle [refreshPlan] : deux
+  /// méthodes qui s'appellent l'une l'autre, **sans borne ni délai**, chacune
+  /// recalculant 48 créneaux de HMAC par ami. Un service définitivement absent
+  /// faisait tourner cette boucle indéfiniment, sans qu'aucune erreur ne soit
+  /// levée ni affichée.
+  ///
+  /// Ici la reprise est **linéaire et bornée** : on relance la radio, on
+  /// **retente une fois**, et si ça échoue encore on le **dit**. Il n'y a plus
+  /// de cycle à interrompre — la cause est supprimée, pas surveillée.
+  Future<void> _deposeOuRetablit() async {
+    try {
+      await _deposePlan();
+      return;
+    } catch (premiere) {
+      if (!state.wantsVisible) return;
+      // ⚠️ **L'échec dit quelque chose : le service n'est plus là.** Une
+      // première version l'ignorait — l'app restait « active » sans plus aucune
+      // radio, et personne ne l'aurait su avant le prochain lancement.
+      try {
+        await _demarreRadio();
+        await _deposePlan();
+        return;
+      } catch (seconde) {
+        state = state.copyWith(
+          status: RadioFailed(
+            'plan',
+            "Le plan d'émission n'a pas pu être déposé : $seconde",
+          ),
+        );
+        return;
+      }
+    }
+  }
+
+  /// Calcule le plan et le dépose. **Laisse remonter ce qui échoue.**
+  ///
+  /// ⚠️ **Aucun `catch` ici, et c'est délibéré** (2026-08-28). La politique de
+  /// reprise vit dans [_deposeOuRetablit], le seul endroit qui sache combien de
+  /// fois on a déjà essayé. En rattraper une part ici ferait deux politiques
+  /// pour une seule panne — et c'est de ce mélange qu'était née la récursion.
+  Future<void> _deposePlan() async {
     final now = DateTime.now();
     _slot = ProximityIdentity.slotIndex(now);
-    try {
-      final friends = await _keyBook.all();
-      final secrets = await _identity.pairSecrets({
-        for (final f in friends.values) f.userId: f.x25519PublicKey,
-      });
+    final friends = await _keyBook.all();
+    final secrets = await _identity.pairSecrets({
+      for (final f in friends.values) f.userId: f.x25519PublicKey,
+    });
 
-      // ⚠️ **Le mode ping est ce qui ajoute l'identifiant PUBLIC, et rien
-      // d'autre.** Les jetons d'amis, eux, partent toujours : croiser un ami et
-      // se rendre découvrable d'inconnus sont deux fonctions distinctes qui
-      // partagent la même radio (consigne de Jay, 2026-08-20).
-      // ⚠️ **Le jeton d'ami porte le nom de celui qui l'émet** depuis le
-      // 2026-08-26 (voir [ProximityIdentity.pairToken]). Sans mon identifiant,
-      // aucun jeton d'ami ne part — le planificateur le dit lui-même.
-      final plan = await const AdvertPlanner().plan(
+    // ⚠️ **Le mode ping est ce qui ajoute l'identifiant PUBLIC, et rien
+    // d'autre.** Les jetons d'amis, eux, partent toujours : croiser un ami et
+    // se rendre découvrable d'inconnus sont deux fonctions distinctes qui
+    // partagent la même radio (consigne de Jay, 2026-08-20).
+    // ⚠️ **Le jeton d'ami porte le nom de celui qui l'émet** depuis le
+    // 2026-08-26 (voir [ProximityIdentity.pairToken]). Sans mon identifiant,
+    // aucun jeton d'ami ne part — le planificateur le dit lui-même.
+    final plan = await const AdvertPlanner().plan(
+      secrets: secrets,
+      fromSlot: _slot,
+      slots:
+          planHorizon.inMilliseconds ~/
+          ProximityIdentity.slotDuration.inMilliseconds,
+      meUserId: ref.read(currentUserIdProvider),
+      pingSeed: _identity.pingSeed(),
+    );
+
+    // ⚠️ **Un `if (plan.isEmpty)` vivait ici, et rien ne pouvait le
+    // satisfaire.** `pingSeed` n'est jamais nul ci-dessus, donc le plan porte
+    // toujours au moins l'identifiant public de chaque créneau. Un garde-fou
+    // qu'aucune exécution ne peut atteindre rassure sans protéger — c'est la
+    // règle 4 de `CLAUDE.md`, et il est retiré (2026-08-28).
+    final perSlot = plan.forSlot(_slot).length;
+    final flat = Uint8List(plan.tokens.length * ProximityIdentity.tokenLength);
+    // ⚠️ **Le type descend avec le jeton, il ne se déduit pas en bas.**
+    // `audience == null` désigne l'identifiant public du mode ping ; tout le
+    // reste est le jeton privé d'un ami précis. C'est une règle produit, elle
+    // vit ici et nulle part ailleurs (consigne de Jay, 2026-08-25).
+    final types = Uint8List(plan.tokens.length);
+    for (var i = 0; i < plan.tokens.length; i++) {
+      flat.setRange(
+        i * ProximityIdentity.tokenLength,
+        (i + 1) * ProximityIdentity.tokenLength,
+        plan.tokens[i].bytes,
+      );
+      types[i] = plan.tokens[i].audience == null ? 1 : 2;
+    }
+
+    await _radio.setAdvertPlan(
+      tokens: flat,
+      types: types,
+      fromSlot: plan.fromSlot,
+      slotMillis: ProximityIdentity.slotDuration.inMilliseconds,
+      slotCount: plan.toSlot - plan.fromSlot + 1,
+      perSlot: perSlot,
+      tokenLength: ProximityIdentity.tokenLength,
+    );
+
+    // ⚠️ **Et la table de reconnaissance, sinon le natif diffuse en aveugle.**
+    //
+    // Le plan l'a rendu autonome pour ÉMETTRE ; sans table, il reste incapable
+    // de VOIR. L'appareil serait alors vu sans voir — exactement le défaut
+    // qu'on corrige. Les deux se déposent donc ensemble, toujours.
+    if (secrets.isNotEmpty) {
+      _tableId++;
+      final table = await const AdvertPlanner().nativeTable(
         secrets: secrets,
         fromSlot: _slot,
         slots:
             planHorizon.inMilliseconds ~/
             ProximityIdentity.slotDuration.inMilliseconds,
-        meUserId: ref.read(currentUserIdProvider),
-        pingSeed: _identity.pingSeed(),
+        tableId: _tableId,
       );
-
-      if (plan.isEmpty) {
-        // Aucun ami et pas de ping : rien à crier. On le dit plutôt que de
-        // laisser une annonce périmée tourner.
-        return;
-      }
-
-      final perSlot = plan.forSlot(_slot).length;
-      final flat = Uint8List(
-        plan.tokens.length * ProximityIdentity.tokenLength,
-      );
-      // ⚠️ **Le type descend avec le jeton, il ne se déduit pas en bas.**
-      // `audience == null` désigne l'identifiant public du mode ping ; tout le
-      // reste est le jeton privé d'un ami précis. C'est une règle produit, elle
-      // vit ici et nulle part ailleurs (consigne de Jay, 2026-08-25).
-      final types = Uint8List(plan.tokens.length);
-      for (var i = 0; i < plan.tokens.length; i++) {
-        flat.setRange(
-          i * ProximityIdentity.tokenLength,
-          (i + 1) * ProximityIdentity.tokenLength,
-          plan.tokens[i].bytes,
-        );
-        types[i] = plan.tokens[i].audience == null ? 1 : 2;
-      }
-
-      await _radio.setAdvertPlan(
-        tokens: flat,
-        types: types,
-        fromSlot: plan.fromSlot,
+      _recognition = table;
+      await _radio.setRecognitionTable(
+        tableId: table.tableId,
+        tokens: table.tokens,
+        fromSlot: table.fromSlot,
         slotMillis: ProximityIdentity.slotDuration.inMilliseconds,
-        slotCount: plan.toSlot - plan.fromSlot + 1,
-        perSlot: perSlot,
+        slotCount: table.slotCount,
+        perSlot: table.perSlot,
         tokenLength: ProximityIdentity.tokenLength,
       );
-
-      // ⚠️ **Et la table de reconnaissance, sinon le natif diffuse en aveugle.**
-      //
-      // Le plan l'a rendu autonome pour ÉMETTRE ; sans table, il reste incapable
-      // de VOIR. L'appareil serait alors vu sans voir — exactement le défaut
-      // qu'on corrige. Les deux se déposent donc ensemble, toujours.
-      if (secrets.isNotEmpty) {
-        _tableId++;
-        final table = await const AdvertPlanner().nativeTable(
-          secrets: secrets,
-          fromSlot: _slot,
-          slots:
-              planHorizon.inMilliseconds ~/
-              ProximityIdentity.slotDuration.inMilliseconds,
-          tableId: _tableId,
-        );
-        _recognition = table;
-        await _radio.setRecognitionTable(
-          tableId: table.tableId,
-          tokens: table.tokens,
-          fromSlot: table.fromSlot,
-          slotMillis: ProximityIdentity.slotDuration.inMilliseconds,
-          slotCount: table.slotCount,
-          perSlot: table.perSlot,
-          tokenLength: ProximityIdentity.tokenLength,
-        );
-      } else {
-        _recognition = null;
-      }
-    } catch (_) {
-      // ⚠️ **L'échec dit quelque chose : le service n'est plus là.**
-      //
-      // La première version se contentait de l'ignorer. Mais si le service a
-      // été tué, l'app restait visiblement « active » sans plus aucune radio —
-      // et personne ne l'aurait su avant le prochain lancement. Puisque
-      // l'intention est toujours là, on rétablit.
-      if (state.wantsVisible) await _engage();
+    } else {
+      _recognition = null;
     }
   }
 }

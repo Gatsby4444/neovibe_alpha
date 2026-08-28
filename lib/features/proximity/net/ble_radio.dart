@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'radio_status.dart';
 
@@ -150,15 +151,10 @@ class BleRadio {
     ];
   }
 
-  /// Ce que la radio sait faire en matière d'annonces simultanées.
-  ///
-  /// ⚠️ **On demande à l'appareil, on ne déduit pas du modèle** — même
-  /// raisonnement que pour l'UWB et le Wi-Fi RTT. C'est ce qui permet à
-  /// l'émission de s'adapter au matériel (consigne de Jay, 2026-08-20) au lieu
-  /// de supposer le pire partout.
-  Future<Map<String, dynamic>> advertCapabilities() async =>
-      await _methods.invokeMapMethod<String, dynamic>('advertCapabilities') ??
-      const {};
+  // ⚠️ **`advertCapabilities` a été SUPPRIMÉ le 2026-08-28**, avec le cas du
+  // pont natif et la méthode du service. Aucun appelant : `stats()` fusionne la
+  // map entière des capacités depuis le 2026-08-26. Deux chemins vers la même
+  // mesure, c'est deux réponses possibles à une question qui n'en a qu'une.
 
   // ⚠️ **`connect`, `disconnect` et `send` ont été SUPPRIMÉS le 2026-08-27**,
   // avec tout le transport BLE. Ils ouvraient un lien GATT, le refermaient, et
@@ -180,3 +176,13 @@ class BleRadio {
   Future<Map<String, dynamic>> stats() async =>
       await _methods.invokeMapMethod<String, dynamic>('stats') ?? const {};
 }
+
+/// **LE** client du canal natif de proximité.
+///
+/// ⚠️ **Ne jamais écrire `BleRadio()` ailleurs.** Il en existait quatre
+/// constructions le 2026-08-28 : le superviseur, le contrôleur, l'écran de
+/// diagnostic et le collecteur de rapport. La classe est sans état, donc rien
+/// ne cassait — mais deux de ces points étaient un **écran** et un collecteur
+/// qui parlaient directement au natif, alors que le superviseur est censé
+/// posséder la radio. Un provider rend la règle vraie au lieu de l'énoncer.
+final bleRadioProvider = Provider<BleRadio>((ref) => BleRadio());

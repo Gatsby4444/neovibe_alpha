@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:neovibe/core/models/nearby_user.dart';
+import 'package:neovibe/features/proximity/net/distance_estimate.dart';
 import 'package:neovibe/features/proximity/net/peer_session.dart';
 import 'package:neovibe/features/proximity/ping_store.dart';
 
@@ -240,6 +240,13 @@ void main() {
     });
   });
 
+  // ⚠️ **Réécrits le 2026-08-28, sur `band` et non plus sur `level`.**
+  //
+  // Ces deux tests prouvaient le lissage et l'hystérésis à travers un **second
+  // modèle de distance** que rien n'affichait, et qui a été retiré. Les deux
+  // propriétés, elles, existent toujours — portées par `ProximityBand`, le
+  // modèle que l'écran montre vraiment. Supprimer les tests avec le champ
+  // aurait retiré la preuve d'une règle encore appliquée.
   group('le signal', () {
     test('le RSSI est lissé : une mesure aberrante ne bascule pas tout', () {
       final r = PeerRegistry();
@@ -248,7 +255,13 @@ void main() {
 
       expect(r.peers.single.rssi, greaterThan(-80));
       expect(r.peers.single.rssi, lessThan(-50));
-      expect(r.peers.single.level, ProximityLevel.close);
+      expect(
+        r.peers.single.band,
+        ProximityBand.close,
+        reason:
+            'Sans lissage, -30 dBm ferait sauter directement a « a portee de '
+            'bras » sur une seule mesure aberrante.',
+      );
     });
 
     test('l\'hystérésis empêche le clignotement à la frontière', () {
@@ -256,19 +269,19 @@ void main() {
       for (var i = 0; i < 20; i++) {
         r.observe('AA', -40);
       }
-      expect(r.peers.single.level, ProximityLevel.veryClose);
+      expect(r.peers.single.band, ProximityBand.contact);
 
-      // Juste sous le seuil d'entrée (-58) mais au-dessus du seuil de sortie
-      // (-66) : sans hystérésis, ça basculerait ici.
+      // Juste sous le seuil d'entrée (-55) mais au-dessus du seuil de sortie
+      // (-55 - 6 = -61) : sans hystérésis, ça basculerait ici.
       for (var i = 0; i < 20; i++) {
         r.observe('AA', -60);
       }
-      expect(r.peers.single.level, ProximityLevel.veryClose);
+      expect(r.peers.single.band, ProximityBand.contact);
 
       for (var i = 0; i < 20; i++) {
         r.observe('AA', -75);
       }
-      expect(r.peers.single.level, ProximityLevel.close);
+      expect(r.peers.single.band, ProximityBand.close);
     });
   });
 
