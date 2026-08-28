@@ -286,8 +286,16 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * éteint, on veut repartir dès qu'il revient. C'est le cœur de la
      * résistance aux aléas.
      */
-    fun start(advertId: ByteArray): Boolean {
+    /**
+     * [type] n'est pas `TYPE_PUBLIC` dans un seul cas : la **reprise depuis le
+     * disque**, ou il n'y a pas d'identifiant public a crier et ou le premier
+     * jeton disponible est celui d'un ami. Le poser juste evite d'annoncer
+     * quelques millisecondes un jeton prive sous une etiquette publique — que
+     * les autres appareils prendraient pour un inconnu.
+     */
+    fun start(advertId: ByteArray, type: Byte = BleConstants.TYPE_PUBLIC): Boolean {
         desiredAdvertId = advertId
+        desiredAdvertType = type
         scanRetried = false
         rawScans = 0
         neoScans = 0

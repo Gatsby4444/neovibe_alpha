@@ -222,6 +222,38 @@ et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
 | `setRecognitionTable` | Dart → natif | *(2026-08-20)* jetons attendus → rangs, pour reconnaître sans le Dart |
 | `takeSightings` | Dart → natif | *(2026-08-20)* récupère et vide ce que le service a constaté seul |
 
+### ⚠️ Le plan d'émission est PERSISTÉ — et pas en entier (2026-08-28)
+
+Fichier **`PlanStore.kt`** : le service écrit sur son disque de quoi reprendre
+après la mort du **processus**. Avant, le plan vivait en mémoire seule : quand
+Android récupérait l'app, le service redémarrait sans identifiant et s'arrêtait.
+« Le croisement fonctionne app fermée » était donc vrai tant que le *processus*
+vivait, pas tant que le téléphone était allumé.
+
+**Décision de Jay, 2026-08-28 — à reconduire telle quelle sur iOS :**
+
+| | Écrit sur le disque ? | Pourquoi |
+|---|---|---|
+| jetons de paire (amis) | **oui** | ce sont eux qui font le croisement app fermée |
+| table de reconnaissance | **oui** | sans elle, l'appareil serait vu sans voir |
+| identifiant **public** du ping | 🔴 **non** | il repart d'une graine neuve à chaque lancement — c'est ce qui empêche de relier deux sessions de découverte |
+
+⚠️ **Conséquence assumée et VISIBLE** : après une reprise depuis le disque,
+l'appareil croise ses amis mais **n'est pas découvrable par des inconnus** tant
+que l'app n'a pas été rouverte. `stats()` publie **`resumedFromDisk`**, et le
+rapport de diagnostic l'affiche — un prix qu'on ne voit pas est un prix qu'on
+oublie d'avoir accepté.
+
+⚠️ **Le fichier s'efface** à chaque démarrage demandé par le Dart (qui va en
+déposer un neuf) **et** à chaque arrêt voulu. Sans ça, un compte laisserait
+derrière lui des jetons que le suivant ferait crier — la fuite exacte que
+l'effacement du carnet avait fermée côté Dart.
+
+⚠️ **Aucun secret n'y est écrit** : ce sont des identifiants déjà calculés, ceux
+que la radio crie en clair. Ce qu'ils donnent à qui lit le disque, c'est douze
+heures de jetons d'avance — la même information qu'obtiendrait quelqu'un resté à
+côté de l'appareil pendant douze heures.
+
 ⚠️ **`scan` porte la DATE de l'observation (`atMillis`), depuis le 2026-08-28 —
 et c'est obligatoire côté iOS aussi.** Le service met de côté ce qu'il capte
 quand l'interface est absente et le rejoue à son retour : sans cette date, le
@@ -236,7 +268,7 @@ commandes. Un flux qui remonte n'a pas les mêmes règles qu'un ordre qui descen
 il n'attend pas de réponse, il peut n'avoir aucun auditeur, et il doit survivre
 au remplacement de l'interface.
 
-**Android (fait, 2026-08-16 ; plan d'émission et reconnaissance ajoutés le 2026-08-20)** — six fichiers dans `ble/` :
+**Android (fait, 2026-08-16 ; plan d'émission et reconnaissance ajoutés le 2026-08-20 ; persistance du plan le 2026-08-28)** — **sept** fichiers dans `ble/` :
 
 - **`RadioStatus.kt`** — l'**état réel** de la radio, et le calcul des
   permissions réellement exigées selon la version d'Android. C'est le cœur du

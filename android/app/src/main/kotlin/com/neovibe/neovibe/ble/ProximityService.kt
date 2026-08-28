@@ -236,6 +236,7 @@ class ProximityService : Service(), BleEngine.Listener {
     /** Le Dart depose un nouveau plan. Il remplace entierement le precedent. */
     fun setAdvertSchedule(plan: AdvertSchedule) {
         schedule = plan
+        persiste()
         cursor = 0
         cycleHandler.removeCallbacks(cycleTick)
         if (!plan.isEmpty) {
@@ -306,6 +307,21 @@ class ProximityService : Service(), BleEngine.Listener {
     fun setRecognitionTable(table: RecognitionTable, slotDurationMillis: Long) {
         recognition = table
         slotMillis = slotDurationMillis
+        persiste()
+    }
+
+    /**
+     * Ecrit sur le disque de quoi reprendre apres la mort du processus.
+     *
+     * ⚠️ **Les deux ensemble ou rien** : un plan sans table donnerait un
+     * appareil vu sans voir, une table sans plan un appareil qui voit sans
+     * etre vu. `PlanStore` refuse d'ecrire du partiel, et efface plutot.
+     *
+     * ⚠️ **L'identifiant public du ping n'y est PAS** — decision de Jay du
+     * 2026-08-28. Voir `PlanStore`.
+     */
+    private fun persiste() {
+        PlanStore.ecrire(applicationContext, schedule, recognition)
     }
 
     /** Rend les constats accumules et vide le tampon. */
@@ -326,6 +342,12 @@ class ProximityService : Service(), BleEngine.Listener {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                // ⚠️ **L'arret voulu efface le plan persiste.** Sans ca, couper
+                // sa visibilite laisserait sur le disque de quoi recommencer a
+                // crier au prochain redemarrage du systeme — l'inverse exact de
+                // ce que l'utilisateur vient de demander.
+                PlanStore.effacer(applicationContext)
+                reprisDuDisque = false
                 engine.stop()
                 stopForegroundCompat()
                 stopSelf()
@@ -335,25 +357,33 @@ class ProximityService : Service(), BleEngine.Listener {
                 val advertId = intent?.getByteArrayExtra(EXTRA_ADVERT_ID)
                 if (advertId == null) {
                     // Android nous a relances apres nous avoir tues : l'intent
-                    // d'origine est perdu, donc l'identifiant rotatif aussi. Il
-                    // est derive d'une cle du Keystore que SEUL le Dart sait
-                    // lire : impossible de le reconstruire ici.
+                    // d'origine est perdu, donc l'identifiant PUBLIC aussi — il
+                    // derive d'une graine que seul le Dart detient, en memoire.
                     //
-                    // On ne garde donc PAS une notification qui annonce une
-                    // detection qui n'existe pas. On se retire ; le superviseur
-                    // Dart relancera tout au prochain lancement de l'app, en
-                    // relisant l'intention persistee.
-                    onStatus(
-                        RadioStatus.Failed(
-                            "restarted",
-                            "Le service a ete relance par le systeme : rouvre " +
-                                "l'app pour reprendre la detection.",
-                        ),
-                    )
-                    stopForegroundCompat()
-                    stopSelf()
-                    return START_NOT_STICKY
+                    // ⚠️ **Mais les jetons d'AMIS, eux, sont sur le disque**
+                    // depuis le 2026-08-28. Avant, on s'arretait ici : « le
+                    // croisement fonctionne app fermee » etait donc vrai tant
+                    // que le PROCESSUS vivait, pas tant que le telephone etait
+                    // allume.
+                    return if (repartDuDisque()) START_STICKY else {
+                        onStatus(
+                            RadioStatus.Failed(
+                                "restarted",
+                                "Le service a ete relance par le systeme : " +
+                                    "rouvre l'app pour reprendre la detection.",
+                            ),
+                        )
+                        stopForegroundCompat()
+                        stopSelf()
+                        START_NOT_STICKY
+                    }
                 }
+                // ⚠️ **Un demarrage demande par le Dart efface le plan
+                // persiste.** Il s'apprete a en deposer un neuf ; garder
+                // l'ancien laisserait, entre les deux, de quoi crier les jetons
+                // du compte precedent apres un changement d'utilisateur.
+                PlanStore.effacer(applicationContext)
+                reprisDuDisque = false
                 startForegroundCompat()
                 engine.start(advertId)
             }
@@ -361,6 +391,41 @@ class ProximityService : Service(), BleEngine.Listener {
         // START_STICKY : si Android nous tue sous la pression mémoire, il nous
         // relance. L'intention de l'utilisateur, elle, est relue côté Dart.
         return START_STICKY
+    }
+
+    /**
+     * Vrai quand ce service tourne sur un plan relu du disque.
+     *
+     * ⚠️ **Publie dans `stats()`, et ce n'est pas decoratif** : dans cet etat
+     * l'appareil croise ses amis mais **n'est pas decouvrable par des
+     * inconnus** — il n'a pas d'identifiant public a crier. C'est le prix
+     * choisi le 2026-08-28, et un prix qu'on ne voit pas est un prix qu'on
+     * finit par oublier d'avoir accepte.
+     */
+    @Volatile
+    private var reprisDuDisque = false
+
+    /**
+     * Reprend sur le plan persiste, sans le Dart.
+     *
+     * Rend `false` s'il n'y a rien d'exploitable — pas de fichier, ou un plan
+     * qui ne couvre plus l'instant present. On ne repart alors PAS : emettre
+     * des jetons perimes serait indiscernable d'une radio saine tout en ne se
+     * faisant reconnaitre par personne.
+     */
+    private fun repartDuDisque(): Boolean {
+        val repris = PlanStore.relire(applicationContext, System.currentTimeMillis())
+            ?: return false
+        val premier = repris.plan.tokenAt(System.currentTimeMillis(), 0) ?: return false
+
+        reprisDuDisque = true
+        startForegroundCompat()
+        // ⚠️ Le premier jeton est celui d'un AMI : il part avec son vrai type,
+        // sinon les autres appareils le prendraient pour un identifiant public.
+        engine.start(premier, BleConstants.TYPE_FRIEND)
+        setRecognitionTable(repris.table, repris.table.rawSlotMillis)
+        setAdvertSchedule(repris.plan)
+        return true
     }
 
     override fun onDestroy() {
@@ -437,6 +502,8 @@ class ProximityService : Service(), BleEngine.Listener {
         // croisement se rate sans raison apparente. Et c'est le seul endroit qui
         // dise si le repli s'est declenche - il ne leve rien par ailleurs.
         "advertMode" to if (engine.parallelAdvertising) "parallele" else "cycle",
+        // ⚠️ **Repris du disque = amis oui, inconnus non.** Voir [reprisDuDisque].
+        "resumedFromDisk" to reprisDuDisque,
         "advertTokensPerSlot" to (schedule?.cycleLength ?: 0),
         "sdk" to android.os.Build.VERSION.SDK_INT,
         "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",

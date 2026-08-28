@@ -161,8 +161,26 @@ class _ProximityDiagnosticScreenState
               ),
             ],
           ),
+          // ⚠️ **Deux chiffres, et ce n'est pas de la coquetterie** (2026-08-28).
+          //
+          // Ce bloc affichait « Appareils vus (N) » à partir des sessions de
+          // présence. Or **un appareil en mode parallèle crie deux jetons** —
+          // un public, un privé — que rien ne peut relier : c'est la propriété
+          // anti-traçage, et elle interdit de les fusionner. Il produit donc
+          // deux sessions, dont une seule est nommée.
+          //
+          // Un seul téléphone en face affichait « Appareils vus (2) ». C'est la
+          // confusion des « 13 détections » du 2026-08-25, en plus petit — et
+          // sur l'instrument même qui sert à interpréter les tests.
+          //
+          // On ne corrige pas le compte, on le **dit** : une personne reconnue
+          // et une annonce anonyme ne répondent pas à la même question.
           _Bloc(
-            titre: 'Appareils vus (${peers.length})',
+            titre:
+                'Personnes reconnues '
+                '(${peers.where((p) => p.stage == PresenceStage.identified).length})'
+                ' · annonces anonymes '
+                '(${peers.where((p) => p.stage != PresenceStage.identified).length})',
             enfants: peers.isEmpty
                 ? [
                     Text(

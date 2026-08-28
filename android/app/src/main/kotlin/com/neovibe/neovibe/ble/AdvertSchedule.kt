@@ -125,4 +125,61 @@ class AdvertSchedule(
 
     /** Combien de jetons differents sont emis par creneau. */
     val cycleLength: Int get() = perSlot
+
+    // ------------------------------------------------------------------
+    // Persistance — voir `PlanStore`
+    // ------------------------------------------------------------------
+    //
+    // ⚠️ **Ces accesseurs existent pour ECRIRE le plan sur le disque, et pour
+    // rien d'autre.** Ils rendent ce que le Dart a depose, tel quel : ce
+    // fichier ne calcule toujours rien.
+
+    val rawFromSlot: Long get() = fromSlot
+    val rawSlotMillis: Long get() = slotMillis
+    val rawSlotCount: Int get() = slotCount
+    val rawTokenLength: Int get() = tokenLength
+    val rawTokens: ByteArray get() = tokens
+
+    /**
+     * Le meme plan, **prive de l'identifiant public du ping**.
+     *
+     * ⚠️ **C'est la moitie du choix de Jay du 2026-08-28** : on persiste ce qui
+     * fait le croisement entre amis, jamais ce qui rend decouvrable par des
+     * inconnus. L'identifiant public repart d'une graine neuve a chaque
+     * lancement — c'est ce qui empeche de relier deux sessions de decouverte —
+     * et l'ecrire sur le disque le rendrait stable douze heures durant.
+     *
+     * Rend `null` s'il n'y a aucun jeton d'ami : il n'y a alors rien a
+     * persister, et un fichier vide serait un plan qui ne fait plus rien.
+     */
+    fun friendsOnly(): AdvertSchedule? {
+        if (isEmpty) return null
+        val parCreneau = ArrayList<Int>(perSlot)
+        for (i in 0 until perSlot) {
+            if (types.getOrElse(i) { BleConstants.TYPE_PUBLIC } == BleConstants.TYPE_FRIEND) {
+                parCreneau.add(i)
+            }
+        }
+        if (parCreneau.isEmpty()) return null
+
+        val sortie = ByteArray(slotCount * parCreneau.size * tokenLength)
+        var pos = 0
+        for (s in 0 until slotCount) {
+            for (i in parCreneau) {
+                val depart = (s * perSlot + i) * tokenLength
+                if (depart + tokenLength > tokens.size) return null
+                System.arraycopy(tokens, depart, sortie, pos, tokenLength)
+                pos += tokenLength
+            }
+        }
+        return AdvertSchedule(
+            fromSlot = fromSlot,
+            slotMillis = slotMillis,
+            slotCount = slotCount,
+            perSlot = parCreneau.size,
+            tokens = sortie,
+            tokenLength = tokenLength,
+            types = ByteArray(slotCount * parCreneau.size) { BleConstants.TYPE_FRIEND },
+        )
+    }
 }

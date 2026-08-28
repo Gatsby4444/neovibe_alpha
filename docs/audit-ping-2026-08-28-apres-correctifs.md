@@ -68,17 +68,23 @@ Deux accesseurs publics rendant le même champ, dont un sans aucun lecteur. Reti
 
 # 3. Ce qui reste, assumé et documenté
 
-## 3a. Un appareil produit deux sessions de présence — **ce n'est pas un défaut**
+## 3a. Un appareil produit deux sessions — inévitable, mais l'INSTRUMENT le disait mal
 
 Un appareil en mode parallèle émet un jeton public **et** un jeton d'ami. Ils
 sont, par conception, **cryptographiquement impossibles à relier** par qui n'est
 pas l'émetteur — c'est toute la propriété anti-traçage. Les regrouper exigerait
 de casser cette propriété.
 
-Conséquence, bornée et sans effet visible : `presence.length` compte deux
-sessions pour un appareil. Les listes affichées n'en montrent qu'une
-(`presenceKeysProvider` ne garde que les identifiés) et les constats de
-croisement écartent les sessions sans identité.
+Les listes affichées n'en montrent qu'une (`presenceKeysProvider` ne garde que
+les identifiés) et les constats de croisement écartent les sessions sans
+identité.
+
+🔴 **Mais l'écran de diagnostic, lui, affichait « Appareils vus (N) » à partir du
+compte brut** — donc **(2) pour un seul téléphone en face**. C'est la confusion
+des « 13 détections » du 2026-08-25, en plus petit, et sur l'instrument même qui
+sert à interpréter les tests. ✅ **Corrigé** : il annonce maintenant
+**« Personnes reconnues (N) · annonces anonymes (M) »**. On ne corrige pas le
+compte — c'est impossible —, on dit ce qu'il compte.
 
 ## 3b. `DiagnosticBundle.proximity()` construit encore un `BleRadio`
 
@@ -88,16 +94,34 @@ provider demanderait de propager un `Ref` jusqu'à `app_updater` et `dev_report`
 `BleRadio` étant sans état, le coût réel est nul — mais **c'est une entorse, et
 elle est écrite ici plutôt que tue**.
 
-## 3c. Le plan d'émission ne survit pas à la mort du processus
+## 3c. ✅ Le plan d'émission survit maintenant à la mort du processus
 
-`AdvertSchedule` vit en mémoire dans le service. Si Android tue le processus,
-`onStartCommand` reçoit un intent sans identifiant, publie
-`RadioFailed("restarted")` et **s'arrête** — c'est délibéré, l'identifiant dérive
-d'une clé que seul le Dart sait lire.
+**Corrigé le 2026-08-28, sur décision de Jay : les jetons d'AMIS seulement.**
 
-⚠️ **Conséquence à connaître** : les « 12 heures d'indépendance » valent tant que
-le **service** vit, pas tant que l'appareil est allumé. Le point H est corrigé
-pour la mort de l'*activité*, pas pour celle du *processus*.
+`AdvertSchedule` vivait en mémoire seule. Quand Android récupérait le processus,
+`onStartCommand` recevait un intent sans identifiant, publiait
+`RadioFailed("restarted")` et **s'arrêtait** — « le croisement fonctionne app
+fermée » était donc vrai tant que le *processus* vivait, pas tant que le
+téléphone était allumé.
+
+`PlanStore.kt` écrit désormais le plan **et** la table sur le disque du service,
+et la reprise repart dessus au lieu de s'arrêter.
+
+| | Écrit ? | Pourquoi |
+|---|---|---|
+| jetons de paire | **oui** | ce sont eux qui font le croisement app fermée |
+| table de reconnaissance | **oui** | sans elle, l'appareil serait vu sans voir |
+| identifiant **public** | 🔴 **non** | il repart d'une graine neuve à chaque lancement, et c'est ce qui empêche de relier deux sessions de découverte |
+
+⚠️ **Le prix, assumé et rendu VISIBLE** : après une reprise, l'appareil croise
+ses amis mais **n'est pas découvrable par des inconnus**. `stats()` publie
+`resumedFromDisk`, et le rapport de diagnostic l'affiche.
+
+⚠️ **Le fichier s'efface** au démarrage demandé par le Dart et à l'arrêt voulu :
+sans ça, un compte laisserait derrière lui des jetons que le suivant ferait
+crier. **6 tests Kotlin** tiennent la propriété centrale — qu'aucun identifiant
+public ne parte sur le disque —, parce qu'elle se perdrait en silence : le
+fichier marcherait, l'appareil crierait juste.
 
 ## 3d. Trois champs déclarés sans lecteur, et **laissés en place**
 

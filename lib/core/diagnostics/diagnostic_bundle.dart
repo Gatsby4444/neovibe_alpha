@@ -159,6 +159,13 @@ class DiagnosticBundle {
         'protocolVersion',
         'advertMode',
         'advertTokensPerSlot',
+        // ⚠️ **Vrai = le service a repris sur le plan écrit sur le disque.**
+        // Dans cet état l'appareil croise ses amis mais **n'est pas
+        // découvrable par des inconnus** : il n'a pas d'identifiant public à
+        // crier tant que l'app n'a pas été rouverte. C'est le prix du choix du
+        // 2026-08-28, et un prix qu'on ne voit pas est un prix qu'on oublie
+        // d'avoir accepté.
+        'resumedFromDisk',
         'multipleAdvertisement',
         'extendedAdvertising',
         'maxAdvertisingDataLength',

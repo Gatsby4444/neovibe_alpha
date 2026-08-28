@@ -48,6 +48,16 @@ class RecognitionTable(
     tokens: ByteArray,
     tokenLength: Int,
 ) {
+    // ⚠️ **Ces champs existent pour ECRIRE la table sur le disque** (voir
+    // `PlanStore`), et pour rien d'autre. Sans elle, un service repris apres la
+    // mort du processus emettrait sans reconnaitre : vu sans voir.
+    val rawFromSlot: Long = fromSlot
+    val rawSlotMillis: Long = slotMillis
+    val rawSlotCount: Int = slotCount
+    val rawPerSlot: Int = perSlot
+    val rawTokenLength: Int = tokenLength
+    val rawTokens: ByteArray = tokens
+
     private val index = HashMap<String, Attendu>(slotCount * perSlot * 2)
 
     init {
