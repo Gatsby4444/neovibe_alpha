@@ -321,14 +321,38 @@ au remplacement de l'interface.
   qui tourne quand l'interface est morte ne peut pas être validé « à l'usage ».
   ⚠️ **Les constats vivent en mémoire seulement.** Si Android tue le
   *processus* (et pas seulement l'interface), ils sont perdus — assumé : les
-  écrire sur le disque depuis le natif poserait hors du Dart une trace de qui a
-  été croisé, pour rattraper un cas rare.
+  écrire sur le disque depuis le natif poserait hors du Dart une trace de **qui
+  a été croisé**, pour rattraper un cas rare.
 
-### Le format d'annonce — protocole v4 (2026-08-25)
+  ⚠️ **À ne pas confondre avec `PlanStore`, qui LUI persiste** (2026-08-28) : un
+  jeton d'émission est **opaque** — il ne nomme personne —, alors qu'un constat
+  désigne quelqu'un. Deux objets, deux règles ; la différence est exactement
+  celle qui décide de ce qui a le droit de toucher le disque.
+
+- **`PlanStore.kt`** — *(nouveau, 2026-08-28)* le plan d'émission et la table
+  **écrits sur le disque**, pour survivre à la mort du *processus*. Avant, le
+  service relancé par Android n'avait plus rien à crier et s'arrêtait : « le
+  croisement fonctionne app fermée » était vrai tant que le **processus**
+  vivait, pas tant que le téléphone était allumé.
+  ⚠️ **Les jetons d'AMIS seulement — décision de Jay, à reconduire sur iOS.**
+  L'identifiant **public** du ping n'est jamais écrit : il repart d'une graine
+  neuve à chaque lancement, et c'est ce qui empêche de relier deux sessions de
+  découverte. Conséquence assumée : après une reprise, l'appareil croise ses
+  amis mais **n'est pas découvrable par des inconnus** — publié dans `stats()`
+  sous `resumedFromDisk`.
+  ⚠️ **Le fichier s'efface** au démarrage demandé par le Dart et à l'arrêt
+  voulu : sans ça, un compte laisserait derrière lui des jetons que le suivant
+  ferait crier.
+  ⚠️ **Séparé du `Context`** (il ne sert qu'à trouver le fichier) : c'est ce qui
+  rend l'écriture et la relecture vérifiables sur la JVM — **9 tests dans
+  `PlanStoreTest.kt`**. Ce code tourne **au seul moment où personne ne
+  regarde** ; une panne y serait indiscernable de celle qu'il corrige.
+
+### Le format d'annonce — protocole v5 (2026-08-26)
 
 ```
 [0..1]  "NV"          magie
-[2]     version = 4
+[2]     version = 5
 [3]     TYPE          0x01 = identifiant PUBLIC · 0x02 = jeton d'AMI privé
 [4..19] jeton         16 octets
 ```
