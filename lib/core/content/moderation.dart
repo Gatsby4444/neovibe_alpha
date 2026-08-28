@@ -1,10 +1,6 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../features/cards/cards_repository.dart';
 import '../../features/connections/connections_repository.dart';
-import '../../features/proximity/net/proximity_sync.dart';
 import '../models/profile.dart';
 import '../supabase_providers.dart';
 
@@ -86,24 +82,30 @@ class ModerationRepository {
   ///
   /// Constaté par Jay le 2026-08-27 : *« lorsque j'ai bloqué mimi elle
   /// n'apparaissait plus dans la liste des amis mais le compteur des amis
-  /// restait à 5 »*. Deux vues, deux sources, une seule rafraîchie :
-  ///
-  /// - la **liste** vient d'un flux temps réel sur `connections` ;
-  /// - le **compteur** vient de `profileStatsProvider`, un `FutureProvider`
-  ///   **mis en cache**, que rien n'invalidait.
+  /// restait à 5 »*. Deux vues, deux sources, une seule rafraîchie.
   ///
   /// ⚠️ Et le flux lui-même n'est pas fiable ici : une **suppression** de ligne
-  /// n'est pas toujours diffusée par le temps réel Postgres. On réinvalide donc
-  /// la source, au lieu d'espérer qu'elle se réveille.
+  /// n'est pas toujours diffusée par le temps réel Postgres — or `block_user`
+  /// **supprime** la connexion. On réinvalide donc la source, au lieu d'espérer
+  /// qu'elle se réveille.
   ///
   /// ⚠️ **L'invalidation appartient à l'ÉCRITURE** (règle de `CLAUDE.md`) :
   /// posée ici, tout chemin de blocage en profite — le menu « … » d'une story,
   /// celui d'une Vibe, celui d'un profil.
+  ///
+  /// ## ⚠️ Ce qui a été RETIRÉ d'ici le 2026-08-28, et pourquoi c'est un gain
+  ///
+  /// Le compteur d'amis et la synchronisation du carnet ne sont plus rappelés
+  /// ici. Ils appartiennent à *« le graphe d'amis a changé »*, pas à *« j'ai
+  /// bloqué quelqu'un »* — et tant qu'ils vivaient dans chaque écriture, chacune
+  /// en tenait une version différente. Le retrait d'ami n'en avait aucune : même
+  /// symptôme, signalé le lendemain de cette correction-ci.
+  ///
+  /// La règle est maintenant à **un seul endroit**, déclenchée par le graphe
+  /// lui-même : `features/proximity/net/friend_book_watcher.dart`.
   void _rafraichir() {
     ref.invalidate(blockedProfilesProvider);
     ref.invalidate(connectionsStreamProvider);
-    ref.invalidate(profileStatsProvider);
-    unawaited(ref.read(proximitySyncProvider).run());
   }
 }
 

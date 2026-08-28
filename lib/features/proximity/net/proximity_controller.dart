@@ -275,7 +275,12 @@ class ProximityController extends AsyncNotifier<void> {
       'type': 'sightings',
       'items': [for (final s in lot) s.toJson()],
     });
-    unawaited(ref.read(proximitySyncProvider).run());
+    // ⚠️ **La FILE, pas toute la synchronisation.** Ce `run()` republiait ma
+    // clé publique et retéléchargeait tout le carnet d'amis — quatre appels
+    // serveur — **toutes les deux secondes** tant qu'un ami était à portée.
+    // Relevé sur l'appareil de Jay le 2026-08-28 : 50 synchronisations pour
+    // 92 secondes de présence, pour 2 lignes écrites en base.
+    unawaited(ref.read(proximitySyncProvider).pushOutbox());
   }
 
   /// Récupère ce que le SERVICE NATIF a constaté pendant que le Dart dormait.
@@ -362,7 +367,7 @@ class ProximityController extends AsyncNotifier<void> {
       'peerId': friend.userId,
       'notifyAfter': when.toUtc().toIso8601String(),
     });
-    unawaited(ref.read(proximitySyncProvider).run());
+    unawaited(ref.read(proximitySyncProvider).pushOutbox());
   }
 
   // ------------------------------------------------------------------

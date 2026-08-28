@@ -92,35 +92,79 @@ class SightingLog {
 
   final _pending = <String, Sighting>{};
 
+  /// Ce qui a **déjà été confié à la file**, avec son créneau.
+  ///
+  /// ## 🔴 Le défaut que cette table corrige — mesuré le 2026-08-28
+  ///
+  /// La déduplication ne vivait que dans [_pending], et [drain] le **vide**. Au
+  /// tour de balayage suivant — deux secondes plus tard — [note] ne trouvait
+  /// plus la clé, déclarait le constat « nouveau », et tout repartait : un
+  /// élément de plus dans la file, et une synchronisation complète.
+  ///
+  /// Le commentaire de `ProximityController._sweepSightings` promettait
+  /// pourtant *« un constat par quart d'heure »*. **Relevé sur l'appareil de
+  /// Jay : 50 synchronisations pour 92 secondes de présence d'un ami** — soit
+  /// ~200 appels serveur, pour **2 lignes** écrites en base (`report_sightings`
+  /// déduplique par `(observer, seen, slot)`).
+  ///
+  /// ⚠️ **Rien ne l'affichait.** L'écran montrait la bonne chose, les tests
+  /// passaient, la base était juste. Seule la facture changeait — c'est
+  /// exactement la famille de défauts qui ne se voit qu'en **comptant**.
+  ///
+  /// ⚠️ **Un commentaire qui promet ne tient rien.** Celui-ci décrivait la
+  /// bonne règle ; c'est le code qui ne l'appliquait pas. D'où le test
+  /// `sighting_log_test.dart` qui la compte.
+  final _sent = <String, int>{};
+
   int get length => _pending.length;
 
   /// Note un constat. Rend `true` s'il est **nouveau** — c'est ce qui évite de
   /// renvoyer cinquante fois la même chose : à ~10 annonces par seconde, un ami
   /// immobile produirait 9 000 constats identiques par créneau.
+  ///
+  /// « Nouveau » veut dire : ni en attente, **ni déjà parti**.
   bool note(Sighting sighting) {
     if (_pending.containsKey(sighting.key)) return false;
+    if (_sent.containsKey(sighting.key)) return false;
     if (_pending.length >= maxPending) return false;
     _pending[sighting.key] = sighting;
     return true;
   }
 
   /// Note ce qu'on vient de voir, à partir du créneau courant.
-  bool observe(String peerId, DateTime now, {ProximityBand? band}) => note(
-    Sighting(
-      peerId: peerId,
-      slot: ProximityIdentity.slotIndex(now),
-      band: band,
-    ),
-  );
+  bool observe(String peerId, DateTime now, {ProximityBand? band}) {
+    final slot = ProximityIdentity.slotIndex(now);
+    _oublieLesCreneauxPasses(slot);
+    return note(Sighting(peerId: peerId, slot: slot, band: band));
+  }
 
-  /// Rend les constats en attente et **vide** le journal.
+  /// Purge le souvenir des créneaux révolus.
+  ///
+  /// ⚠️ **Un créneau de marge**, comme `slotTolerance` côté radio : deux
+  /// téléphones n'ont jamais la même heure, et un constat du créneau précédent
+  /// peut encore arriver du natif. Sans marge, il serait renvoyé une fois de
+  /// plus — sans conséquence en base, mais c'est précisément le gaspillage
+  /// qu'on supprime.
+  ///
+  /// Borne mémoire : au plus deux créneaux × le nombre d'amis.
+  void _oublieLesCreneauxPasses(int slot) =>
+      _sent.removeWhere((_, s) => s < slot - 1);
+
+  /// Rend les constats en attente et **vide** la file d'attente.
   ///
   /// ⚠️ Vider ici et non après l'envoi est délibéré : ce qui part est confié à
   /// la file d'envoi, qui sait retenter. Garder une copie des deux côtés ferait
   /// deux vérités à réconcilier — exactement le défaut que ce chantier a passé
   /// son temps à supprimer.
+  ///
+  /// ⚠️ **Mais on garde la CLÉ**, dans [_sent]. C'est la différence entre
+  /// « je ne détiens plus ce constat » (vrai, il est dans la file) et « je ne
+  /// l'ai jamais vu » (faux, et c'était le bug).
   List<Sighting> drain() {
     final out = _pending.values.toList();
+    for (final constat in out) {
+      _sent[constat.key] = constat.slot;
+    }
     _pending.clear();
     return out;
   }

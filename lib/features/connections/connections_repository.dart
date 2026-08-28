@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/derived_list.dart';
@@ -8,7 +6,6 @@ import '../../core/models/connection_request.dart';
 import '../../core/models/wave.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
-import '../proximity/net/proximity_sync.dart';
 
 /// Profil par id, mis en cache (résolu selon les droits RLS).
 final profileByIdProvider = FutureProvider.family<Profile?, String>((
@@ -163,18 +160,28 @@ class ConnectionsRepository {
   ConnectionsRepository(this.ref);
   final Ref ref;
 
-  /// ⚠️ **Toute écriture qui change le graphe d'amis relance la synchro.** Le
-  /// carnet local porte les clés qui permettent de reconnaître un ami par la
-  /// radio : sans ce rappel, un ami ajouté reste invisible en BLE, et un ami
-  /// retiré reste reconnu — jusqu'au prochain démarrage de l'app. Constaté
-  /// pendant la session de test du 2026-08-27.
+  /// ⚠️ **Une écriture dit « la vérité a changé », et rien d'autre.**
+  ///
+  /// Elle relançait elle-même la synchronisation du carnet — et c'était le
+  /// début du problème : chaque écriture entretenait **sa propre liste** de ce
+  /// qu'il fallait rafraîchir. Elles n'étaient pas les mêmes. Le blocage
+  /// invalidait le compteur d'amis (corrigé le 2026-08-27), le retrait non — et
+  /// mimi a signalé le lendemain un compteur figé jusqu'au redémarrage.
+  ///
+  /// Ce qui suit un changement du graphe d'amis vit maintenant à **un seul
+  /// endroit** : `friend_book_watcher.dart`. Ici on se contente de faire relire
+  /// la source.
+  ///
+  /// ⚠️ **L'invalidation du flux n'est PAS une précaution.** Une ligne
+  /// supprimée n'est pas toujours diffusée par le temps réel Postgres : sans
+  /// cette relecture, l'appareil qui vient de retirer l'ami serait le dernier à
+  /// l'apprendre.
   ///
   /// ⚠️ **`confirmPartial` a été retirée le 2026-08-28** avec le lien partiel :
-  /// l'acceptation d'une demande est désormais le seul chemin vers l'amitié, et
-  /// elle relance la synchro depuis `proximity_repository.dart`.
+  /// l'acceptation d'une demande est désormais le seul chemin vers l'amitié.
   Future<void> remove(String connectionId) async {
     await _remove(connectionId);
-    unawaited(ref.read(proximitySyncProvider).run());
+    ref.invalidate(connectionsStreamProvider);
   }
 
   Future<void> _remove(String connectionId) => ref

@@ -11,6 +11,7 @@ import 'core/theme.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/home/home_shell.dart';
+import 'features/proximity/net/friend_book_watcher.dart';
 
 /// Clé de navigation globale : permet aux notifications (ex. BeReal)
 /// d'ouvrir un écran hors de tout contexte de widget.
@@ -118,6 +119,20 @@ class _RootGateState extends ConsumerState<RootGate> {
 
   @override
   Widget build(BuildContext context) {
+    // ⚠️ **Cette ligne EST la règle « un ami accepté est reconnu tout de
+    // suite ».**
+    //
+    // Un provider Riverpod ne calcule rien tant que personne ne l'observe.
+    // `FriendBookWatcher` n'a pas d'écran à lui : il écoute le graphe d'amis et
+    // remplit le carnet local dont dépend toute la reconnaissance Bluetooth. Le
+    // tenir ici, sous l'aiguillage racine, c'est le tenir pour toute la
+    // session — quel que soit l'onglet ouvert.
+    //
+    // ⚠️ **Le retirer ne casserait aucun test d'écran et ne lèverait aucune
+    // erreur** : les amis cesseraient simplement de se croiser. C'est le défaut
+    // relevé en base le 2026-08-28, et c'est exactement sa forme.
+    ref.watch(friendBookWatcherProvider);
+
     ref.watch(authStateProvider);
     final user = ref.watch(currentUserProvider);
     if (user == null) return const AuthScreen();

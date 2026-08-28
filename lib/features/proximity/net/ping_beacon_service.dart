@@ -63,6 +63,15 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   /// quelqu'un prendrait une minute au lieu de quinze secondes.
   static const flushEvery = Duration(seconds: 60);
 
+  /// Depuis quand notre balise n'a pas été republiée avec succès.
+  ///
+  /// ⚠️ **Ce n'est pas de la comptabilité, c'est ce qui distingue « je n'ai pas
+  /// de position à cet instant » de « je ne suis plus annoncé ».** Le premier
+  /// est sans conséquence — la balise déposée vaut encore
+  /// [kPingBeaconTtl] côté serveur. Le second veut dire que plus personne ne
+  /// peut nous trouver, et il doit se **dire**.
+  DateTime? _publishedAt;
+
   Timer? _refresh;
   Timer? _flush;
   StreamSubscription<RadioEvent>? _radioFeed;
@@ -132,7 +141,17 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     await _tick();
   }
 
+  /// Sommes-nous encore annoncés, du point de vue du serveur ?
+  bool _annonce() {
+    final publie = _publishedAt;
+    return publie != null && DateTime.now().difference(publie) < kPingBeaconTtl;
+  }
+
   void _stop() {
+    // ⚠️ **Oublier la dernière publication fait partie de l'arrêt.** Sans ça,
+    // rallumer le ping repartirait en se croyant annoncé, et le premier tour
+    // sans position se tairait au lieu de le dire.
+    _publishedAt = null;
     _refresh?.cancel();
     _refresh = null;
     _flush?.cancel();
@@ -166,8 +185,20 @@ class PingBeaconService extends Notifier<PingBeaconState> {
         // La dernière panne réseau ne décrit plus la situation : ce qui bloque
         // maintenant, c'est la position. En garder deux ferait afficher deux
         // causes pour un seul symptôme.
+        //
+        // ⚠️ **Une lecture ratée n'est pas un blocage — tant que la balise
+        // tient.** Depuis le 2026-08-28, le repli sur le dernier point connu
+        // est borné dans le temps : `current()` peut donc rendre `null` alors
+        // que tout est autorisé. Le déclarer bloqué au premier échec ferait
+        // disparaître de l'écran des gens réellement à portée, dont le serveur
+        // sait encore où nous sommes.
+        //
+        // La question qui compte n'est pas « ai-je lu une position ? » mais
+        // **« suis-je encore annoncé ? »** — et elle a une réponse datée.
         state = state.copyWith(
-          blocker: await geo.blocker(),
+          blocker:
+              await geo.blocker() ??
+              (_annonce() ? null : LocationBlocker.noFix),
           precision: precision,
           lastError: null,
         );
@@ -180,6 +211,7 @@ class PingBeaconService extends Notifier<PingBeaconState> {
         token: await identity.currentPublicPingId(),
         slot: slot,
       );
+      _publishedAt = DateTime.now();
       final liste = await repo.shortlist();
       _shortlist = liste.tokens;
       state = state.copyWith(

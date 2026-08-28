@@ -8,7 +8,11 @@ import '../ping_store.dart';
 import '../proximity_identity.dart';
 import 'connection_trace.dart';
 
-/// La couche 7 : ce qui remonte au serveur quand internet revient.
+/// La couche 7 : ce qui monte et descend entre l'appareil et le serveur.
+///
+/// ⚠️ **Trois gestes indépendants, trois déclencheurs.** Voir [_unSeul] :
+/// les avoir fondus dans un seul appel coûtait 4 requêtes toutes les deux
+/// secondes pour une information qui change une fois par quart d'heure.
 ///
 /// ## Les trois défauts qu'elle corrige
 ///
@@ -39,7 +43,9 @@ class ProximitySync {
   FriendKeyStore get _keyBook => ref.read(friendBookProvider);
   ProximityIdentity get _identity => ref.read(proximityIdentityProvider);
 
-  var _running = false;
+  /// Ce qui est déjà en vol, par geste. Deux appels du même geste se
+  /// recouvriraient sans rien apprendre de plus.
+  final _enCours = <String>{};
 
   /// Au-delà, on considère l'échec définitif et on cesse de réessayer.
   ///
@@ -53,43 +59,78 @@ class ProximitySync {
   // `ConnectionTrace.note` qui l'accompagne — et lui, il figure bien dans le
   // rapport, avec le motif et le type de l'élément.
 
+  /// **Les trois gestes, ensemble.** Pour l'ouverture d'une session et la
+  /// remise à zéro — les deux seuls moments où l'on ne sait rien de ce qui a
+  /// changé, donc où tout mérite d'être refait.
+  ///
+  /// ⚠️ **Ne PAS rappeler ceci « pour être sûr ».** C'est exactement ce que
+  /// faisait le balayage de constats, toutes les deux secondes.
   Future<void> run() async {
-    if (_running) return;
-    _running = true;
+    await publishMyKey();
+    await pushOutbox();
+    await pullFriendBook();
+  }
+
+  /// **Ma clé publique.** Une fois par session, et c'est déjà généreux : elle
+  /// vit dans le coffre-fort de l'appareil (`nv_x25519_seed`) et ne change
+  /// jamais tant qu'on ne réinstalle pas.
+  Future<void> publishMyKey() => _unSeul('clé', _publishKeys);
+
+  /// **Ce qu'on doit au serveur** : constats de croisement et waves.
+  ///
+  /// Déclenché par l'arrivée de quelque chose de neuf dans la file, plus le
+  /// filet périodique — qui est aussi ce qui **retente** un élément resté
+  /// coincé faute de réseau.
+  Future<void> pushOutbox() => _unSeul('file', _drainOutbox);
+
+  /// **Le carnet d'amis.** Déclenché par un changement du graphe d'amis, plus
+  /// le filet périodique. Voir `friend_book_watcher.dart`.
+  Future<void> pullFriendBook() => _unSeul('carnet', _pullFriendKeys);
+
+  /// ## 🔴 Pourquoi ces trois gestes ont été séparés le 2026-08-28
+  ///
+  /// Ils vivaient dans un `run()` unique, appelé depuis **sept** endroits — et
+  /// notamment depuis le balayage de constats, **toutes les deux secondes**
+  /// tant qu'un ami était à portée. Chaque passage coûtait quatre appels
+  /// serveur, dont **un seul** avait quelque chose à dire :
+  ///
+  /// | Geste | Ce qu'il demande | Quand ça change |
+  /// |---|---|---|
+  /// | publier ma clé | ma clé publique | jamais |
+  /// | vider la file | « j'ai vu X au créneau S » | à chaque créneau, au plus |
+  /// | tirer le carnet | les clés et profils de mes amis | quand le graphe bouge |
+  ///
+  /// Trois rythmes dans un seul objet : c'est la règle de dissociation de Jay
+  /// prise à l'envers — *« deux sources qui ne changent pas au même rythme ne
+  /// partagent pas le même objet d'état »*. Le plus rapide imposait son rythme
+  /// aux deux autres.
+  ///
+  /// ⚠️ **L'ordre file-puis-carnet a disparu avec eux, et c'est justifié.** Le
+  /// commentaire d'origine l'imposait parce qu'un ami accepté en BLE n'existait
+  /// côté serveur qu'une fois la file vidée : tirer le carnet avant l'aurait
+  /// effacé. **Le BLE ne transporte plus de demande d'ami depuis le
+  /// 2026-08-27** — vérifié par inventaire, la file ne reçoit plus que
+  /// `sightings` et `wave` (`proximity_controller.dart`, deux `enqueue`), dont
+  /// aucun ne crée d'amitié. La contrainte n'a pas été levée : sa cause a
+  /// disparu.
+  Future<void> _unSeul(
+    String quoi,
+    Future<void> Function(dynamic client, String me) geste,
+  ) async {
+    if (!_enCours.add(quoi)) return;
     try {
       final client = ref.read(supabaseProvider);
       final me = ref.read(currentUserIdProvider);
       if (me == null) return;
-
-      // ⚠️ **Il n'y a plus rien à faire tourner** (2026-08-20).
-      //
-      // Cette ligne appelait `rotateBroadcastIfDue()` : la clé de diffusion,
-      // partagée avec TOUS les amis, devait être remplacée tous les 7 jours et
-      // à chaque révocation. C'est cette distribution qui créait le trou —
-      // chaque rotation rendait invisible à tout ami qui n'avait pas
-      // resynchronisé.
-      //
-      // Un secret par paire ne se distribue pas : il se calcule. Le serveur ne
-      // reçoit plus que des clés **publiques**, qu'on peut republier autant
-      // qu'on veut sans conséquence.
-      await _publishKeys(client, me);
-
-      // ⚠️ **La file d'abord, le carnet ensuite. L'ordre est le correctif.**
-      //
-      // `_pullFriendKeys` REMPLACE désormais le carnet par ce que le serveur
-      // renvoie (sinon un ami retiré resterait un ami pour toujours). Or un ami
-      // tout juste accepté en BLE n'existe côté serveur qu'une fois la file
-      // vidée : dans l'ordre inverse, on l'aurait effacé du carnet **juste
-      // avant** de le créer.
-      await _drainOutbox(client, me);
-      await _pullFriendKeys(client, me);
+      await geste(client, me);
     } catch (_) {
-      // Hors ligne : tout reste en file, on réessaiera. C'est le seul cas où
-      // ne rien dire est juste. Le carnet n'est PAS touché — un carnet vidé
-      // parce que le réseau est tombé ferait disparaître tous les amis.
-      ConnectionTrace.note(ConnectionEvent.syncOffline);
+      // Hors ligne : la file reste pleine, le carnet n'est PAS touché — un
+      // carnet vidé parce que le réseau est tombé ferait disparaître tous les
+      // amis. C'est le seul cas où ne rien dire à l'utilisateur est juste, et
+      // le seul où le journal doit quand même le consigner.
+      ConnectionTrace.note(ConnectionEvent.syncOffline, detail: quoi);
     } finally {
-      _running = false;
+      _enCours.remove(quoi);
     }
   }
 

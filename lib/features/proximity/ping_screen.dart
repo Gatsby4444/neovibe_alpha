@@ -597,23 +597,47 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
   // projet a appris cette semaine.
   final blocker = beacon.blocker;
   if (blocker != null) {
-    final (String titre, String detail, String action) = switch (blocker) {
+    // ⚠️ **Chaque cas porte SON action, dans le même tuple que son texte.**
+    // Elle vivait à côté, dans un `?:` qui testait un seul cas et envoyait tous
+    // les autres aux réglages système. Un quatrième cas s'y serait glissé sans
+    // rien casser et aurait ouvert les réglages pour un problème qui ne s'y
+    // règle pas. Ici, ajouter une valeur à l'énumération **ne compile plus**
+    // tant qu'on n'a pas dit quoi faire — c'est le compilateur qui tient la
+    // règle, pas la vigilance.
+    final (
+      String titre,
+      String detail,
+      String action,
+      VoidCallback onAction,
+    ) = switch (blocker) {
       LocationBlocker.serviceOff => (
         "Localisation de l'appareil éteinte",
-        "La découverte de proximité a besoin de savoir dans quel quartier tu "
-            "es — à un kilomètre près, jamais plus précis.",
+        "La découverte de proximité a besoin de savoir dans quel quartier "
+            "tu es — à un kilomètre près, jamais plus précis.",
         "Ouvrir les réglages",
+        openAppSettings,
       ),
       LocationBlocker.denied => (
         "Position non autorisée",
-        "Elle sert uniquement à savoir dans quel quartier chercher. Qui est "
-            "vraiment à 20 m, c'est le Bluetooth qui le prouve.",
+        "Elle sert uniquement à savoir dans quel quartier chercher. Qui "
+            "est vraiment à 20 m, c'est le Bluetooth qui le prouve.",
         "Autoriser",
+        () => ref.read(pingBeaconProvider.notifier).requestPermission(),
       ),
       LocationBlocker.deniedForever => (
         "Position refusée définitivement",
         "Seuls les réglages système peuvent la rouvrir.",
         "Ouvrir les réglages",
+        openAppSettings,
+      ),
+      LocationBlocker.noFix => (
+        "Impossible de savoir où tu es",
+        "Ni les satellites, ni le Wi-Fi, ni le réseau n'ont répondu. Tant "
+            "que c'est le cas tu n'es annoncé nulle part, donc personne ne "
+            "peut te trouver ici. Approche-toi d'une fenêtre, ou active le "
+            "Wi-Fi.",
+        "Réessayer",
+        () => ref.read(pingBeaconProvider.notifier).refreshNow(),
       ),
     };
     return [
@@ -621,9 +645,7 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
         titre: titre,
         detail: detail,
         action: action,
-        onAction: () => blocker == LocationBlocker.denied
-            ? ref.read(pingBeaconProvider.notifier).requestPermission()
-            : openAppSettings(),
+        onAction: onAction,
       ),
     ];
   }

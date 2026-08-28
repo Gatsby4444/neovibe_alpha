@@ -59,7 +59,7 @@ void main() {
     expect(log.length, 3);
   });
 
-  test('drain rend tout et vide — une seule vérité à la fois', () {
+  test('drain rend tout et vide la file d\'attente', () {
     final log = SightingLog();
     log.observe('u-b', t, band: ProximityBand.contact);
     log.observe('u-c', t);
@@ -67,10 +67,89 @@ void main() {
     final lot = log.drain();
     expect(lot.length, 2);
     expect(log.length, 0);
+  });
 
-    // Après vidage, le même constat repart : c'est ce qui permet de retenter
-    // un envoi perdu sans le dédoubler dans la file.
-    expect(log.observe('u-b', t, band: ProximityBand.contact), isTrue);
+  /// ## 🔴 Ce test AFFIRMAIT le défaut, avec un motif crédible
+  ///
+  /// Il disait : *« après vidage, le même constat repart : c'est ce qui permet
+  /// de retenter un envoi perdu sans le dédoubler dans la file »*, et il
+  /// attendait `isTrue`.
+  ///
+  /// **Le motif était faux.** Retenter est le travail de la file d'envoi, qui
+  /// compte ses tentatives (`ProximitySync.maxAttempts`) ; ré-observer
+  /// n'entraîne aucune nouvelle tentative — ça ajoute une **seconde** entrée
+  /// pour le même couple (personne, créneau), que le serveur déduplique de
+  /// toute façon.
+  ///
+  /// Conséquence mesurée sur l'appareil de Jay le 2026-08-28 : le balayage
+  /// tourne toutes les 2 s, donc le constat redevenait « nouveau » 2 s plus
+  /// tard — **50 synchronisations pour 92 secondes** de présence d'un ami, soit
+  /// ~200 appels serveur pour **2 lignes** écrites en base.
+  ///
+  /// ⚠️ **La leçon** : un test qui affirme un comportement le rend intouchable.
+  /// Celui-ci a fait passer le défaut pour une intention pendant tout un
+  /// chantier d'audit — et sa justification était plus convaincante que le code.
+  test(
+    'un constat déjà confié à la file ne repart pas au balayage suivant',
+    () {
+      final log = SightingLog();
+      log.observe('u-b', t, band: ProximityBand.contact);
+      log.drain();
+
+      expect(
+        log.observe('u-b', t, band: ProximityBand.contact),
+        isFalse,
+        reason: 'il est dans la file, pas oublié',
+      );
+      expect(log.length, 0);
+    },
+  );
+
+  test('le balayage toutes les 2 s ne produit QU\'UN envoi par créneau', () {
+    final log = SightingLog();
+
+    // ⚠️ **On part du DÉBUT du créneau, et ce n'est pas cosmétique.** Partir de
+    // `t` (14 h 07) faisait franchir la frontière de 14 h 15 à la 240e
+    // itération : le test attendait 1 et mesurait 2, en ayant raison. Un test
+    // qui chevauche la borne qu'il teste mesure la borne, pas la règle.
+    final debutDuCreneau = DateTime.fromMillisecondsSinceEpoch(
+      creneau * ProximityIdentity.slotDuration.inMilliseconds,
+      isUtc: true,
+    );
+
+    // Le régime réel : un ami immobile, un balayage toutes les 2 secondes
+    // pendant tout le créneau de 15 minutes.
+    var envois = 0;
+    for (var i = 0; i < 450; i++) {
+      final maintenant = debutDuCreneau.add(Duration(seconds: i * 2));
+      log.observe('u-b', maintenant, band: ProximityBand.close);
+      if (log.length > 0) {
+        log.drain();
+        envois++;
+      }
+    }
+
+    expect(
+      envois,
+      1,
+      reason:
+          'chaque envoi coûtait un élément de file + un appel serveur ; '
+          '450 balayages ne doivent en produire qu\'un',
+    );
+  });
+
+  test('le souvenir des envois se purge, il ne grossit pas sans fin', () {
+    final log = SightingLog();
+    // Cinquante créneaux d'affilée avec le même ami : sans purge, la table des
+    // clés déjà parties garderait cinquante entrées pour une personne.
+    for (var i = 0; i < 50; i++) {
+      final quand = t.add(ProximityIdentity.slotDuration * i);
+      expect(log.observe('u-b', quand), isTrue);
+      log.drain();
+    }
+    // Un créneau très ancien redevient possible : la preuve que rien n'est
+    // conservé au-delà de la marge d'un créneau.
+    expect(log.observe('u-b', t), isTrue);
   });
 
   test('ce qui part au serveur ne contient QUE le créneau et la bande', () {

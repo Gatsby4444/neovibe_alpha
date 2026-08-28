@@ -1,12 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/connection_request.dart';
 import '../../core/clock.dart';
 import '../../core/derived_list.dart';
 import '../../core/supabase_providers.dart';
-import 'net/proximity_sync.dart';
+import '../connections/connections_repository.dart';
 
 /// Les demandes de connexion, **et il n'y a plus qu'un seul endroit où elles
 /// vivent** : la table `connection_requests`.
@@ -194,18 +192,20 @@ class ProximityRepository {
   // `requests_insert_sender` l'autorise encore : voir `RAPPELS.md` #70.
   // **Ne pas rouvrir ce chemin ici.**
 
-  /// Accepte une demande — **et fait apprendre le nouvel ami à la radio**.
+  /// Accepte une demande, et fait **relire le graphe d'amis**.
   ///
-  /// ## ⚠️ Sans la resynchro, un ami tout juste accepté reste un inconnu
+  /// ## ⚠️ Ce que le correctif du 2026-08-27 ne pouvait pas couvrir
   ///
-  /// La reconnaissance BLE d'un ami se fait avec **sa clé publique X25519**,
-  /// qui vit dans le carnet local. Ce carnet ne se remplit qu'à la
-  /// synchronisation — et rien ne la déclenchait après une acceptation.
+  /// Il posait ici la resynchronisation du carnet, ce qui était juste — mais
+  /// seulement pour **celui qui accepte**. Une amitié change sur deux appareils
+  /// et ne s'écrit que sur un : celui qui avait *envoyé* la demande n'avait
+  /// aucun déclencheur, restait sans clé, n'émettait aucun jeton d'ami, et le
+  /// croisement ne pouvait pas naître. Mesuré en base le 2026-08-28.
   ///
-  /// Conséquence, mesurée pendant la session de test du 2026-08-27 : Charles et
-  /// mimi devenus amis, **zéro constat de croisement**, et aucune distance à
-  /// l'écran. Il fallait fermer et rouvrir l'app pour que ça démarre — ce que
-  /// personne ne devine.
+  /// La règle vit désormais dans `friend_book_watcher.dart`, qui écoute le
+  /// graphe lui-même — donc les deux côtés. Ici il ne reste que la relecture de
+  /// la source, parce qu'une demande acceptée par soi-même ne repasse pas
+  /// forcément par le temps réel.
   ///
   /// ⚠️ **L'invalidation appartient à l'ÉCRITURE, jamais à l'appelant** (règle
   /// de `CLAUDE.md`) : la poser ici, et non dans l'écran, garantit que tout
@@ -215,7 +215,7 @@ class ProximityRepository {
     await ref
         .read(supabaseProvider)
         .rpc('accept_connection_request', params: {'req_id': requestId});
-    unawaited(ref.read(proximitySyncProvider).run());
+    ref.invalidate(connectionsStreamProvider);
   }
 
   Future<void> decline(String requestId) => ref

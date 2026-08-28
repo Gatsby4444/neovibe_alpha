@@ -417,6 +417,15 @@ const kFenetreRencontre = Duration(minutes: 10);
 /// laissent la marge, sans jamais devenir le régime normal.
 const kPingGraceServeur = Duration(minutes: 2);
 
+/// Combien de temps le serveur garde une balise pour vraie.
+///
+/// ⚠️ **Doit rester égal à `private.ping_beacon_ttl()`.** Comme
+/// [kCellSizeDegrees], deux valeurs qui divergent ne lèveraient aucune erreur :
+/// l'app se croirait annoncée alors que le serveur l'a oubliée, et
+/// l'utilisateur verrait « personne autour » sans savoir que c'est **lui** qui
+/// a disparu.
+const kPingBeaconTtl = Duration(minutes: 5);
+
 final pingNearbyProvider = NotifierProvider<PingNearby, List<NearbyPerson>>(
   PingNearby.new,
 );
