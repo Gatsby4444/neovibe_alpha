@@ -352,6 +352,61 @@ natif, pour ne rien découvrir au dernier moment lors du portage iOS.
 - Travail mené en français : commentaires de code, messages de commit et rapports de session en français ; le code lui-même (noms de variables, fonctions) reste en anglais par convention Dart/Flutter standard
 - **En cas de doute sur une instruction ou une vision de développement, demander à Jay avant d'agir plutôt que de supposer.** Ne pas interpréter en silence une consigne ambiguë ou incomplète — poser la question de clarification, même si ça ralentit la tâche.
 
+---
+
+## Règle impérative : PARLER SIMPLEMENT — Jay est débutant
+
+*Consigne de Jay, 2026-08-28 — impérative, elle s'applique à toutes les réponses.*
+
+> « Explique-moi les choses clairement et simplement, en gardant en tête que je
+> suis débutant. »
+
+**Ce n'est pas une préférence de style : c'est une condition pour que Jay puisse
+décider.** Il tranche les décisions produit (voir plus haut). Une explication
+qu'il ne peut pas suivre ne lui retire pas seulement du confort — elle lui retire
+le pouvoir d'arbitrer, et il se retrouve à valider ce qu'il n'a pas compris.
+
+### Ce qu'il faut faire
+
+1. **Le fait d'abord, en une phrase de tous les jours.** Ce qui se passait, vu de
+   son téléphone. Le nom technique vient après, s'il sert encore.
+2. **Une image concrète quand le mécanisme est invisible.** Une radio, un
+   veilleur de nuit, un carnet, une liste — quelque chose qui existe dans le
+   monde réel. Presque tous les défauts de ce projet sont invisibles : sans
+   image, il ne reste qu'un vocabulaire.
+3. **Distinguer explicitement les mots qui se ressemblent.** *« App fermée »* et
+   *« application tuée par Android »* ne sont pas la même chose, et c'est
+   exactement ce genre de confusion qui a fait croire qu'une fonction marchait
+   alors qu'elle avait un trou. **Quand deux mots proches désignent deux choses
+   différentes, le dire avant de continuer.**
+4. **Dire ce que ça change POUR LUI.** « Ton téléphone arrêtait de reconnaître
+   tes amis pendant la nuit » vaut mieux que « le plan d'émission ne survivait
+   pas à la mort du processus ».
+5. **Un nom de fichier ou de fonction n'explique rien.** `refreshPlan()` ne veut
+   rien dire pour lui. Le citer est utile pour retrouver l'endroit, jamais pour
+   faire comprendre le problème — donc **après** l'explication, pas à la place.
+
+### Ce qu'il ne faut pas faire
+
+- ❌ Empiler les termes techniques en supposant qu'ils sont acquis (« provider »,
+  « notifier », « RLS », « foreground service », « égalité de valeur »).
+- ❌ Répondre par un tableau de symboles quand la question était « qu'est-ce que
+  c'est ? ».
+- ❌ Confondre **court** et **simple**. Une réponse de deux lignes pleine de
+  jargon est plus dure qu'un paragraphe en français clair.
+- ❌ Cacher un désaccord ou une incertitude derrière du vocabulaire.
+
+### ⚠️ Le test à s'appliquer avant d'envoyer
+
+**« Si Jay ne connaissait pas ce mot, sa question serait-elle répondue ? »** Si
+la réponse dépend d'un terme qu'on n'a pas expliqué, elle n'est pas finie.
+
+Et quand il dit **« je ne comprends pas »**, ce n'est pas une demande de répéter :
+c'est le signe que l'explication précédente était construite pour quelqu'un
+d'autre. **On recommence autrement, on ne reformule pas plus fort.**
+
+---
+
 ## Avant de considérer une tâche terminée
 
 1. `dart format` + `flutter analyze` propres
