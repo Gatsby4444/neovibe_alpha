@@ -12,6 +12,9 @@ import 'features/auth/auth_screen.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/home/home_shell.dart';
 import 'features/proximity/net/friend_book_watcher.dart';
+import 'features/proximity/net/ping_beacon_service.dart';
+import 'features/proximity/net/proximity_controller.dart';
+import 'features/proximity/net/proximity_supervisor.dart';
 
 /// Clé de navigation globale : permet aux notifications (ex. BeReal)
 /// d'ouvrir un écran hors de tout contexte de widget.
@@ -119,23 +122,42 @@ class _RootGateState extends ConsumerState<RootGate> {
 
   @override
   Widget build(BuildContext context) {
-    // ⚠️ **Cette ligne EST la règle « un ami accepté est reconnu tout de
-    // suite ».**
-    //
-    // Un provider Riverpod ne calcule rien tant que personne ne l'observe.
-    // `FriendBookWatcher` n'a pas d'écran à lui : il écoute le graphe d'amis et
-    // remplit le carnet local dont dépend toute la reconnaissance Bluetooth. Le
-    // tenir ici, sous l'aiguillage racine, c'est le tenir pour toute la
-    // session — quel que soit l'onglet ouvert.
-    //
-    // ⚠️ **Le retirer ne casserait aucun test d'écran et ne lèverait aucune
-    // erreur** : les amis cesseraient simplement de se croiser. C'est le défaut
-    // relevé en base le 2026-08-28, et c'est exactement sa forme.
-    ref.watch(friendBookWatcherProvider);
-
     ref.watch(authStateProvider);
     final user = ref.watch(currentUserProvider);
     if (user == null) return const AuthScreen();
+
+    // ------------------------------------------------------------------
+    // ⚠️ **CE QUI DOIT VIVRE AUSSI LONGTEMPS QUE LA SESSION**
+    // ------------------------------------------------------------------
+    //
+    // Un provider Riverpod ne calcule **rien** tant que personne ne l'observe.
+    // Les quatre ci-dessous n'ont pas d'écran à eux : ils tiennent la
+    // proximité, qui doit fonctionner quel que soit l'onglet affiché.
+    //
+    // ## 🔴 Le défaut relevé le 2026-08-28
+    //
+    // Le superviseur, le contrôleur et le service de balise n'étaient tenus
+    // vivants **que par l'écran Ping**. Conséquences, aucune ne levant la
+    // moindre erreur :
+    //
+    // - un utilisateur qui **n'ouvre jamais l'onglet Ping** de la session
+    //   n'avait **ni radio, ni croisement d'amis, ni balise** — ses deux
+    //   réglages étaient simplement ignorés ;
+    // - l'onglet d'ouverture est **configurable** (`StartupTab`), donc ça
+    //   dépendait d'une préférence sans rapport ;
+    // - le nouveau réglage « Croiser mes amis » ne survivait pas à la fermeture
+    //   de l'écran Réglages ;
+    // - et quand l'écran était détruit, la surveillance du carnet d'amis et la
+    //   rotation horaire du plan s'arrêtaient **sans arrêter la radio** : le
+    //   natif continuait de crier un plan que plus rien ne mettait à jour.
+    //
+    // ⚠️ **C'était l'écran qui tenait la cuisine ouverte** — l'inverse exact de
+    // la règle de `CLAUDE.md`. Un réglage doit valoir parce qu'il est posé, pas
+    // parce qu'on regarde l'écran qui le montre.
+    ref.watch(friendBookWatcherProvider);
+    ref.watch(proximitySupervisorProvider);
+    ref.watch(proximityControllerProvider);
+    ref.watch(pingBeaconProvider);
 
     final profile = ref.watch(myProfileProvider);
     return profile.when(

@@ -55,8 +55,15 @@ class _RadioFactice implements BleRadio {
   @override
   Future<RadioStatus> probe() async => const RadioIdle();
 
+  /// Le dernier identifiant sur lequel la radio a été démarrée. **C'est la
+  /// seule façon de voir ce qu'on crie avant que le plan prenne le relais.**
+  Uint8List? derniereAmorce;
+
   @override
-  Future<void> start(Uint8List advertId) async => demarrages++;
+  Future<void> start(Uint8List advertId) async {
+    demarrages++;
+    derniereAmorce = advertId;
+  }
 
   @override
   Future<void> stop() async => arrets++;
@@ -326,6 +333,42 @@ void _deuxInterrupteurs() {
         h.radio.derniersTypes!.contains(2),
         isTrue,
         reason: 'les jetons d\'ami, eux, doivent bien partir',
+      );
+    });
+
+    /// 🔴 **Le natif exige un identifiant pour démarrer, et on lui donnait
+    /// l'identifiant PUBLIC de découverte — même quand elle est éteinte.**
+    ///
+    /// La fenêtre est courte quand tout va bien : le plan prend le relais.
+    /// Elle est **infinie** si le dépôt du plan échoue deux fois.
+    test('découverte éteinte : la radio ne démarre PAS sur l\'identifiant '
+        'public', () async {
+      SharedPreferences.setMockInitialValues({
+        ProximitySupervisor.prefsKey: false,
+        ProximitySupervisor.prefsKeyFriends: true,
+      });
+      final radio = _RadioFactice();
+      addTearDown(radio.fermer);
+      final identite = await IdentiteMemoire.creer(userId: 'u-moi');
+      final container = ProviderContainer(
+        overrides: [
+          bleRadioProvider.overrideWithValue(radio),
+          friendBookProvider.overrideWithValue(CarnetMemoire()),
+          proximityIdentityProvider.overrideWithValue(identite),
+          currentUserIdProvider.overrideWithValue('u-moi'),
+        ],
+      );
+      addTearDown(container.dispose);
+      container.listen(proximitySupervisorProvider, (_, _) {});
+      await _propage();
+
+      expect(radio.demarrages, greaterThan(0), reason: 'la radio doit tourner');
+      expect(
+        radio.derniereAmorce,
+        isNot(equals(await identite.currentPublicPingId())),
+        reason:
+            'crier son identifiant de découverte alors qu\'on a refusé d\'être '
+            'découvert, c\'est faire l\'inverse de ce que l\'utilisateur demande',
       );
     });
 

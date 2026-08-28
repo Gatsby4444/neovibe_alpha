@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -354,7 +355,40 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
     _slot = ProximityIdentity.slotIndex(DateTime.now());
     // Le démarrage a besoin d'un identifiant tout de suite ; le plan complet
     // arrive juste après et prend le relais.
-    await _radio.start(await _identity.currentPublicPingId());
+    //
+    // ## 🔴 Ce qui était faux jusqu'au 2026-08-28
+    //
+    // On passait `currentPublicPingId()` **sans condition** — donc quelqu'un
+    // qui veut seulement croiser ses amis criait quand même son identifiant
+    // **public de découverte** à chaque démarrage de radio.
+    //
+    // ⚠️ **La fenêtre n'est courte que si tout va bien.** Si le dépôt du plan
+    // échoue deux fois (`_deposeOuRetablit`), l'appareil reste sur cette valeur
+    // **indéfiniment** — donc il crie l'identifiant d'un mode que l'utilisateur
+    // a explicitement refusé.
+    //
+    // ⚠️ **Et ce n'est pas anodin même quand ça se passe bien** : cette valeur
+    // est celle qui deviendrait résoluble si l'utilisateur activait la
+    // découverte plus tard dans la même session. Un observateur qui l'a notée
+    // pourrait relier les deux moments. Une **amorce au hasard** ne se relie à
+    // rien et remplit exactement le même rôle.
+    await _radio.start(
+      state.wantsDiscovery
+          ? await _identity.currentPublicPingId()
+          : _amorceAnonyme(),
+    );
+  }
+
+  /// Une valeur de démarrage qui ne veut **rien dire**, et c'est son rôle.
+  ///
+  /// Le natif exige un identifiant pour démarrer ; le plan le remplace dans la
+  /// foulée. Quand la découverte est éteinte, il n'y a aucun identifiant
+  /// légitime à donner — donc on en donne un qui n'appartient à personne.
+  Uint8List _amorceAnonyme() {
+    final rnd = Random.secure();
+    return Uint8List.fromList(
+      List.generate(ProximityIdentity.tokenLength, (_) => rnd.nextInt(256)),
+    );
   }
 
   Future<void> _engage() async {
