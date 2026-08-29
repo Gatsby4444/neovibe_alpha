@@ -186,6 +186,36 @@ void main() {
       expect(vu(const Vec3(0, 0, 1)).opacite, closeTo(1, 1e-9));
     });
 
+    test('TOUT l avant est pleinement opaque', () {
+      // 🔴 Ce n'est pas qu'un choix de dessin, c'est la correction de la
+      // saccade du 2026-08-30 : une opacité inférieure à 1 oblige Flutter à
+      // ouvrir un calque par ami, et c'est l'opération la plus chère du dessin.
+      // Rendre l'avant opaque supprime la moitié de ces calques.
+      //
+      // ⚠️ Ce test protège une PERFORMANCE, ce qu'aucune erreur ne signalerait :
+      // si quelqu'un radoucit le dégradé d'opacité « pour faire joli », la
+      // saccade revient sans que rien ne le dise.
+      for (final z in [0.0, 0.2, 0.5, 0.9, 1.0]) {
+        expect(
+          vu(Vec3(0, 0, z)).opacite,
+          1.0,
+          reason: 'a z=$z, un calque serait ouvert pour rien',
+        );
+      }
+    });
+
+    test('l opacite descend sans marche brusque a l arriere', () {
+      // Une coupure nette se verrait comme un clignotement au passage de
+      // l'horizon.
+      var precedente = 1.0;
+      for (var z = 0.0; z >= -1.0; z -= 0.05) {
+        final o = vu(Vec3(0, 0, z)).opacite;
+        expect(o, lessThanOrEqualTo(precedente + 1e-9));
+        expect(precedente - o, lessThan(0.1), reason: 'marche brusque a z=$z');
+        precedente = o;
+      }
+    });
+
     test('la profondeur permet de trier du fond vers l avant', () {
       expect(
         vu(const Vec3(0, 0, 1)).profondeur,

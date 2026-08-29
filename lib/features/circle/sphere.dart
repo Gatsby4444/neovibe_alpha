@@ -203,6 +203,21 @@ abstract final class Sphere {
   /// ce qui donne envie de tourner.
   static const opaciteAuFond = 0.30;
 
+  /// 🔴 **Tout l'avant de la bulle est PLEINEMENT opaque, et c'est un choix de
+  /// PERFORMANCE autant que de dessin.** Corrigé le 2026-08-30, après que Jay a
+  /// constaté que la sphère saccadait à 65 et 155 amis mais restait fluide à 21.
+  ///
+  /// La cause : un enfant peint avec une opacité **inférieure à 1** oblige
+  /// Flutter à lui ouvrir un calque à part. À 155 amis, c'était 155 calques par
+  /// image — l'opération la plus chère du dessin, répétée soixante fois par
+  /// seconde.
+  ///
+  /// En rendant opaque tout ce qui est devant le milieu, **la moitié des amis
+  /// n'a plus besoin de calque du tout**. Et ça se défend visuellement : dans
+  /// une bulle de verre, on ne voit à travers que ce qui est **derrière** le
+  /// verre. Ce qui est devant est simplement là.
+  static const zPleinementOpaque = 0.0;
+
   /// Répartit [combien] points sur la sphère unité, **presque uniformément**.
   ///
   /// ## Pourquoi la spirale d'or et pas des anneaux
@@ -304,7 +319,11 @@ abstract final class Sphere {
       ),
       echelle: f,
       profondeur: p.z,
-      opacite: opaciteAuFond + (1 - opaciteAuFond) * ((p.z + 1) / 2),
+      // Devant le milieu : opaque, donc aucun calque. Derrière : on s'éteint
+      // progressivement jusqu'au fond.
+      opacite: p.z >= zPleinementOpaque
+          ? 1.0
+          : opaciteAuFond + (1 - opaciteAuFond) * (p.z + 1),
     );
   }
 }

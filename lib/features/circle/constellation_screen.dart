@@ -238,11 +238,32 @@ class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
                         for (final id in ids)
                           // Construite UNE fois. Ensuite elle n'est plus que
                           // repeinte, image après image.
-                          _Pastille(
+                          // 🔴 **`RepaintBoundary` — la correction de la
+                          // saccade constatée par Jay le 2026-08-30.**
+                          //
+                          // Sans lui, tous les enfants vivent dans le MÊME
+                          // calque : à chaque image, Flutter réenregistre les
+                          // opérations de dessin des 155 pastilles — le cercle,
+                          // le dégradé de l'anneau, la découpe, le texte.
+                          // Le `Flow` évitait déjà de les *reconstruire* ; il
+                          // ne pouvait pas éviter de les *réenregistrer*.
+                          //
+                          // Avec lui, chaque pastille est dessinée **une fois**
+                          // dans son propre calque. Par image, il ne reste
+                          // qu'à replacer des calques déjà prêts — du travail
+                          // de carte graphique, pas de processeur.
+                          //
+                          // ⚠️ C'est exactement le cas d'école où il aide : un
+                          // enfant qui ne change jamais, déplacé à chaque
+                          // image. Posé au hasard, il coûterait plus qu'il ne
+                          // rapporte.
+                          RepaintBoundary(
                             key: ValueKey(id),
-                            id: id,
-                            diametre: _diametre,
-                            hauteurEtiquette: _hauteurEtiquette,
+                            child: _Pastille(
+                              id: id,
+                              diametre: _diametre,
+                              hauteurEtiquette: _hauteurEtiquette,
+                            ),
                           ),
                       ],
                     ),
@@ -349,7 +370,14 @@ class _BulleDelegate extends FlowDelegate {
         // lignes, la mise à l'échelle partirait de son coin haut-gauche et les
         // pastilles fuiraient vers le bas-droite en rétrécissant.
         ..translateByDouble(-boite.width / 2, -boite.height / 2, 0, 1);
-      context.paintChild(vue.index, transform: m, opacity: vue.opacite);
+      // ⚠️ **`opacity: 1.0` n'ouvre AUCUN calque**, alors que toute autre
+      // valeur en ouvre un. On passe donc l'opacité seulement quand elle sert
+      // vraiment — c'est-à-dire pour la moitié arrière de la bulle.
+      context.paintChild(
+        vue.index,
+        transform: m,
+        opacity: vue.opacite >= 0.999 ? 1.0 : vue.opacite,
+      );
     }
   }
 
@@ -369,7 +397,6 @@ class _BulleDelegate extends FlowDelegate {
 /// l'obligerait à se reconstruire à chaque image.
 class _Pastille extends ConsumerWidget {
   const _Pastille({
-    super.key,
     required this.id,
     required this.diametre,
     required this.hauteurEtiquette,
