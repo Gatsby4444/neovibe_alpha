@@ -165,6 +165,7 @@ class DiagnosticBundle {
         // par tous et reconnu par personne. Voir `ProximityService.stats()`.
         'advertSlotDrift',
         'advertDataRefus',
+        'advertRappelsPerimes',
         // ⚠️ **Vrai = le service a repris sur le plan écrit sur le disque.**
         // Dans cet état l'appareil croise ses amis mais **n'est pas
         // découvrable par des inconnus** : il n'a pas d'identifiant public à

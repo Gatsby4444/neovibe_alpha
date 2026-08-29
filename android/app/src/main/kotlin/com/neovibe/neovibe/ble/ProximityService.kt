@@ -616,6 +616,11 @@ class ProximityService : Service(), BleEngine.Listener {
         // `setAdvertisingData` est asynchrone : elle ne rend rien et ne leve
         // rien. Ce compteur est la seule trace qu'un refus ait existe.
         "advertDataRefus" to engine.advertDataRefus,
+        // ⚠️ **Un rappel arrive pour un jeu deja remplace.** A zero, la course
+        // decrite dans `AdvertSetCallback.estLeCourant` est restee theorique ;
+        // au-dessus, elle explique d'un coup un `advertSetsOnAir` qui
+        // sous-compte et un `advertSlotDrift` bloque sur -1.
+        "advertRappelsPerimes" to engine.advertStaleCallbacks,
         // ⚠️ **Repris du disque = amis oui, inconnus non.** Voir [reprisDuDisque].
         "resumedFromDisk" to reprisDuDisque,
         // ⚠️ **L'homme mort de l'identifiant public, rendu VISIBLE.**

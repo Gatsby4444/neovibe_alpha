@@ -181,6 +181,18 @@ class BleEngine(private val context: Context, private val listener: Listener) {
     val advertDataRefus: Int get() = onAir.refus
 
     /**
+     * Rappels arrives pour un jeu d'annonces **deja remplace**.
+     *
+     * ⚠️ **Doit rester visible meme a zero.** Ce compteur existe parce que la
+     * course qu'il mesure a ete trouvee **a la relecture, pas sur appareil** :
+     * tant qu'il vaut zero, elle est theorique ; le jour ou il monte, il
+     * explique d'un coup un `advertSetsOnAir` qui sous-compte et un
+     * `advertSlotDrift` bloque sur -1. Voir `AdvertSetCallback.estLeCourant`.
+     */
+    var advertStaleCallbacks = 0
+        private set
+
+    /**
      * L'ID que l'on DOIT diffuser tant qu'on est censé être visible.
      *
      * C'est la mémoire du moteur : elle survit à une coupure de Bluetooth, et
@@ -557,7 +569,46 @@ class BleEngine(private val context: Context, private val listener: Listener) {
 
     /** Un jeu d'annonces, et son rang dans le creneau. */
     private inner class AdvertSetCallback(private val index: Int) : AdvertisingSetCallback() {
+
+        /**
+         * Ce rappel est-il encore celui du jeu [index] ?
+         *
+         * ## 🔴 La course que cette question supprime — relevee le 2026-08-29
+         *
+         * `stopAdvertisingSet` ne s'execute pas tout de suite : la pile rappelle
+         * `onAdvertisingSetStopped` **plus tard**. Or [stopParallelAdverts] vide
+         * `advertSetCallbacks` et [startParallelAdverts] enregistre aussitot de
+         * NOUVEAUX rappels **aux memes rangs**.
+         *
+         * Un rappel de l'ancien plan arrivant apres coup faisait donc
+         * `advertSets.remove(0)` — c'est-a-dire **retirait le jeu neuf** — et
+         * effacait l'etat de [AdvertOnAir] fraichement pose. Consequences :
+         * `advertSetsOnAir` sous-compte, la voie rapide de [applyAdverts] ne
+         * s'applique plus, et `advertSlotDrift` retombe a « on ne sait pas ».
+         *
+         * ⚠️ **Deux objets au meme rang, c'est le plus ancien qui gagne en
+         * silence** — la regle 2 de `CLAUDE.md`, appliquee a des rappels.
+         *
+         * ⚠️ **Non reproduit sur appareil, trouve a la relecture.** D'ou le
+         * compteur [advertStaleCallbacks] : si la course existe vraiment, elle
+         * se lira au diagnostic au lieu de se deviner.
+         */
+        private fun estLeCourant(): Boolean = advertSetCallbacks[index] === this
+
         override fun onAdvertisingSetStarted(set: AdvertisingSet?, txPower: Int, status: Int) {
+            if (!estLeCourant()) {
+                advertStaleCallbacks++
+                // ⚠️ **Un jeu d'un plan abandonne qui demarre quand meme doit
+                // etre RACCROCHE.** Le laisser en l'air, c'est exactement le
+                // defaut du 2026-08-29 matin : un ancien plan qui continue de
+                // crier pendant qu'on en annonce un nouveau.
+                if (status == ADVERTISE_SUCCESS && set != null) {
+                    runCatching {
+                        adapter?.bluetoothLeAdvertiser?.stopAdvertisingSet(this)
+                    }
+                }
+                return
+            }
             if (status != ADVERTISE_SUCCESS || set == null) {
                 fallbackFromParallel("jeu " + index + " refuse (code " + status + ")")
                 return
@@ -587,11 +638,26 @@ class BleEngine(private val context: Context, private val listener: Listener) {
          * `advertSlotOnAir` decroche — au lieu de se deviner.
          */
         override fun onAdvertisingDataSet(set: AdvertisingSet?, status: Int) {
+            if (!estLeCourant()) {
+                advertStaleCallbacks++
+                return
+            }
             if (status == ADVERTISE_SUCCESS) onAir.noteConfirme(index)
             else onAir.noteRefus(index)
         }
 
+        /**
+         * ⚠️ **Seul un arret NON demande passe ici.** Quand c'est nous qui
+         * arretons, [stopParallelAdverts] a deja vide `advertSets` et
+         * [AdvertOnAir] de facon synchrone, et retire ce rappel du catalogue :
+         * il n'est donc plus le courant, et il ne touche a rien. Ce qui reste
+         * est le seul cas interessant — **la pile a coupe un jeu toute seule**.
+         */
         override fun onAdvertisingSetStopped(set: AdvertisingSet?) {
+            if (!estLeCourant()) {
+                advertStaleCallbacks++
+                return
+            }
             advertSets.remove(index)
             onAir.oublie()
         }
