@@ -179,7 +179,18 @@ enum LocationBlocker {
   /// Refusé définitivement : seuls les réglages système peuvent le rouvrir.
   deniedForever,
 
-  /// **Tout est autorisé, et aucun palier n'a su répondre.**
+  /// **Aucun palier n'a su répondre.**
+  ///
+  /// ⚠️ **Ce commentaire disait « TOUT EST AUTORISÉ, et aucun palier n'a su
+  /// répondre », et cette prémisse est fausse** (relevée le 2026-08-29, sur
+  /// l'appareil de Jay). [CoarseLocation.blocker] rend `null` dès que la
+  /// permission **approximative** est accordée : `noFix` et
+  /// [LocationPrecision.approximate] peuvent donc être vrais **en même temps**.
+  ///
+  /// La conséquence n'était pas théorique : l'écran, se croyant dans un cas
+  /// « tout est autorisé », accusait le Wi-Fi et les satellites d'un appareil
+  /// dont le Wi-Fi était allumé — et cachait la seule action qui pouvait
+  /// réparer. Voir `messagePosition` dans `ping_screen.dart`.
   ///
   /// ⚠️ **Ajouté le 2026-08-28, et c'est une valeur qui manquait.** Le repli
   /// sur le dernier point connu est désormais borné dans le temps

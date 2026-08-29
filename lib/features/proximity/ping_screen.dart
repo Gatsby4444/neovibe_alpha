@@ -608,55 +608,19 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
   // projet a appris cette semaine.
   final blocker = beacon.blocker;
   if (blocker != null) {
-    // ⚠️ **Chaque cas porte SON action, dans le même tuple que son texte.**
-    // Elle vivait à côté, dans un `?:` qui testait un seul cas et envoyait tous
-    // les autres aux réglages système. Un quatrième cas s'y serait glissé sans
-    // rien casser et aurait ouvert les réglages pour un problème qui ne s'y
-    // règle pas. Ici, ajouter une valeur à l'énumération **ne compile plus**
-    // tant qu'on n'a pas dit quoi faire — c'est le compilateur qui tient la
-    // règle, pas la vigilance.
-    final (
-      String titre,
-      String detail,
-      String action,
-      VoidCallback onAction,
-    ) = switch (blocker) {
-      LocationBlocker.serviceOff => (
-        "Localisation de l'appareil éteinte",
-        "La découverte de proximité a besoin de savoir dans quel quartier "
-            "tu es — à un kilomètre près, jamais plus précis.",
-        "Ouvrir les réglages",
-        openAppSettings,
-      ),
-      LocationBlocker.denied => (
-        "Position non autorisée",
-        "Elle sert uniquement à savoir dans quel quartier chercher. Qui "
-            "est vraiment à 20 m, c'est le Bluetooth qui le prouve.",
-        "Autoriser",
-        () => ref.read(pingBeaconProvider.notifier).requestPermission(),
-      ),
-      LocationBlocker.deniedForever => (
-        "Position refusée définitivement",
-        "Seuls les réglages système peuvent la rouvrir.",
-        "Ouvrir les réglages",
-        openAppSettings,
-      ),
-      LocationBlocker.noFix => (
-        "Impossible de savoir où tu es",
-        "Ni les satellites, ni le Wi-Fi, ni le réseau n'ont répondu. Tant "
-            "que c'est le cas tu n'es annoncé nulle part, donc personne ne "
-            "peut te trouver ici. Approche-toi d'une fenêtre, ou active le "
-            "Wi-Fi.",
-        "Réessayer",
-        () => ref.read(pingBeaconProvider.notifier).refreshNow(),
-      ),
-    };
+    final m = messagePosition(blocker, beacon.precision);
     return [
       _BandeauSimple(
-        titre: titre,
-        detail: detail,
-        action: action,
-        onAction: onAction,
+        titre: m.titre,
+        detail: m.detail,
+        action: m.action,
+        onAction: switch (m.quoiFaire) {
+          ActionPosition.ouvrirReglages => openAppSettings,
+          ActionPosition.autoriser || ActionPosition.autoriserPrecise =>
+            () => ref.read(pingBeaconProvider.notifier).requestPermission(),
+          ActionPosition.reessayer =>
+            () => ref.read(pingBeaconProvider.notifier).refreshNow(),
+        },
       ),
     ];
   }
@@ -973,3 +937,93 @@ List<Widget> _croisesRecemment(WidgetRef ref) {
       _TuileInconnu(personne: personne, aPortee: false),
   ];
 }
+
+/// Ce que l'utilisateur peut FAIRE quand la position manque.
+///
+/// ⚠️ **Une valeur, pas une fermeture.** [messagePosition] est pure et
+/// éprouvable sans écran ni fournisseur ; c'est le widget qui branche l'action
+/// sur son `ref`. Sans cette séparation, la seule façon de vérifier le texte
+/// affiché aurait été de monter tout l'écran — donc de ne jamais le vérifier.
+enum ActionPosition { ouvrirReglages, autoriser, autoriserPrecise, reessayer }
+
+/// Le bandeau à afficher : un titre, une explication, une action.
+class MessagePosition {
+  const MessagePosition(this.titre, this.detail, this.action, this.quoiFaire);
+  final String titre;
+  final String detail;
+  final String action;
+  final ActionPosition quoiFaire;
+}
+
+/// **Quel bandeau, pour quel blocage — et à quelle finesse accordée.**
+///
+/// ## 🔴 Le défaut que la finesse corrige — relevé par Jay le 2026-08-29
+///
+/// Son écran affichait *« Ni les satellites, ni le Wi-Fi, ni le réseau n'ont
+/// répondu — approche-toi d'une fenêtre, ou active le Wi-Fi »*. **Son Wi-Fi
+/// était allumé**, ses données mobiles aussi. Le diagnostic, lui, disait
+/// `finesse : approximate` : Android ne lui accordait plus que la position
+/// approximative.
+///
+/// Le bandeau accusait donc l'environnement pour une cause qu'il n'avait pas
+/// vérifiée, et proposait « Réessayer » — qui rejoue exactement la même chose
+/// et ne peut rien réparer. **L'action qui aurait marché existait déjà**
+/// (« Autoriser la position précise ») et était précisément cachée par le
+/// `return` du cas bloqué.
+///
+/// ⚠️ **La documentation de [LocationBlocker.noFix] portait la prémisse
+/// fausse** : « tout est autorisé, et aucun palier n'a su répondre ». Non :
+/// `blocker()` rend `null` dès que la permission COARSE est accordée. « noFix »
+/// et « position approximative » peuvent donc être vrais **en même temps**, et
+/// c'est le cas de Jay.
+///
+/// ⚠️ **Un message qui prescrit une action prescrit une cause.** « Active le
+/// Wi-Fi » n'est pas un conseil neutre : c'est une accusation, et elle envoie
+/// chercher le problème là où il n'est pas.
+MessagePosition messagePosition(
+  LocationBlocker blocker,
+  LocationPrecision precision,
+) => switch (blocker) {
+  LocationBlocker.serviceOff => const MessagePosition(
+    "Localisation de l'appareil éteinte",
+    "La découverte de proximité a besoin de savoir dans quel quartier tu es "
+        "— à un kilomètre près, jamais plus précis.",
+    "Ouvrir les réglages",
+    ActionPosition.ouvrirReglages,
+  ),
+  LocationBlocker.denied => const MessagePosition(
+    "Position non autorisée",
+    "Elle sert uniquement à savoir dans quel quartier chercher. Qui est "
+        "vraiment à 20 m, c'est le Bluetooth qui le prouve.",
+    "Autoriser",
+    ActionPosition.autoriser,
+  ),
+  LocationBlocker.deniedForever => const MessagePosition(
+    "Position refusée définitivement",
+    "Seuls les réglages système peuvent la rouvrir.",
+    "Ouvrir les réglages",
+    ActionPosition.ouvrirReglages,
+  ),
+  // 🔴 Deux causes possibles, deux messages, deux actions.
+  LocationBlocker.noFix =>
+    precision == LocationPrecision.approximate
+        ? const MessagePosition(
+            "Impossible de savoir où tu es",
+            "Aucune source n'a rendu de position — et Android ne t'accorde "
+                "que la position APPROXIMATIVE. C'est la première chose à "
+                "corriger : inutile de chercher du côté du Wi-Fi ou de la "
+                "fenêtre. Elle ne sert qu'à savoir dans quel quartier chercher "
+                "— qui est vraiment à 20 m, c'est le Bluetooth qui le prouve.",
+            "Autoriser la position précise",
+            ActionPosition.autoriserPrecise,
+          )
+        : const MessagePosition(
+            "Impossible de savoir où tu es",
+            "Ni les satellites, ni le Wi-Fi, ni le réseau n'ont répondu. Tant "
+                "que c'est le cas tu n'es annoncé nulle part, donc personne ne "
+                "peut te trouver ici. Approche-toi d'une fenêtre, ou active le "
+                "Wi-Fi.",
+            "Réessayer",
+            ActionPosition.reessayer,
+          ),
+};
