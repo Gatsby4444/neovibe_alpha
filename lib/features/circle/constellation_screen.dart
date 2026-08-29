@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
+import 'package:flutter/physics.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
@@ -13,41 +15,73 @@ import '../connections/friendships_repository.dart';
 import '../connections/tier_avatar.dart';
 import '../library/user_library_screen.dart';
 
-/// **La constellation** : tous tes amis en nid d'abeille, à la manière de
-/// l'écran d'accueil d'une Apple Watch.
+/// **La constellation** : tes amis posés sur une sphère, comme l'écran
+/// d'accueil d'une Apple Watch.
 ///
-/// ## Pourquoi c'est un écran POUSSÉ, et pas un onglet
+/// ---------------------------------------------------------------------------
+/// ## 🔴 RÉÉCRITE EN ENTIER LE 2026-08-30, après le test de Jay
 ///
-/// Cette grille se déplace au doigt. L'accueil de NeoVibe, lui, change de
-/// section au glissement horizontal. Les deux gestes sont **le même geste** :
-/// dans un onglet, ils se disputeraient, et c'est celui qui gagne l'arène des
-/// gestes qui déciderait — pas nous.
+/// La première version *marchait* et était **inutilisable**. Trois défauts, et
+/// aucun des trois ne levait la moindre erreur — c'est exactement la famille de
+/// bugs qui ne se voit qu'en essayant, ou en comptant.
 ///
-/// ✅ **Vérifié dans le code le 2026-08-29** : le détecteur de glissement de
-/// `HomeShell` entoure le CONTENU de l'accueil, et une route poussée n'en est
-/// pas l'enfant — c'est une surface sœur. **Le conflit n'existe donc pas**,
-/// structurellement, et non parce qu'on aurait trouvé un réglage.
+/// | Ce que Jay a vu | La cause réelle |
+/// |---|---|
+/// | « ce n'est pas centré » | `InteractiveViewer(constrained: false)` place le plan par son coin **haut-gauche**. Le centre du nid d'abeille tombait donc hors de l'écran, sous le bandeau. |
+/// | « pas fluide du tout » | un `AnimatedBuilder` enveloppait la grille entière : **chaque pastille était RECONSTRUITE à chaque image** du glissement, et chacune consultait un provider au passage. |
+/// | « pas de mouvement 4D » | le rétrécissement était linéaire et faible, et il n'y avait **aucune inertie**. Un plan qui s'arrête net au lâcher du doigt est mort, quelle que soit la beauté du reste. |
 ///
-/// Solution proposée par Jay le 2026-08-29, adoptée telle quelle.
+/// ⚠️ **La leçon, à ne pas reperdre** : j'ai livré une interface sans jamais
+/// mesurer ce qu'elle coûte par image. « Ça compile et ça s'affiche » ne dit
+/// rien de la fluidité — même famille que « le format est juste et le lecteur
+/// inutilisable ».
 ///
-/// ## ⚠️ La sortie est une CROIX — et le glissement diagonal ne peut PAS
-/// exister ici
+/// ---------------------------------------------------------------------------
+/// ## Comment celle-ci est faite
 ///
-/// Jay proposait un glissement diagonal pour fermer, avec une animation de
-/// brisure. **Il n'est pas là, et ce n'est pas un oubli** : le conflit de
-/// gestes qu'on venait d'éviter en poussant cet écran se reforme à
-/// l'intérieur. Une grille qu'on traîne au doigt prend TOUS les glissements,
-/// diagonale comprise — c'est sa raison d'être. Ajouter un second lecteur du
-/// même geste, c'est laisser l'arène des gestes décider à notre place, et
-/// obtenir tantôt une fermeture, tantôt un déplacement.
+/// **1. On ne reconstruit rien pendant le geste, on REPEINT.**
+/// Les pastilles sont construites **une fois**, quand la liste d'amis change.
+/// Le déplacement est porté par un [Flow] : son délégué recalcule des matrices
+/// à chaque image et se contente de **repeindre** des enfants déjà posés. Aucun
+/// `build`, aucune lecture de provider, aucune mise en page pendant le
+/// glissement.
 ///
-/// Le geste redeviendrait possible sur une grille **fixe** (sans déplacement
-/// au doigt), ou en le déplaçant sur un bord de l'écran. Les deux sont des
-/// décisions de Jay, pas des détails d'implémentation.
+/// ✅ **Et l'effet de bord est exactement ce qu'il fallait** : `RenderFlow`
+/// rejoue l'inverse de la même matrice pour le test de contact. La zone
+/// cliquable **est** la zone visible, par construction — plus besoin de calculer
+/// des tailles à la main pour éviter d'avoir deux boîtes distinctes.
 ///
-/// La croix reste de toute façon obligatoire : un geste diagonal ne se devine
-/// pas, et il n'existe aucun retour arrière visible dans une grille qui se
-/// déplace dans tous les sens. Un écran dont on ne sait pas sortir est un bug.
+/// **2. La sphère, pour de vrai.**
+/// Une pastille à la distance `d` du centre de l'écran n'est pas seulement
+/// rapetissée : elle est **projetée**. En posant `θ = d / R` (son angle sur le
+/// globe), sa position devient `R·sin θ` et sa taille `cos θ`. C'est la
+/// projection orthographique d'une sphère, celle d'un globe vu de face. Les
+/// pastilles se **resserrent** en s'éloignant au lieu de simplement rétrécir,
+/// et c'est ce resserrement qui donne le relief.
+///
+/// **3. L'inertie.**
+/// Au lâcher du doigt, une [FrictionSimulation] prolonge le mouvement. Sans
+/// elle, aucun réglage de courbe ne rendra le plan « fluide » : ce qui manquait
+/// n'était pas une animation, c'était une **physique**.
+///
+/// **4. Le centre est le centre.**
+/// Le décalage part de zéro, et zéro veut dire « le milieu du nid d'abeille au
+/// milieu de l'écran ». Il n'y a plus de plan géant dont on regarderait un coin.
+///
+/// ---------------------------------------------------------------------------
+/// ## Pourquoi c'est un écran POUSSÉ
+///
+/// Cette grille se déplace au doigt ; l'accueil change de section au glissement
+/// horizontal. C'est le même geste. Dans un onglet, les deux se disputeraient et
+/// c'est l'arène des gestes qui trancherait, pas nous.
+///
+/// ✅ Vérifié dans le code : le détecteur de `HomeShell` entoure le CONTENU de
+/// l'accueil, et une route poussée n'en est pas l'enfant. **Le conflit n'existe
+/// pas**, structurellement. Solution proposée par Jay le 2026-08-29.
+///
+/// ⚠️ **Le glissement diagonal de fermeture reste impossible ici**, et pour la
+/// raison retournée : une grille qu'on traîne au doigt prend déjà TOUS les
+/// glissements. La croix est la sortie ; le double-appui recentre.
 class ConstellationScreen extends ConsumerStatefulWidget {
   const ConstellationScreen({super.key});
 
@@ -56,30 +90,139 @@ class ConstellationScreen extends ConsumerStatefulWidget {
       _ConstellationScreenState();
 }
 
-class _ConstellationScreenState extends ConsumerState<ConstellationScreen> {
-  final _transformation = TransformationController();
+class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
+    with TickerProviderStateMixin {
+  /// Le déplacement du nid d'abeille, en unités « monde ».
+  ///
+  /// ⚠️ **Zéro veut dire centré**, et c'est tout l'intérêt : il n'y a aucun
+  /// calage à faire au premier affichage, donc aucun moyen de se tromper.
+  final _pan = ValueNotifier<Offset>(Offset.zero);
+
+  /// Le zoom du pincement.
+  final _zoom = ValueNotifier<double>(1);
+
+  /// Le lancer : prolonge le mouvement après que le doigt est parti.
+  late final AnimationController _lancer = AnimationController.unbounded(
+    vsync: this,
+  );
+
+  /// Le retour élastique quand on a tiré trop loin.
+  late final AnimationController _retour = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 340),
+  );
+
+  Offset _departLancer = Offset.zero;
+  Offset _sensLancer = Offset.zero;
+  Animation<Offset>? _retourAnime;
+  double _zoomAuDepart = 1;
   var _filtre = FiltreDePalier.tous;
 
-  /// Le diamètre d'une pastille au centre de l'écran.
-  static const _diametre = 78.0;
+  /// Le rayon du nid d'abeille, en unités monde. Recalculé à chaque
+  /// construction, parce qu'il dépend du nombre d'amis retenus par le filtre.
+  double _rayonMonde = 0;
 
-  /// L'écart entre deux centres. Plus grand que le diamètre : la place du
-  /// pseudo se prend ici, pas en rognant les photos.
-  static const _pas = 104.0;
+  static const _diametre = 76.0;
+  static const _pas = 100.0;
+  static const _hauteurEtiquette = 22.0;
 
-  /// Ce qu'il reste d'une pastille au bord du champ de vision.
+  /// Le débordement maximal quand on tire au-delà du bord.
   ///
-  /// ⚠️ **Elle rétrécit pour de vrai, elle n'est pas mise à l'échelle.** Un
-  /// widget rapetissé par `Transform.scale` garde la boîte de clic de sa taille
-  /// d'origine : on aurait deux boîtes, la visible et la cliquable, et un appui
-  /// à côté d'une petite pastille aurait ouvert le profil d'un voisin. Ici la
-  /// TAILLE est calculée, donc les deux boîtes n'en font qu'une.
-  static const _minimum = 0.44;
+  /// ⚠️ Sans butée, on peut pousser toute la constellation hors de l'écran et
+  /// croire qu'elle a planté. Avec une butée SÈCHE, le geste paraît cassé.
+  /// L'élastique est la seule des trois options qui ne ment pas.
+  static const _debordement = 96.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _lancer.addListener(() {
+      _pan.value = _borne(_departLancer + _sensLancer * _lancer.value);
+    });
+    _retour.addListener(() {
+      final a = _retourAnime;
+      if (a != null) _pan.value = a.value;
+    });
+  }
 
   @override
   void dispose() {
-    _transformation.dispose();
+    _lancer.dispose();
+    _retour.dispose();
+    _pan.dispose();
+    _zoom.dispose();
     super.dispose();
+  }
+
+  /// La butée dure : le centre du nid ne s'éloigne jamais de plus que son rayon.
+  Offset _borne(Offset o) {
+    final max = math.max(_rayonMonde, 1.0);
+    return o.distance <= max ? o : Offset.fromDirection(o.direction, max);
+  }
+
+  /// La butée élastique, pendant le geste : le débordement s'amortit et sature.
+  Offset _elastique(Offset o) {
+    final max = math.max(_rayonMonde, 1.0);
+    final d = o.distance;
+    if (d <= max) return o;
+    final trop = d - max;
+    // Asymptotique : plus on tire, moins ça avance, et jamais au-delà de
+    // `_debordement`.
+    final amorti = _debordement * (1 - math.exp(-trop / _debordement));
+    return Offset.fromDirection(o.direction, max + amorti);
+  }
+
+  void _arreterTout() {
+    _lancer.stop();
+    _retour.stop();
+  }
+
+  void _debutGeste(ScaleStartDetails d) {
+    _arreterTout();
+    _zoomAuDepart = _zoom.value;
+  }
+
+  void _pendantGeste(ScaleUpdateDetails d) {
+    if (d.pointerCount > 1) {
+      _zoom.value = (_zoomAuDepart * d.scale).clamp(0.65, 1.9);
+    }
+    // ⚠️ Le déplacement du doigt est en PIXELS, le décalage est en unités
+    // monde : sans la division par le zoom, la grille suivrait deux fois plus
+    // vite une fois zoomée, et le doigt « glisserait » sous le contenu.
+    _pan.value = _elastique(_pan.value + d.focalPointDelta / _zoom.value);
+  }
+
+  void _finGeste(ScaleEndDetails d) {
+    // Hors des bornes : on revient. La physique n'a rien à dire ici.
+    if (_pan.value.distance > _rayonMonde) {
+      _rappeler(_borne(_pan.value));
+      return;
+    }
+    final v = d.velocity.pixelsPerSecond / _zoom.value;
+    final vitesse = v.distance;
+    // En dessous, c'est un doigt qui se pose, pas un lancer.
+    if (vitesse < 220) return;
+
+    _departLancer = _pan.value;
+    _sensLancer = v / vitesse;
+    // ⚠️ **Une vraie friction, pas une courbe.** Une durée fixe avec
+    // `Curves.decelerate` donnerait le même arrêt quelle que soit la force du
+    // geste — c'est précisément ce qui fait « pas fluide ».
+    _lancer.animateWith(FrictionSimulation(0.135, 0, vitesse));
+  }
+
+  void _rappeler(Offset cible) {
+    _retourAnime = Tween(
+      begin: _pan.value,
+      end: cible,
+    ).animate(CurvedAnimation(parent: _retour, curve: Curves.easeOutCubic));
+    _retour.forward(from: 0);
+  }
+
+  void _recentrer() {
+    _arreterTout();
+    _zoom.value = 1;
+    _rappeler(Offset.zero);
   }
 
   @override
@@ -88,38 +231,230 @@ class _ConstellationScreenState extends ConsumerState<ConstellationScreen> {
     final connections = ref.watch(fullConnectionsProvider);
     final amities = ref.watch(friendshipsProvider).value ?? const {};
 
+    // ⚠️ **Les plus proches au CENTRE.** C'est la seule chose que l'ordre peut
+    // dire, et il vaut mieux qu'il dise quelque chose : au milieu de la sphère
+    // les pastilles sont les plus grandes et les plus lisibles. Un ordre
+    // arbitraire gâcherait la meilleure place de l'écran.
     final ids = me == null
-        ? const <String>[]
-        : [
-            for (final c in connections)
-              if (_filtre.retient(
-                amities[c.peerIdFor(me)]?.tier ?? FriendshipTier.friend,
-              ))
-                c.peerIdFor(me),
-          ];
+        ? <String>[]
+        : (connections
+              .map((c) => c.peerIdFor(me))
+              .where(
+                (id) =>
+                    _filtre.retient(amities[id]?.tier ?? FriendshipTier.friend),
+              )
+              .toList()
+            ..sort((a, b) {
+              final parPalier = (amities[b]?.tier.rang ?? 0).compareTo(
+                amities[a]?.tier.rang ?? 0,
+              );
+              if (parPalier != 0) return parPalier;
+              return (amities[b]?.serie ?? 0).compareTo(amities[a]?.serie ?? 0);
+            }));
+
+    final places = Ruche.places(ids.length, _pas);
+    _rayonMonde = places.fold<double>(0, (r, o) => math.max(r, o.distance));
 
     return Scaffold(
-      body: SafeArea(
-        child: Stack(
-          children: [
-            Positioned.fill(
-              child: ids.isEmpty
-                  ? _Vide(filtre: _filtre)
-                  : _Ruche(
-                      ids: ids,
-                      controller: _transformation,
-                      diametre: _diametre,
-                      pas: _pas,
-                      minimum: _minimum,
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: ids.isEmpty
+                ? _Vide(filtre: _filtre)
+                : GestureDetector(
+                    // ⚠️ `onScale*` SEUL : mêler `onPan*` et `onScale*` sur un
+                    // même détecteur lève à l'exécution. Un geste à un doigt
+                    // arrive ici avec `scale == 1`.
+                    onScaleStart: _debutGeste,
+                    onScaleUpdate: _pendantGeste,
+                    onScaleEnd: _finGeste,
+                    onDoubleTap: _recentrer,
+                    behavior: HitTestBehavior.opaque,
+                    child: Flow(
+                      delegate: _SphereDelegate(
+                        places: places,
+                        pan: _pan,
+                        zoom: _zoom,
+                      ),
+                      children: [
+                        for (final id in ids)
+                          // Construite UNE fois. Ensuite elle n'est plus que
+                          // repeinte, image après image.
+                          _Pastille(
+                            key: ValueKey(id),
+                            id: id,
+                            diametre: _diametre,
+                            hauteurEtiquette: _hauteurEtiquette,
+                          ),
+                      ],
                     ),
+                  ),
+          ),
+          _Chapeau(
+            filtre: _filtre,
+            nombre: ids.length,
+            onFiltre: (f) => setState(() {
+              _filtre = f;
+              _recentrer();
+            }),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// La projection sphérique, et le placement de chaque pastille.
+///
+/// ⚠️ **Tout ce qui suit se passe SANS reconstruire un seul widget.** Le
+/// délégué reçoit `repaint: pan + zoom` : quand l'un des deux change, Flutter
+/// **repeint** les enfants avec de nouvelles matrices. C'est toute la
+/// différence entre 60 images par seconde et le diaporama de la première
+/// version.
+class _SphereDelegate extends FlowDelegate {
+  _SphereDelegate({required this.places, required this.pan, required this.zoom})
+    : super(repaint: Listenable.merge([pan, zoom]));
+
+  final List<Offset> places;
+  final ValueListenable<Offset> pan;
+  final ValueListenable<double> zoom;
+
+  /// Au-delà de cet angle, la pastille est passée derrière l'horizon : on ne la
+  /// peint pas du tout.
+  ///
+  /// ⚠️ Ce n'est pas qu'une économie. Sans découpe, toutes les pastilles
+  /// lointaines viendraient s'empiler sur le bord du disque en un tas illisible.
+  static const _angleHorizon = 1.45;
+
+  /// Là où une pastille commence à s'effacer, pour que sa disparition ne soit
+  /// pas un clignotement.
+  static const _angleFondu = 1.18;
+
+  /// Ce qu'il reste d'une pastille au ras de l'horizon.
+  static const _tailleMinimale = 0.24;
+
+  @override
+  Size getSize(BoxConstraints constraints) => constraints.biggest;
+
+  /// Toutes les pastilles ont la MÊME boîte. C'est la matrice qui les
+  /// rapetisse — donc la zone de contact suit la zone visible, sans qu'on ait
+  /// à la calculer nous-mêmes.
+  @override
+  BoxConstraints getConstraintsForChild(int i, BoxConstraints constraints) =>
+      constraints.loosen();
+
+  @override
+  void paintChildren(FlowPaintingContext context) {
+    final taille = context.size;
+    final centre = Offset(taille.width / 2, taille.height / 2);
+    // Le rayon du globe : la demi-diagonale, pour que le disque projeté
+    // recouvre l'écran entier, coins compris.
+    final rayon =
+        math.sqrt(taille.width * taille.width + taille.height * taille.height) /
+        2;
+    final z = zoom.value;
+    final decalage = pan.value;
+
+    for (var i = 0; i < context.childCount && i < places.length; i++) {
+      // Position à plat, en pixels écran, avant projection.
+      final plat = (places[i] + decalage) * z;
+      final d = plat.distance;
+
+      // θ : l'angle sur la sphère. `d` est une longueur d'ARC, pas une corde.
+      final theta = d / rayon;
+      if (theta > _angleHorizon) continue;
+
+      final (vue, echelleBrute) = Ruche.projeter(
+        d: d,
+        rayon: rayon,
+        minimum: _tailleMinimale,
+      );
+      final direction = d == 0 ? Offset.zero : plat / d;
+      final vu = direction * vue;
+      // Le raccourci de perspective : une surface inclinée de θ paraît cos θ
+      // fois moins large. La MÊME loi déplace les pastilles et les rapetisse —
+      // c'est de là que vient le relief.
+      final echelle = echelleBrute * z;
+
+      final opacite = theta <= _angleFondu
+          ? 1.0
+          : (1 - (theta - _angleFondu) / (_angleHorizon - _angleFondu)).clamp(
+              0.0,
+              1.0,
+            );
+
+      final boite = context.getChildSize(i) ?? Size.zero;
+      final m = Matrix4.identity()
+        ..translateByDouble(centre.dx + vu.dx, centre.dy + vu.dy, 0, 1)
+        ..scaleByDouble(echelle, echelle, 1, 1)
+        // On ramène le centre de l'enfant sur le point visé : sans ces deux
+        // lignes, la mise à l'échelle partirait de son coin haut-gauche et les
+        // pastilles fuiraient vers le bas-droite en rétrécissant.
+        ..translateByDouble(-boite.width / 2, -boite.height / 2, 0, 1);
+
+      context.paintChild(i, transform: m, opacity: opacite);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SphereDelegate old) =>
+      old.places != places || old.pan != pan || old.zoom != zoom;
+}
+
+/// Une pastille : la photo, son anneau de palier, et le pseudo.
+///
+/// ⚠️ **Elle n'a aucune idée d'où elle est.** Toute la géométrie vit dans le
+/// délégué, et c'est ce qui permet de la construire une fois pour toutes. Lui
+/// passer sa position l'obligerait à se reconstruire à chaque image, et on
+/// serait revenu au point de départ.
+class _Pastille extends ConsumerWidget {
+  const _Pastille({
+    super.key,
+    required this.id,
+    required this.diametre,
+    required this.hauteurEtiquette,
+  });
+
+  final String id;
+  final double diametre;
+  final double hauteurEtiquette;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final Profile? peer = ref.watch(profileByIdProvider(id)).value;
+    final boite = Size(diametre + 24, diametre + hauteurEtiquette);
+    if (peer == null) {
+      return SizedBox(width: boite.width, height: boite.height);
+    }
+
+    return SizedBox(
+      width: boite.width,
+      height: boite.height,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => UserLibraryScreen(profile: peer),
+              ),
             ),
-            _Chapeau(
-              filtre: _filtre,
-              nombre: ids.length,
-              onFiltre: (f) => setState(() => _filtre = f),
+            child: TierAvatar(
+              peerId: id,
+              storedAvatar: peer.avatarUrl,
+              initiale: peer.displayName.characters.first.toUpperCase(),
+              size: diametre,
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: NeoSpace.xs),
+          Text(
+            peer.displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.labelSmall,
+          ),
+        ],
       ),
     );
   }
@@ -144,55 +479,53 @@ class _Chapeau extends StatelessWidget {
       top: 0,
       left: 0,
       right: 0,
-      child: DecoratedBox(
-        // Un voile, pas un aplat : la grille passe dessous quand on la
-        // déplace, et on veut qu'on la devine.
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [p.ground, p.ground.withValues(alpha: 0)],
-            stops: const [0.62, 1],
-          ),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(
-            NeoSpace.lg,
-            NeoSpace.md,
-            NeoSpace.lg,
-            NeoSpace.xxl,
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+      child: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                NeoSpace.lg,
+                NeoSpace.sm,
+                NeoSpace.sm,
+                0,
+              ),
+              child: Row(
                 children: [
+                  // ⚠️ `IgnorePointer` sur le titre : sans lui, tout le haut de
+                  // l'écran mangerait les glissements et la constellation
+                  // paraîtrait bloquée dans cette bande.
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Constellation', style: context.sectionTitle),
-                        Text(
-                          nombre == 0
-                              ? 'Personne ici'
-                              : '$nombre ${nombre > 1 ? 'amis' : 'ami'}',
-                          style: context.sectionMeta,
-                        ),
-                      ],
+                    child: IgnorePointer(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Constellation', style: context.sectionTitle),
+                          Text(
+                            nombre == 0
+                                ? 'Personne ici'
+                                : '$nombre ${nombre > 1 ? 'amis' : 'ami'}',
+                            style: context.sectionMeta,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  // ⚠️ La SEULE sortie — voir l'en-tête du fichier : le
-                  // glissement diagonal ne peut pas cohabiter avec une grille
-                  // qu'on déplace au doigt.
-                  IconButton(
+                  // La SEULE sortie découvrable — voir l'en-tête du fichier.
+                  IconButton.filledTonal(
                     icon: const Icon(Icons.close),
                     tooltip: 'Fermer',
                     onPressed: () => Navigator.of(context).maybePop(),
                   ),
                 ],
               ),
-              const SizedBox(height: NeoSpace.sm),
-              Row(
+            ),
+            const SizedBox(height: NeoSpace.sm),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: NeoSpace.lg),
+              child: Row(
                 children: [
                   for (final f in FiltreDePalier.values)
                     Padding(
@@ -201,12 +534,13 @@ class _Chapeau extends StatelessWidget {
                         label: Text(f.label),
                         selected: filtre == f,
                         onSelected: (_) => onFiltre(f),
+                        backgroundColor: p.surface,
                       ),
                     ),
                 ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -235,171 +569,14 @@ class _Vide extends StatelessWidget {
   );
 }
 
-/// La ruche elle-même : les pastilles posées en nid d'abeille, dans un plan
-/// qu'on déplace et qu'on pince.
-class _Ruche extends StatelessWidget {
-  const _Ruche({
-    required this.ids,
-    required this.controller,
-    required this.diametre,
-    required this.pas,
-    required this.minimum,
-  });
-
-  final List<String> ids;
-  final TransformationController controller;
-  final double diametre;
-  final double pas;
-  final double minimum;
-
-  @override
-  Widget build(BuildContext context) {
-    final places = Ruche.places(ids.length, pas);
-    // La boîte qui contient tout le monde, plus une marge d'une pastille.
-    final rayon =
-        places.fold<double>(0, (r, o) => math.max(r, o.distance)) + pas;
-    final cote = rayon * 2;
-
-    return LayoutBuilder(
-      builder: (context, box) {
-        return InteractiveViewer(
-          transformationController: controller,
-          // `constrained: false` : le plan est plus grand que l'écran, c'est
-          // tout l'intérêt. Sans ça, Flutter le rabote à la taille visible.
-          constrained: false,
-          minScale: 0.6,
-          maxScale: 2.2,
-          boundaryMargin: EdgeInsets.all(pas),
-          child: SizedBox(
-            width: cote,
-            height: cote,
-            child: AnimatedBuilder(
-              animation: controller,
-              builder: (context, _) {
-                // Le centre du champ de vision, exprimé dans le plan.
-                final m = Matrix4.inverted(controller.value);
-                final centre = MatrixUtils.transformPoint(
-                  m,
-                  Offset(box.maxWidth / 2, box.maxHeight / 2),
-                );
-                // La distance à partir de laquelle une pastille est au plus
-                // petit : la demi-diagonale de l'écran.
-                final portee = math.max(
-                  1.0,
-                  math.sqrt(
-                        box.maxWidth * box.maxWidth +
-                            box.maxHeight * box.maxHeight,
-                      ) /
-                      2,
-                );
-
-                return Stack(
-                  children: [
-                    for (var i = 0; i < ids.length; i++)
-                      _place(
-                        context: context,
-                        id: ids[i],
-                        position: places[i] + Offset(rayon, rayon),
-                        centre: centre,
-                        portee: portee,
-                      ),
-                  ],
-                );
-              },
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _place({
-    required BuildContext context,
-    required String id,
-    required Offset position,
-    required Offset centre,
-    required double portee,
-  }) {
-    // Plus on s'éloigne du milieu, plus la pastille est petite. C'est le geste
-    // signature de la ruche : le regard sait où il est sans aucun repère.
-    final t = ((position - centre).distance / portee).clamp(0.0, 1.0);
-    final facteur = 1 - (1 - minimum) * Curves.easeOut.transform(t);
-    final taille = diametre * facteur;
-    // La place réservée reste constante : seule la pastille rétrécit, sinon
-    // le nid d'abeille se déformerait à chaque déplacement du doigt.
-    return Positioned(
-      left: position.dx - pas / 2,
-      top: position.dy - pas / 2,
-      width: pas,
-      height: pas,
-      child: _Pastille(id: id, taille: taille, facteur: facteur),
-    );
-  }
-}
-
-class _Pastille extends ConsumerWidget {
-  const _Pastille({
-    required this.id,
-    required this.taille,
-    required this.facteur,
-  });
-
-  final String id;
-  final double taille;
-
-  /// Sert au pseudo : il s'efface quand la pastille devient trop petite pour
-  /// qu'il reste lisible. Un texte de 5 px n'informe pas, il salit.
-  final double facteur;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final Profile? peer = ref.watch(profileByIdProvider(id)).value;
-    if (peer == null) return const SizedBox.shrink();
-
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => UserLibraryScreen(profile: peer)),
-          ),
-          child: TierAvatar(
-            peerId: id,
-            storedAvatar: peer.avatarUrl,
-            initiale: peer.displayName.characters.first.toUpperCase(),
-            size: taille,
-          ),
-        ),
-        // ⚠️ Le pseudo disparaît AVANT de devenir illisible, pas quand il l'est
-        // déjà. Apple n'en met pas du tout sur sa ruche ; nous en avons besoin
-        // (on ne reconnaît pas quarante camarades à leur photo en 30 px), donc
-        // il faut au moins qu'il s'efface proprement.
-        if (facteur > 0.68) ...[
-          const SizedBox(height: NeoSpace.xs),
-          Opacity(
-            opacity: ((facteur - 0.68) / 0.2).clamp(0.0, 1.0),
-            child: Text(
-              peer.displayName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.labelSmall,
-            ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-/// La géométrie du nid d'abeille — **pure, et hors du widget exprès**.
+/// La géométrie de la constellation — **pure, et hors des widgets exprès**.
 ///
-/// ⚠️ C'est de la géométrie, pas de l'affichage. La sortir permet de vérifier
-/// qu'aucune pastille n'en chevauche une autre : un chevauchement ne lève
-/// aucune erreur, il fait juste disparaître un ami sous un autre. Sur trois
-/// amis ça se voit, sur quarante non. Gardé par `test/constellation_test.dart`.
+/// ⚠️ C'est de la géométrie, pas de l'affichage. La sortir permet de la
+/// **mesurer** : un chevauchement de pastilles ne lève aucune erreur, il fait
+/// juste disparaître un ami sous un autre. Sur trois amis ça se voit, sur
+/// quarante non. Gardé par `test/constellation_test.dart`.
 abstract final class Ruche {
+  /// Les positions d'un nid d'abeille, en spirale depuis le centre.
   static List<Offset> places(int combien, double pas) {
     if (combien <= 0) return const [];
     final places = <Offset>[Offset.zero];
@@ -430,5 +607,22 @@ abstract final class Ruche {
       anneau++;
     }
     return places;
+  }
+
+  /// La projection sphérique — **isolée pour être mesurable**.
+  ///
+  /// Rend la distance VUE et l'échelle d'une pastille dont la position à plat
+  /// est à la distance [d] du centre, sur un globe de rayon [rayon].
+  ///
+  /// ⚠️ Un effet visuel se juge à l'œil, mais ses **invariants** ne se voient
+  /// pas : que rien ne grandisse en s'éloignant, que rien ne sorte du disque,
+  /// que deux pastilles ne se croisent jamais. Ceux-là se démontrent.
+  static (double vue, double echelle) projeter({
+    required double d,
+    required double rayon,
+    double minimum = 0.24,
+  }) {
+    final theta = d / rayon;
+    return (rayon * math.sin(theta), math.max(math.cos(theta), minimum));
   }
 }
