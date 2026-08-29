@@ -21,7 +21,31 @@ contient les trois correctifs, dont deux ne peuvent pas se tester sur l'ancienne
 | Croisements enregistrés | 0 — *effacés par le retrait d'ami d'hier, c'est normal* |
 
 ⚠️ **Fais les tests DANS L'ORDRE.** Chacun laisse l'état dont le suivant a
-besoin : amis → inconnus → amis.
+besoin, et **c'est le test lui-même qui fait passer d'un état à l'autre** — tu
+n'as jamais à préparer l'état à la main.
+
+## Amis ou inconnus : le récapitulatif
+
+| | Test | Vous êtes | Ce qui change l'état |
+|---|---|---|---|
+| **0** | Préparer | 🟢 **amis** | — |
+| **A** | Le ping sans ouvrir l'onglet | 🟢 **amis** | — |
+| **B1** | Redevenir inconnus | 🟢 amis → 🔵 **inconnus** | Charles retire l'ami |
+| **B2** | Ouvrir un fil avant de bloquer | 🔵 **inconnus** | — |
+| **B3** | mimi bloque, on attend | 🔵 **inconnus** + bloqués | mimi bloque |
+| **B4** | Débloquer | 🔵 **inconnus** | mimi débloque |
+| **C** | Redevenir amis | 🔵 inconnus → 🟢 **amis** | vous vous ajoutez |
+| **D** | La nuit | 🟢 **amis** | — |
+| — | *Éloignement (reporté)* | 🔵 **inconnus** | — |
+
+⚠️ **Pourquoi B a besoin d'inconnus.** Le bouton « Écrire » et le ticket de
+proximité n'existent **qu'entre inconnus** : entre amis, on passe par la
+messagerie normale, qui ne demande aucune proximité. Faire B en amis ne
+testerait rien du tout.
+
+⚠️ **Pourquoi A et D ont besoin d'amis.** Les deux vérifient le **croisement
+d'amis** — la partie qui doit marcher app fermée, sans réseau. C'est une autre
+moitié du produit que le ping des inconnus, et elle a son propre interrupteur.
 
 ---
 
@@ -38,6 +62,8 @@ Sur **les deux** appareils :
 ---
 
 # Test A — Le ping marche sans ouvrir l'onglet Ping *(4 minutes)*
+
+> 🟢 **Vous êtes AMIS pour ce test.**
 
 **Ce qu'on vérifie :** avant la v0.9.146, rien ne démarrait tant que tu n'avais
 pas ouvert cet onglet **une fois**. Comme tu l'ouvrais toujours en premier, le
@@ -56,6 +82,9 @@ trou ne pouvait pas se voir.
 ---
 
 # Test B 🔴 — Le blocage, proprement *(10 minutes)*
+
+> 🔵 **Ce test commence en amis et vous fait passer INCONNUS** à l'étape
+> B1. Tout le reste de B se joue en inconnus.
 
 **Le test le plus important de la série**, et celui qui a été bâclé hier : il
 avait duré 22 secondes.
@@ -132,13 +161,38 @@ redevienne possible : le ticket a été déchiré, il faut vous revoir pour en
 refabriquer un. Ce n'est pas un défaut, c'est le correctif.
 
 > ⚠️ **Chiffre corrigé après vérification dans le code** : j'avais d'abord écrit
-> « 10 à 20 secondes ». Le téléphone n'envoie ce qu'il a entendu que **toutes les
-> 60 secondes** (), et il faut que les DEUX l'aient
-> fait pour que le ticket renaisse. Compter deux minutes.
+> « 10 à 20 secondes ». Le téléphone n'envoie ce qu'il a entendu que **toutes
+> les 60 secondes** (`PingBeaconService.flushEvery`), et il faut que **les DEUX**
+> l'aient fait pour que le ticket renaisse. Compter deux minutes.
+
+## ⚠️ Ce que le déblocage rend — et ce qu'il ne rend PAS
+
+Relevé en base, pas déduit : `unblock_user` ne fait **qu'une** chose, effacer la
+ligne de blocage. Rien d'autre n'est restauré.
+
+| | Après le déblocage | Délai |
+|---|---|---|
+| se revoir dans « Autour de toi » | ✅ **revient tout seul** | ~1 min |
+| le **ticket** de proximité (bouton « Écrire ») | ✅ **se refabrique tout seul**, en vous revoyant | 1 à 2 min |
+| l'**amitié** | ❌ **ne revient pas** — le blocage l'avait supprimée | il faut se redemander |
+| le **croisement** et les constats de la paire | ❌ partis avec l'amitié | — |
+| les **demandes en attente** | ❌ supprimées par le blocage | — |
+| les **anciens messages** du fil | ✅ toujours lisibles | jusqu'à leur expiration (24 h) |
+
+⚠️ **Limite connue, et assumée** : pendant le blocage, la personne bloquée ne
+peut plus **écrire** dans le fil, mais elle peut encore **relire** ce qui y avait
+déjà été envoyé. Bloquer quelqu'un ne reprend pas les messages qu'on lui a
+déjà envoyés — c'est le comportement de toutes les messageries, mais autant que
+ce soit dit.
+
+⚠️ **C'est pour ça que le test C existe.** À la fin de B vous êtes **inconnus**,
+pas amis : le blocage a emporté l'amitié, et le déblocage ne la rend pas.
 
 ---
 
 # Test C — Redevenir amis, et le compteur *(3 minutes)*
+
+> 🔵 → 🟢 **Vous commencez inconnus, vous finissez amis.**
 
 1. Côte à côte : demandez-vous en ami, et acceptez.
 2. Regarde ton **compteur d'amis** sur ton profil.
@@ -152,6 +206,9 @@ refabriquer un. Ce n'est pas un défaut, c'est le correctif.
 ---
 
 # Test D — La nuit *(à lancer en dernier, avant de dormir)*
+
+> 🟢 **Vous êtes AMIS pour ce test**, et c'est indispensable : la nuit
+> teste le croisement d'amis.
 
 1. Vous êtes **amis**, les deux interrupteurs allumés des deux côtés.
 2. Les deux téléphones **côte à côte**, **apps fermées avec le bouton
@@ -187,6 +244,9 @@ que le reste de la nuit vérifie.
 ---
 
 # Reporté : le test d'éloignement
+
+> 🔵 **À faire en INCONNUS** : le fil de proximité n'existe qu'entre
+> inconnus.
 
 Il demande de **sortir de portée d'une trentaine de mètres** — une autre pièce ne
 suffit pas — et d'attendre **deux minutes** sans toucher l'écran, pour voir le
