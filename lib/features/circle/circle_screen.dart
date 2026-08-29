@@ -9,6 +9,7 @@ import '../../core/utils/formats.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
 import '../conversations/create_group_screen.dart';
+import 'constellation_screen.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
 import 'categories_repository.dart';
@@ -46,6 +47,17 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
         centerTitle: true,
         title: const Text('Cercle'),
         actions: [
+          // ⚠️ **La constellation est un écran POUSSÉ**, et c'est ce qui règle
+          // le conflit de gestes : elle se déplace au doigt, l'accueil change
+          // de section au glissement. Dans un onglet, les deux se
+          // disputeraient. Voir `constellation_screen.dart`.
+          IconButton(
+            icon: const Icon(Icons.blur_on),
+            tooltip: 'Constellation',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const ConstellationScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.group_add),
             tooltip: 'Nouveau groupe',

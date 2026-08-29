@@ -149,9 +149,12 @@ disparaît de ta liste.
 Quand un ami passe tout près de toi sans que vous vous croisiez vraiment, l'app
 te le dit : **« Le presque… — X est passé tout près de toi »**.
 
-- La notification arrive **45 minutes plus tard** par défaut. C'est un choix :
-  te prévenir en direct te ferait courir après les gens.
-- Tu peux demander à la recevoir **en temps réel** dans les réglages.
+- **Le délai dépend de votre palier d'amitié** (voir la section suivante) :
+  tout de suite pour un **Inséparable**, 15 minutes pour un **Proche**,
+  45 minutes pour un **Ami**. Te prévenir en direct pour tout le monde te
+  ferait courir après les gens toute la journée.
+- Tu peux forcer le **temps réel pour tout le monde** dans les réglages : ce
+  choix-là l'emporte toujours sur le palier.
 - **Une seule par personne toutes les 2 heures** — sinon un ami dans le même
   bâtiment que toi te notifierait toute la journée.
 
@@ -170,6 +173,50 @@ Quand deux amis se croisent, l'app l'enregistre — c'est ce qui alimentera les
 
 ---
 
+## 5 bis. Les paliers d'amitié
+
+Tes amis ne sont pas tous au même niveau, et **ce n'est pas toi qui les ranges**.
+L'app compte simplement les jours où vous vous êtes croisés pour de vrai.
+
+| Palier | Comment on y arrive |
+|---|---|
+| **Ami** | dès que vous êtes connectés |
+| **Proche** | vous vous êtes croisés **5 jours** sur les **30 derniers** |
+| **Inséparable** | **15 jours** sur les **30 derniers** |
+
+- **Ça redescend aussi.** La fenêtre de 30 jours avance chaque nuit : si vous
+  cessez de vous voir, le compte baisse et le palier retombe. Une amitié se
+  garde, elle ne se gagne pas une fois pour toutes.
+- **Un croisement ne compte que s'il est mutuel.** Les deux téléphones doivent
+  s'être vus. Personne ne peut faire monter un palier en te suivant.
+- **Un seul croisement par jour compte.** Passer la journée à côté de quelqu'un
+  ne vaut pas dix jours.
+- À partir de **Proche**, un **anneau de couleur** entoure la photo de la
+  personne.
+
+### Ce que ça change
+
+- **Les stories réservées** : tu peux publier une story que seuls tes Proches
+  ou tes Inséparables verront.
+- **La vitesse du « presque »** : tu es prévenu tout de suite pour un
+  Inséparable, plus tard pour les autres.
+- *(À venir : seuls tes Proches pourront t'envoyer un Rush.)*
+
+### La série
+
+En plus du palier, chaque ami a une **série** : le nombre de jours d'affilée où
+vous vous êtes croisés. Elle survit à **deux jours** manqués — un week-end ne la
+casse pas — et elle fait évoluer un emoji, de l'œuf 🥚 au diamant 💎.
+
+⚠️ **Notre série ne se garde pas en publiant, elle se garde en se voyant.**
+C'est toute la différence avec les autres apps.
+
+> **Ces chiffres sont provisoires.** Ils n'ont encore été confrontés à aucun
+> usage réel et seront ajustés. Les règles exactes, et où elles se changent,
+> sont dans `docs/paliers-d-amitie.md`.
+
+---
+
 ## 6. Ce qui disparaît, et quand
 
 | Quoi | Durée de vie |
@@ -178,6 +225,7 @@ Quand deux amis se croisent, l'app l'enregistre — c'est ce qui alimentera les
 | Une story | 24 heures |
 | Une Vibe | 24 heures |
 | Un croisement | 24 heures |
+| Le **jour** où vous vous êtes croisés | gardé — c'est ce qui porte les paliers et les séries |
 | Une demande d'ami | **7 jours** |
 | Une recommandation | 14 jours |
 | Ta position sur le serveur | **15 minutes** |
