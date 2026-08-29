@@ -580,6 +580,13 @@ class ProximityService : Service(), BleEngine.Listener {
         // croisement se rate sans raison apparente. Et c'est le seul endroit qui
         // dise si le repli s'est declenche - il ne leve rien par ailleurs.
         "advertMode" to if (engine.parallelAdvertising) "parallele" else "cycle",
+        // ⚠️ **Ce qui EMET vraiment, compte — pas le mode qu'on croit tenir.**
+        //
+        // En cycle, ce nombre doit valoir **0** : une seule annonce legacy est
+        // en l'air. « cycle » avec un nombre non nul est la signature exacte du
+        // defaut du 2026-08-29 — un ancien plan reste en l'air pendant qu'on en
+        // annonce un nouveau, et rien d'autre ne le montrait.
+        "advertSetsOnAir" to engine.advertSetsOnAir,
         // ⚠️ **Repris du disque = amis oui, inconnus non.** Voir [reprisDuDisque].
         "resumedFromDisk" to reprisDuDisque,
         // ⚠️ **L'homme mort de l'identifiant public, rendu VISIBLE.**

@@ -337,6 +337,18 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * ne se faisant reconnaitre par personne.
      */
     fun pauseAdvertising() {
+        // 🔴 **LE SILENCE DOIT ETRE TOTAL — corrige le 2026-08-29.**
+        //
+        // Cette methode n'arretait que l'annonceur LEGACY. En mode parallele,
+        // les jeux d'annonces continuaient donc de crier apres un « on se
+        // tait » : plan epuise, ou identifiant public devenu intraduisible
+        // (l'homme mort du meme jour). **La fonction faisait l'inverse de son
+        // nom, sans rien lever.**
+        //
+        // ⚠️ Deux facons d'etre en l'air, un seul ordre pour se taire : les
+        // deux doivent s'arreter ici, sinon « se taire » veut dire deux choses
+        // selon le mode courant.
+        stopParallelAdverts()
         stopAdvertising()
         publish(currentStatus())
     }
@@ -455,6 +467,17 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         return true
     }
 
+    /**
+     * Combien de jeux d'annonces sont **reellement en l'air** en ce moment.
+     *
+     * ⚠️ **Publie dans `stats()`, et ce n'est pas decoratif.** Le defaut du
+     * 2026-08-29 se lisait exactement la : `advertMode = cycle` **et** deux jeux
+     * paralleles encore actifs — une contradiction que rien n'affichait. Un
+     * mode d'emission ne se constate pas par le drapeau qu'on a pose, mais en
+     * comptant ce qui emet.
+     */
+    val advertSetsOnAir: Int get() = advertSets.size
+
     /** Arrete tous les jeux, sans rien dire a personne. */
     private fun stopParallelAdverts() {
         val advertiser = adapter?.bluetoothLeAdvertiser
@@ -507,6 +530,31 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         desiredAdvertType = type
         rememberOwnToken(advertId)
         if (evaluateRadio(context) != null) return
+        // 🔴 **PRENDRE L'AIR EN CYCLE, C'EST LIBERER LE PARALLELE —
+        // corrige le 2026-08-29, sur un defaut releve par Jay a deux appareils.**
+        //
+        // Ce qu'il a observe : il eteint « Croiser mes amis » sur son telephone,
+        // son ecran cesse d'afficher mimi — et la tablette de mimi **continue de
+        // le voir, distance a jour**. Couper le ping puis le rallumer le faisait
+        // disparaitre.
+        //
+        // La cause : le plan passait de DEUX jetons (public + ami) a UN. Or
+        // `applyAdverts` refuse le parallele en dessous de deux jetons
+        // (`parallelPossible`) et **rendait `false` sans arreter les jeux deja
+        // en l'air**. On repliait donc en cycle, on demarrait une annonce
+        // legacy... par-dessus deux jeux paralleles toujours actifs, dont celui
+        // qui portait le jeton d'ami.
+        //
+        // ⚠️ **L'ancien plan restait donc en l'air indefiniment**, alors que
+        // tout, du Dart au natif, avait correctement depose le nouveau. Aucun
+        // compteur ne le montrait : `advertMode` disait « cycle », ce qui etait
+        // vrai, et ne disait pas que le parallele n'avait pas ete raccroche.
+        //
+        // ⚠️ **Corrige ICI plutot que dans le `return false`** : ce qui compte
+        // n'est pas de rattraper un refus particulier, c'est qu'a la sortie de
+        // `emitNext` **un seul mode soit en l'air**. Les trois portes de sortie
+        // (parallele, cycle, silence) l'imposent maintenant chacune.
+        stopParallelAdverts()
         stopAdvertising()
         startAdvertising(advertId, type)
         // ⚠️ **On ne publie PAS ici, et c'est la correction du 2026-08-26.**

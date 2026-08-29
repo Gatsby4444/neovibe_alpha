@@ -382,6 +382,39 @@ au remplacement de l'interface.
   `PlanStoreTest.kt`**. Ce code tourne **au seul moment où personne ne
   regarde** ; une panne y serait indiscernable de celle qu'il corrige.
 
+### 🔴 UN SEUL MODE EN L'AIR À LA SORTIE (2026-08-29)
+
+**Fichier : `BleEngine.kt`.** Il y a **deux façons d'être en l'air** — les jeux
+d'annonces **parallèles** (`AdvertisingSet`) et l'annonceur **legacy** du mode
+cycle — et `ProximityService.emitNext()` est le seul à choisir entre les deux.
+
+L'invariant, désormais imposé aux **trois** portes de sortie :
+
+| Sortie | Ce qui doit être en l'air |
+|---|---|
+| `applyAdverts` réussit | N jeux parallèles, **aucune** annonce legacy |
+| `updateAdvert` (cycle) | **une** annonce legacy, **zéro** jeu parallèle |
+| `pauseAdvertising` (silence) | **rien du tout** |
+
+⚠️ **Les deux dernières étaient fausses avant le 2026-08-29** : elles
+n'arrêtaient que l'annonceur legacy. Conséquence relevée par Jay à deux
+appareils : en passant de deux jetons à un (extinction de « Croiser mes
+amis »), `applyAdverts` refusait le parallèle — il exige au moins deux jetons —
+**sans raccrocher les jeux déjà en l'air**. L'appareil criait donc l'ancien plan
+indéfiniment, jeton d'ami compris, pendant qu'il annonçait le nouveau en legacy.
+
+⚠️ **Le même trou désarmait l'homme mort de l'identifiant public** : il
+appelle `pauseAdvertising()` quand il ne reste rien à crier.
+
+⚠️ **Rendu visible** : `stats()` publie `advertSetsOnAir`. En `cycle` il doit
+valoir **0** ; « cycle » avec un nombre non nul est la signature exacte de ce
+défaut. Un mode d'émission ne se constate pas par le drapeau qu'on a posé, mais
+en comptant ce qui émet.
+
+⚠️ **À porter sur iOS** : CoreBluetooth n'a qu'un seul annonceur, donc pas de
+mode parallèle — mais la question « qu'est-ce qui reste en l'air après un
+changement de plan ? » se reposera telle quelle.
+
 ### Le format d'annonce — protocole v5 (2026-08-26)
 
 ```

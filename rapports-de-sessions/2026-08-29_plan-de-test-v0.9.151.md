@@ -1,11 +1,23 @@
-# Protocole de test — v0.9.150
+# Protocole de test — v0.9.151
 
-⚠️ **Installe la v0.9.150 sur les DEUX appareils avant de commencer.**
+⚠️ **Installe la v0.9.151 sur les DEUX appareils avant de commencer.**
 
-> 🔴 **Les v0.9.148 et v0.9.149 sont périmées.** La 148 était mal signée (elle
-> refusait de s'installer sur la tablette) ; la 149 la corrigeait mais portait
-> encore le défaut que tu as trouvé — un téléphone dont « Croiser mes amis » est
-> éteint criait quand même ses jetons d'ami.
+> 🔴 **Les versions 0.9.148 à 0.9.150 sont périmées.** La 148 était mal
+> signée ; la 150 corrigeait la moitié Dart du défaut que tu as trouvé, mais il
+> en restait une moitié **native** — c'est exactement ce que ton test E a
+> montré.
+
+## 🆕 Ce qu'il reste à faire sur cette version
+
+Tu as déjà passé A, B et C sur la 0.9.150, et **rien dans la 0.9.151 ne les
+touche**. Il ne reste donc que :
+
+| | Test | Vous êtes | Durée |
+|---|---|---|---|
+| **E** | 🔴 L'interrupteur coupe des deux côtés — **à refaire** | 🟢 amis | 6 min |
+| **D** | La nuit | 🟢 amis | — |
+
+⚠️ **Refais quand même l'étape 0**, pour repartir d'un journal propre.
 
 ## Ce qui est déjà validé, et qu'on ne refait pas
 
@@ -43,7 +55,7 @@ n'as jamais à préparer l'état à la main.
 | **B3** | mimi bloque, on attend | 🔵 **inconnus** + bloqués | mimi bloque |
 | **B4** | Débloquer | 🔵 **inconnus** | mimi débloque |
 | **C** | Redevenir amis | 🔵 inconnus → 🟢 **amis** | vous vous ajoutez |
-| **E** | 🆕 L'interrupteur coupe des deux côtés | 🟢 **amis** | — |
+| **E** | 🔴 L'interrupteur coupe des deux côtés | 🟢 **amis** | — |
 | **D** | La nuit | 🟢 **amis** | — |
 | — | *Éloignement (reporté)* | 🔵 **inconnus** | — |
 
@@ -62,7 +74,7 @@ moitié du produit que le ping des inconnus, et elle a son propre interrupteur.
 
 Sur **les deux** appareils :
 
-1. Installer la **v0.9.150**.
+1. Installer la **v0.9.151**.
 2. Réglages → Sécurité et confidentialité → **« Croiser mes amis » ALLUMÉ**.
 3. Écran Ping → **« Visible à proximité » ALLUMÉ**.
 4. Réglages → Développeur → **effacer le journal** (« nouveau test »).
@@ -214,39 +226,70 @@ pas amis : le blocage a emporté l'amitié, et le déblocage ne la rend pas.
 
 ---
 
-# Test E 🆕 — L'interrupteur coupe des DEUX côtés *(4 minutes)*
+# Test E 🔴 — L'interrupteur coupe des DEUX côtés *(6 minutes)*
 
 > 🟢 **Vous êtes AMIS pour ce test**, les deux « Visible à proximité » allumés.
 
-**C'est le test du défaut que tu as trouvé toi-même.** Avant, éteindre
-« Croiser mes amis » ne te cachait qu'à **toi-même** : ton écran n'affichait plus
-tes amis, mais ta radio continuait à leur annoncer que tu étais là. Tes amis te
-voyaient toujours.
+**C'est le test que tu as fait échouer hier, et il a trouvé un vrai défaut.**
+
+Ce que tu avais observé : tu éteins « Croiser mes amis », ton écran cesse
+d'afficher mimi — et la tablette continue de te voir, distance à jour. Couper
+puis rallumer le ping te faisait disparaître.
+
+**La cause était native** : ton téléphone a **deux façons d'être en l'air**, et
+en changeant de plan il en démarrait une nouvelle **sans raccrocher
+l'ancienne**. L'ancien plan, jeton d'ami compris, restait en l'air. Couper le
+ping arrêtait tout, d'où la différence.
+
+## E1 — Charles coupe *(3 min)*
 
 1. Sur **les deux**, vérifiez que vous vous voyez avec une distance.
 2. Sur le **téléphone** (Charles) : Réglages → Sécurité et confidentialité →
-   **éteindre « Croiser mes amis »**. Laisser « Visible à proximité » allumé.
+   **éteindre « Croiser mes amis »**. 🔴 **Laisser « Visible à proximité »
+   ALLUMÉ, et NE PAS y toucher** — c'est tout l'intérêt du test.
 3. Attendre **deux minutes**, côte à côte, sans toucher aux écrans.
 
 | ✅ | ❌ |
 |---|---|
-| chez **Charles** : la liste des amis dit « le croisement de tes amis est coupé » | |
+| chez **Charles** : « le croisement de tes amis est coupé » | |
 | 🔴 chez **mimi** : **Charles a DISPARU** de ses amis à portée | Charles reste affiché avec une distance |
 
-> 🔴 **C'est la ligne du milieu qui compte.** C'est exactement ce que tu as
-> observé à l'envers hier : tu voyais Charles sur la tablette alors qu'il avait
-> coupé. S'il reste affiché, le correctif n'a pas pris.
+> 🔴 **C'est la deuxième ligne qui compte, et elle seule.** La première était
+> déjà vraie hier.
 
-4. **Rallumer** « Croiser mes amis » sur le téléphone.
-5. Attendre **une minute**.
+## E2 — La ligne à lire dans le diagnostic *(1 min)*
+
+4. Sur le **téléphone** : Réglages → Développeur → diagnostic de proximité.
+   Cherche les deux lignes :
+
+| Ce que tu lis | Ce que ça veut dire |
+|---|---|
+| `advertMode : cycle` **et** `advertSetsOnAir : 0` | ✅ **parfait** — une seule chose en l'air |
+| `advertMode : cycle` **et** `advertSetsOnAir : 1` ou plus | 🔴 **le défaut est toujours là** — l'ancien plan n'a pas été raccroché |
+| `advertMode : parallele` | normal si tu n'as pas encore coupé |
+
+⚠️ **Cette ligne est neuve, et elle existe à cause de ce test.** Hier, le
+diagnostic disait « cycle » — ce qui était **vrai** — sans dire que l'ancien
+mode était resté en l'air à côté. Rien ne pouvait le montrer.
+
+## E3 — Rallumer *(1 min)*
+
+5. **Rallumer** « Croiser mes amis » sur le téléphone. Attendre **une minute**.
 
 | ✅ | ❌ |
 |---|---|
-| vous vous revoyez **des deux côtés** | il faut redémarrer l'app |
+| vous vous revoyez **des deux côtés** | il faut redémarrer l'app ou le ping |
 
-⚠️ **Refaites le test dans l'autre sens si vous avez le temps** : c'est mimi qui
-coupe, et c'est Charles qui ne doit plus la voir. Les deux appareils n'ont pas la
-même version d'Android, et ce chemin passe par le natif.
+## E4 — L'autre sens *(1 min, important)*
+
+6. Refaire E1 **à l'envers** : c'est **mimi** qui éteint « Croiser mes amis »,
+   et c'est **Charles** qui ne doit plus la voir.
+
+⚠️ **Ne saute pas cette étape.** Les deux appareils n'ont ni le même Android ni
+la même puce radio (`advertMode` vaut `parallele` sur la tablette et `cycle` sur
+le téléphone), et c'est précisément ce chemin-là qui était cassé.
+
+7. Rallume, et vérifie que vous vous revoyez.
 
 ---
 
@@ -312,6 +355,7 @@ fil de proximité se fermer tout seul. À faire quand tu pourras sortir.
 | `incidents consignés` | **0 ou 1**. À 300, le journal se sature et chasse tout le reste. |
 | `carreau` | doit finir par **`· best`**, précision sous 60 m. |
 | `publicMuted` | **`true` au réveil** après une nuit rangée — c'est le nouveau correctif qui travaille. |
+| 🆕 `advertSetsOnAir` | **0** quand `advertMode` vaut `cycle`. Sinon, l'ancien plan est resté en l'air. |
 
 ---
 
