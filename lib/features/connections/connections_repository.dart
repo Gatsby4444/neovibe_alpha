@@ -7,11 +7,56 @@ import '../../core/models/wave.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
 
+/// **Tous les profils de mes amis, en UNE requête.**
+///
+/// ## Pourquoi il existe — relevé le 2026-08-30
+///
+/// Chaque écran qui affiche des gens demandait les profils **un par un**. Avec
+/// cinq amis, invisible. Avec cent cinquante — le volume de test demandé par
+/// Jay — c'est cent cinquante allers-retours à l'ouverture de l'écran, et une
+/// interface qui a l'air cassée pour une raison qui n'a rien à voir avec elle.
+///
+/// ⚠️ **Ce défaut ne lève aucune erreur et ne se voit pas en lisant le code** :
+/// une ligne qui demande un profil est parfaitement raisonnable ; c'est de la
+/// répéter cent fois que vient le coût. Il ne se voit qu'en **comptant les
+/// requêtes**, ou en montant le volume.
+///
+/// ⚠️ Il s'abonne à [friendIdsProvider] et non à `fullConnectionsProvider` :
+/// seule la COMPOSITION de l'ensemble l'intéresse. Un ami qui change de pseudo
+/// ne doit pas faire repartir la requête des cent cinquante autres.
+final friendProfilesProvider = FutureProvider<Map<String, Profile>>((
+  ref,
+) async {
+  final ids = ref.watch(friendIdsProvider);
+  if (ids.isEmpty) return const {};
+  final rows =
+      await ref
+              .watch(supabaseProvider)
+              .from('profiles')
+              .select()
+              .inFilter('id', ids.toList())
+          as List;
+  return {
+    for (final row in rows)
+      (row as Map<String, dynamic>)['id'] as String: Profile.fromJson(row),
+  };
+});
+
 /// Profil par id, mis en cache (résolu selon les droits RLS).
+///
+/// ⚠️ **Il reste le SEUL chemin des écrans vers un profil**, et c'est
+/// volontaire. Le lot ci-dessus se glisse derrière lui : ajouter un second
+/// provider public aurait donné deux sources pour la même donnée, donc deux
+/// caches et un désaccord futur que rien ne signalerait.
 final profileByIdProvider = FutureProvider.family<Profile?, String>((
   ref,
   id,
 ) async {
+  // Le lot d'abord : si c'est un ami, il est déjà là et aucune requête ne part.
+  final lot = await ref.watch(friendProfilesProvider.future);
+  final connu = lot[id];
+  if (connu != null) return connu;
+
   final data = await ref
       .watch(supabaseProvider)
       .from('profiles')
