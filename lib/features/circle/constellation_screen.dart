@@ -14,74 +14,55 @@ import '../connections/friendship.dart';
 import '../connections/friendships_repository.dart';
 import '../connections/tier_avatar.dart';
 import '../library/user_library_screen.dart';
+import 'sphere.dart';
 
-/// **La constellation** : tes amis posés sur une sphère, comme l'écran
-/// d'accueil d'une Apple Watch.
+/// **La constellation** : tes amis posés sur une bulle qu'on fait tourner.
 ///
 /// ---------------------------------------------------------------------------
-/// ## 🔴 RÉÉCRITE EN ENTIER LE 2026-08-30, après le test de Jay
+/// ## 🔴 TROISIÈME VERSION — 2026-08-30, après deux retours de Jay
 ///
-/// La première version *marchait* et était **inutilisable**. Trois défauts, et
-/// aucun des trois ne levait la moindre erreur — c'est exactement la famille de
-/// bugs qui ne se voit qu'en essayant, ou en comptant.
+/// | Version | Ce que Jay a dit | Ce qui n'allait pas |
+/// |---|---|---|
+/// | 1 | « pas centré, pas fluide, pas de 4D » | le plan était posé par son coin, chaque pastille était reconstruite à chaque image, aucune inertie |
+/// | 2 | « tout le groupe bouge en même temps » | c'était encore un **plan** avec une loupe. Sur un plan, tous les points se déplacent du même vecteur : le volume est impossible. |
 ///
-/// | Ce que Jay a vu | La cause réelle |
-/// |---|---|
-/// | « ce n'est pas centré » | `InteractiveViewer(constrained: false)` place le plan par son coin **haut-gauche**. Le centre du nid d'abeille tombait donc hors de l'écran, sous le bandeau. |
-/// | « pas fluide du tout » | un `AnimatedBuilder` enveloppait la grille entière : **chaque pastille était RECONSTRUITE à chaque image** du glissement, et chacune consultait un provider au passage. |
-/// | « pas de mouvement 4D » | le rétrécissement était linéaire et faible, et il n'y avait **aucune inertie**. Un plan qui s'arrête net au lâcher du doigt est mort, quelle que soit la beauté du reste. |
+/// ➡️ **Consigne de Jay** : *« comme si on posait chaque photo sur une bulle ou
+/// une sphère que l'on faisait tourner […] une vraie physique avec de vraies
+/// règles, pas du bricolage »*.
 ///
-/// ⚠️ **La leçon, à ne pas reperdre** : j'ai livré une interface sans jamais
-/// mesurer ce qu'elle coûte par image. « Ça compile et ça s'affiche » ne dit
-/// rien de la fluidité — même famille que « le format est juste et le lecteur
-/// inutilisable ».
+/// ## Ce que ça change, et pourquoi ça ne se réglait pas
 ///
-/// ---------------------------------------------------------------------------
-/// ## Comment celle-ci est faite
+/// Sur une sphère qui tourne, un ami près de l'axe bouge à peine et un ami sur
+/// l'équateur file. **C'est ce désaccord de vitesses qui fait le volume**, et
+/// aucune courbe posée sur un plan ne peut l'imiter — parce que sur un plan il
+/// n'y a qu'un seul vecteur pour tout le monde.
 ///
-/// **1. On ne reconstruit rien pendant le geste, on REPEINT.**
-/// Les pastilles sont construites **une fois**, quand la liste d'amis change.
-/// Le déplacement est porté par un [Flow] : son délégué recalcule des matrices
-/// à chaque image et se contente de **repeindre** des enfants déjà posés. Aucun
-/// `build`, aucune lecture de provider, aucune mise en page pendant le
-/// glissement.
+/// ## Les quatre règles, toutes dans `sphere.dart`, toutes mesurées
 ///
-/// ✅ **Et l'effet de bord est exactement ce qu'il fallait** : `RenderFlow`
-/// rejoue l'inverse de la même matrice pour le test de contact. La zone
-/// cliquable **est** la zone visible, par construction — plus besoin de calculer
-/// des tailles à la main pour éviter d'avoir deux boîtes distinctes.
+/// 1. **La répartition** : spirale d'or. Écart régulier quel que soit le nombre
+///    d'amis — la seule construction simple qui n'entasse pas aux pôles.
+/// 2. **La taille de la sphère** : `diamètre × marge ⁄ √(4π/N)`. Plus d'amis =
+///    sphère plus grande. Et comme le doigt suit la surface au millimètre, un
+///    monde plus peuplé paraît plus **lourd**. Ce n'est pas un effet ajouté,
+///    c'est une conséquence.
+/// 3. **Le geste** : l'arc parcouru à la surface vaut la distance parcourue par
+///    le doigt. La photo touchée reste sous le doigt.
+/// 4. **Le lâcher** : moment angulaire, puis friction. La rotation ne connaît
+///    **aucune butée** — la sphère est infinie par construction, il n'y a pas de
+///    bord à atteindre.
 ///
-/// **2. La sphère, pour de vrai.**
-/// Une pastille à la distance `d` du centre de l'écran n'est pas seulement
-/// rapetissée : elle est **projetée**. En posant `θ = d / R` (son angle sur le
-/// globe), sa position devient `R·sin θ` et sa taille `cos θ`. C'est la
-/// projection orthographique d'une sphère, celle d'un globe vu de face. Les
-/// pastilles se **resserrent** en s'éloignant au lieu de simplement rétrécir,
-/// et c'est ce resserrement qui donne le relief.
+/// ## Ce qui n'a pas changé depuis la version 2, et qui était juste
 ///
-/// **3. L'inertie.**
-/// Au lâcher du doigt, une [FrictionSimulation] prolonge le mouvement. Sans
-/// elle, aucun réglage de courbe ne rendra le plan « fluide » : ce qui manquait
-/// n'était pas une animation, c'était une **physique**.
+/// - On ne reconstruit rien pendant le geste : un [Flow] **repeint** des enfants
+///   déjà posés. Zéro `build`, zéro requête, zéro mise en page par image.
+/// - C'est un écran **poussé**, donc aucun conflit avec le glissement de
+///   navigation de l'accueil.
 ///
-/// **4. Le centre est le centre.**
-/// Le décalage part de zéro, et zéro veut dire « le milieu du nid d'abeille au
-/// milieu de l'écran ». Il n'y a plus de plan géant dont on regarderait un coin.
-///
-/// ---------------------------------------------------------------------------
-/// ## Pourquoi c'est un écran POUSSÉ
-///
-/// Cette grille se déplace au doigt ; l'accueil change de section au glissement
-/// horizontal. C'est le même geste. Dans un onglet, les deux se disputeraient et
-/// c'est l'arène des gestes qui trancherait, pas nous.
-///
-/// ✅ Vérifié dans le code : le détecteur de `HomeShell` entoure le CONTENU de
-/// l'accueil, et une route poussée n'en est pas l'enfant. **Le conflit n'existe
-/// pas**, structurellement. Solution proposée par Jay le 2026-08-29.
-///
-/// ⚠️ **Le glissement diagonal de fermeture reste impossible ici**, et pour la
-/// raison retournée : une grille qu'on traîne au doigt prend déjà TOUS les
-/// glissements. La croix est la sortie ; le double-appui recentre.
+/// ⚠️ **Le contact est géré ici, pas par les enfants.** Sur une sphère, deux
+/// amis peuvent se recouvrir : celui de devant doit gagner. `RenderFlow` teste
+/// les enfants dans l'ordre de la liste, qui n'a rien à voir avec la
+/// profondeur — il aurait donc parfois désigné l'ami de derrière. On refait
+/// donc le test nous-mêmes, du plus proche au plus lointain.
 class ConstellationScreen extends ConsumerStatefulWidget {
   const ConstellationScreen({super.key});
 
@@ -91,138 +72,115 @@ class ConstellationScreen extends ConsumerStatefulWidget {
 }
 
 class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
-    with TickerProviderStateMixin {
-  /// Le déplacement du nid d'abeille, en unités « monde ».
-  ///
-  /// ⚠️ **Zéro veut dire centré**, et c'est tout l'intérêt : il n'y a aucun
-  /// calage à faire au premier affichage, donc aucun moyen de se tromper.
-  final _pan = ValueNotifier<Offset>(Offset.zero);
+    with SingleTickerProviderStateMixin {
+  /// L'orientation de la bulle. **Aucune borne** : elle tourne indéfiniment.
+  final _rotation = ValueNotifier<Rot>(Rot.identite);
 
-  /// Le zoom du pincement.
+  /// Le grossissement du pincement.
   final _zoom = ValueNotifier<double>(1);
 
-  /// Le lancer : prolonge le mouvement après que le doigt est parti.
-  late final AnimationController _lancer = AnimationController.unbounded(
+  /// L'élan : la bulle continue de tourner après le doigt, et ralentit.
+  late final AnimationController _elan = AnimationController.unbounded(
     vsync: this,
   );
 
-  /// Le retour élastique quand on a tiré trop loin.
-  late final AnimationController _retour = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 340),
-  );
+  /// L'axe autour duquel l'élan fait tourner, figé au lâcher du doigt.
+  Vec3 _axeElan = const Vec3(0, 1, 0);
 
-  Offset _departLancer = Offset.zero;
-  Offset _sensLancer = Offset.zero;
-  Animation<Offset>? _retourAnime;
+  /// L'angle déjà consommé par l'élan — il ne s'applique qu'en différence.
+  double _angleConsomme = 0;
+
   double _zoomAuDepart = 1;
   var _filtre = FiltreDePalier.tous;
 
-  /// Le rayon du nid d'abeille, en unités monde. Recalculé à chaque
-  /// construction, parce qu'il dépend du nombre d'amis retenus par le filtre.
-  double _rayonMonde = 0;
+  /// Ce que la dernière peinture a réellement affiché. Sert au test de contact.
+  final _vues = <PointVu>[];
 
-  static const _diametre = 76.0;
-  static const _pas = 100.0;
+  /// Le rayon affiché à la dernière peinture — il fait la conversion entre les
+  /// pixels du doigt et les radians de la sphère.
+  double _rayonAffiche = 1;
+
+  static const _diametre = 72.0;
   static const _hauteurEtiquette = 22.0;
-
-  /// Le débordement maximal quand on tire au-delà du bord.
-  ///
-  /// ⚠️ Sans butée, on peut pousser toute la constellation hors de l'écran et
-  /// croire qu'elle a planté. Avec une butée SÈCHE, le geste paraît cassé.
-  /// L'élastique est la seule des trois options qui ne ment pas.
-  static const _debordement = 96.0;
 
   @override
   void initState() {
     super.initState();
-    _lancer.addListener(() {
-      _pan.value = _borne(_departLancer + _sensLancer * _lancer.value);
-    });
-    _retour.addListener(() {
-      final a = _retourAnime;
-      if (a != null) _pan.value = a.value;
-    });
+    _elan.addListener(_tourneParElan);
   }
 
   @override
   void dispose() {
-    _lancer.dispose();
-    _retour.dispose();
-    _pan.dispose();
+    _elan.dispose();
+    _rotation.dispose();
     _zoom.dispose();
     super.dispose();
   }
 
-  /// La butée dure : le centre du nid ne s'éloigne jamais de plus que son rayon.
-  Offset _borne(Offset o) {
-    final max = math.max(_rayonMonde, 1.0);
-    return o.distance <= max ? o : Offset.fromDirection(o.direction, max);
-  }
-
-  /// La butée élastique, pendant le geste : le débordement s'amortit et sature.
-  Offset _elastique(Offset o) {
-    final max = math.max(_rayonMonde, 1.0);
-    final d = o.distance;
-    if (d <= max) return o;
-    final trop = d - max;
-    // Asymptotique : plus on tire, moins ça avance, et jamais au-delà de
-    // `_debordement`.
-    final amorti = _debordement * (1 - math.exp(-trop / _debordement));
-    return Offset.fromDirection(o.direction, max + amorti);
-  }
-
-  void _arreterTout() {
-    _lancer.stop();
-    _retour.stop();
+  void _tourneParElan() {
+    final delta = _elan.value - _angleConsomme;
+    _angleConsomme = _elan.value;
+    if (delta == 0) return;
+    _rotation.value = Rot.axeAngle(_axeElan, delta).fois(_rotation.value);
   }
 
   void _debutGeste(ScaleStartDetails d) {
-    _arreterTout();
+    _elan.stop();
     _zoomAuDepart = _zoom.value;
   }
 
   void _pendantGeste(ScaleUpdateDetails d) {
     if (d.pointerCount > 1) {
-      _zoom.value = (_zoomAuDepart * d.scale).clamp(0.65, 1.9);
+      _zoom.value = (_zoomAuDepart * d.scale).clamp(0.7, 1.8);
     }
-    // ⚠️ Le déplacement du doigt est en PIXELS, le décalage est en unités
-    // monde : sans la division par le zoom, la grille suivrait deux fois plus
-    // vite une fois zoomée, et le doigt « glisserait » sous le contenu.
-    _pan.value = _elastique(_pan.value + d.focalPointDelta / _zoom.value);
+    final delta = d.focalPointDelta;
+    if (delta == Offset.zero) return;
+    // ⚠️ La conversion pixels → radians passe par le rayon AFFICHÉ, zoom
+    // compris : sans ça, la sphère tournerait deux fois trop vite une fois
+    // agrandie et le doigt « glisserait » sur la surface.
+    _rotation.value = Rot.axeAngle(
+      Sphere.axeDeGeste(delta),
+      Sphere.angleDeGeste(delta.distance, _rayonAffiche),
+    ).fois(_rotation.value);
   }
 
   void _finGeste(ScaleEndDetails d) {
-    // Hors des bornes : on revient. La physique n'a rien à dire ici.
-    if (_pan.value.distance > _rayonMonde) {
-      _rappeler(_borne(_pan.value));
-      return;
-    }
-    final v = d.velocity.pixelsPerSecond / _zoom.value;
+    final v = d.velocity.pixelsPerSecond;
     final vitesse = v.distance;
     // En dessous, c'est un doigt qui se pose, pas un lancer.
-    if (vitesse < 220) return;
-
-    _departLancer = _pan.value;
-    _sensLancer = v / vitesse;
-    // ⚠️ **Une vraie friction, pas une courbe.** Une durée fixe avec
-    // `Curves.decelerate` donnerait le même arrêt quelle que soit la force du
-    // geste — c'est précisément ce qui fait « pas fluide ».
-    _lancer.animateWith(FrictionSimulation(0.135, 0, vitesse));
+    if (vitesse < 200) return;
+    _axeElan = Sphere.axeDeGeste(v);
+    _angleConsomme = 0;
+    // ⚠️ **Une vraie friction, et sur l'ANGLE.** Une durée fixe avec une
+    // courbe donnerait le même arrêt quelle que soit la force du geste — c'est
+    // exactement ce qui fait « pas fluide ». Ici la vitesse initiale est une
+    // vitesse angulaire, et elle s'éteint toute seule.
+    _elan.animateWith(
+      FrictionSimulation(0.12, 0, Sphere.angleDeGeste(vitesse, _rayonAffiche)),
+    );
   }
 
-  void _rappeler(Offset cible) {
-    _retourAnime = Tween(
-      begin: _pan.value,
-      end: cible,
-    ).animate(CurvedAnimation(parent: _retour, curve: Curves.easeOutCubic));
-    _retour.forward(from: 0);
+  /// Le test de contact, **du plus proche au plus lointain**.
+  void _appui(TapUpDetails d, List<String> ids) {
+    final devantDabord = _vues.toList()
+      ..sort((a, b) => b.profondeur.compareTo(a.profondeur));
+    for (final vue in devantDabord) {
+      final rayonPastille = _diametre / 2 * vue.echelle * _zoom.value;
+      if ((d.localPosition - vue.centre).distance <= rayonPastille) {
+        final profil = ref.read(profileByIdProvider(ids[vue.index])).value;
+        if (profil == null) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => UserLibraryScreen(profile: profil)),
+        );
+        return;
+      }
+    }
   }
 
-  void _recentrer() {
-    _arreterTout();
+  void _remettreDroit() {
+    _elan.stop();
     _zoom.value = 1;
-    _rappeler(Offset.zero);
+    _rotation.value = Rot.identite;
   }
 
   @override
@@ -231,10 +189,9 @@ class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
     final connections = ref.watch(fullConnectionsProvider);
     final amities = ref.watch(friendshipsProvider).value ?? const {};
 
-    // ⚠️ **Les plus proches au CENTRE.** C'est la seule chose que l'ordre peut
-    // dire, et il vaut mieux qu'il dise quelque chose : au milieu de la sphère
-    // les pastilles sont les plus grandes et les plus lisibles. Un ordre
-    // arbitraire gâcherait la meilleure place de l'écran.
+    // ⚠️ **Les plus proches en PREMIER**, donc au pôle avant de la spirale :
+    // c'est là qu'on regarde quand l'écran s'ouvre. L'ordre est la seule chose
+    // qui puisse dire quelque chose ici, autant qu'il dise quelque chose.
     final ids = me == null
         ? <String>[]
         : (connections
@@ -252,9 +209,6 @@ class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
               return (amities[b]?.serie ?? 0).compareTo(amities[a]?.serie ?? 0);
             }));
 
-    final places = Ruche.places(ids.length, _pas);
-    _rayonMonde = places.fold<double>(0, (r, o) => math.max(r, o.distance));
-
     return Scaffold(
       body: Stack(
         children: [
@@ -268,13 +222,17 @@ class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
                     onScaleStart: _debutGeste,
                     onScaleUpdate: _pendantGeste,
                     onScaleEnd: _finGeste,
-                    onDoubleTap: _recentrer,
+                    onTapUp: (d) => _appui(d, ids),
+                    onDoubleTap: _remettreDroit,
                     behavior: HitTestBehavior.opaque,
                     child: Flow(
-                      delegate: _SphereDelegate(
-                        places: places,
-                        pan: _pan,
+                      delegate: _BulleDelegate(
+                        points: Sphere.points(ids.length),
+                        rotation: _rotation,
                         zoom: _zoom,
+                        diametre: _diametre,
+                        vues: _vues,
+                        surRayon: (r) => _rayonAffiche = r,
                       ),
                       children: [
                         for (final id in ids)
@@ -295,7 +253,7 @@ class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
             nombre: ids.length,
             onFiltre: (f) => setState(() {
               _filtre = f;
-              _recentrer();
+              _remettreDroit();
             }),
           ),
         ],
@@ -304,41 +262,45 @@ class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
   }
 }
 
-/// La projection sphérique, et le placement de chaque pastille.
+/// La bulle : elle tourne les points, les projette, et les peint du fond vers
+/// l'avant.
 ///
-/// ⚠️ **Tout ce qui suit se passe SANS reconstruire un seul widget.** Le
-/// délégué reçoit `repaint: pan + zoom` : quand l'un des deux change, Flutter
-/// **repeint** les enfants avec de nouvelles matrices. C'est toute la
-/// différence entre 60 images par seconde et le diaporama de la première
-/// version.
-class _SphereDelegate extends FlowDelegate {
-  _SphereDelegate({required this.places, required this.pan, required this.zoom})
-    : super(repaint: Listenable.merge([pan, zoom]));
+/// ⚠️ **Tout se passe ici SANS reconstruire un seul widget.** Le délégué reçoit
+/// `repaint: rotation + zoom` : quand l'un change, Flutter **repeint** les
+/// enfants avec de nouvelles matrices. C'est toute la différence entre 60
+/// images par seconde et un diaporama.
+class _BulleDelegate extends FlowDelegate {
+  _BulleDelegate({
+    required this.points,
+    required this.rotation,
+    required this.zoom,
+    required this.diametre,
+    required this.vues,
+    required this.surRayon,
+  }) : super(repaint: Listenable.merge([rotation, zoom]));
 
-  final List<Offset> places;
-  final ValueListenable<Offset> pan;
+  final List<Vec3> points;
+  final ValueListenable<Rot> rotation;
   final ValueListenable<double> zoom;
+  final double diametre;
 
-  /// Au-delà de cet angle, la pastille est passée derrière l'horizon : on ne la
-  /// peint pas du tout.
+  /// Ce que cette peinture a affiché — relu par l'écran pour le test de contact.
   ///
-  /// ⚠️ Ce n'est pas qu'une économie. Sans découpe, toutes les pastilles
-  /// lointaines viendraient s'empiler sur le bord du disque en un tas illisible.
-  static const _angleHorizon = 1.45;
+  /// ⚠️ **Une liste partagée, et c'est assumé.** L'alternative serait de
+  /// recalculer toute la projection au moment du toucher : deux endroits qui
+  /// font le même calcul, donc deux occasions de diverger. Ici, ce qu'on touche
+  /// est très exactement ce qui a été peint.
+  final List<PointVu> vues;
 
-  /// Là où une pastille commence à s'effacer, pour que sa disparition ne soit
-  /// pas un clignotement.
-  static const _angleFondu = 1.18;
-
-  /// Ce qu'il reste d'une pastille au ras de l'horizon.
-  static const _tailleMinimale = 0.24;
+  /// Publie le rayon réellement affiché : c'est lui qui convertit les pixels du
+  /// doigt en radians de rotation.
+  final void Function(double) surRayon;
 
   @override
   Size getSize(BoxConstraints constraints) => constraints.biggest;
 
   /// Toutes les pastilles ont la MÊME boîte. C'est la matrice qui les
-  /// rapetisse — donc la zone de contact suit la zone visible, sans qu'on ait
-  /// à la calculer nous-mêmes.
+  /// rapetisse — donc la zone peinte suit exactement la géométrie.
   @override
   BoxConstraints getConstraintsForChild(int i, BoxConstraints constraints) =>
       constraints.loosen();
@@ -346,67 +308,65 @@ class _SphereDelegate extends FlowDelegate {
   @override
   void paintChildren(FlowPaintingContext context) {
     final taille = context.size;
-    final centre = Offset(taille.width / 2, taille.height / 2);
-    // Le rayon du globe : la demi-diagonale, pour que le disque projeté
-    // recouvre l'écran entier, coins compris.
+    // Le rayon minimum : la bulle occupe une bonne part de l'écran même à trois
+    // amis, sinon tout se tasse au centre.
+    final rayonMinimum = taille.shortestSide * 0.34;
     final rayon =
-        math.sqrt(taille.width * taille.width + taille.height * taille.height) /
-        2;
-    final z = zoom.value;
-    final decalage = pan.value;
+        Sphere.rayon(
+          combien: points.length,
+          diametre: diametre,
+          rayonMinimum: rayonMinimum,
+        ) *
+        zoom.value;
+    surRayon(rayon);
 
-    for (var i = 0; i < context.childCount && i < places.length; i++) {
-      // Position à plat, en pixels écran, avant projection.
-      final plat = (places[i] + decalage) * z;
-      final d = plat.distance;
+    final r = rotation.value;
+    vues
+      ..clear()
+      ..addAll([
+        for (var i = 0; i < points.length && i < context.childCount; i++)
+          Sphere.projeter(
+            index: i,
+            p: r.applique(points[i]),
+            rayonAffiche: rayon,
+            ecran: taille,
+          ),
+      ]);
 
-      // θ : l'angle sur la sphère. `d` est une longueur d'ARC, pas une corde.
-      final theta = d / rayon;
-      if (theta > _angleHorizon) continue;
+    // ⚠️ **Du fond vers l'avant.** Sans ce tri, un ami situé derrière la bulle
+    // se dessinerait par-dessus un ami de devant selon son rang dans la liste :
+    // l'image resterait jolie et la profondeur serait fausse.
+    final ordre = vues.toList()
+      ..sort((a, b) => a.profondeur.compareTo(b.profondeur));
 
-      final (vue, echelleBrute) = Ruche.projeter(
-        d: d,
-        rayon: rayon,
-        minimum: _tailleMinimale,
-      );
-      final direction = d == 0 ? Offset.zero : plat / d;
-      final vu = direction * vue;
-      // Le raccourci de perspective : une surface inclinée de θ paraît cos θ
-      // fois moins large. La MÊME loi déplace les pastilles et les rapetisse —
-      // c'est de là que vient le relief.
-      final echelle = echelleBrute * z;
-
-      final opacite = theta <= _angleFondu
-          ? 1.0
-          : (1 - (theta - _angleFondu) / (_angleHorizon - _angleFondu)).clamp(
-              0.0,
-              1.0,
-            );
-
-      final boite = context.getChildSize(i) ?? Size.zero;
+    for (final vue in ordre) {
+      final boite = context.getChildSize(vue.index) ?? Size.zero;
+      final echelle = vue.echelle * zoom.value;
       final m = Matrix4.identity()
-        ..translateByDouble(centre.dx + vu.dx, centre.dy + vu.dy, 0, 1)
+        ..translateByDouble(vue.centre.dx, vue.centre.dy, 0, 1)
         ..scaleByDouble(echelle, echelle, 1, 1)
         // On ramène le centre de l'enfant sur le point visé : sans ces deux
         // lignes, la mise à l'échelle partirait de son coin haut-gauche et les
         // pastilles fuiraient vers le bas-droite en rétrécissant.
         ..translateByDouble(-boite.width / 2, -boite.height / 2, 0, 1);
-
-      context.paintChild(i, transform: m, opacity: opacite);
+      context.paintChild(vue.index, transform: m, opacity: vue.opacite);
     }
   }
 
   @override
-  bool shouldRepaint(_SphereDelegate old) =>
-      old.places != places || old.pan != pan || old.zoom != zoom;
+  bool shouldRepaint(_BulleDelegate old) =>
+      old.points != points ||
+      old.rotation != rotation ||
+      old.zoom != zoom ||
+      old.diametre != diametre;
 }
 
 /// Une pastille : la photo, son anneau de palier, et le pseudo.
 ///
-/// ⚠️ **Elle n'a aucune idée d'où elle est.** Toute la géométrie vit dans le
-/// délégué, et c'est ce qui permet de la construire une fois pour toutes. Lui
-/// passer sa position l'obligerait à se reconstruire à chaque image, et on
-/// serait revenu au point de départ.
+/// ⚠️ **Elle n'a aucune idée d'où elle est, ni de ce qu'on fait dessus.** Toute
+/// la géométrie vit dans le délégué, et le toucher est géré par l'écran. C'est
+/// ce qui permet de la construire une fois pour toutes : lui passer sa position
+/// l'obligerait à se reconstruire à chaque image.
 class _Pastille extends ConsumerWidget {
   const _Pastille({
     super.key,
@@ -422,7 +382,7 @@ class _Pastille extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final Profile? peer = ref.watch(profileByIdProvider(id)).value;
-    final boite = Size(diametre + 24, diametre + hauteurEtiquette);
+    final boite = Size(diametre + 26, diametre + hauteurEtiquette);
     if (peer == null) {
       return SizedBox(width: boite.width, height: boite.height);
     }
@@ -433,18 +393,11 @@ class _Pastille extends ConsumerWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          GestureDetector(
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => UserLibraryScreen(profile: peer),
-              ),
-            ),
-            child: TierAvatar(
-              peerId: id,
-              storedAvatar: peer.avatarUrl,
-              initiale: peer.displayName.characters.first.toUpperCase(),
-              size: diametre,
-            ),
+          TierAvatar(
+            peerId: id,
+            storedAvatar: peer.avatarUrl,
+            initiale: peer.displayName.characters.first.toUpperCase(),
+            size: diametre,
           ),
           const SizedBox(height: NeoSpace.xs),
           Text(
@@ -494,8 +447,8 @@ class _Chapeau extends StatelessWidget {
               child: Row(
                 children: [
                   // ⚠️ `IgnorePointer` sur le titre : sans lui, tout le haut de
-                  // l'écran mangerait les glissements et la constellation
-                  // paraîtrait bloquée dans cette bande.
+                  // l'écran mangerait les gestes et la bulle paraîtrait bloquée
+                  // dans cette bande.
                   Expanded(
                     child: IgnorePointer(
                       child: Column(
@@ -512,7 +465,6 @@ class _Chapeau extends StatelessWidget {
                       ),
                     ),
                   ),
-                  // La SEULE sortie découvrable — voir l'en-tête du fichier.
                   IconButton.filledTonal(
                     icon: const Icon(Icons.close),
                     tooltip: 'Fermer',
@@ -569,60 +521,14 @@ class _Vide extends StatelessWidget {
   );
 }
 
-/// La géométrie de la constellation — **pure, et hors des widgets exprès**.
+/// Gardé pour l'écran : le nombre d'amis au-delà duquel la bulle devient plus
+/// grande que l'écran, donc où il faut vraiment la faire tourner pour tout voir.
 ///
-/// ⚠️ C'est de la géométrie, pas de l'affichage. La sortir permet de la
-/// **mesurer** : un chevauchement de pastilles ne lève aucune erreur, il fait
-/// juste disparaître un ami sous un autre. Sur trois amis ça se voit, sur
-/// quarante non. Gardé par `test/constellation_test.dart`.
-abstract final class Ruche {
-  /// Les positions d'un nid d'abeille, en spirale depuis le centre.
-  static List<Offset> places(int combien, double pas) {
-    if (combien <= 0) return const [];
-    final places = <Offset>[Offset.zero];
-    // Les six directions d'un pavage hexagonal.
-    final directions = <Offset>[
-      Offset(pas, 0),
-      Offset(pas / 2, -pas * math.sqrt(3) / 2),
-      Offset(-pas / 2, -pas * math.sqrt(3) / 2),
-      Offset(-pas, 0),
-      Offset(-pas / 2, pas * math.sqrt(3) / 2),
-      Offset(pas / 2, pas * math.sqrt(3) / 2),
-    ];
-    var anneau = 1;
-    while (places.length < combien) {
-      // On part du voisin « sud » du premier de l'anneau, puis on longe les
-      // six côtés.
-      var point = directions[4] * anneau.toDouble();
-      for (var cote = 0; cote < 6 && places.length < combien; cote++) {
-        for (
-          var pasSurLeCote = 0;
-          pasSurLeCote < anneau && places.length < combien;
-          pasSurLeCote++
-        ) {
-          places.add(point);
-          point += directions[cote];
-        }
-      }
-      anneau++;
-    }
-    return places;
-  }
-
-  /// La projection sphérique — **isolée pour être mesurable**.
-  ///
-  /// Rend la distance VUE et l'échelle d'une pastille dont la position à plat
-  /// est à la distance [d] du centre, sur un globe de rayon [rayon].
-  ///
-  /// ⚠️ Un effet visuel se juge à l'œil, mais ses **invariants** ne se voient
-  /// pas : que rien ne grandisse en s'éloignant, que rien ne sorte du disque,
-  /// que deux pastilles ne se croisent jamais. Ceux-là se démontrent.
-  static (double vue, double echelle) projeter({
-    required double d,
-    required double rayon,
-    double minimum = 0.24,
-  }) {
-    final theta = d / rayon;
-    return (rayon * math.sin(theta), math.max(math.cos(theta), minimum));
-  }
+/// ⚠️ Purement informatif — aucune règle n'en dépend. Il est ici pour que la
+/// question « à partir de combien d'amis ça change de nature ? » ait une
+/// réponse chiffrée au lieu d'une impression.
+double amisAvantDeDevoirTourner(double coteEcran, double diametre) {
+  // rayon(N) > coté/2  ⟺  N > 4π (diamètre × marge × 2 / coté)²
+  final k = diametre * 1.35 * 2 / coteEcran;
+  return 4 * math.pi / (k * k);
 }
