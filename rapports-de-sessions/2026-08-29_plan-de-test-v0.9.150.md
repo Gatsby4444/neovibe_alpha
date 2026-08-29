@@ -13,7 +13,11 @@
 - ✅ `incidents consignés` retombé à **0** et **1**, contre 318 et 485 avant ;
 - ✅ la localisation : **même carreau**, ± 33 m et ± 36 m, en `best` ;
 - ✅ le croisement d'amis aboutit, un ami accepté est reconnu en 2 secondes ;
-- ✅ les deux interrupteurs sont bien séparés.
+- ✅ les deux interrupteurs sont séparés **à l'écran**.
+
+⚠️ **Ce qui N'EST PLUS validé** : « les deux interrupteurs sont bien séparés »
+figurait ici hier. C'était faux pour l'ÉMISSION — c'est le défaut que tu as
+trouvé, et c'est le test E.
 
 ## L'état de départ, relevé en base
 
