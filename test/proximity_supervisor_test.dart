@@ -348,6 +348,110 @@ void _deuxInterrupteurs() {
       );
     });
 
+    /// 🔴 **LA MOITIE SYMETRIQUE, ET ELLE MANQUAIT — relevee par Jay sur
+    /// appareil le 2026-08-29.**
+    ///
+    /// Les tests ci-dessus prouvaient qu'eteindre la **decouverte** retire
+    /// l'identifiant public du plan. Rien ne prouvait la reciproque, et elle
+    /// etait **fausse** : eteindre « Croiser mes amis » ne retirait pas les
+    /// jetons d'ami.
+    ///
+    /// Ce que Jay a observe, a deux appareils : sur son telephone « Croiser mes
+    /// amis » etait **eteint**, et la tablette de mimi **l'affichait quand
+    /// meme**. L'interrupteur ne le cachait qu'a lui-meme : l'ecran masquait la
+    /// liste pendant que la radio continuait d'annoncer sa presence a ses amis.
+    ///
+    /// ⚠️ **Aucun test d'ecran n'aurait pu voir ca** : sur l'appareil qui
+    /// coupe, tout se comporte comme demande. Le defaut n'est visible **que sur
+    /// l'appareil d'en face** — ou en comptant les octets de type du plan.
+    test(
+      'croisement d\'amis eteint : AUCUN jeton d\'ami dans le plan',
+      () async {
+        final h = await _harnais(visible: true, amis: false);
+        addTearDown(h.container.dispose);
+        addTearDown(h.radio.fermer);
+        h.container.listen(proximitySupervisorProvider, (_, _) {});
+
+        final bob = await IdentiteMemoire.creer(graine: 7, userId: 'u-b');
+        await h.carnet.replace([_ami('u-b', await bob.x25519PublicKey())]);
+        await _propage();
+
+        expect(
+          h.radio.plans,
+          greaterThan(0),
+          reason: 'la radio doit tourner : la decouverte est allumee',
+        );
+        expect(
+          h.radio.derniersTypes!.contains(1),
+          isTrue,
+          reason: 'l\'identifiant public, lui, est demande',
+        );
+        expect(
+          h.radio.derniersTypes!.contains(2),
+          isFalse,
+          reason:
+              'Le type 2 est le jeton d\'AMI. Le crier alors que le croisement '
+              'est coupe, c\'est annoncer sa presence a ses amis apres avoir '
+              'demande le contraire — et ca ne se voit que sur LEUR ecran.',
+        );
+      },
+    );
+
+    test(
+      'croisement d\'amis eteint : la table de reconnaissance part VIDE',
+      () async {
+        // ⚠️ **Vide, pas absente.** Ne rien envoyer laisserait le natif sur son
+        // ancienne table : il continuerait de reconnaitre les amis et de remonter
+        // des constats. C'est la lecon des 318 et 485 incidents de la v0.9.146,
+        // appliquee ici a l'extinction de l'interrupteur.
+        final h = await _harnais(visible: true, amis: false);
+        addTearDown(h.container.dispose);
+        addTearDown(h.radio.fermer);
+        h.container.listen(proximitySupervisorProvider, (_, _) {});
+
+        final bob = await IdentiteMemoire.creer(graine: 7, userId: 'u-b');
+        await h.carnet.replace([_ami('u-b', await bob.x25519PublicKey())]);
+        await _propage();
+
+        expect(h.radio.tables, greaterThan(0), reason: 'la table est ENVOYEE');
+        expect(
+          h.radio.derniereTablePerSlot,
+          0,
+          reason:
+              'un ami au carnet, mais le croisement est coupe : on ne doit '
+              'reconnaitre personne',
+        );
+      },
+    );
+
+    test('rallumer le croisement fait revenir les jetons d\'ami', () async {
+      // La separation doit marcher dans les DEUX sens : couper, et rendre.
+      final h = await _harnais(visible: true, amis: false);
+      addTearDown(h.container.dispose);
+      addTearDown(h.radio.fermer);
+      h.container.listen(proximitySupervisorProvider, (_, _) {});
+
+      final bob = await IdentiteMemoire.creer(graine: 7, userId: 'u-b');
+      await h.carnet.replace([_ami('u-b', await bob.x25519PublicKey())]);
+      await _propage();
+      expect(h.radio.derniersTypes!.contains(2), isFalse);
+
+      await h.container
+          .read(proximitySupervisorProvider.notifier)
+          .setFriendCrossing(true);
+      await _propage();
+
+      expect(
+        h.radio.derniersTypes!.contains(2),
+        isTrue,
+        reason: 'rallumer doit rendre le croisement, pas exiger un redemarrage',
+      );
+      expect(
+        h.radio.derniereTablePerSlot,
+        greaterThan(0),
+        reason: 'et la table de reconnaissance revient avec',
+      );
+    });
     test('découverte allumée : le plan porte l\'identifiant public', () async {
       final h = await _harnais(visible: true, amis: true);
       addTearDown(h.container.dispose);

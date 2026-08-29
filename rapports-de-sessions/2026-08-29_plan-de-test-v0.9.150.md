@@ -1,7 +1,11 @@
-# Protocole de test — v0.9.148
+# Protocole de test — v0.9.150
 
-⚠️ **Installe la v0.9.148 sur les DEUX appareils avant de commencer.** Elle
-contient les trois correctifs, dont deux ne peuvent pas se tester sur l'ancienne.
+⚠️ **Installe la v0.9.150 sur les DEUX appareils avant de commencer.**
+
+> 🔴 **Les v0.9.148 et v0.9.149 sont périmées.** La 148 était mal signée (elle
+> refusait de s'installer sur la tablette) ; la 149 la corrigeait mais portait
+> encore le défaut que tu as trouvé — un téléphone dont « Croiser mes amis » est
+> éteint criait quand même ses jetons d'ami.
 
 ## Ce qui est déjà validé, et qu'on ne refait pas
 
@@ -35,6 +39,7 @@ n'as jamais à préparer l'état à la main.
 | **B3** | mimi bloque, on attend | 🔵 **inconnus** + bloqués | mimi bloque |
 | **B4** | Débloquer | 🔵 **inconnus** | mimi débloque |
 | **C** | Redevenir amis | 🔵 inconnus → 🟢 **amis** | vous vous ajoutez |
+| **E** | 🆕 L'interrupteur coupe des deux côtés | 🟢 **amis** | — |
 | **D** | La nuit | 🟢 **amis** | — |
 | — | *Éloignement (reporté)* | 🔵 **inconnus** | — |
 
@@ -53,7 +58,7 @@ moitié du produit que le ping des inconnus, et elle a son propre interrupteur.
 
 Sur **les deux** appareils :
 
-1. Installer la **v0.9.148**.
+1. Installer la **v0.9.150**.
 2. Réglages → Sécurité et confidentialité → **« Croiser mes amis » ALLUMÉ**.
 3. Écran Ping → **« Visible à proximité » ALLUMÉ**.
 4. Réglages → Développeur → **effacer le journal** (« nouveau test »).
@@ -202,6 +207,42 @@ pas amis : le blocage a emporté l'amitié, et le déblocage ne la rend pas.
 | l'autre apparaît **avec une distance en moins d'une minute** | il faut redémarrer l'app |
 | le compteur monte **tout de suite**, des deux côtés | il faut redémarrer l'app |
 | l'autre **quitte** « Autour de toi », **sans doublon** | il reste dans les deux listes |
+
+---
+
+# Test E 🆕 — L'interrupteur coupe des DEUX côtés *(4 minutes)*
+
+> 🟢 **Vous êtes AMIS pour ce test**, les deux « Visible à proximité » allumés.
+
+**C'est le test du défaut que tu as trouvé toi-même.** Avant, éteindre
+« Croiser mes amis » ne te cachait qu'à **toi-même** : ton écran n'affichait plus
+tes amis, mais ta radio continuait à leur annoncer que tu étais là. Tes amis te
+voyaient toujours.
+
+1. Sur **les deux**, vérifiez que vous vous voyez avec une distance.
+2. Sur le **téléphone** (Charles) : Réglages → Sécurité et confidentialité →
+   **éteindre « Croiser mes amis »**. Laisser « Visible à proximité » allumé.
+3. Attendre **deux minutes**, côte à côte, sans toucher aux écrans.
+
+| ✅ | ❌ |
+|---|---|
+| chez **Charles** : la liste des amis dit « le croisement de tes amis est coupé » | |
+| 🔴 chez **mimi** : **Charles a DISPARU** de ses amis à portée | Charles reste affiché avec une distance |
+
+> 🔴 **C'est la ligne du milieu qui compte.** C'est exactement ce que tu as
+> observé à l'envers hier : tu voyais Charles sur la tablette alors qu'il avait
+> coupé. S'il reste affiché, le correctif n'a pas pris.
+
+4. **Rallumer** « Croiser mes amis » sur le téléphone.
+5. Attendre **une minute**.
+
+| ✅ | ❌ |
+|---|---|
+| vous vous revoyez **des deux côtés** | il faut redémarrer l'app |
+
+⚠️ **Refaites le test dans l'autre sens si vous avez le temps** : c'est mimi qui
+coupe, et c'est Charles qui ne doit plus la voir. Les deux appareils n'ont pas la
+même version d'Android, et ce chemin passe par le natif.
 
 ---
 

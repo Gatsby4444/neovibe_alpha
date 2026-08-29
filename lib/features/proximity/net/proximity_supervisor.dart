@@ -480,14 +480,40 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
     final now = DateTime.now();
     _slot = ProximityIdentity.slotIndex(now);
     final friends = await _keyBook.all();
-    final secrets = await _identity.pairSecrets({
-      for (final f in friends.values) f.userId: f.x25519PublicKey,
-    });
 
-    // ⚠️ **Le mode ping est ce qui ajoute l'identifiant PUBLIC, et rien
-    // d'autre.** Les jetons d'amis, eux, partent toujours : croiser un ami et
-    // se rendre découvrable d'inconnus sont deux fonctions distinctes qui
-    // partagent la même radio (consigne de Jay, 2026-08-20).
+    // 🔴 **LA MOITIÉ QUI MANQUAIT À LA SÉPARATION — relevée par Jay sur
+    // appareil le 2026-08-29.**
+    //
+    // Ces secrets alimentent **les deux moitiés du croisement d'amis** : les
+    // jetons qu'on CRIE (plus bas, dans le plan) et la table qui permet de
+    // RECONNAÎTRE (tout en bas). Ils descendaient **sans condition**.
+    //
+    // Conséquence, constatée à deux appareils : le téléphone de Charles, dont
+    // « Croiser mes amis » était **éteint**, criait quand même ses jetons
+    // d'ami — et la tablette de mimi l'affichait. L'interrupteur ne cachait
+    // Charles qu'à **lui-même** : l'écran masquait la liste (`ping_screen.dart`)
+    // pendant que la radio continuait d'annoncer sa présence à ses amis.
+    //
+    // ⚠️ **Le commentaire qui vivait ici disait « les jetons d'amis, eux,
+    // partent toujours », et il était juste le jour où il a été écrit**
+    // (2026-08-20) : il n'y avait alors **qu'un** interrupteur, et « toujours »
+    // voulait dire « tant que la radio tourne ». Le second interrupteur, né le
+    // 2026-08-28, a périmé sa prémisse sans le contredire : cohérent, argumenté,
+    // et faux.
+    //
+    // ⚠️ **Une table VIDE part quand même** (voir plus bas) : « je ne
+    // reconnais plus personne » doit s'ENVOYER, sinon le natif garde l'ancienne.
+    final secrets = state.wantsFriends
+        ? await _identity.pairSecrets({
+            for (final f in friends.values) f.userId: f.x25519PublicKey,
+          })
+        : const <String, Uint8List>{};
+
+    // ⚠️ **Un interrupteur, une ligne, et les deux se lisent ensemble.**
+    // `secrets` ci-dessus commande la moitié AMIS, `pingSeed` ci-dessous la
+    // moitié INCONNUS. Toute règle posée sur l'une doit avoir sa jumelle sur
+    // l'autre — c'est l'absence de cette symétrie qui a laissé passer le défaut
+    // du 2026-08-29.
     // ⚠️ **Le jeton d'ami porte le nom de celui qui l'émet** depuis le
     // 2026-08-26 (voir [ProximityIdentity.pairToken]). Sans mon identifiant,
     // aucun jeton d'ami ne part — le planificateur le dit lui-même.
