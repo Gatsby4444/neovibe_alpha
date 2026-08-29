@@ -437,7 +437,28 @@ faisait apparaître un ami à cinq amis comme **six appareils différents**.
 (`setAdvertPlan`, paramètre `types`). Savoir lequel est public est une règle
 produit, elle vit d'un seul côté.
 
-⚠️ **Trois compteurs de diagnostic remontent par `stats()`** et doivent rester
+- **`AdvertOnAir.kt`** — *(nouveau, 2026-08-29)* **ce que la pile a accepté de
+  mettre en l'air**, par opposition à ce qu'on lui a demandé. Trois états par
+  jeu d'annonce : *demandé*, *en vol*, *confirmé*.
+  🔴 **Il existe parce que `AdvertisingSet.setAdvertisingData()` est
+  asynchrone** : elle ne rend rien, ne lève rien, et rapporte son sort dans
+  `onAdvertisingDataSet(set, status)` — un rappel qui **n'était pas écrit**. Un
+  refus de la pile ne se voyait donc nulle part : le jeu continuait de rayonner
+  le jeton d'un créneau révolu, et l'appareil était entendu dix fois par seconde
+  et reconnu **zéro** fois, pendant que tous ses compteurs disaient que tout
+  allait bien.
+  ⚠️ **À écrire sur iOS aussi, et la question y est la même** :
+  `CBPeripheralManager.startAdvertising` répond dans
+  `peripheralManagerDidStartAdvertising(_:error:)`. Le piège n'est pas l'API,
+  c'est de croire qu'une demande vaut une émission.
+  ⚠️ **Il sert aussi à ne PAS réécrire pour rien** : `emitNext` repassait toutes
+  les 30 s sur un contenu qui ne change que tous les quarts d'heure — ~2 900
+  écrits inutiles par appareil et par nuit, chacun une occasion de refus.
+  ⚠️ **Logique PURE**, comme `SightingBook` et `AdvertSchedule` : 11 tests dans
+  `AdvertOnAirTest.kt`, dont deux nés d'un **contre-test** (défaut réintroduit,
+  aucun test ne tombait).
+
+⚠️ **Cinq compteurs de diagnostic remontent par `stats()`** et doivent rester
 visibles même à zéro — le jour où ils montent, ils expliquent une détection
 fantôme que rien d'autre n'expliquerait :
 
@@ -446,6 +467,8 @@ fantôme que rien d'autre n'expliquerait :
 | `otherVersionScans` | `BleEngine` | des annonces d'une **autre version** du protocole : les appareils ne sont pas à jour ensemble |
 | `selfScans` | `BleEngine` | on capte **sa propre** annonce — sans filtre, on se reconnaîtrait comme l'ami à qui on crie |
 | `foreignTokenScans` | **`ProximityService`** | des jetons privés **destinés à quelqu'un d'autre**, écartés |
+| `advertSlotDrift` | **`AdvertOnAir`** → `ProximityService` | **de quand date ce qui rayonne**. `0` = le jeton du créneau courant ; toute autre valeur = on crie le passé, donc on est entendu par tous et reconnu par personne. `-1` = aucun jeu confirmé |
+| `advertDataRefus` | **`AdvertOnAir`** | la pile a **refusé** un contenu d'annonce — la seule trace qu'un refus ait existé |
 
 🔴 **`foreignTokenScans` a changé de maison le 2026-08-28, et c'est une leçon à
 porter sur iOS.** Il était déclaré dans `BleEngine`, publié dans `stats()`… et

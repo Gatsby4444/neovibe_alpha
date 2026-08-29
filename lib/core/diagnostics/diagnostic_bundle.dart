@@ -159,6 +159,12 @@ class DiagnosticBundle {
         'protocolVersion',
         'advertMode',
         'advertTokensPerSlot',
+        // ⚠️ **Remontées tout en haut, et pas rangées avec les capacités.** Ce
+        // sont les deux lignes qui datent ce que la radio crie vraiment : à 0,
+        // l'appareil est reconnaissable ; à toute autre valeur, il est entendu
+        // par tous et reconnu par personne. Voir `ProximityService.stats()`.
+        'advertSlotDrift',
+        'advertDataRefus',
         // ⚠️ **Vrai = le service a repris sur le plan écrit sur le disque.**
         // Dans cet état l'appareil croise ses amis mais **n'est pas
         // découvrable par des inconnus** : il n'a pas d'identifiant public à

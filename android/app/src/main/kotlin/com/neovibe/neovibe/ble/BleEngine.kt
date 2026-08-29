@@ -161,6 +161,26 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         private set
 
     /**
+     * **Ce que la pile a accepte de mettre en l'air**, par opposition a ce
+     * qu'on lui a demande. Voir [AdvertOnAir].
+     */
+    private val onAir = AdvertOnAir()
+
+    /**
+     * Le creneau des jetons **reellement** en l'air, `-1` si aucun jeu complet
+     * n'est confirme.
+     *
+     * ⚠️ **Publie dans `stats()`, et c'est la ligne qui manquait le
+     * 2026-08-29.** Compare au creneau de l'instant, elle dit d'un coup si
+     * l'appareil crie encore le jeton d'il y a une heure — le seul etat dans
+     * lequel il est entendu par tous et reconnu par personne.
+     */
+    val advertSlotOnAir: Long get() = onAir.repereEnLAir
+
+    /** Contenus d'annonce refuses par la pile. Voir [AdvertOnAir.refus]. */
+    val advertDataRefus: Int get() = onAir.refus
+
+    /**
      * L'ID que l'on DOIT diffuser tant qu'on est censé être visible.
      *
      * C'est la mémoire du moteur : elle survit à une coupure de Bluetooth, et
@@ -398,17 +418,32 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * arrete et relance repart avec une nouvelle adresse aleatoire - c'est
      * exactement ce qu'on cherche a supprimer. `setAdvertisingData` remplace le
      * contenu et laisse l'adresse tranquille.
+     *
+     * ## 🔴 Et il ne REECRIT que ce qui a change — 2026-08-29
+     *
+     * Ce corps reecrivait les deux jeux **a chaque tour**, soit toutes les
+     * trente secondes (`ProximityService.nextDelay`), pour un contenu qui ne
+     * change que tous les quarts d'heure. Environ 2 900 ecrits inutiles par
+     * appareil et par nuit, chacun une occasion pour la pile de refuser — et un
+     * refus etait invisible (voir [AdvertOnAir]).
+     *
+     * [repere] : le creneau des jetons deposes. Il ne sert pas ici ; il permet
+     * au diagnostic de dire **de quand date ce qui rayonne vraiment**.
      */
-    fun applyAdverts(ids: List<ByteArray>, types: ByteArray): Boolean {
+    fun applyAdverts(ids: List<ByteArray>, types: ByteArray, repere: Long): Boolean {
         if (evaluateRadio(context) != null) return false
         ids.forEach { rememberOwnToken(it) }
         if (!parallelPossible(ids.size)) return false
 
         if (parallelAdvertising && advertSets.size == ids.size) {
+            onAir.noteDemande(ids.map { AdvertOnAir.hex(it) }, repere)
             for ((index, id) in ids.withIndex()) {
-                val set = advertSets[index] ?: return startParallelAdverts(ids, types)
+                val jeton = AdvertOnAir.hex(id)
+                if (!onAir.besoinDEcrire(index, jeton)) continue
+                val set = advertSets[index] ?: return startParallelAdverts(ids, types, repere)
                 val type = types.getOrElse(index) { BleConstants.TYPE_PUBLIC }
                 try {
+                    onAir.noteEcrit(index, jeton)
                     set.setAdvertisingData(advertDataFor(id, type))
                 } catch (e: Exception) {
                     fallbackFromParallel("mise a jour refusee : " + e.message)
@@ -417,10 +452,14 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             }
             return true
         }
-        return startParallelAdverts(ids, types)
+        return startParallelAdverts(ids, types, repere)
     }
 
-    private fun startParallelAdverts(ids: List<ByteArray>, types: ByteArray): Boolean {
+    private fun startParallelAdverts(
+        ids: List<ByteArray>,
+        types: ByteArray,
+        repere: Long,
+    ): Boolean {
         val advertiser = adapter?.bluetoothLeAdvertiser ?: return false
         stopAdvertising()
         stopParallelAdverts()
@@ -444,10 +483,16 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         parallelExpected = ids.size
         advertSets.clear()
         advertSetCallbacks.clear()
+        // ⚠️ **Un demarrage porte deja les donnees.** On les declare « en vol »
+        // ici, et `onAdvertisingSetStarted` les confirmera : sans ca, le premier
+        // creneau apres un demarrage n'aurait jamais de repere, et le
+        // diagnostic dirait « on ne sait pas » pour un cas parfaitement sain.
+        onAir.noteDemande(ids.map { AdvertOnAir.hex(it) }, repere)
         for ((index, id) in ids.withIndex()) {
             val callback = AdvertSetCallback(index)
             advertSetCallbacks[index] = callback
             try {
+                onAir.noteEcrit(index, AdvertOnAir.hex(id))
                 advertiser.startAdvertisingSet(
                     params,
                     advertDataFor(id, types.getOrElse(index) { BleConstants.TYPE_PUBLIC }),
@@ -488,6 +533,11 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         advertSetCallbacks.clear()
         parallelExpected = 0
         parallelAdvertising = false
+        // ⚠️ **Plus rien n'est en l'air : il faut le DIRE.** Garder le dernier
+        // repere ferait lire « a jour » a un diagnostic pris pendant un
+        // silence — exactement le genre de zero impose par la forme de
+        // l'instrument plutot que mesure.
+        onAir.oublie()
     }
 
     /**
@@ -513,6 +563,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
                 return
             }
             advertSets[index] = set
+            onAir.noteConfirme(index)
             if (parallelExpected > 0 && advertSets.size >= parallelExpected) {
                 parallelAdvertising = true
                 advertising = true
@@ -520,12 +571,33 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             }
         }
 
+        /**
+         * 🔴 **LE RAPPEL QUI MANQUAIT — ecrit le 2026-08-29.**
+         *
+         * `setAdvertisingData` est asynchrone : elle ne rend rien et ne leve
+         * rien, et c'est **ici** que la pile dit oui ou non. Sans cette
+         * methode, un refus ne se voyait nulle part — le jeu continuait de
+         * rayonner le jeton du creneau precedent pendant que tous les
+         * compteurs de l'emetteur disaient que tout allait bien.
+         *
+         * ⚠️ **On ne repare rien ici, on constate.** Le tour suivant reecrira
+         * de lui-meme, parce que [AdvertOnAir.besoinDEcrire] redevient vrai
+         * pour un jeu dont on ne sait plus ce qu'il porte. Un refus qui
+         * persiste se lit alors au diagnostic — `advertDataRefus` monte et
+         * `advertSlotOnAir` decroche — au lieu de se deviner.
+         */
+        override fun onAdvertisingDataSet(set: AdvertisingSet?, status: Int) {
+            if (status == ADVERTISE_SUCCESS) onAir.noteConfirme(index)
+            else onAir.noteRefus(index)
+        }
+
         override fun onAdvertisingSetStopped(set: AdvertisingSet?) {
             advertSets.remove(index)
+            onAir.oublie()
         }
     }
 
-    fun updateAdvert(advertId: ByteArray, type: Byte) {
+    fun updateAdvert(advertId: ByteArray, type: Byte, repere: Long) {
         desiredAdvertId = advertId
         desiredAdvertType = type
         rememberOwnToken(advertId)
@@ -556,6 +628,12 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         // (parallele, cycle, silence) l'imposent maintenant chacune.
         stopParallelAdverts()
         stopAdvertising()
+        // ⚠️ **Le cycle aussi doit dire de quand date ce qu'il crie.** Les deux
+        // modes repondent a la meme question au diagnostic ; n'instrumenter que
+        // le parallele aurait fait lire « on ne sait pas » comme « c'est
+        // casse » sur les appareils qui se replient.
+        onAir.noteDemande(listOf(AdvertOnAir.hex(advertId)), repere)
+        onAir.noteEcrit(0, AdvertOnAir.hex(advertId))
         startAdvertising(advertId, type)
         // ⚠️ **On ne publie PAS ici, et c'est la correction du 2026-08-26.**
         //
@@ -677,11 +755,13 @@ class BleEngine(private val context: Context, private val listener: Listener) {
     private val advertiseCallback = object : AdvertiseCallback() {
         override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
             advertising = true
+            onAir.noteConfirme(0)
             publish(currentStatus())
         }
 
         override fun onStartFailure(errorCode: Int) {
             advertising = false
+            onAir.noteRefus(0)
             // L'advertising peut échouer SEUL (trop d'annonceurs, pile occupée)
             // sans emporter le scan : on reste donc en Running, avec
             // `advertising = false`. C'est visible, et c'est vrai.
@@ -735,6 +815,9 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         if (!advertising) return
         runCatching { adapter?.bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback) }
         advertising = false
+        // Meme raison que dans [stopParallelAdverts] : ce qui ne rayonne plus ne
+        // doit pas continuer d'etre compte comme a jour.
+        onAir.oublie()
     }
 
     private val scanCallback = object : ScanCallback() {

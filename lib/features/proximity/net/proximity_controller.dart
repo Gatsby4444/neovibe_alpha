@@ -10,6 +10,7 @@ import '../presence_feed.dart';
 import '../proximity_identity.dart';
 import 'connection_trace.dart';
 import 'peer_network.dart';
+import 'presque_ledger.dart';
 import 'peer_session.dart';
 import 'proximity_journal.dart';
 import 'ble_radio.dart';
@@ -128,6 +129,7 @@ class ProximityController extends AsyncNotifier<void> {
     _peerFeed = null;
     _sightingSweep?.cancel();
     _sightingSweep = null;
+    _presque.oublieTout();
     final network = _network;
     _network = null; // ← la ligne qui manquait
     // ⚠️ **La présence ne se vide PLUS ici** (2026-08-29), et ce n'était pas
@@ -210,7 +212,16 @@ class ProximityController extends AsyncNotifier<void> {
     // possible.
     unawaited(ref.read(proximitySyncProvider).run());
 
-    _radioFeed = supervisor.events.listen(network.onRadioEvent);
+    _radioFeed = supervisor.events.listen((event) {
+      // ⚠️ **La radio s'arrête : les présences en cours n'existent plus**, et
+      // le réseau les jette sans émettre de `PeerLost`. Garder leur souvenir
+      // ferait taire à tort le « presque » d'une vraie rencontre brève, plus
+      // tard, avec la même personne.
+      if (event is RadioStatusEvent && !event.status.isDetecting) {
+        _presque.oublieTout();
+      }
+      network.onRadioEvent(event);
+    });
     _peerFeed = network.events.listen(_onPeerEvent);
 
     _appliquerBalayage(ref.read(proximitySupervisorProvider).wantsFriends);
@@ -289,14 +300,64 @@ class ProximityController extends AsyncNotifier<void> {
       // lecture de fichier, c'est refaire le défaut du point C.
       case PresenceChanged():
         _publishPresence();
-      case PeerIdentified(:final snapshot):
-        // Le réseau dit QUI ; c'est ici, au-dessus de la frontière, qu'on sait
-        // ce que cette personne est pour nous.
-        if (await _isFriend(snapshot.userId)) await _maybeWave(snapshot);
+      case PeerIdentified():
+        // ⚠️ **Plus de « presque » ici depuis le 2026-08-29.** Reconnaître
+        // quelqu'un et l'avoir raté sont deux choses différentes — voir
+        // [_maybeWave].
         _publishPresence();
-      case PeerLost():
+      case PeerLost(:final peer):
+        await _peutEtreUnPresque(peer);
         _publishPresence();
     }
+  }
+
+  /// Une présence vient de se terminer : était-ce un « presque » ?
+  ///
+  /// ## 🔴 Le défaut que ceci corrige — signalé par Jay le 2026-08-29
+  ///
+  /// > *« le presque se déclenche alors que je reste à proximité, il n'y a pas
+  /// > de croisement et pourtant le presque semble se déclencher à certains
+  /// > moments sans raisons apparentes »*
+  ///
+  /// Le « presque » partait sur `PeerIdentified`, c'est-à-dire **au moment où
+  /// l'on reconnaît quelqu'un**, avec pour seule condition un délai de garde de
+  /// deux heures. Rien ne vérifiait que la personne soit repartie, ni qu'il n'y
+  /// ait pas eu de vrai croisement.
+  ///
+  /// Conséquence : **rester assis à côté d'un ami toute la journée en produisait
+  /// un.** Il suffisait que la radio hoquette — un lien perdu puis retrouvé plus
+  /// de deux heures après le dernier envoi — pour qu'une « presque rencontre »
+  /// soit annoncée à deux personnes qui ne s'étaient jamais quittées.
+  ///
+  /// ⚠️ **Et ce n'est pas un défaut isolé** : c'est le même symptôme, vu par
+  /// l'autre bout, que la panne d'émission du 2026-08-29 (voir `AdvertOnAir`).
+  /// Chaque instabilité de la radio fabriquait une réidentification, donc un
+  /// « presque ».
+  ///
+  /// ## La règle, maintenant
+  ///
+  /// Un « presque » dit *« vous vous êtes ratés »*. Il faut donc **deux**
+  /// choses, et elles ne sont connues qu'à la fin :
+  ///
+  /// 1. la présence est **terminée** (`PeerLost`, soit
+  ///    [PresenceRules.forgetAfter] sans rien entendre) ;
+  /// 2. elle n'a **jamais produit de constat** — un contact assez long pour
+  ///    compter est un croisement, pas un « presque ».
+  ///
+  /// ⚠️ **Le seuil n'est pas un nouveau réglage, et c'est délibéré.** « Assez
+  /// long pour compter » est déjà défini une fois, par [PeerSession.isStable]
+  /// (`stableAfter` + `minSightings`) — celui-là même qui décide d'un constat.
+  /// En introduire un second aurait fait deux définitions du même mot, qui
+  /// auraient fini par se contredire.
+  ///
+  /// ⚠️ **Une radio qui s'arrête n'émet pas de `PeerLost`**, et c'est juste :
+  /// couper sa visibilité n'est pas quelqu'un qui s'en va.
+  Future<void> _peutEtreUnPresque(PresencePeer peer) async {
+    final snapshot = peer.snapshot;
+    if (snapshot == null) return;
+    if (!_presque.finDePresence(snapshot.userId)) return;
+    if (!await _isFriend(snapshot.userId)) return;
+    await _maybeWave(snapshot);
   }
 
   /// Le canal natif, pour récupérer ce que le service a constaté seul.
@@ -311,6 +372,12 @@ class ProximityController extends AsyncNotifier<void> {
   /// qu'on en fait — savoir qui est un ami, décider d'en informer le serveur —
   /// est une décision produit, et elle n'a rien à faire sous la frontière radio.
   final _sightings = SightingLog();
+
+  /// Ce qui décide si une présence terminée était un « presque ».
+  ///
+  /// ⚠️ **Elle vit ici, du côté de qui décide**, et pas dans la session : le
+  /// réseau constate une présence, il n'a pas à savoir ce qu'on en tire.
+  final _presque = PresqueLedger();
 
   // ------------------------------------------------------------------
   // Constats de croisement (réciprocité serveur)
@@ -347,6 +414,11 @@ class ProximityController extends AsyncNotifier<void> {
       // le 2026-08-27). Autant ne pas l'envoyer.
       if (!await _isFriend(userId)) continue;
       _sightings.observe(userId, now, band: session.toPresence().band);
+      // ⚠️ **Ce contact a compté : ce ne sera donc pas un « presque ».** On le
+      // note quel que soit le sort du constat — déjà envoyé pour ce créneau ou
+      // non, la question ici n'est pas « faut-il l'envoyer ? » mais « cette
+      // présence a-t-elle été un vrai croisement ? ». Voir [_peutEtreUnPresque].
+      _presque.noteCroisement(userId);
     }
 
     if (_sightings.length == 0) return;
@@ -429,6 +501,12 @@ class ProximityController extends AsyncNotifier<void> {
   Future<bool> _isFriend(String userId) async =>
       (await _keyBook.all()).containsKey(userId);
 
+  /// Envoie le « presque », si le délai de garde le permet.
+  ///
+  /// ⚠️ **Elle ne décide plus de rien d'autre.** La question « est-ce un
+  /// presque ? » se pose une seule fois, dans [_peutEtreUnPresque] ; ici il ne
+  /// reste que « en a-t-il déjà reçu un récemment ? ». Tant que les deux
+  /// vivaient au même endroit, la première n'était posée par personne.
   Future<void> _maybeWave(PingPeerSnapshot friend) async {
     if (!await _journal.mayWave(friend.userId, waveCooldown)) return;
     await _journal.noteWave(friend.userId);

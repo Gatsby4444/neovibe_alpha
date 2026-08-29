@@ -296,7 +296,14 @@ class ProximityService : Service(), BleEngine.Listener {
         // ami donne n'est en l'air que 1/N du temps : a dix amis, 10 %. Quelqu'un
         // qu'on croise trois secondes pouvait n'etre JAMAIS vu, et le defaut
         // s'aggravait avec le nombre d'amis - sans jamais rien lever.
-        if (engine.applyAdverts(duCreneau.first, duCreneau.second)) {
+        // ⚠️ **Le creneau descend AVEC les jetons.** Le moteur n'a pas d'horloge
+        // de creneaux et n'a pas a en avoir une : il retient ce repere tel quel,
+        // et le diagnostic le compare a l'instant present. Sans lui, « ce qui
+        // rayonne » ne pouvait pas etre date — c'est tout le defaut du
+        // 2026-08-29.
+        val creneau = now / slotMillis
+
+        if (engine.applyAdverts(duCreneau.first, duCreneau.second, creneau)) {
             parallel = true
             return
         }
@@ -304,7 +311,7 @@ class ProximityService : Service(), BleEngine.Listener {
 
         val lequel = Math.floorMod(cursor, duCreneau.first.size)
         cursor++
-        engine.updateAdvert(duCreneau.first[lequel], duCreneau.second[lequel])
+        engine.updateAdvert(duCreneau.first[lequel], duCreneau.second[lequel], creneau)
     }
 
     /** Le Dart depose un nouveau plan. Il remplace entierement le precedent. */
@@ -587,6 +594,28 @@ class ProximityService : Service(), BleEngine.Listener {
         // defaut du 2026-08-29 — un ancien plan reste en l'air pendant qu'on en
         // annonce un nouveau, et rien d'autre ne le montrait.
         "advertSetsOnAir" to engine.advertSetsOnAir,
+        // 🔴 **DE QUAND DATE CE QUI RAYONNE — la ligne qui manquait le
+        // 2026-08-29.**
+        //
+        // `advertSlotDrift` vaut **0** quand le jeton en l'air est celui du
+        // creneau courant. Toute autre valeur veut dire que l'appareil crie un
+        // jeton du passe : il est entendu par tous et reconnu par personne,
+        // parce qu'en face `SightingBook.match` refuse un jeton hors de sa
+        // fenetre de creneau. C'est exactement l'etat dans lequel la tablette de
+        // mimi a passe la matinee du 2026-08-29 — 112 335 jetons d'ami recus,
+        // zero reconnu — sans qu'aucun compteur de l'emetteur ne bronche.
+        //
+        // ⚠️ **`-1` n'est pas une derive, c'est « on ne sait pas »** : aucun jeu
+        // d'annonces n'est integralement confirme. Silence voulu, demarrage en
+        // cours, ou refus en serie — les trois se distinguent avec
+        // `advertSetsOnAir` et `advertDataRefus` juste a cote.
+        "advertSlotDrift" to
+            if (engine.advertSlotOnAir < 0) -1L
+            else System.currentTimeMillis() / slotMillis - engine.advertSlotOnAir,
+        // ⚠️ **Un refus de contenu d'annonce, rendu VISIBLE.**
+        // `setAdvertisingData` est asynchrone : elle ne rend rien et ne leve
+        // rien. Ce compteur est la seule trace qu'un refus ait existe.
+        "advertDataRefus" to engine.advertDataRefus,
         // ⚠️ **Repris du disque = amis oui, inconnus non.** Voir [reprisDuDisque].
         "resumedFromDisk" to reprisDuDisque,
         // ⚠️ **L'homme mort de l'identifiant public, rendu VISIBLE.**
