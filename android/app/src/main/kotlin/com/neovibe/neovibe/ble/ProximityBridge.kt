@@ -193,6 +193,21 @@ class ProximityBridge(
                     }
                 }
 
+                // ⚠️ **Le battement de coeur de la DECOUVERTE, ajoute le
+                // 2026-08-29.** Le Dart le pose a chaque republication reussie
+                // de sa balise serveur. C'est ce qui autorise le service a
+                // continuer de crier l'identifiant public : passe cinq minutes
+                // sans battement, plus personne ne peut traduire ce jeton, donc
+                // le service cesse de l'emettre tout seul.
+                //
+                // ⚠️ **Il ne dit rien des jetons d'AMIS**, qui ont leur propre
+                // horizon de douze heures et survivent sans le Dart : c'est la
+                // moitie du produit qui doit marcher app fermee.
+                "publicHeartbeat" -> {
+                    ProximityService.instance?.battementPublic()
+                    result.success(null)
+                }
+
                 // Ce que le service a constate pendant que le Dart etait absent.
                 "takeSightings" -> {
                     val service = ProximityService.instance

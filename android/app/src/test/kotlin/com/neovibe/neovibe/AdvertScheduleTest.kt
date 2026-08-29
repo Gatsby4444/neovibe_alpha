@@ -4,6 +4,7 @@ import com.neovibe.neovibe.ble.AdvertSchedule
 import com.neovibe.neovibe.ble.BleConstants
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -58,7 +59,10 @@ class AdvertScheduleTest {
                 p.tokenAt(now, i),
                 jetons[i],
             )
-            assertEquals(p.typeAt(now, i), leursTypes[i])
+            // ⚠️ **Compare aux types DEPOSES, plus a `typeAt`** (supprime le
+            // 2026-08-29) : un test qui interroge deux methodes de la meme
+            // classe les verifie l'une par l'autre, pas contre l'attendu.
+            assertEquals(BleConstants.TYPE_FRIEND, leursTypes[i])
         }
     }
 
@@ -96,6 +100,96 @@ class AdvertScheduleTest {
         val (_, t0) = p.tokensAt(from * slotMillis)!!
         assertEquals(BleConstants.TYPE_PUBLIC, t0[0])
         assertEquals(BleConstants.TYPE_FRIEND, t0[1])
+    }
+
+    // ------------------------------------------------------------------
+    // L'HOMME MORT de l'identifiant public — 2026-08-29
+    // ------------------------------------------------------------------
+    //
+    // Le defaut : le plan porte 75 minutes de jetons d'avance, pour que le
+    // service survive seul a la mort du Dart. C'est juste pour les jetons
+    // d'AMIS. L'identifiant PUBLIC, lui, ne vaut rien sans la balise que le
+    // Dart republie au serveur toutes les 60 s et qui meurt 5 min apres lui :
+    // l'appareil continuait donc de crier, jusqu'a 70 minutes de plus, un
+    // identifiant que plus personne au monde ne pouvait traduire — et que
+    // n'importe quel scanner pouvait suivre.
+    //
+    // Rien ne signalait ce cas : la radio etait saine, l'app etait fermee, et
+    // personne ne regardait.
+
+    @Test
+    fun `sans battement, le public disparait et les amis restent`() {
+        val from = 1000L
+        val types = byteArrayOf(
+            BleConstants.TYPE_PUBLIC, BleConstants.TYPE_FRIEND,
+            BleConstants.TYPE_PUBLIC, BleConstants.TYPE_FRIEND,
+        )
+        val p = plan(from, slots = 2, perSlot = 2, types = types)
+        val now = from * slotMillis + 42
+
+        val avec = p.tokensAt(now, avecPublic = true)!!
+        assertEquals(2, avec.first.size)
+
+        val sans = p.tokensAt(now, avecPublic = false)!!
+        assertEquals("il ne doit rester que l'ami", 1, sans.first.size)
+        assertEquals(BleConstants.TYPE_FRIEND, sans.second[0])
+        assertArrayEquals(
+            "l'ami garde SON jeton : on filtre, on ne renumerote pas",
+            avec.first[1],
+            sans.first[0],
+        )
+    }
+
+    @Test
+    fun `croiser ses amis survit a la perte du battement`() {
+        // ⚠️ **C'est la moitie qui doit continuer.** Un ami reconnait tout
+        // seul, sans reseau, app fermee : son jeton a un horizon de douze heures
+        // et il ne depend d'aucun serveur. Couper les deux ensemble aurait
+        // supprime le croisement nocturne pour reparer une fuite de vie privee.
+        val from = 1000L
+        val p = plan(from, slots = 2, perSlot = 3)
+        val now = from * slotMillis
+        assertEquals(3, p.tokensAt(now, avecPublic = false)!!.first.size)
+    }
+
+    @Test
+    fun `plus rien a crier n'est PAS un plan epuise`() {
+        // Deux silences, deux causes, deux messages. `null` veut dire « le plan
+        // ne couvre plus cet instant » et fait lever une panne a l'appelant ;
+        // une liste vide veut dire « il n'y a rien a crier maintenant », ce qui
+        // est le cas normal de quelqu'un qui ne voulait qu'etre decouvrable et
+        // dont le Dart ne repond plus. Les confondre ferait annoncer une panne
+        // a la place d'un silence voulu.
+        val from = 1000L
+        val types = ByteArray(2) { BleConstants.TYPE_PUBLIC }
+        val p = plan(from, slots = 1, perSlot = 2, types = types)
+
+        val vide = p.tokensAt(from * slotMillis, avecPublic = false)
+        assertNotNull("le plan couvre cet instant : ce n'est pas null", vide)
+        assertEquals(0, vide!!.first.size)
+
+        assertNull(
+            "hors du plan, en revanche, c'est bien null",
+            p.tokensAt((from + 1) * slotMillis, avecPublic = false),
+        )
+    }
+
+    @Test
+    fun `avec battement, rien ne change par rapport a avant`() {
+        // Le chemin normal doit rester exactement celui d'hier : `tokensAt(now)`
+        // et `tokensAt(now, avecPublic = true)` sont le meme appel.
+        val from = 1000L
+        val types = byteArrayOf(
+            BleConstants.TYPE_PUBLIC, BleConstants.TYPE_FRIEND,
+            BleConstants.TYPE_PUBLIC, BleConstants.TYPE_FRIEND,
+        )
+        val p = plan(from, slots = 2, perSlot = 2, types = types)
+        val now = from * slotMillis + 7
+        val a = p.tokensAt(now)!!
+        val b = p.tokensAt(now, avecPublic = true)!!
+        assertEquals(a.first.size, b.first.size)
+        for (i in a.first.indices) assertArrayEquals(a.first[i], b.first[i])
+        assertArrayEquals(a.second, b.second)
     }
 
     @Test

@@ -73,14 +73,15 @@ class AdvertSchedule(
      * Rend `null` si le plan ne couvre plus cet instant - a quoi l'appelant
      * repond en cessant d'emettre, jamais en rejouant l'ancien.
      */
-    /** Le type du jeton que [tokenAt] rendrait pour ce meme curseur. */
-    fun typeAt(nowMillis: Long, cursor: Int): Byte {
-        if (!covers(nowMillis)) return BleConstants.TYPE_PUBLIC
-        val slotOffset = (nowMillis / slotMillis - fromSlot).toInt()
-        val which = if (perSlot == 1) 0 else Math.floorMod(cursor, perSlot)
-        val index = slotOffset * perSlot + which
-        return if (index < types.size) types[index] else BleConstants.TYPE_PUBLIC
-    }
+    // ⚠️ **`typeAt` a ete SUPPRIME le 2026-08-29**, et pas seulement parce
+    // qu'il n'avait plus d'appelant en production : sa reponse etait devenue
+    // FAUSSE. Il indexait le curseur sur le creneau **complet**, alors que le
+    // mode cycle parcourt desormais la liste **filtree** (voir
+    // [tokensAt] avec `avecPublic`). Le curseur 0 pouvait donc y valoir
+    // « public » pendant que la radio emettait un jeton d'ami.
+    //
+    // Un reste mort ment rarement ; un reste mort dont la semantique a bouge
+    // ment toujours, et il ment avec l'assurance d'une methode publique.
 
     fun tokenAt(nowMillis: Long, cursor: Int): ByteArray? {
         if (!covers(nowMillis)) return null
@@ -108,19 +109,49 @@ class AdvertSchedule(
      * Le moteur sait emettre plusieurs annonces simultanement : il lui faut donc
      * le creneau entier, pas un jeton choisi par un curseur.
      */
-    fun tokensAt(nowMillis: Long): Pair<List<ByteArray>, ByteArray>? {
+    fun tokensAt(nowMillis: Long): Pair<List<ByteArray>, ByteArray>? =
+        tokensAt(nowMillis, avecPublic = true)
+
+    /**
+     * Le meme creneau, en choisissant si l'identifiant PUBLIC en fait partie.
+     *
+     * ## 🔴 Pourquoi ce parametre existe — 2026-08-29
+     *
+     * Le plan porte plusieurs heures de jetons d'avance, pour que le service
+     * survive seul a la mort du Dart. C'est juste pour les jetons d'AMIS : un
+     * ami reconnait tout seul, sans reseau, app fermee.
+     *
+     * L'identifiant PUBLIC, lui, ne vaut rien sans la balise que le Dart
+     * republie au serveur, et qui meurt cinq minutes apres lui. L'appareil
+     * continuait donc de le crier **jusqu'a soixante-dix minutes de plus** : un
+     * identifiant que plus personne au monde ne pouvait traduire, mais que
+     * n'importe quel scanner pouvait suivre.
+     *
+     * ⚠️ **Le plan ne decide pas s'il a le droit** — il ne sait rien du Dart,
+     * ni du serveur, ni de l'heure du dernier signe de vie. Il execute. Qui
+     * decide, c'est le service ; et il le decide au seul endroit par lequel un
+     * jeton atteint la radio.
+     *
+     * Rend une liste **vide** — pas `null` — quand il ne restait que du public
+     * et qu'on n'en veut pas : *le plan couvre cet instant, et il n'y a rien a
+     * crier* est un message different de *le plan est epuise*. Les confondre
+     * ferait annoncer une panne a la place d'un silence voulu.
+     */
+    fun tokensAt(nowMillis: Long, avecPublic: Boolean): Pair<List<ByteArray>, ByteArray>? {
         if (!covers(nowMillis)) return null
         val slotOffset = (nowMillis / slotMillis - fromSlot).toInt()
         val jetons = ArrayList<ByteArray>(perSlot)
-        val leursTypes = ByteArray(perSlot)
+        val leursTypes = ArrayList<Byte>(perSlot)
         for (i in 0 until perSlot) {
             val index = slotOffset * perSlot + i
             val start = index * tokenLength
             if (start + tokenLength > tokens.size) return null
+            val type = if (index < types.size) types[index] else BleConstants.TYPE_PUBLIC
+            if (!avecPublic && type == BleConstants.TYPE_PUBLIC) continue
             jetons.add(tokens.copyOfRange(start, start + tokenLength))
-            leursTypes[i] = if (index < types.size) types[index] else BleConstants.TYPE_PUBLIC
+            leursTypes.add(type)
         }
-        return Pair(jetons, leursTypes)
+        return Pair(jetons, leursTypes.toByteArray())
     }
 
     /** Combien de jetons differents sont emis par creneau. */

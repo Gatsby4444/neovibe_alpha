@@ -198,23 +198,75 @@ class ProximityService : Service(), BleEngine.Listener {
      */
     private var parallel = false
 
+    // ------------------------------------------------------------------
+    // L'HOMME MORT de l'identifiant public
+    // ------------------------------------------------------------------
+
+    /**
+     * Dernier signe de vie du Dart **concernant la decouverte**, en
+     * `elapsedRealtime`. Zero = jamais.
+     */
+    @Volatile
+    private var dernierBattement = 0L
+
+    /**
+     * Combien de temps on continue de crier l'identifiant public **apres** le
+     * dernier signe de vie.
+     *
+     * ⚠️ **Ce n'est pas un chiffre choisi, c'est celui du serveur.** La balise
+     * qui permet de TRADUIRE cet identifiant en personne vit cinq minutes
+     * (`private.ping_beacon_ttl()`), et le Dart la republie toutes les soixante
+     * secondes tant qu'il vit. Passe ce delai, plus personne au monde ne peut
+     * relier ce jeton a un compte : le crier encore ne rend service a personne,
+     * et laisse une trace suivable au scanner du premier venu.
+     */
+    private val graceBattement = 5 * 60_000L
+
+    /**
+     * Le Dart est vivant et veut toujours etre decouvrable.
+     *
+     * Appele a chaque republication reussie de la balise serveur — c'est le
+     * meme geste qui rend le jeton traduisible et qui prouve qu'on est la.
+     */
+    fun battementPublic() {
+        dernierBattement = android.os.SystemClock.elapsedRealtime()
+    }
+
+    /**
+     * A-t-on encore le droit de crier l'identifiant public ?
+     *
+     * ## 🔴 Le defaut que ceci corrige — audit du 2026-08-28
+     *
+     * Le plan porte **75 minutes** de jetons d'avance, pour que le service
+     * survive seul a la mort du Dart. C'est juste pour les jetons d'AMIS : un
+     * ami reconnait tout seul, sans reseau, app fermee — leur horizon est de
+     * douze heures et c'est voulu.
+     *
+     * L'identifiant PUBLIC, lui, ne vaut rien sans la balise serveur. Quand
+     * Android rangeait l'app, la balise mourait en cinq minutes et l'appareil
+     * continuait de crier **jusqu'a soixante-dix minutes de plus** — un
+     * identifiant que personne ne pouvait traduire, mais que n'importe quel
+     * scanner pouvait suivre.
+     *
+     * ⚠️ **Le depot d'un plan compte comme un battement.** Le Dart qui depose
+     * un plan est vivant par definition ; sans ca, allumer la decouverte
+     * laisserait l'appareil muet jusqu'a la premiere republication de balise.
+     */
+    private fun publicAutorise(): Boolean =
+        dernierBattement != 0L &&
+            android.os.SystemClock.elapsedRealtime() - dernierBattement < graceBattement
+
     private fun emitNext() {
         val plan = schedule ?: return
         val now = System.currentTimeMillis()
 
-        // ⚠️ **Le parallele d'abord, toujours.** En mode cycle, le jeton d'un
-        // ami donne n'est en l'air que 1/N du temps : a dix amis, 10 %. Quelqu'un
-        // qu'on croise trois secondes pouvait n'etre JAMAIS vu, et le defaut
-        // s'aggravait avec le nombre d'amis - sans jamais rien lever.
-        val duCreneau = plan.tokensAt(now)
-        if (duCreneau != null && engine.applyAdverts(duCreneau.first, duCreneau.second)) {
-            parallel = true
-            return
-        }
-        parallel = false
-
-        val token = plan.tokenAt(now, cursor)
-        if (token == null) {
+        // ⚠️ **Le filtre est pose ICI, et nulle part ailleurs.** C'est le seul
+        // passage par lequel un jeton atteint la radio : les deux modes
+        // d'emission — parallele et cycle — partent de cette meme liste depuis
+        // le 2026-08-29. Tant qu'ils la calculaient chacun de leur cote, une
+        // regle posee sur l'un ne s'appliquait pas a l'autre.
+        val duCreneau = plan.tokensAt(now, avecPublic = publicAutorise())
+        if (duCreneau == null) {
             // ⚠️ **Plan epuise : on se TAIT.** Reemettre le dernier jeton connu
             // serait indiscernable d'un fonctionnement normal, alors que plus
             // personne ne nous reconnaitrait. Le silence, lui, se constate — et
@@ -228,13 +280,39 @@ class ProximityService : Service(), BleEngine.Listener {
             )
             return
         }
-        val type = plan.typeAt(System.currentTimeMillis(), cursor)
+
+        if (duCreneau.first.isEmpty()) {
+            // ⚠️ **Silence VOLONTAIRE, et ce n'est pas une panne.** On arrive ici
+            // quand il ne restait que l'identifiant public et qu'on a perdu le
+            // droit de le crier : quelqu'un qui ne voulait qu'etre decouvrable,
+            // dont le Dart ne repond plus. `stats()` le dit (`publicMuted`), et
+            // aucun statut d'echec n'est leve — il n'y a rien a reparer.
+            engine.pauseAdvertising()
+            parallel = false
+            return
+        }
+
+        // ⚠️ **Le parallele d'abord, toujours.** En mode cycle, le jeton d'un
+        // ami donne n'est en l'air que 1/N du temps : a dix amis, 10 %. Quelqu'un
+        // qu'on croise trois secondes pouvait n'etre JAMAIS vu, et le defaut
+        // s'aggravait avec le nombre d'amis - sans jamais rien lever.
+        if (engine.applyAdverts(duCreneau.first, duCreneau.second)) {
+            parallel = true
+            return
+        }
+        parallel = false
+
+        val lequel = Math.floorMod(cursor, duCreneau.first.size)
         cursor++
-        engine.updateAdvert(token, type)
+        engine.updateAdvert(duCreneau.first[lequel], duCreneau.second[lequel])
     }
 
     /** Le Dart depose un nouveau plan. Il remplace entierement le precedent. */
     fun setAdvertSchedule(plan: AdvertSchedule) {
+        // ⚠️ **Deposer un plan, c'est prouver qu'on est vivant.** Voir
+        // [publicAutorise] : sans cette ligne, allumer la decouverte laisserait
+        // l'appareil muet jusqu'a la premiere republication de balise.
+        battementPublic()
         schedule = plan
         persiste()
         cursor = 0
@@ -504,6 +582,17 @@ class ProximityService : Service(), BleEngine.Listener {
         "advertMode" to if (engine.parallelAdvertising) "parallele" else "cycle",
         // ⚠️ **Repris du disque = amis oui, inconnus non.** Voir [reprisDuDisque].
         "resumedFromDisk" to reprisDuDisque,
+        // ⚠️ **L'homme mort de l'identifiant public, rendu VISIBLE.**
+        //
+        // `publicMuted` a vrai veut dire : le Dart ne donne plus signe de vie,
+        // on a cesse de crier l'identifiant public, et l'appareil n'est donc
+        // plus decouvrable par des inconnus — alors que le croisement d'amis,
+        // lui, continue. Sans cette ligne, ce silence VOULU serait indiscernable
+        // d'une panne de radio.
+        "publicMuted" to !publicAutorise(),
+        "publicHeartbeatAgeMillis" to
+            if (dernierBattement == 0L) -1L
+            else android.os.SystemClock.elapsedRealtime() - dernierBattement,
         "advertTokensPerSlot" to (schedule?.cycleLength ?: 0),
         "sdk" to android.os.Build.VERSION.SDK_INT,
         "device" to "${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}",

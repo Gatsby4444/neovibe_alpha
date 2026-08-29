@@ -103,6 +103,18 @@ class ProximityController extends AsyncNotifier<void> {
     if (_boundUserId != null && _boundUserId != me) await _forgetLocalPing();
     _boundUserId = me;
 
+    // ⚠️ **`listen`, jamais `watch`.** Surveiller le superviseur ici
+    // ré-exécuterait ce `build` à chaque changement d'état de la radio — donc
+    // détruirait puis reconstruirait le réseau de pairs deux fois par
+    // démarrage. C'est exactement la panne décrite plus haut. `ref.listen`
+    // observe sans reconstruire : le consommateur choisit ce qui l'intéresse.
+    ref.listen(proximitySupervisorProvider.select((r) => r.wantsFriends), (
+      _,
+      veut,
+    ) {
+      _appliquerBalayage(veut);
+    });
+
     if (me != null) await _ensureNetwork();
 
     _publishPresence();
@@ -118,10 +130,23 @@ class ProximityController extends AsyncNotifier<void> {
     _sightingSweep = null;
     final network = _network;
     _network = null; // ← la ligne qui manquait
-    // Le flux de présence appartient au réseau : sans réseau, il n'y a pas de
-    // constat, et un constat périmé présenté comme une observation est
-    // exactement ce que ce chantier supprime partout.
-    _presence?.clear();
+    // ⚠️ **La présence ne se vide PLUS ici** (2026-08-29), et ce n'était pas
+    // un choix : Riverpod interdit de modifier un autre fournisseur pendant un
+    // `onDispose`. L'appel levait une assertion — avalee par `runGuarded`, donc
+    // parfaitement silencieuse — et ne vidait rien du tout en debug.
+    //
+    // Le besoin, lui, reste vrai : *un constat périmé présenté comme une
+    // observation est exactement ce que ce chantier supprime partout.* Il est
+    // couvert deux fois, légalement :
+    //
+    // - au changement de compte, par [_forgetLocalPing], qui vide la présence
+    //   **avant** que le nouveau compte n'ait quoi que ce soit à montrer ;
+    // - à la fin de chaque `build`, par [_publishPresence] : sans réseau il
+    //   publie une liste vide, ce que `clear()` faisait à l'identique.
+    //
+    // ⚠️ **Trouvé par un test qui démonte le conteneur**, pas à la lecture :
+    // en release les assertions n'existent pas, l'appel passait, et rien n'a
+    // jamais distingué les deux comportements.
     unawaited(network?.dispose());
   }
 
@@ -152,6 +177,12 @@ class ProximityController extends AsyncNotifier<void> {
   /// le téléphone.
   Future<void> _forgetLocalPing() async {
     await _journal.clear();
+    // ⚠️ **Après le premier `await`, et c'est ce qui le rend légal.** Vider
+    // la présence, c'est modifier un autre fournisseur : interdit pendant un
+    // cycle de vie (`build` synchrone, `onDispose`), permis ensuite. C'est
+    // aussi le bon moment produit — on efface ce que l'ancien compte voyait
+    // avant que le nouveau ne soit branché.
+    _presence?.clear();
     await _keyBook.clear();
     await _identity.forget();
     await ref.read(pingStoreProvider).wipe();
@@ -182,20 +213,69 @@ class ProximityController extends AsyncNotifier<void> {
     _radioFeed = supervisor.events.listen(network.onRadioEvent);
     _peerFeed = network.events.listen(_onPeerEvent);
 
-    // ⚠️ **Un seul balayage depuis le 2026-08-27, contre deux avant.**
-    //
-    // Le second tentait un **certificat de croisement co-signé** : ouvrir un
-    // lien GATT avec le pair et faire signer les deux appareils. Il part avec
-    // le transport, et la base prouve qu'il n'a jamais rien produit — la seule
-    // ligne de `encounters` porte `proof = 'mutual_sighting'`, alors que le
-    // défaut de la colonne est `'certificate'`.
-    //
-    // Ce qui reste — le CONSTAT — est celui qui marche : il ne demande ni lien,
-    // ni signature, et c'est le serveur qui exige la réciprocité.
-    _sightingSweep = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) => unawaited(_sweepSightings()),
-    );
+    _appliquerBalayage(ref.read(proximitySupervisorProvider).wantsFriends);
+  }
+
+  /// Cadence du balayage des constats.
+  ///
+  /// ⚠️ **Un seul balayage depuis le 2026-08-27, contre deux avant.** Le second
+  /// tentait un **certificat de croisement co-signé** : ouvrir un lien GATT
+  /// avec le pair et faire signer les deux appareils. Il part avec le
+  /// transport, et la base prouve qu'il n'a jamais rien produit — la seule
+  /// ligne de `encounters` porte `proof = 'mutual_sighting'`, alors que le
+  /// défaut de la colonne est `'certificate'`.
+  ///
+  /// Ce qui reste — le CONSTAT — est celui qui marche : il ne demande ni lien,
+  /// ni signature, et c'est le serveur qui exige la réciprocité.
+  static const sweepEvery = Duration(seconds: 2);
+
+  /// **Le balayage suit « Croiser mes amis », et rien d'autre.**
+  ///
+  /// ## 🔴 Le défaut que ceci corrige — relevé sur l'appareil le 2026-08-28
+  ///
+  /// Ce minuteur démarrait dès qu'un compte était connecté et ne s'arrêtait
+  /// jamais. Or chacun de ses tours traverse la frontière native
+  /// (`takeSightings`) : **30 appels par minute, toute la nuit, y compris les
+  /// deux interrupteurs éteints** — c'est-à-dire quand il n'y a, par
+  /// construction, rien à constater.
+  ///
+  /// ## ⚠️ Et la bonne condition n'est PAS « la radio tourne »
+  ///
+  /// La radio s'allume si l'un **ou** l'autre interrupteur est posé
+  /// (`radioNeeded`). L'attacher à celui-là aurait laissé le balayage tourner
+  /// pour quelqu'un qui ne veut qu'être visible d'inconnus : la radio a une
+  /// raison de tourner, mais aucune table d'amis n'a été déposée, donc la
+  /// réponse est vide **par construction**. Deux fonctions qui partagent une
+  /// radio ne partagent pas leurs conditions d'arrêt (consigne de Jay,
+  /// 2026-08-20).
+  ///
+  /// ## ⚠️ Ce qu'on récupère en s'arrêtant, et pourquoi
+  ///
+  /// À l'extinction on fait **un dernier tour**. Un constat déjà pris l'a été
+  /// pendant que l'utilisateur le voulait, et un croisement n'existe que si les
+  /// **deux** côtés l'ont signalé : jeter le nôtre ferait échouer en silence
+  /// celui d'un ami qui, lui, a tout fait correctement.
+  ///
+  /// ⚠️ **Ce dernier tour n'est pas atomique, et il ne prétend pas l'être.** Si
+  /// les deux interrupteurs tombent ensemble, la radio peut s'être arrêtée
+  /// avant lui — `takeSightings` échoue alors, et le tampon natif part avec le
+  /// service. Ce qui se perd tient dans les deux secondes précédentes, et le
+  /// journal déduplique par créneau de 15 minutes : un ami vu dans ce créneau a
+  /// déjà été remonté.
+  void _appliquerBalayage(bool veutCroiserSesAmis) {
+    if (veutCroiserSesAmis) {
+      if (_network == null) return;
+      _sightingSweep ??= Timer.periodic(
+        sweepEvery,
+        (_) => unawaited(_sweepSightings()),
+      );
+      return;
+    }
+    final minuteur = _sightingSweep;
+    if (minuteur == null) return;
+    minuteur.cancel();
+    _sightingSweep = null;
+    unawaited(_sweepSightings());
   }
 
   // ------------------------------------------------------------------

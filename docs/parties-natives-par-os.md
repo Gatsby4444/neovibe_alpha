@@ -216,11 +216,45 @@ et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
 
 | Canal | Sens | Contenu |
 |---|---|---|
-| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `setAdvertPlan`, `setRecognitionTable`, `takeSightings`, `stats`, `openLocationSettings`. ⚠️ **`updateAdvert` supprimé le 2026-08-25** (second chemin vers l'émission, incapable de porter le TYPE du jeton) ; ⚠️ **`connect`, `disconnect` et `send` supprimés le 2026-08-27**, avec tout le transport GATT ; ⚠️ **`advertCapabilities` supprimé le 2026-08-28** — aucun appelant Dart depuis que `stats()` fusionne la map entière des capacités (2026-08-26). |
+| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `setAdvertPlan`, `setRecognitionTable`, `takeSightings`, `publicHeartbeat`, `stats`, `openLocationSettings`. ⚠️ **`updateAdvert` supprimé le 2026-08-25** (second chemin vers l'émission, incapable de porter le TYPE du jeton) ; ⚠️ **`connect`, `disconnect` et `send` supprimés le 2026-08-27**, avec tout le transport GATT ; ⚠️ **`advertCapabilities` supprimé le 2026-08-28** — aucun appelant Dart depuis que `stats()` fusionne la map entière des capacités (2026-08-26). |
 | `neovibe/proximity/events` | natif → Dart | les **constats** : `status`, `scan`. ⚠️ **`link` et `frame` supprimés le 2026-08-27.** Le Dart ne sait plus les décoder : `RadioEvent.fromMap` les rendrait `null`. ⚠️ **`scan` porte `atMillis` depuis le 2026-08-28** — voir ci-dessous. |
 | `setAdvertPlan` | Dart → natif | *(2026-08-20)* dépose des heures de jetons d'avance — correction du point H |
 | `setRecognitionTable` | Dart → natif | *(2026-08-20)* jetons attendus → rangs, pour reconnaître sans le Dart |
 | `takeSightings` | Dart → natif | *(2026-08-20)* récupère et vide ce que le service a constaté seul |
+| `publicHeartbeat` | Dart → natif | *(2026-08-29)* **le battement de cœur de la découverte** — voir ci-dessous |
+
+### 🔴 L'HOMME MORT de l'identifiant public (2026-08-29)
+
+**Fichiers : `ProximityService.kt`, `AdvertSchedule.kt`, `ProximityBridge.kt`.**
+
+Le défaut corrigé : le plan porte **75 minutes** de jetons d'avance, pour que le
+service survive seul à la mort du Dart. C'est juste pour les jetons d'**ami** —
+un ami reconnaît tout seul, sans réseau, app fermée. L'identifiant **public**,
+lui, ne vaut rien sans la balise que le Dart republie au serveur toutes les
+60 s et qui meurt 5 min après lui. L'appareil continuait donc de crier, **jusqu'à
+70 minutes de plus**, un identifiant que plus personne ne pouvait traduire — mais
+que n'importe quel scanner pouvait suivre.
+
+| | |
+|---|---|
+| **Le battement** | `publicHeartbeat`, posé par le Dart à chaque republication **réussie** de sa balise serveur, et au dépôt d'un plan |
+| **La grâce** | **5 minutes** — ce n'est pas un chiffre choisi, c'est `private.ping_beacon_ttl()` |
+| **L'effet** | passé ce délai, `emitNext` filtre les jetons de type public ; **les jetons d'ami continuent** |
+| **Le témoin** | `stats()` publie `publicMuted` et `publicHeartbeatAgeMillis` |
+
+⚠️ **Le filtre est posé au seul endroit par lequel un jeton atteint la radio**
+(`emitNext`), et le tri lui-même vit dans `AdvertSchedule.tokensAt(now,
+avecPublic)`. Les modes parallèle et cycle partaient de deux calculs distincts :
+une règle posée sur l'un ne s'appliquait pas à l'autre.
+
+⚠️ **`AdvertSchedule.typeAt` a été supprimée** dans le même geste : sans
+appelant en production, et surtout devenue **fausse** — elle indexait le curseur
+sur le créneau complet alors que le mode cycle parcourt désormais la liste
+filtrée.
+
+⚠️ **À porter sur iOS** : le pendant iOS devra décider la même chose, et il n'a
+pas de service de premier plan pour le faire — point à rouvrir au moment du
+portage.
 
 ### ⚠️ Le plan d'émission est PERSISTÉ — et pas en entier (2026-08-28)
 

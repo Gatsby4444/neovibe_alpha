@@ -51,6 +51,19 @@ class BleRadio {
 
   Future<void> stop() => _methods.invokeMethod('stop');
 
+  /// **Je suis vivant, et je veux toujours être découvrable.**
+  ///
+  /// ⚠️ **À poser à chaque republication réussie de la balise serveur, et
+  /// nulle part ailleurs.** C'est le même geste qui rend l'identifiant public
+  /// traduisible et qui prouve qu'on est là : les deux durées de vie sont donc
+  /// liées par construction, au lieu d'être deux réglages à tenir d'accord.
+  ///
+  /// Sans lui, le service continuait de crier l'identifiant public **jusqu'à
+  /// 75 minutes** après qu'Android a rangé l'app, alors que la balise qui
+  /// permet de le traduire meurt au bout de cinq. Un cri que personne ne peut
+  /// lire, mais que n'importe quel scanner peut suivre.
+  Future<void> publicHeartbeat() => _methods.invokeMethod('publicHeartbeat');
+
   /// Ouvre les réglages de LOCALISATION du système — pas ceux de l'app.
   ///
   /// ⚠️ Aucune permission ne remplace cet interrupteur : sur Android 10 et 11,

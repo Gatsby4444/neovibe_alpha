@@ -102,12 +102,11 @@ class PlanPersistenceTest {
     @Test
     fun `tout ce qui reste est de type AMI`() {
         val amis = requireNotNull(planMixte(slots = 2, amis = 3).friendsOnly())
-        for (i in 0 until amis.cycleLength) {
-            assertEquals(
-                BleConstants.TYPE_FRIEND,
-                amis.typeAt(100 * slotMillis, i),
-            )
-        }
+        // typeAt a ete supprime le 2026-08-29 : on lit les types la ou ils
+        // partent vraiment a la radio, c est-a-dire dans le creneau entier.
+        val (_, types) = requireNotNull(amis.tokensAt(100 * slotMillis))
+        assertEquals(amis.cycleLength, types.size)
+        for (t in types) assertEquals(BleConstants.TYPE_FRIEND, t)
     }
 
     @Test

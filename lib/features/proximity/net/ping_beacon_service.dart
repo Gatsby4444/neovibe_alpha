@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../geo/coarse_location.dart';
 import '../proximity_identity.dart';
+import 'ble_radio.dart';
 import 'ping_nearby_feed.dart';
 import 'ping_repository.dart';
 import 'proximity_supervisor.dart';
@@ -216,6 +217,15 @@ class PingBeaconService extends Notifier<PingBeaconState> {
         slot: slot,
       );
       _publishedAt = DateTime.now();
+      // ⚠️ **Le natif apprend ICI qu'on est vivant, et pas ailleurs.**
+      //
+      // La balise vient d'être republiée : l'identifiant public est de nouveau
+      // traduisible par le serveur pour cinq minutes. C'est exactement la
+      // durée pendant laquelle il vaut la peine d'être crié — voir
+      // [BleRadio.publicHeartbeat]. Poser ce battement plus haut (avant la
+      // publication) autoriserait à crier un jeton que le serveur ne connaît
+      // pas.
+      unawaited(ref.read(bleRadioProvider).publicHeartbeat());
       state = state.copyWith(
         blocker: null,
         precision: precision,

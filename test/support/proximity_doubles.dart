@@ -1,7 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
+import 'package:neovibe/features/proximity/net/ble_radio.dart';
+import 'package:neovibe/features/proximity/net/radio_status.dart';
 import 'package:neovibe/features/proximity/proximity_identity.dart';
 
 /// Identité en mémoire.
@@ -204,4 +207,119 @@ class HorlogeMobile {
 /// `notifyListeners` est protégée : seule une sous-classe peut l'appeler.
 class _Notifier extends ChangeNotifier {
   void ping() => notifyListeners();
+}
+
+/// **LA** radio factice de toute la suite de tests.
+///
+/// ⚠️ **Un seul exemplaire, comme l'identite et le carnet.** Elle vivait
+/// dans `proximity_supervisor_test.dart` ; le test du balayage des amis en
+/// avait besoin a son tour, et deux doubles d'un meme objet finissent toujours
+/// par tester deux choses differentes.
+///
+/// Tout ce qu'elle fait, c'est **compter**. C'est deliberement son seul talent :
+/// les defauts que ce projet traque ne levent rien et ne se voient pas a
+/// l'ecran — ils se comptent.
+class RadioFactice implements BleRadio {
+  /// Combien de fois le Dart a traverse la frontiere native pour demander
+  /// « as-tu constate quelqu'un ? ».
+  ///
+  /// ⚠️ **C'est le compteur du defaut du 2026-08-28** : ce balayage tournait
+  /// toutes les deux secondes meme les deux interrupteurs eteints. Rien ne le
+  /// signalait — l'app se comportait exactement comme si tout allait bien.
+  int sightingsLues = 0;
+
+  /// Combien de battements de coeur de la decouverte ont ete poses.
+  int battements = 0;
+
+  final _flux = StreamController<RadioEvent>.broadcast();
+
+  /// Combien de fois un plan d'émission a été déposé.
+  int plans = 0;
+
+  /// Combien de fois une table de reconnaissance a été déposée.
+  int tables = 0;
+
+  /// Combien de jetons par créneau porte la dernière table déposée. **Zéro =
+  /// table vide**, c'est-à-dire « je ne reconnais plus personne » — un message
+  /// qui doit être ENVOYÉ, pas déduit d'un silence.
+  int? derniereTablePerSlot;
+
+  int demarrages = 0;
+
+  /// Combien de fois la radio a été **arrêtée**. C'est ce chiffre qui prouve
+  /// qu'un interrupteur ne coupe pas la fonction de l'autre.
+  int arrets = 0;
+
+  /// Les octets de type du dernier plan déposé : `1` = identifiant public,
+  /// `2` = jeton d'ami. **C'est la seule façon de voir ce qu'on crie vraiment.**
+  Uint8List? derniersTypes;
+
+  /// Fait échouer le dépôt du plan, pour éprouver le rétablissement.
+  bool refusePlan = false;
+
+  @override
+  Stream<RadioEvent> events() => _flux.stream;
+
+  @override
+  Future<RadioStatus> probe() async => const RadioIdle();
+
+  /// Le dernier identifiant sur lequel la radio a été démarrée. **C'est la
+  /// seule façon de voir ce qu'on crie avant que le plan prenne le relais.**
+  Uint8List? derniereAmorce;
+
+  @override
+  Future<void> start(Uint8List advertId) async {
+    demarrages++;
+    derniereAmorce = advertId;
+  }
+
+  @override
+  Future<void> stop() async => arrets++;
+
+  @override
+  Future<void> openLocationSettings() async {}
+
+  @override
+  Future<int> setAdvertPlan({
+    required Uint8List tokens,
+    required Uint8List types,
+    required int fromSlot,
+    required int slotMillis,
+    required int slotCount,
+    required int perSlot,
+    required int tokenLength,
+  }) async {
+    if (refusePlan) throw StateError('service absent');
+    plans++;
+    derniersTypes = types;
+    return 0;
+  }
+
+  @override
+  Future<void> setRecognitionTable({
+    required int tableId,
+    required Uint8List tokens,
+    required int fromSlot,
+    required int slotMillis,
+    required int slotCount,
+    required int perSlot,
+    required int tokenLength,
+  }) async {
+    tables++;
+    derniereTablePerSlot = perSlot;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> takeSightings() async {
+    sightingsLues++;
+    return const [];
+  }
+
+  @override
+  Future<void> publicHeartbeat() async => battements++;
+
+  @override
+  Future<Map<String, dynamic>> stats() async => const {};
+
+  Future<void> fermer() => _flux.close();
 }
