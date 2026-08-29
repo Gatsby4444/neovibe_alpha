@@ -1,0 +1,119 @@
+{
+  "slotMillis": 900000,
+  "tokenLength": 16,
+  "table": {
+    "tableId": 42,
+    "fromSlot": 1986600,
+    "slotCount": 3,
+    "perSlot": 2,
+    "ordre": [
+      "u-mimi",
+      "u-lea"
+    ],
+    "tokens": "usjCPmoLRo5Il0kGIw5M8eVjfgdE/yC/8/4dgqxlhPUDpc/o2yn5Hsz5LkPdO33+k/ncghPn7fIO0OGFCc1z6t7pnbPnywPa9HctZvGHQ26bu8rd/skPx3yMrSDbODP4"
+  },
+  "plan": {
+    "fromSlot": 1986600,
+    "slotCount": 3,
+    "perSlot": 3,
+    "tokens": "eEcf+DWYujE5v8apWdSzVbGE02ogyRf00k11/Er3udWxKruBqxQQ/E8gjSKjB6vDXNe9kC4qWOlEffOAAQeoz5YdeOwm2h1y5VizsSQ2pIaKX19XGSbpYdsC/Nyg0r1SUIAtlaRSuiuYx9vYI0IPd359oIeSzu2bT0N6l3QdNYsr0FuyP7J1v6qu+dYSDzQr",
+    "types": "AQICAQICAQIC"
+  },
+  "sondes": [
+    {
+      "jeton": "bac8c23e6a0b468e48974906230e4cf1",
+      "auCreneau": 1986600,
+      "rangAttendu": 0,
+      "pourquoi": "le premier ami, a son propre creneau"
+    },
+    {
+      "jeton": "9bbbcaddfec90fc77c8cad20db3833f8",
+      "auCreneau": 1986602,
+      "rangAttendu": 1,
+      "pourquoi": "le SECOND ami au TROISIEME creneau — la transposition"
+    },
+    {
+      "jeton": "03a5cfe8db29f91eccf92e43dd3b7dfe",
+      "auCreneau": 1986600,
+      "rangAttendu": 0,
+      "pourquoi": "un creneau d avance : la tolerance d horloge l accepte"
+    },
+    {
+      "jeton": "bac8c23e6a0b468e48974906230e4cf1",
+      "auCreneau": 1986602,
+      "rangAttendu": null,
+      "pourquoi": "deux creneaux de retard : rejoue, donc refuse"
+    },
+    {
+      "jeton": "f5eed5435d323dccdf4b6d1aa893ca48",
+      "auCreneau": 1986600,
+      "rangAttendu": null,
+      "pourquoi": "le jeton d une autre paire"
+    },
+    {
+      "jeton": "78471ff83598ba3139bfc6a959d4b355",
+      "auCreneau": 1986600,
+      "rangAttendu": null,
+      "pourquoi": "l identifiant PUBLIC n est reconnu par personne"
+    },
+    {
+      "jeton": "b184d36a20c917f4d24d75fc4af7b9d5",
+      "auCreneau": 1986600,
+      "rangAttendu": null,
+      "pourquoi": "mon PROPRE jeton vers mimi : je ne dois pas le reconnaitre"
+    }
+  ],
+  "sondesPlan": [
+    {
+      "auCreneau": 1986600,
+      "jetons": [
+        "78471ff83598ba3139bfc6a959d4b355",
+        "b184d36a20c917f4d24d75fc4af7b9d5",
+        "b12abb81ab1410fc4f208d22a307abc3"
+      ],
+      "types": [
+        1,
+        2,
+        2
+      ],
+      "sansPublic": [
+        "b184d36a20c917f4d24d75fc4af7b9d5",
+        "b12abb81ab1410fc4f208d22a307abc3"
+      ]
+    },
+    {
+      "auCreneau": 1986601,
+      "jetons": [
+        "5cd7bd902e2a58e9447df3800107a8cf",
+        "961d78ec26da1d72e558b3b12436a486",
+        "8a5f5f571926e961db02fcdca0d2bd52"
+      ],
+      "types": [
+        1,
+        2,
+        2
+      ],
+      "sansPublic": [
+        "961d78ec26da1d72e558b3b12436a486",
+        "8a5f5f571926e961db02fcdca0d2bd52"
+      ]
+    },
+    {
+      "auCreneau": 1986602,
+      "jetons": [
+        "50802d95a452ba2b98c7dbd823420f77",
+        "7e7da08792ceed9b4f437a97741d358b",
+        "2bd05bb23fb275bfaaaef9d6120f342b"
+      ],
+      "types": [
+        1,
+        2,
+        2
+      ],
+      "sansPublic": [
+        "7e7da08792ceed9b4f437a97741d358b",
+        "2bd05bb23fb275bfaaaef9d6120f342b"
+      ]
+    }
+  ]
+}

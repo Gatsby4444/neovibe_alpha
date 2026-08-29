@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# Construit l'APK de release et le signe AVEC LA PREUVE DE ROTATION.
+# Construit l'APK de release, et vérifie l'artefact.
 #
-# ⚠️ **Pourquoi ce script existe, et pourquoi il ne faut pas construire à la
-# main.** Le 2026-08-25, deux pannes d'installation successives ont bloqué le
-# test chez Jay :
+# ## 🔴 CE SCRIPT NE SIGNE PLUS — 2026-08-29
 #
-#   -25  versionCode en recul  (passage d'APK découpés à un APK complet)
-#   -7   signatures en conflit (la clé de debug est propre à CHAQUE machine)
+# Il portait la signature avec preuve de rotation, parce que le plugin Android
+# ne sait pas la produire. C'était un **garde-fou**, et `CLAUDE.md` dit qu'un
+# garde-fou est un aveu : il faut le maintenir, le comprendre, et ne jamais le
+# contourner par mégarde. Il a été contourné — deux releases publiées par
+# `flutter build apk --release` le 2026-08-27, dont une qui a refusé de
+# s'installer chez Jay.
 #
-# La seconde a été réglée par une **rotation de clé** : l'APK porte la preuve
-# que l'ancienne clé autorise la nouvelle, donc il s'installe par-dessus une
-# version signée par l'ancienne, sans désinstaller.
+# **La cause est supprimée** : la signature vit maintenant dans
+# `android/app/build.gradle.kts`, sur la tâche d'empaquetage. Il n'existe donc
+# plus de chemin qui produise un APK sans la preuve — `flutter build apk`,
+# `gradlew assembleRelease` ou n'importe quel outil futur passent tous par là.
+# Et si les fichiers de rotation manquent, **la construction échoue** au lieu de
+# livrer un artefact qui ne s'installera nulle part.
 #
-# `flutter build apk --release` seul produit un APK signé par la nouvelle clé
-# SANS cette preuve — il ne s'installera pas sur un appareil qui a une version
-# antérieure au 2026-08-25. **Rien ne le signale : l'APK se construit
-# parfaitement, c'est l'installation qui échoue, chez Jay.** D'où ce script.
+# ⚠️ **Ce script reste utile, et seulement pour ça** : il construit, puis il
+# **relit l'artefact**. Deux vérifications sur le fichier produit, pas sur ce
+# que la construction a dit avoir fait.
 #
 # Usage :  bash tool/build-release.sh
 set -euo pipefail
@@ -28,45 +32,23 @@ APKSIGNER="${BT}apksigner.bat"
 AAPT="${BT}aapt.exe"
 APK="build/app/outputs/flutter-apk/app-release.apk"
 
-ANCIENNE="docdev/ancienne-cle-debug.keystore"
-NOUVELLE="docdev/neovibe-release.jks"
-LIGNAGE="docdev/lineage-neovibe.bin"
-MOTDEPASSE_FICHIER="docdev/keystore-password.txt"
-
-for f in "$ANCIENNE" "$NOUVELLE" "$LIGNAGE" "$MOTDEPASSE_FICHIER"; do
-  if [ ! -f "$f" ]; then
-    echo "ARRET : $f manquant." >&2
-    echo "Ces fichiers sont hors dépôt et DOIVENT suivre le projet d'une" >&2
-    echo "machine à l'autre. Voir RAPPELS.md #13, #61 et RSUNA.md." >&2
-    exit 1
-  fi
-done
-MDP="$(cat "$MOTDEPASSE_FICHIER")"
-
-echo "== 1/4 construction =="
+echo "== 1/3 construction (la signature se fait DANS Gradle) =="
 flutter build apk --release
 
-echo "== 2/4 signature avec preuve de rotation =="
-# ⚠️ L'ordre compte : le signataire le PLUS ANCIEN d'abord, puis --next-signer.
-# ⚠️ v1 et v2 ne peuvent pas porter deux signataires ; `minSdk` valant 29 et le
-#    schéma v3 existant depuis l'API 28, ils sont inutiles ici.
-"$APKSIGNER" sign \
-  --lineage "$LIGNAGE" \
-  --min-sdk-version 29 \
-  --v1-signing-enabled false \
-  --v2-signing-enabled false \
-  --v3-signing-enabled true \
-  --ks "$ANCIENNE" --ks-pass pass:android \
-  --ks-key-alias androiddebugkey --key-pass pass:android \
-  --next-signer \
-  --ks "$NOUVELLE" --ks-pass "pass:$MDP" \
-  --ks-key-alias neovibe --key-pass "pass:$MDP" \
-  "$APK"
+echo "== 2/3 vérification de la signature, sur l'artefact =="
+# ⚠️ **On relit le fichier, on ne croit pas la construction.** Gradle vérifie
+# déjà, sur l'APK qu'il produit ; celui-ci est la COPIE que Flutter dépose et
+# que Jay télécharge. Ce sont deux fichiers, donc deux vérifications.
+PREUVE="$("$APKSIGNER" verify --print-certs "$APK")"
+echo "$PREUVE" | grep -E "Signer.*DN:"
+echo "$PREUVE" | grep -q "CN=NeoVibe" || { echo "ARRET : signataire NeoVibe absent." >&2; exit 1; }
+echo "$PREUVE" | grep -q "CN=Android Debug" || {
+  echo "ARRET : la preuve de rotation manque — cet APK ne s'installerait pas" >&2
+  echo "par-dessus une version antérieure. Voir RAPPELS.md #61." >&2
+  exit 1
+}
 
-echo "== 3/4 vérification de la signature =="
-"$APKSIGNER" verify --verbose --print-certs "$APK" | grep -E "Verified using v3|Signer.*DN:"
-
-echo "== 4/4 vérification du versionCode =="
+echo "== 3/3 vérification du versionCode =="
 # ⚠️ Le SEUL contrôle qui prouve quelque chose : il doit dépasser celui de la
 # release précédente (RAPPELS.md #60).
 "$AAPT" dump badging "$APK" | head -1

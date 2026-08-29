@@ -437,6 +437,25 @@ faisait apparaître un ami à cinq amis comme **six appareils différents**.
 (`setAdvertPlan`, paramètre `types`). Savoir lequel est public est une règle
 produit, elle vit d'un seul côté.
 
+⚠️ **LE POINT DE CONTACT DART ↔ KOTLIN, ajouté le 2026-08-29.** Le plan
+d'émission et la table de reconnaissance sont **écrits en Dart et lus en
+Kotlin**. Chaque côté avait ses tests, **avec ses propres fixtures** : rien ne
+vérifiait qu'ils rangent les octets de la même façon. Une transposition y serait
+parfaitement silencieuse — tout compile, tous les tests restent verts, et le seul
+symptôme est *« entendu dix fois par seconde, reconnu zéro fois »*.
+
+Dispositif, calqué sur celui du format scellé : `test/recognition_vectors_test.dart`
+produit et **revérifie à chaque exécution** le manifeste
+`android/app/src/test/resources/recognition-vectors/manifest.json` ;
+`RecognitionVectorsTest.kt` le relit et éprouve `RecognitionTable` **et**
+`AdvertSchedule` dessus. ⚠️ **Ne jamais régénérer pour faire passer un test** :
+les deux implémentations resteraient fausses ensemble, et plus rien ne les
+départagerait. Régénération délibérée :
+`NEOVIBE_REGEN=1 flutter test test/recognition_vectors_test.dart`.
+
+⚠️ **À porter sur iOS**, et c'est là que ça paiera : une troisième
+implémentation du même accord, sans point de contact, est une divergence promise.
+
 - **`AdvertOnAir.kt`** — *(nouveau, 2026-08-29)* **ce que la pile a accepté de
   mettre en l'air**, par opposition à ce qu'on lui a demandé. Trois états par
   jeu d'annonce : *demandé*, *en vol*, *confirmé*.
