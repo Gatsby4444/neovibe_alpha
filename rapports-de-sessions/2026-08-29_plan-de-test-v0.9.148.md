@@ -127,9 +127,14 @@ n'auraient aucun sens.
 |---|---|
 | vous vous revoyez dans « Autour de toi » | il faut redémarrer l'app |
 
-⚠️ **Il est normal d'attendre 10 à 20 secondes de plus** avant que « Écrire »
+⚠️ **Il est normal d'attendre 1 à 2 minutes de plus** avant que « Écrire »
 redevienne possible : le ticket a été déchiré, il faut vous revoir pour en
 refabriquer un. Ce n'est pas un défaut, c'est le correctif.
+
+> ⚠️ **Chiffre corrigé après vérification dans le code** : j'avais d'abord écrit
+> « 10 à 20 secondes ». Le téléphone n'envoie ce qu'il a entendu que **toutes les
+> 60 secondes** (), et il faut que les DEUX l'aient
+> fait pour que le ticket renaisse. Compter deux minutes.
 
 ---
 
@@ -209,5 +214,7 @@ fil de proximité se fermer tout seul. À faire quand tu pourras sortir.
 
 | | |
 |---|---|
-| après un déblocage, il faut se revoir 10-20 s avant que « Écrire » revienne | c'est le correctif, pas un défaut |
+| après un déblocage, il faut se revoir 1 à 2 min avant que « Écrire » revienne | c'est le correctif, pas un défaut |
+| débloquer ne rend PAS l'amitié : elle a été supprimée par le blocage | voulu |
+| les anciens messages du fil restent lisibles (24 h de TTL) ; on ne peut plus y écrire | limite connue |
 | retirer un ami efface le croisement et les constats de la paire | voulu depuis le 2026-08-28 |
