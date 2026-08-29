@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../app.dart';
 import '../../core/motion.dart';
@@ -14,6 +13,7 @@ import '../library/profile_screen.dart';
 import '../notifications/fomo_listener.dart';
 import '../play/play_screen.dart';
 import '../proximity/ping_screen.dart';
+import 'section_cursor.dart';
 
 /// Navigation principale — **cinq onglets depuis le 2026-08-01** (consigne
 /// Jay) : Ping | Cercle | (Card) | Jeux | Profil.
@@ -65,9 +65,19 @@ class _HomeShellState extends ConsumerState<HomeShell>
     StartupTab.profile => _profile,
   };
 
-  /// Onglet ouvert. Part sur le Cercle et bascule sur l'onglet réglé dès que
-  /// la préférence est lue (quelques millisecondes) — voir `initState`.
-  var _index = _circle;
+  /// Où en est la navigation : l'onglet **visé** (la barre) et l'onglet
+  /// **affiché** (l'écran). Les deux ne peuvent plus bouger l'un sans l'autre —
+  /// voir `SectionCursor` et le défaut du 2026-08-29 qu'il supprime.
+  ///
+  /// ⚠️ La valeur de départ n'est plus le Cercle « en attendant » : elle est
+  /// **lue avant le premier rendu** (`startupTabAtLaunchProvider`, résolu dans
+  /// `main()`). L'app n'a donc plus à sauter d'onglet après coup — et le Cercle
+  /// n'est plus construit pour rien quand on démarre ailleurs.
+  late final SectionCursor _cursor = SectionCursor(
+    _indexOf(ref.read(startupTabAtLaunchProvider)),
+  );
+
+  int get _index => _cursor.vise;
 
   /// Onglets déjà ouverts au moins une fois. L'`IndexedStack` ne construit que
   /// ceux-là ; une fois visité, un onglet reste monté et garde son état.
@@ -87,7 +97,11 @@ class _HomeShellState extends ConsumerState<HomeShell>
   /// C'est une différence de nature : le premier motif interdisait le carrousel
   /// à doigt suivi, le second n'est qu'un coût à arbitrer. **Une contrainte
   /// écrite et jamais revérifiée finit par décider à notre place.**
-  final _visited = <int>{_circle};
+  ///
+  /// ⚠️ **Il part sur l'onglet de DÉMARRAGE, pas sur le Cercle.** Avant le
+  /// 2026-08-29 le Cercle était monté au lancement quoi qu'il arrive — donc ses
+  /// chargements réseau partaient même quand on démarrait sur le Profil.
+  late final _visited = <int>{_cursor.affiche};
 
   /// Vrai dès que l'utilisateur a touché la barre lui-même : la préférence de
   /// démarrage arrive de façon asynchrone et ne doit jamais lui reprendre la
@@ -131,7 +145,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
 
   /// L'index réellement AFFICHÉ. Il rattrape [_index] au milieu de la bascule,
   /// quand le contenu est à son opacité la plus basse.
-  late int _shownIndex = _index;
+  int get _shownIndex => _cursor.affiche;
 
   /// +1 si l'on va vers la droite (index croissant), -1 sinon.
   var _direction = 1;
@@ -152,8 +166,8 @@ class _HomeShellState extends ConsumerState<HomeShell>
 
   void _onSwitchTick() {
     // Le contenu change quand il est le moins visible.
-    if (_switch.value >= _handover && _shownIndex != _index) {
-      setState(() => _shownIndex = _index);
+    if (_switch.value >= _handover && _cursor.enTransit) {
+      setState(_cursor.relayer);
     } else {
       setState(() {});
     }
@@ -190,25 +204,25 @@ class _HomeShellState extends ConsumerState<HomeShell>
   @override
   void initState() {
     super.initState();
-    // Lecture directe des préférences plutôt que `startupTabProvider` : le
-    // provider ne connaît sa vraie valeur qu'après un chargement asynchrone,
-    // et l'écouter ferait sauter l'app d'onglet au moment où Jay change le
-    // réglage. Ici on ne veut la valeur qu'UNE fois, au lancement.
-    SharedPreferences.getInstance().then((prefs) {
-      if (!mounted || _userMoved) return;
-      final tab = StartupTab.fromKey(prefs.getString(StartupTabPref.prefsKey));
-      final index = _indexOf(tab);
-      if (index != _index) {
-        setState(() {
-          _index = index;
-          _visited.add(index);
-        });
-      }
-      // Démarrage sur la Card : l'app se pose sur le Cercle et ouvre la
-      // capture par-dessus. Fermer la capture laisse donc sur le Cercle,
-      // au lieu de sortir de l'app sur un écran vide.
-      if (tab == StartupTab.card) _openCapture();
-    });
+    // ⚠️ **Plus aucune lecture asynchrone ici.** Elle posait l'onglet réglé
+    // APRÈS le premier rendu, et c'est ce qui a produit le défaut du
+    // 2026-08-29 : la barre partait sur Profil, l'écran restait sur le Cercle.
+    // La valeur est désormais connue avant `runApp` (`main()`), donc le
+    // curseur naît déjà au bon endroit — voir `_cursor`.
+    //
+    // ⚠️ On ne s'ABONNE toujours pas à `startupTabProvider` : le réglage dit
+    // « où démarrer », pas « où aller maintenant ». L'écouter ferait sauter
+    // l'app d'onglet à l'instant où Jay change le réglage.
+    //
+    // Démarrage sur la Vibe : l'app se pose sur le Cercle et ouvre la capture
+    // par-dessus. Fermer la capture laisse donc sur le Cercle, au lieu de
+    // sortir de l'app sur un écran vide. Le `Navigator` n'existe qu'une fois
+    // la première image posée, d'où le report d'une frame.
+    if (ref.read(startupTabAtLaunchProvider) == StartupTab.card) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_userMoved) _openCapture();
+      });
+    }
   }
 
   @override
@@ -581,7 +595,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
     final from = (_drag.abs() / _travel * _handover).clamp(0.0, _handover);
     setState(() {
       _direction = direction;
-      _index = target;
+      _cursor.viser(target);
       _visited.add(target);
       _drag = 0;
     });

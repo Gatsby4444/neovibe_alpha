@@ -298,6 +298,28 @@ final startupTabProvider = NotifierProvider<StartupTabPref, StartupTab>(
   StartupTabPref.new,
 );
 
+/// L'onglet de démarrage **tel qu'il était au lancement de l'app**.
+///
+/// ⚠️ **Ce n'est pas un doublon de [startupTabProvider], c'est l'autre
+/// question.** Le premier dit *« quel onglet est réglé, à l'instant »* — il
+/// change dès que Jay touche au réglage, et l'écran des Réglages doit le voir
+/// changer. Celui-ci dit *« où l'app devait s'ouvrir »* : une valeur figée,
+/// lue une fois avant le premier rendu, qui ne bouge plus de la session.
+///
+/// Les confondre, c'est faire sauter l'app d'onglet pendant que l'utilisateur
+/// règle son démarrage.
+///
+/// 🔴 **Il n'a pas de valeur par défaut, volontairement.** Sa valeur est posée
+/// dans `main()` (`overrideWithValue`) après lecture des préférences. Une
+/// valeur de repli ici rendrait un oubli d'override **silencieux** : l'app
+/// s'ouvrirait simplement toujours sur le Cercle, sans que rien ne le signale.
+final startupTabAtLaunchProvider = Provider<StartupTab>(
+  (ref) => throw StateError(
+    'startupTabAtLaunchProvider doit être posé dans main() '
+    '(ProviderScope overrides) après lecture des préférences.',
+  ),
+);
+
 /// Nombre d'**ouvertures** appliqué par défaut aux nouvelles Cards.
 ///
 /// 1-5 ; 0 = illimité. Consigne de Jay du 2026-08-14 : « par défaut […]

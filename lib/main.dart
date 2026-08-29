@@ -127,7 +127,18 @@ Future<void> main() async {
   // temps du développement (Jay doit pouvoir prendre des captures d'écran),
   // activable dans Réglages → Développeur. À réactiver avant la prod
   // (RAPPELS.md).
-  SharedPreferences.getInstance().then((prefs) {
+  // ⚠️ **Attendu, et c'est délibéré.** L'onglet de démarrage doit être connu
+  // AVANT le premier rendu : lu après coup, l'app s'ouvrait sur le Cercle puis
+  // sautait ailleurs, en laissant la barre et l'écran désaccordés (défaut du
+  // 2026-08-29, voir `SectionCursor`). Le coût est une lecture de préférences,
+  // que l'écran de démarrage natif couvre ; les balayages ci-dessous, eux, ne
+  // bloquent toujours rien.
+  final prefs = await SharedPreferences.getInstance();
+  final startupTab = StartupTab.fromKey(
+    prefs.getString(StartupTabPref.prefsKey),
+  );
+
+  {
     CardMediaCache().sweep(prefs.getInt(OwnCardsQuotaMb.prefsKey) ?? 2048);
     // Le socle de contenu (stories et publications) a son propre balayage :
     // sa règle est l'expiration du contenu, pas un budget de vues.
@@ -144,14 +155,17 @@ Future<void> main() async {
     NativeCameraController.setSecure(
       prefs.getBool(DevSecureEnabled.prefsKey) ?? false,
     );
-  });
+  }
 
   runApp(
-    const ProviderScope(
+    ProviderScope(
       // Capte tout échec de provider — donc l'essentiel des erreurs serveur,
       // sans instrumenter le moindre appel.
-      observers: [AppLogProviderObserver()],
-      child: NeoVibeApp(),
+      observers: const [AppLogProviderObserver()],
+      // L'onglet d'ouverture, figé pour la session. Voir
+      // `startupTabAtLaunchProvider` : sans cet override, il lève.
+      overrides: [startupTabAtLaunchProvider.overrideWithValue(startupTab)],
+      child: const NeoVibeApp(),
     ),
   );
 }
