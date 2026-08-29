@@ -10,6 +10,7 @@ import '../presence_feed.dart';
 import '../proximity_identity.dart';
 import 'connection_trace.dart';
 import 'peer_network.dart';
+import '../../connections/friendships_repository.dart';
 import 'presque_ledger.dart';
 import 'peer_session.dart';
 import 'proximity_journal.dart';
@@ -512,10 +513,17 @@ class ProximityController extends AsyncNotifier<void> {
     await _journal.noteWave(friend.userId);
 
     final profile = await ref.read(myProfileProvider.future);
-    final realtime = profile?.realtimeWaves ?? false;
-    final when = realtime
-        ? DateTime.now()
-        : DateTime.now().add(const Duration(minutes: 45));
+    // ⚠️ **Le contrôleur ne connaît AUCUN palier et n'en lit aucune règle.** Il
+    // demande un rang au dépôt des amitiés — qui vit hors du ping — et le
+    // passe à une règle pure. C'est le strict minimum de contact exigé par la
+    // consigne de Jay du 2026-08-28.
+    final rang = ref.read(tierOfProvider(friend.userId)).rang;
+    final when = DateTime.now().add(
+      PresqueDelai.pour(
+        rangDuPalier: rang,
+        tempsReelChoisi: profile?.realtimeWaves ?? false,
+      ),
+    );
     await NotificationService.instance.schedule(
       NotifChannel.waves,
       'Le presque…',
