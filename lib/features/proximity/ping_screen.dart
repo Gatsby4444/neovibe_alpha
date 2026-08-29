@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/typography.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
@@ -662,10 +663,7 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
     ];
   }
 
-  return [
-    ...notice,
-    for (final personne in gens) _TuileInconnu(personne: personne),
-  ];
+  return [...notice, _GrilleInconnus(gens: gens, aPortee: true)];
 }
 
 /// Quelqu'un que le ping a révélé : un **inconnu**, dont la proximité est
@@ -691,41 +689,124 @@ class _TuileInconnu extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final p = context.palette;
     final initiale = personne.displayName.isEmpty
         ? "?"
         : personne.displayName.substring(0, 1).toUpperCase();
-    return ListTile(
-      // ⚠️ **Le widget partagé, et pas un `NetworkImage`.** `avatar_url` porte
-      // un chemin de coffre privé, pas une URL : le donner tel quel à
-      // `NetworkImage` levait « No host specified in URI » et laissait un rond
-      // vide (constaté par Jay le 2026-08-26). `Avatar` sait lire les deux
-      // formes, passe par la politique du coffre, et garde le fichier.
-      leading: Avatar(stored: personne.avatarUrl, fallback: Text(initiale)),
-      title: Text(personne.displayName),
-      subtitle: Text(
-        aPortee
-            ? (personne.tagName == null ? "À portée" : "@${personne.tagName}")
-            : "Croisé ${vagueTimeAgo(personne.lastSeenAt)} — plus à portée",
+
+    return Container(
+      decoration: BoxDecoration(
+        color: p.surface,
+        borderRadius: BorderRadius.circular(NeoRadius.md),
+        border: Border.all(color: p.line),
       ),
-      // Deux gestes, deux boutons : écrire, ou demander en ami. Les confondre
-      // obligerait l'utilisateur à deviner lequel il déclenche.
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
+      padding: const EdgeInsets.all(NeoSpace.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _BoutonDemande(
-            userId: personne.userId,
-            displayName: personne.displayName,
+          // ⚠️ **Le widget partagé, et pas un `NetworkImage`.** `avatar_url`
+          // porte un chemin de coffre privé, pas une URL : le donner tel quel à
+          // `NetworkImage` levait « No host specified in URI » et laissait un
+          // rond vide (constaté par Jay le 2026-08-26). `Avatar` sait lire les
+          // deux formes, passe par la politique du coffre, et garde le fichier.
+          Avatar(
+            stored: personne.avatarUrl,
+            radius: 21,
+            fallback: Text(initiale),
           ),
-          if (aPortee)
-            IconButton(
-              tooltip: "Écrire",
-              icon: const Icon(Icons.chat_bubble_outline),
-              onPressed: () => _ouvrirChatProximite(ref, personne),
-            ),
+          const SizedBox(height: NeoSpace.sm),
+          Text(
+            personne.displayName,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.pseudo,
+          ),
+          Text(
+            aPortee
+                ? (personne.tagName == null
+                      ? "À portée"
+                      : "@${personne.tagName}")
+                : "Croisé ${vagueTimeAgo(personne.lastSeenAt)}",
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.tagName,
+          ),
+          const SizedBox(height: NeoSpace.sm),
+
+          // La MENTION SPÉCIALE — la deuxième bio, écrite pour les gens qu'on
+          // croise sans les connaître.
+          //
+          // ⚠️ **Absente ne veut pas dire vide** : le serveur ne l'envoie que
+          // si la personne a ouvert son interrupteur. L'app n'a donc rien à
+          // décider, et rien à cacher.
+          Expanded(
+            child: personne.specialMention == null
+                ? const SizedBox.shrink()
+                : Text(
+                    personne.specialMention!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+          ),
+
+          // Deux gestes, deux boutons : écrire, ou demander en ami. Les
+          // confondre obligerait l'utilisateur à deviner lequel il déclenche.
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _BoutonDemande(
+                userId: personne.userId,
+                displayName: personne.displayName,
+              ),
+              if (aPortee)
+                IconButton(
+                  tooltip: "Écrire",
+                  icon: const Icon(Icons.chat_bubble_outline),
+                  onPressed: () => _ouvrirChatProximite(ref, personne),
+                ),
+            ],
+          ),
         ],
       ),
     );
   }
+}
+
+/// Les inconnus, **deux par ligne** (consigne de Jay, 2026-08-29).
+///
+/// ⚠️ **Une hauteur de tuile FIXE, et pas un rapport de forme.** Le contenu
+/// varie — une mention de zéro, une ou deux lignes — et un rapport de forme
+/// produit une hauteur qui dépend de la largeur de l'écran. Sur un téléphone
+/// étroit, la tuile déborderait ; le débordement s'affiche en rayures jaunes en
+/// debug et **se voit à peine en release**. Une hauteur fixe se calcule une
+/// fois et tient sur tous les écrans.
+class _GrilleInconnus extends StatelessWidget {
+  const _GrilleInconnus({required this.gens, required this.aPortee});
+
+  final List<NearbyPerson> gens;
+  final bool aPortee;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: NeoSpace.lg),
+    child: GridView.builder(
+      shrinkWrap: true,
+      // Elle vit DANS la liste de l'écran : c'est la liste qui défile, pas la
+      // grille. Deux zones de défilement imbriquées se disputeraient le doigt.
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.zero,
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        crossAxisSpacing: NeoSpace.md,
+        mainAxisSpacing: NeoSpace.md,
+        mainAxisExtent: 196,
+      ),
+      itemCount: gens.length,
+      itemBuilder: (context, i) =>
+          _TuileInconnu(personne: gens[i], aPortee: aPortee),
+    ),
+  );
 }
 
 /// Le bouton « demander en ami », **et l'état de la demande**.
@@ -933,8 +1014,7 @@ List<Widget> _croisesRecemment(WidgetRef ref) {
   if (gens.isEmpty) return const [];
   return [
     const _TitreSection('Croisés récemment'),
-    for (final personne in gens)
-      _TuileInconnu(personne: personne, aPortee: false),
+    _GrilleInconnus(gens: gens, aPortee: false),
   ];
 }
 

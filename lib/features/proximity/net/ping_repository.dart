@@ -161,6 +161,7 @@ class NearbyPerson {
     this.tagName,
     this.avatarUrl,
     this.token,
+    this.specialMention,
   });
 
   final String userId;
@@ -188,6 +189,15 @@ class NearbyPerson {
   /// périmé, on retombe sur [lastSeenAt] le temps de le réapprendre.
   final String? token;
 
+  /// La **mention spéciale** — la deuxième bio, écrite pour les gens qu'on
+  /// croise sans les connaître.
+  ///
+  /// ⚠️ **Nulle ne veut pas dire « vide », ça veut dire « pas pour toi ».** Le
+  /// serveur ne l'envoie que si la personne a ouvert son interrupteur : ce
+  /// n'est donc pas à l'app de décider de la montrer, elle ne reçoit rien à
+  /// cacher. Voir la migration du 2026-08-30.
+  final String? specialMention;
+
   factory NearbyPerson.fromJson(Map<String, dynamic> json) => NearbyPerson(
     userId: json['user_id'] as String,
     displayName: json['display_name'] as String? ?? '',
@@ -195,6 +205,7 @@ class NearbyPerson {
     avatarUrl: json['avatar_url'] as String?,
     lastSeenAt: DateTime.parse(json['last_seen_at'] as String),
     token: json['token'] as String?,
+    specialMention: json['special_mention'] as String?,
   );
 
   @override
@@ -205,11 +216,19 @@ class NearbyPerson {
       other.tagName == tagName &&
       other.avatarUrl == avatarUrl &&
       other.lastSeenAt == lastSeenAt &&
-      other.token == token;
+      other.token == token &&
+      other.specialMention == specialMention;
 
   @override
-  int get hashCode =>
-      Object.hash(userId, displayName, tagName, avatarUrl, lastSeenAt, token);
+  int get hashCode => Object.hash(
+    userId,
+    displayName,
+    tagName,
+    avatarUrl,
+    lastSeenAt,
+    token,
+    specialMention,
+  );
 }
 
 final pingRepositoryProvider = Provider(PingRepository.new);

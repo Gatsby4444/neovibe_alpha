@@ -56,6 +56,28 @@ class ProfileRepository {
         .eq('id', _me),
   );
 
+  /// La **mention spéciale** et son interrupteur.
+  ///
+  /// ⚠️ **Écrits ensemble, dans une seule opération.** Séparer les deux
+  /// laisserait un instant où la mention existe déjà et où l'interrupteur n'est
+  /// pas encore posé — ou l'inverse. Sur un texte destiné à des inconnus, cet
+  /// instant-là est exactement celui qu'il ne faut pas créer.
+  Future<void> updateSpecialMention({
+    required String? mention,
+    required bool public,
+  }) => _write(
+    () => ref
+        .read(supabaseProvider)
+        .from('profiles')
+        .update({
+          'special_mention': (mention?.isEmpty ?? true) ? null : mention,
+          // Une mention vide ne peut pas être publique : il n'y a rien à
+          // publier. Énoncé positivement plutôt que laissé à l'écran.
+          'special_mention_public': (mention?.isEmpty ?? true) ? false : public,
+        })
+        .eq('id', _me),
+  );
+
   /// Recevoir les waves en temps réel, ou en différé (le défaut).
   Future<void> setRealtimeWaves(bool value) => _write(
     () => ref

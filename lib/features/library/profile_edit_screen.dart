@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import '../../core/typography.dart';
+import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/widgets/avatar.dart';
@@ -27,6 +29,10 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
     text: widget.profile.tagName ?? '',
   );
   late final _bio = TextEditingController(text: widget.profile.bio ?? '');
+  late final _mention = TextEditingController(
+    text: widget.profile.specialMention ?? '',
+  );
+  late var _mentionPublique = widget.profile.specialMentionPublic;
 
   /// Les octets recadrés en attente d'enregistrement. La photo n'est déposée
   /// qu'à la validation : renoncer à l'écran ne doit rien avoir changé.
@@ -42,6 +48,7 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
     _username.dispose();
     _tagName.dispose();
     _bio.dispose();
+    _mention.dispose();
     super.dispose();
   }
 
@@ -79,6 +86,15 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
       await ref
           .read(profileRepositoryProvider)
           .updateIdentity(displayName: username, tagName: tagName, bio: bio);
+      // ⚠️ Deux écritures, et c'est volontaire : l'identité et la mention n'ont
+      // ni le même public ni les mêmes règles. Les fondre dans une seule
+      // requête ferait de la mention un détail de l'identité.
+      await ref
+          .read(profileRepositoryProvider)
+          .updateSpecialMention(
+            mention: _mention.text.trim(),
+            public: _mentionPublique,
+          );
       ref.invalidate(myProfileProvider);
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -172,9 +188,45 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
             controller: _bio,
             maxLength: 500,
             maxLines: 4,
-            decoration: const InputDecoration(labelText: 'Biographie'),
+            decoration: const InputDecoration(
+              labelText: 'Biographie',
+              helperText: 'Lue par tes amis, sur ton profil',
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: NeoSpace.xxl),
+
+          // ⚠️ **Séparée de la bio par un vrai blanc et un titre.** Les deux
+          // sont du texte libre sur soi : collées, on les remplirait pareil, et
+          // on écrirait pour ses amis un texte que des inconnus vont lire.
+          Text('Ta mention spéciale', style: context.sectionTitle),
+          const SizedBox(height: NeoSpace.sm),
+          Text(
+            'Une phrase pour les gens que tu croises sans les connaître : '
+            'ce que tu cherches, ce que tu fais là, ton humeur du jour.',
+            style: TextStyle(color: context.muted),
+          ),
+          const SizedBox(height: NeoSpace.md),
+          TextField(
+            controller: _mention,
+            maxLength: 90,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'Mention spéciale',
+              hintText: 'Cherche un binôme pour le TP de physique',
+            ),
+          ),
+          SwitchListTile(
+            value: _mentionPublique,
+            onChanged: (v) => setState(() => _mentionPublique = v),
+            contentPadding: EdgeInsets.zero,
+            title: const Text('La montrer aux inconnus croisés'),
+            subtitle: Text(
+              _mentionPublique
+                  ? 'Visible dans le Ping par les gens que tu croises.'
+                  : 'Toi seul la vois pour le moment.',
+            ),
+          ),
+          const SizedBox(height: NeoSpace.xl),
           FilledButton(
             onPressed: _loading ? null : _save,
             child: _loading
