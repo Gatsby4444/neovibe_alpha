@@ -6,7 +6,7 @@ publish_to: 'none'
 # versionCode plus Ã©levÃ©, Android refuse de mettre Ã  jour un APK sideloadÃ© (Jay
 # est restÃ© bloquÃ© en v0.9.2 en croyant installer la v0.9.3). Convention :
 # 0.9.4+94 â†’ versionName 0.9.4, versionCode 94 (suffixe = version sans points).
-version: 0.9.154+3028
+version: 0.9.155+3029
 
 environment:
   sdk: ^3.12.2
@@ -54,6 +54,31 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # Les polices sont EMBARQUÉES, jamais téléchargées à l'exécution.
+  # Deux raisons : l'app doit s'afficher pareil sans réseau, et « ce qui se
+  # passe sur NeoVibe reste sur NeoVibe » — un chargement de police est une
+  # requête vers un tiers à chaque démarrage. Licences SIL OFL 1.1 dans
+  # assets/fonts/OFL-*.txt (non embarquées, c'est le dépôt qui en garde trace).
+  fonts:
+    - family: Fredoka
+      fonts:
+        - asset: assets/fonts/Fredoka-400.ttf
+          weight: 400
+        - asset: assets/fonts/Fredoka-500.ttf
+          weight: 500
+        - asset: assets/fonts/Fredoka-600.ttf
+          weight: 600
+    - family: Figtree
+      fonts:
+        - asset: assets/fonts/Figtree-400.ttf
+          weight: 400
+        - asset: assets/fonts/Figtree-500.ttf
+          weight: 500
+        - asset: assets/fonts/Figtree-600.ttf
+          weight: 600
+        - asset: assets/fonts/Figtree-700.ttf
+          weight: 700
 
   assets:
     # Les .riv sont les binaires de SORTIE de Rive. Les .rev éditables vivent

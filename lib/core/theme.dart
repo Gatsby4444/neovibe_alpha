@@ -2,53 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'motion.dart';
-
-/// Dégradés signature de NeoVibe.
-///
-/// Consigne de Jay (2026-07-25) : le violet plat d'origine était terne — la
-/// marque passe sur un **dégradé multicolore** (registre logo Instagram :
-/// jaune → orange → rose → violet → bleu), porté par les boutons et les
-/// accents de l'app.
-///
-/// Les couleurs des **types de Cards** (`lib/core/models/card.dart` : or du
-/// One of One, bleu Oneshot…) ne sont PAS concernées : elles restent la
-/// signature du contenu, le dégradé est la signature de l'app.
-///
-/// ⚠️ La refonte du 2026-08-14 a neutralisé les **fonds**, pas les boutons.
-/// Consigne de Jay : « en conservant les boutons colorés déjà présents ». Ce
-/// bloc est donc inchangé — c'est la seule couleur qui reste dans l'habillage.
-abstract final class NeoGradients {
-  /// Dégradé complet, 5 arrêts — pour les grandes surfaces : anneaux d'avatar,
-  /// bandeaux, écran d'accueil, éléments décoratifs.
-  static const brand = LinearGradient(
-    begin: Alignment.bottomLeft,
-    end: Alignment.topRight,
-    colors: [
-      Color(0xFFFEDA75), // jaune
-      Color(0xFFFA7E1E), // orange
-      Color(0xFFD62976), // rose
-      Color(0xFF962FBF), // violet
-      Color(0xFF4F5BD5), // bleu
-    ],
-    stops: [0.0, 0.22, 0.52, 0.78, 1.0],
-  );
-
-  /// Version courte, 3 arrêts — pour les **petites surfaces** (boutons, pastilles).
-  /// Sur quelques dizaines de pixels, les 5 arrêts virent au brouillon : on
-  /// garde orange → rose → violet, la partie la plus lisible du dégradé.
-  static const brandButton = LinearGradient(
-    begin: Alignment.centerLeft,
-    end: Alignment.centerRight,
-    colors: [Color(0xFFF9773C), Color(0xFFD62976), Color(0xFF7B2FF7)],
-  );
-
-  /// Dégradé atténué — états désactivés, fonds de conteneurs.
-  static const brandMuted = LinearGradient(
-    begin: Alignment.centerLeft,
-    end: Alignment.centerRight,
-    colors: [Color(0x33F9773C), Color(0x33D62976), Color(0x337B2FF7)],
-  );
-}
+import 'palette.dart';
+import 'typography.dart';
 
 /// Échelle de gris **strictement neutre** — `R == G == B` sur chaque valeur.
 ///
@@ -56,15 +11,25 @@ abstract final class NeoGradients {
 /// propre, au niveau des couleurs surtout : du noir, du blanc et du gris […]
 /// tu me retires ton violet terne. On veut quelque chose de tranché et épuré. »
 ///
-/// Ce que ça remplace : les fonds étaient des gris **tirés vers le violet**
-/// (`#0B0A10`, `#15131C`, `#1E1B29` en sombre ; `#FBFAFD`, `#EFEDF4` en clair).
-/// L'intention d'alors était de rester dans la famille chromatique du dégradé ;
-/// le résultat lu à l'écran était un violet sale. Tout est repassé en neutre.
+/// ## ⚠️ Ce que cette échelle EST devenue le 2026-08-29
 ///
-/// **La contrainte à ne pas perdre** : `R == G == B`. Une seule valeur qui
-/// dérive et la teinte revient par la bande, sans qu'aucun test ne la voie.
-/// Toute couleur d'habillage se prend ici — ne pas réécrire d'hexadécimal dans
-/// un écran (c'est ce qui avait dispersé le violet dans sept fichiers).
+/// Elle n'est plus « la palette de l'app » : les couleurs d'habillage vivent
+/// désormais dans [NeoPalette], une par identité. Elle garde **deux** usages,
+/// et seulement ceux-là :
+///
+/// 1. **Les deux identités neutres** (`sombre`, `clair`) sont bâties dessus —
+///    c'est leur définition même, et la règle `R == G == B` continue de s'y
+///    appliquer sans exception.
+/// 2. **Les surfaces qui restent sombres quelle que soit l'identité** : écrans
+///    caméra, visionneuses de Vibes, recadrage d'avatar. Là, le noir n'habille
+///    pas l'app — il **efface le décor pour laisser le contenu porter la
+///    lumière**. Une couleur d'identité y serait une faute : on regarderait le
+///    thème au lieu de la photo.
+///
+/// 🔴 **Hors de ces deux cas, un écran ne doit jamais lire cette classe.** Il
+/// lit `context.palette`. Une couleur écrite en dehors des palettes est une
+/// couleur qui ne suivra pas les changements d'identité — et personne ne le
+/// verra tant qu'il n'aura pas changé de thème.
 abstract final class NeoNeutrals {
   // --- Sombre ---------------------------------------------------------
   /// Fond d'écran. Noir pur : « tranché », et gratuit en autonomie sur OLED.
@@ -97,22 +62,61 @@ abstract final class NeoNeutrals {
 
   /// Texte et icônes secondaires sur fond clair (7,0:1 sur blanc).
   static const gray600 = Color(0xFF5C5C5C);
+}
 
-  // --- Bordures des éléments interactifs ------------------------------
-  //
-  // Séparées des séparateurs décoratifs, et volontairement plus soutenues.
-  //
-  // Pourquoi : un champ rempli ne se distingue quasiment pas de la page
-  // (`#1F1F1F` sur noir = 1,26:1 ; `#F5F5F5` sur blanc = 1,19:1). Le remplissage
-  // seul ne peut donc PAS porter la limite du champ — c'est précisément le
-  // « noir sur noir » signalé par Jay. La bordure la porte, et elle est
-  // dimensionnée pour passer le seuil WCAG 1.4.11 des composants non textuels
-  // (3:1) : `#6B6B6B` donne 4,2:1 sur noir, `#8A8A8A` donne 3,4:1 sur blanc.
-  //
-  // Énoncé positivement : **un champ a toujours un bord visible**, quel que
-  // soit son remplissage. On ne dépend plus de l'écart entre deux gris.
-  static const outlineDark = Color(0xFF6B6B6B);
-  static const outlineLight = Color(0xFF8A8A8A);
+/// La palette en vigueur, transportée par le thème.
+///
+/// ⚠️ **Pourquoi une extension de thème et pas un provider.** Un widget qui
+/// lirait un provider de palette redemanderait la couleur à une source
+/// différente de celle qui a construit le `ThemeData` — donc deux chemins vers
+/// la même donnée, et un désaccord garanti le jour où l'un change. Ici il n'y
+/// en a qu'un : `MaterialApp` construit le thème depuis la palette, et le
+/// thème la transporte jusqu'au widget.
+@immutable
+class NeoPaletteTheme extends ThemeExtension<NeoPaletteTheme> {
+  const NeoPaletteTheme({required this.palette, required this.identity});
+
+  /// La palette réellement en vigueur (jour ou nuit selon le système).
+  final NeoPalette palette;
+
+  /// L'identité choisie — ce qui permet à une surface toujours sombre de
+  /// demander la palette de NUIT de la même identité.
+  final NeoIdentity identity;
+
+  @override
+  NeoPaletteTheme copyWith({NeoPalette? palette, NeoIdentity? identity}) =>
+      NeoPaletteTheme(
+        palette: palette ?? this.palette,
+        identity: identity ?? this.identity,
+      );
+
+  /// Pas d'interpolation : une palette ne se mélange pas à une autre.
+  ///
+  /// ⚠️ Un fondu entre deux identités produirait, à mi-chemin, des couleurs qui
+  /// n'appartiennent à aucune des deux — et dont personne n'a vérifié le
+  /// contraste. On bascule net.
+  @override
+  NeoPaletteTheme lerp(ThemeExtension<NeoPaletteTheme>? other, double t) =>
+      t < 0.5 ? this : (other as NeoPaletteTheme? ?? this);
+}
+
+/// L'accès des écrans aux couleurs de l'identité.
+extension NeoPaletteAccess on BuildContext {
+  /// La palette en vigueur. **C'est le seul chemin qu'un écran doit emprunter.**
+  NeoPalette get palette =>
+      Theme.of(this).extension<NeoPaletteTheme>()?.palette ??
+      NeoPalettes.sombre;
+
+  /// La palette **de nuit** de l'identité courante.
+  ///
+  /// Pour les surfaces qui restent sombres quel que soit le thème — caméra,
+  /// visionneuses. Elles ont besoin d'un accent lisible sur du noir, même
+  /// quand l'app est en clair : sans ça, le magenta de jour d'Aurore
+  /// disparaîtrait sur l'écran de capture.
+  NeoPalette get darkPalette =>
+      (Theme.of(this).extension<NeoPaletteTheme>()?.identity ??
+              NeoIdentity.sombre)
+          .palette(Brightness.dark);
 }
 
 /// Nuances de texte et d'icône secondaires, **conscientes du thème**.
@@ -136,122 +140,84 @@ extension NeoTextColors on BuildContext {
       Theme.of(this).colorScheme.onSurface.withValues(alpha: 0.24);
 }
 
-/// Thème NeoVibe : caméra-first, fonds neutres, accents en dégradé de marque.
+/// Le thème NeoVibe : **comment Material se sert d'une palette**.
 ///
-/// **Trois** déclinaisons depuis le 2026-08-15 : [dark], le défaut historique,
-/// [light], et [neovibe] — le seul qui suive l'heure. Le dégradé de marque et
-/// les couleurs de types de Cards sont IDENTIQUES dans les trois ; seuls les
-/// fonds et les textes changent.
+/// ## Ce qui a changé le 2026-08-29
 ///
-/// *(Ce paragraphe annonçait « deux déclinaisons » jusqu'au 2026-08-16 : le
-/// troisième thème avait été ajouté sans que sa propre documentation soit
-/// relue. Corrigé au balayage de véracité des commentaires.)* Les écrans caméra et la visionneuse de Cards restent noirs quel
-/// que soit le thème : c'est le contenu qui doit porter la lumière.
+/// Avant, ce fichier portait à la fois les couleurs ET leur usage : les
+/// hexadécimaux du dégradé de marque et des accents y étaient écrits en dur,
+/// et les trois thèmes se distinguaient par un `if (isDark)` répété vingt
+/// fois. Ajouter une identité aurait voulu dire relire ces vingt endroits.
 ///
-/// ## Répartition des rôles, depuis le 2026-08-14
+/// Désormais **il n'y a plus qu'un seul thème**, construit depuis une
+/// [NeoPalette] (voir `palette.dart`). Ajouter une identité, c'est ajouter une
+/// palette — ce fichier ne bouge pas.
 ///
-/// - **Le noir, le blanc et le gris portent l'écran** — fonds, surfaces,
-///   champs, textes, bordures. Tout vient de [NeoNeutrals].
-/// - **La couleur ne signale plus qu'une chose : ce qui est actif.** Bouton
-///   d'action (dégradé), champ au focus, interrupteur enclenché, onglet
-///   courant, curseur (rose). Choix de Jay le 2026-08-14, contre l'option
-///   « tout en neutre ».
+/// ## Répartition des rôles, tenue depuis le 2026-08-14
+///
+/// - **Les surfaces portent l'écran** — fonds, cartes, champs, textes,
+///   bordures. Tout vient de la palette, aucun hexadécimal ici.
+/// - **La couleur ne signale qu'une chose : ce qui est actif.** Bouton
+///   d'action, champ au focus, interrupteur enclenché, onglet courant.
+///
+/// Les écrans caméra et les visionneuses restent sombres quelle que soit
+/// l'identité : c'est le contenu qui doit porter la lumière.
 abstract final class NeoTheme {
-  /// Rose central du dégradé — sert de graine au schéma de couleurs.
-  static const seed = Color(0xFFD62976);
-
-  /// Accents unis, extraits du dégradé, pour tout ce qui ne peut pas porter
-  /// un dégradé (icônes, curseurs, bordures fines).
-  static const accentPink = Color(0xFFE1306C);
-  static const accentOrange = Color(0xFFF9773C);
-  static const accentViolet = Color(0xFF7B2FF7);
-
-  /// Fonds sombres — noir et gris **neutres** (voir [NeoNeutrals]).
-  static const bg = NeoNeutrals.black;
-  static const surface1 = NeoNeutrals.gray900;
-  static const surface2 = NeoNeutrals.gray800;
-
-  /// Fonds clairs — blanc et gris **neutres**.
-  static const bgLight = NeoNeutrals.white;
-  static const surface1Light = NeoNeutrals.gray50;
-  static const surface2Light = NeoNeutrals.gray100;
-
-  static const _radius = 14.0;
-
-  static ThemeData dark() => _build(Brightness.dark);
-
-  static ThemeData light() => _build(Brightness.light);
-
-  /// Le thème **NeoVibe** : les mêmes surfaces neutres, mais posées sur le
-  /// dégradé du cycle de 24 h au lieu d'un fond plein.
+  /// Le rayon de coin des éléments interactifs (champs, boutons).
   ///
-  /// ### Ce qui change, et ce qui ne change surtout pas
-  ///
-  /// Il n'y a **aucune couleur nouvelle ici**. Le dégradé est un *fond
-  /// d'écran* : tout ce qui porte du texte reste `NeoNeutrals`, en voile
-  /// par-dessus. Le contraste est donc garanti **par construction**, à
-  /// n'importe quelle heure — et non par un calcul qu'il faudrait refaire à
-  /// chaque retouche de palette.
-  ///
-  /// C'est aussi pourquoi ce thème est **sombre** et le reste toute la
-  /// journée : à midi le dégradé est pâle, et des surfaces claires par-dessus
-  /// donneraient du blanc sur blanc. Un voile sombre lit sur les deux.
-  ///
-  /// ⚠️ **Les boutons ne suivent PAS l'heure.** Le cycle produit bien un accent
-  /// horaire (`DayPalette.accent`), mais l'app garde le dégradé de marque —
-  /// consigne de Jay du 2026-08-14 : « en conservant les boutons colorés déjà
-  /// présents ». Deux couleurs d'action qui se disputeraient l'écran seraient
-  /// un recul, pas une nouveauté.
-  static ThemeData neovibe() => _build(Brightness.dark, overGradient: true);
+  /// Les cartes et les tuiles ont le leur dans [NeoRadius] : un bouton et une
+  /// story n'ont aucune raison d'être arrondis pareil, et sur une identité
+  /// ronde c'est précisément le dosage qui évite l'effet enfantin.
+  static const _radius = NeoRadius.sm;
 
-  /// [overGradient] : le fond appartient au dégradé posé derrière l'app, pas
-  /// au thème. Tout ce qui serait un aplat opaque devient transparent, sinon
-  /// il masquerait exactement ce qu'on veut voir.
-  static ThemeData _build(Brightness brightness, {bool overGradient = false}) {
-    final isDark = brightness == Brightness.dark;
-    final background = isDark ? bg : bgLight;
-    final container = isDark ? surface1 : surface1Light;
-    final field = isDark ? surface2 : surface2Light;
-    final onBackground = isDark ? NeoNeutrals.white : NeoNeutrals.black;
-    final muted = isDark ? NeoNeutrals.gray400 : NeoNeutrals.gray600;
-    final divider = isDark ? NeoNeutrals.gray700 : NeoNeutrals.gray200;
-    final outline = isDark ? NeoNeutrals.outlineDark : NeoNeutrals.outlineLight;
+  /// Construit le thème d'une identité, pour la luminosité demandée.
+  static ThemeData of(NeoIdentity identity, Brightness brightness) =>
+      _build(identity, identity.palette(brightness));
+
+  static ThemeData _build(NeoIdentity identity, NeoPalette p) {
+    final isDark = p.isDark;
+    // Le cycle pose son dégradé DERRIÈRE l'app : tout aplat opaque devient
+    // transparent, sinon il masquerait exactement ce qu'on veut voir. Le
+    // branchement tient en cette ligne et en `MaterialApp.builder`.
+    final overGradient = identity.fondDuCycle;
 
     // `fromSeed` fabrique TOUTES les nuances de surface en les teintant de la
     // graine — c'est sa raison d'être. On ne garde donc de lui que les rôles
     // colorés (erreur, conteneurs d'accent) et on réécrit **tous** les rôles
-    // neutres à la main. Sans ça, `surfaceContainer`, `surfaceDim` et
-    // consorts continuent d'arriver rosés dans les widgets Material qui les
-    // consultent (Card, NavigationBar, Menu, DropdownMenu…), et le violet
+    // de surface à la main. Sans ça, `surfaceContainer`, `surfaceDim` et
+    // consorts continuent d'arriver teintés dans les widgets Material qui les
+    // consultent (Card, NavigationBar, Menu, DropdownMenu…), et la teinte
     // revient par une porte qu'aucun `grep` d'hexadécimal ne montre.
-    final base = ColorScheme.fromSeed(seedColor: seed, brightness: brightness);
+    final base = ColorScheme.fromSeed(
+      seedColor: p.action,
+      brightness: p.brightness,
+    );
     final scheme = base.copyWith(
-      primary: accentPink,
-      onPrimary: NeoNeutrals.white,
-      secondary: accentOrange,
-      tertiary: accentViolet,
+      primary: p.action,
+      onPrimary: p.onAction,
+      secondary: p.cool,
+      tertiary: p.warm,
 
-      // Fonds et surfaces — neutres.
-      surface: background,
-      onSurface: onBackground,
-      surfaceContainerLowest: background,
-      surfaceContainerLow: container,
-      surfaceContainer: container,
-      surfaceContainerHigh: field,
-      surfaceContainerHighest: field,
-      surfaceDim: background,
-      surfaceBright: field,
-      onSurfaceVariant: muted,
-      outline: outline,
-      outlineVariant: divider,
+      surface: p.ground,
+      onSurface: p.ink,
+      surfaceContainerLowest: p.ground,
+      surfaceContainerLow: p.surface,
+      surfaceContainer: p.surface,
+      surfaceContainerHigh: p.field,
+      surfaceContainerHighest: p.field,
+      surfaceDim: p.ground,
+      surfaceBright: p.field,
+      onSurfaceVariant: p.inkMuted,
+      outline: p.outline,
+      outlineVariant: p.line,
 
-      // Inversion (snackbars, infobulles) — neutre elle aussi.
-      inverseSurface: isDark ? NeoNeutrals.white : NeoNeutrals.black,
-      onInverseSurface: isDark ? NeoNeutrals.black : NeoNeutrals.white,
+      // Inversion (snackbars, infobulles).
+      inverseSurface: p.ink,
+      onInverseSurface: p.ground,
 
       // Le voile d'élévation de Material 3 : il repeint chaque surface élevée
       // d'un film de `primary`. Transparent, sinon toutes les feuilles et les
-      // menus repartent en rosé après qu'on a neutralisé les gris.
+      // menus repartent teintés après qu'on a posé les surfaces.
       surfaceTint: Colors.transparent,
       shadow: NeoNeutrals.black,
       scrim: NeoNeutrals.black,
@@ -259,13 +225,15 @@ abstract final class NeoTheme {
 
     return ThemeData(
       useMaterial3: true,
-      brightness: brightness,
+      brightness: p.brightness,
       colorScheme: scheme,
+      extensions: [NeoPaletteTheme(palette: p, identity: identity)],
+      textTheme: NeoType.scale(ink: p.ink, muted: p.inkMuted),
       // Sur le dégradé, le Scaffold ne peint plus rien : c'est ce qui met le
       // fond du cycle derrière les **60 Scaffold** de l'app sans en toucher un
-      // seul. Le branchement tient en cette ligne et en `MaterialApp.builder`.
-      scaffoldBackgroundColor: overGradient ? Colors.transparent : background,
-      canvasColor: overGradient ? Colors.transparent : background,
+      // seul.
+      scaffoldBackgroundColor: overGradient ? Colors.transparent : p.ground,
+      canvasColor: overGradient ? Colors.transparent : p.ground,
       // Le système de mouvement, posé le 2026-08-14. Ces deux lignes pilotent
       // la durée ET l'allure de TOUTES les navigations de l'app, sans toucher un
       // seul `MaterialPageRoute` — voir `NeoPageTransitionsBuilder`.
@@ -278,15 +246,26 @@ abstract final class NeoTheme {
       // Même raison que `surfaceTint` ci-dessus, au niveau du thème.
       applyElevationOverlayColor: false,
       appBarTheme: AppBarTheme(
-        backgroundColor: overGradient ? Colors.transparent : background,
-        foregroundColor: onBackground,
+        backgroundColor: overGradient ? Colors.transparent : p.ground,
+        foregroundColor: p.ink,
+        // Le titre d'AppBar est un titre de SECTION : c'est un des rares
+        // endroits où la ronde a sa place (voir `NeoType`).
+        titleTextStyle: TextStyle(
+          fontFamily: NeoType.display,
+          fontFamilyFallback: NeoType.fallback,
+          fontSize: 22,
+          height: 1.15,
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.2,
+          color: p.ink,
+        ),
         // Depuis que l'app est en **bord à bord permanent** (2026-08-15), elle
         // dessine derrière les barres système : c'est donc à elle de dire de
         // quelle couleur doivent être leurs icônes.
         //
-        // ⚠️ Sans ça, le thème clair afficherait des icônes claires sur du
-        // blanc — invisibles. Le défaut ne se serait vu que dans un seul des
-        // trois thèmes, donc pas au premier test.
+        // ⚠️ Sans ça, une identité claire afficherait des icônes claires sur du
+        // blanc — invisibles. Le défaut ne se verrait que dans une identité sur
+        // deux, donc pas au premier test.
         systemOverlayStyle: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
           statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
@@ -309,33 +288,34 @@ abstract final class NeoTheme {
         // **Aucun fond** — décision de Jay, 2026-08-15 : « on supprime le fond
         // de la navbar et on laisse juste les boutons apparents ».
         //
-        // Volontairement dans les TROIS thèmes, et pas seulement sur le
-        // dégradé : c'est une décision sur la barre, pas sur un thème. La
-        // faire dépendre du thème donnerait deux barres différentes à
-        // maintenir, et le jour où l'une bougerait l'autre serait oubliée.
-        //
-        // ⚠️ Sans danger de collision avec le contenu : `bottomNavigationBar`
-        // réserve sa place dans le `Scaffold`, le corps ne s'étend pas
-        // dessous (il faudrait `extendBody: true`). On voit donc le fond de
-        // l'app, jamais du texte qui défile derrière les icônes.
+        // Volontairement dans TOUTES les identités : c'est une décision sur la
+        // barre, pas sur un thème. La faire dépendre de l'identité donnerait
+        // plusieurs barres à maintenir, et le jour où l'une bougerait les
+        // autres seraient oubliées.
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         // L'indicateur ne peut pas porter de dégradé : c'est l'icône
         // sélectionnée qui le fait (voir `GradientIcon` dans home_shell).
-        indicatorColor: accentPink.withValues(alpha: 0.18),
+        indicatorColor: p.action.withValues(alpha: 0.18),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
+            fontFamily: NeoType.body,
+            fontFamilyFallback: NeoType.fallback,
             fontSize: 12,
             fontWeight: states.contains(WidgetState.selected)
                 ? FontWeight.w600
                 : FontWeight.w400,
-            color: states.contains(WidgetState.selected) ? accentPink : muted,
+            color: states.contains(WidgetState.selected)
+                ? p.action
+                : p.inkMuted,
           ),
         ),
         iconTheme: WidgetStateProperty.resolveWith(
           (states) => IconThemeData(
-            color: states.contains(WidgetState.selected) ? accentPink : muted,
+            color: states.contains(WidgetState.selected)
+                ? p.action
+                : p.inkMuted,
           ),
         ),
       ),
@@ -346,29 +326,35 @@ abstract final class NeoTheme {
       // --- Champs de saisie ---------------------------------------------
       // Remplissage ET bordure. Le remplissage situe le champ, la bordure le
       // délimite ; c'est la bordure qui garantit qu'il ne disparaît jamais
-      // dans la page — voir le commentaire de `NeoNeutrals.outlineDark`.
+      // dans la page — voir le commentaire de `NeoPalette.outline`.
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: field,
-        hintStyle: TextStyle(color: muted),
-        labelStyle: TextStyle(color: muted),
-        prefixIconColor: muted,
-        suffixIconColor: muted,
+        fillColor: p.field,
+        // L'aération commence ici : un champ serré fait « formulaire », un
+        // champ respirant fait « app ».
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: NeoSpace.lg,
+          vertical: NeoSpace.lg,
+        ),
+        hintStyle: TextStyle(color: p.inkMuted),
+        labelStyle: TextStyle(color: p.inkMuted),
+        prefixIconColor: p.inkMuted,
+        suffixIconColor: p.inkMuted,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
-          borderSide: BorderSide(color: outline),
+          borderSide: BorderSide(color: p.outline),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
-          borderSide: BorderSide(color: outline),
+          borderSide: BorderSide(color: p.outline),
         ),
         disabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
-          borderSide: BorderSide(color: divider),
+          borderSide: BorderSide(color: p.line),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(_radius),
-          borderSide: const BorderSide(color: accentPink, width: 1.8),
+          borderSide: BorderSide(color: p.action, width: 1.8),
         ),
       ),
 
@@ -376,115 +362,127 @@ abstract final class NeoTheme {
       // Le dégradé est injecté par `backgroundBuilder` : il s'applique donc à
       // TOUS les `FilledButton`/`OutlinedButton` de l'app sans toucher aux
       // 60+ appels existants.
-      filledButtonTheme: FilledButtonThemeData(style: _filledStyle()),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: _outlinedStyle(onBackground, muted),
-      ),
+      filledButtonTheme: FilledButtonThemeData(style: _filledStyle(p)),
+      outlinedButtonTheme: OutlinedButtonThemeData(style: _outlinedStyle(p)),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: accentPink),
+        style: TextButton.styleFrom(foregroundColor: p.action),
       ),
       iconButtonTheme: IconButtonThemeData(
-        style: IconButton.styleFrom(foregroundColor: onBackground),
+        style: IconButton.styleFrom(foregroundColor: p.ink),
       ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
         // Les FAB portent le dégradé via `GradientFab` (widget dédié) : le
         // thème ne sert qu'aux FAB restés standards.
-        backgroundColor: accentPink,
-        foregroundColor: NeoNeutrals.white,
+        backgroundColor: p.action,
+        foregroundColor: p.onAction,
       ),
 
       // --- Contrôles ----------------------------------------------------
-      // Le rose ne dit plus qu'une chose : « ceci est actif ». Au repos, tout
-      // est neutre. (Choix de Jay, 2026-08-14.)
+      // La couleur d'action ne dit qu'une chose : « ceci est actif ». Au repos,
+      // tout est neutre. (Choix de Jay, 2026-08-14.)
       switchTheme: SwitchThemeData(
         thumbColor: WidgetStateProperty.resolveWith(
           (s) => s.contains(WidgetState.selected)
-              ? NeoNeutrals.white
-              : (isDark ? NeoNeutrals.gray400 : NeoNeutrals.white),
+              ? p.onAction
+              : (isDark ? p.inkMuted : p.surface),
         ),
         trackColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? accentPink : field,
+          (s) => s.contains(WidgetState.selected) ? p.action : p.field,
         ),
         trackOutlineColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? accentPink : outline,
+          (s) => s.contains(WidgetState.selected) ? p.action : p.outline,
         ),
       ),
       checkboxTheme: CheckboxThemeData(
         fillColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected)
-              ? accentPink
-              : Colors.transparent,
+          (s) =>
+              s.contains(WidgetState.selected) ? p.action : Colors.transparent,
         ),
-        checkColor: const WidgetStatePropertyAll(NeoNeutrals.white),
-        side: BorderSide(color: outline, width: 1.5),
+        checkColor: WidgetStatePropertyAll(p.onAction),
+        side: BorderSide(color: p.outline, width: 1.5),
       ),
       radioTheme: RadioThemeData(
         fillColor: WidgetStateProperty.resolveWith(
-          (s) => s.contains(WidgetState.selected) ? accentPink : outline,
+          (s) => s.contains(WidgetState.selected) ? p.action : p.outline,
         ),
       ),
       sliderTheme: SliderThemeData(
-        activeTrackColor: accentPink,
-        inactiveTrackColor: field,
-        thumbColor: accentPink,
+        activeTrackColor: p.action,
+        inactiveTrackColor: p.field,
+        thumbColor: p.action,
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
-        color: accentPink,
-        linearTrackColor: field,
+        color: p.action,
+        linearTrackColor: p.field,
       ),
-      dividerTheme: DividerThemeData(color: divider, space: 1, thickness: 1),
+      dividerTheme: DividerThemeData(color: p.line, space: 1, thickness: 1),
       chipTheme: ChipThemeData(
-        backgroundColor: field,
-        selectedColor: accentPink.withValues(alpha: .25),
-        side: BorderSide(color: outline),
-        labelStyle: TextStyle(color: onBackground),
+        backgroundColor: p.field,
+        selectedColor: p.action.withValues(alpha: .25),
+        side: BorderSide(color: p.outline),
+        labelStyle: TextStyle(
+          fontFamily: NeoType.body,
+          fontFamilyFallback: NeoType.fallback,
+          color: p.ink,
+        ),
       ),
       cardTheme: CardThemeData(
-        color: container,
+        color: p.surface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(_radius),
-          side: BorderSide(color: divider),
+          borderRadius: BorderRadius.circular(NeoRadius.md),
+          side: BorderSide(color: p.line),
         ),
       ),
       dialogTheme: DialogThemeData(
-        backgroundColor: container,
+        backgroundColor: p.surface,
         surfaceTintColor: Colors.transparent,
       ),
       bottomSheetTheme: BottomSheetThemeData(
-        backgroundColor: container,
+        backgroundColor: p.surface,
         surfaceTintColor: Colors.transparent,
       ),
       popupMenuTheme: PopupMenuThemeData(
-        color: container,
+        color: p.surface,
         surfaceTintColor: Colors.transparent,
       ),
       menuTheme: MenuThemeData(
         style: MenuStyle(
-          backgroundColor: WidgetStatePropertyAll(container),
+          backgroundColor: WidgetStatePropertyAll(p.surface),
           surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
         ),
       ),
       listTileTheme: ListTileThemeData(
-        iconColor: muted,
-        textColor: onBackground,
+        iconColor: p.inkMuted,
+        textColor: p.ink,
+        // Aération : la valeur Material par défaut colle les lignes entre
+        // elles, ce qui donne exactement la « liste de containers qui
+        // s'enchaînent » dont Jay veut sortir.
+        minVerticalPadding: NeoSpace.md,
       ),
       tooltipTheme: TooltipThemeData(
         decoration: BoxDecoration(
-          color: isDark ? NeoNeutrals.gray800 : NeoNeutrals.black,
-          borderRadius: BorderRadius.circular(8),
+          color: isDark ? p.field : p.ink,
+          borderRadius: BorderRadius.circular(NeoRadius.sm),
         ),
-        textStyle: const TextStyle(color: NeoNeutrals.white, fontSize: 12),
+        textStyle: TextStyle(
+          fontFamily: NeoType.body,
+          fontFamilyFallback: NeoType.fallback,
+          color: isDark ? p.ink : p.ground,
+          fontSize: 12,
+        ),
       ),
     );
   }
 
   /// Bouton plein : fond transparent + dégradé peint par `backgroundBuilder`.
   ///
-  /// Le texte reste blanc dans les deux thèmes : il ne se pose jamais sur la
-  /// page, toujours sur le dégradé.
-  static ButtonStyle _filledStyle() {
+  /// Le texte prend `onAction` : il ne se pose jamais sur la page, toujours sur
+  /// le dégradé de l'identité. Le déduire de la luminosité serait faux — sur le
+  /// beige de Sable il doit être clair, sur le jaune d'Aurore il doit être
+  /// sombre, et les deux sont des identités « claires ».
+  static ButtonStyle _filledStyle(NeoPalette p) {
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(_radius),
     );
@@ -514,19 +512,23 @@ abstract final class NeoTheme {
       minimumSize: const Size.fromHeight(52),
       shape: shape,
       backgroundColor: Colors.transparent,
-      foregroundColor: NeoNeutrals.white,
+      foregroundColor: p.onAction,
       disabledBackgroundColor: Colors.transparent,
-      disabledForegroundColor: Colors.white38,
+      disabledForegroundColor: p.onAction.withValues(alpha: 0.38),
       elevation: 0,
       shadowColor: Colors.transparent,
+      textStyle: const TextStyle(
+        fontFamily: NeoType.body,
+        fontFamilyFallback: NeoType.fallback,
+        fontSize: 15.5,
+        fontWeight: FontWeight.w600,
+      ),
     ).copyWith(
       backgroundBuilder: (context, states, child) {
         final disabled = states.contains(WidgetState.disabled);
         return DecoratedBox(
           decoration: BoxDecoration(
-            gradient: disabled
-                ? NeoGradients.brandMuted
-                : NeoGradients.brandButton,
+            gradient: disabled ? p.signatureAttenuee : p.signatureCourte,
             borderRadius: BorderRadius.circular(_radius),
           ),
           child: child,
@@ -543,7 +545,7 @@ abstract final class NeoTheme {
   /// `scaffoldBackgroundColor`) : en blanc fixe, il était **invisible en thème
   /// clair**. Bug corrigé le 2026-08-14 — il datait de l'ajout du thème clair
   /// le 2026-08-10 et n'a jamais levé la moindre erreur.
-  static ButtonStyle _outlinedStyle(Color foreground, Color disabled) {
+  static ButtonStyle _outlinedStyle(NeoPalette p) {
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(_radius),
     );
@@ -551,21 +553,28 @@ abstract final class NeoTheme {
       minimumSize: const Size.fromHeight(52),
       shape: shape,
       side: BorderSide.none,
-      foregroundColor: foreground,
-      disabledForegroundColor: disabled,
+      foregroundColor: p.ink,
+      disabledForegroundColor: p.inkMuted,
+      textStyle: const TextStyle(
+        fontFamily: NeoType.body,
+        fontFamilyFallback: NeoType.fallback,
+        fontSize: 15.5,
+        fontWeight: FontWeight.w600,
+      ),
     ).copyWith(
       backgroundBuilder: (context, states, child) {
         final isDisabled = states.contains(WidgetState.disabled);
         return Container(
           decoration: BoxDecoration(
-            gradient: isDisabled
-                ? NeoGradients.brandMuted
-                : NeoGradients.brandButton,
+            gradient: isDisabled ? p.signatureAttenuee : p.signatureCourte,
             borderRadius: BorderRadius.circular(_radius),
           ),
           padding: const EdgeInsets.all(1.5),
           child: DecoratedBox(
             decoration: BoxDecoration(
+              // ⚠️ Le centre reprend le fond de l'ÉCRAN, pas la surface : sur
+              // le cycle, `scaffoldBackgroundColor` est transparent et c'est le
+              // dégradé qui apparaît au centre — ce qui est l'effet voulu.
               color: Theme.of(context).scaffoldBackgroundColor,
               borderRadius: BorderRadius.circular(_radius - 1.5),
             ),

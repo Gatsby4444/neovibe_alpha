@@ -603,8 +603,8 @@ class _SendButton extends StatelessWidget {
         shape: const CircleBorder(),
         clipBehavior: Clip.antiAlias,
         child: Ink(
-          decoration: const BoxDecoration(
-            gradient: NeoGradients.brandButton,
+          decoration: BoxDecoration(
+            gradient: context.palette.signatureCourte,
             shape: BoxShape.circle,
           ),
           child: InkWell(
@@ -806,7 +806,7 @@ class _MessageBubble extends ConsumerWidget {
                 ? content
                 : DecoratedBox(
                     decoration: BoxDecoration(
-                      gradient: isMine ? NeoGradients.brandButton : null,
+                      gradient: isMine ? context.palette.signatureCourte : null,
                       // Bulle reçue : gris neutre du thème. Les deux valeurs
                       // écrites ici étaient des gris tirés vers le violet.
                       color: isMine

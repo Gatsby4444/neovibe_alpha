@@ -1,88 +1,84 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'palette.dart';
+
 /// Préférences locales à l'appareil (UI uniquement — rien de social ici).
 
-/// Les **trois thèmes** de NeoVibe (décision de Jay, 2026-08-14).
+/// L'identité visuelle choisie, **résolue avant le premier rendu**.
 ///
-/// Ils sont **mutuellement exclusifs**, et c'est ce découpage qui règle la
-/// contradiction signalée alors : l'horaire n'est pas un second axe qui se bat
-/// avec un interrupteur clair/sombre, c'est une **propriété du seul thème
-/// NeoVibe**. Choisir clair ou sombre suffit donc à désactiver le dynamique.
+/// ## Pourquoi il n'y a plus de lecture asynchrone ici
 ///
-/// ⚠️ **Stocké par NOM, jamais par indice** — même raison que [StartupTab] :
-/// l'ordre de déclaration sert l'affichage et peut donc bouger.
-enum NeoThemeChoice {
-  /// Le dégradé qui suit l'heure. La signature de l'app.
-  neovibe('NeoVibe'),
-
-  /// Blanc, fixe.
-  light('Clair'),
-
-  /// Noir, fixe.
-  dark('Sombre');
-
-  const NeoThemeChoice(this.label);
-
-  final String label;
-
-  static NeoThemeChoice fromKey(String? value) => switch (value) {
-    'neovibe' => NeoThemeChoice.neovibe,
-    'light' => NeoThemeChoice.light,
-    'dark' => NeoThemeChoice.dark,
-    _ => NeoThemeChoice.neovibe,
-  };
-}
-
-/// Le thème choisi, avec **reprise de l'ancien réglage booléen**.
+/// Jusqu'au 2026-08-29, ce réglage se lisait après coup : l'app démarrait sur
+/// une valeur d'attente puis basculait quelques millisecondes plus tard. On
+/// voyait donc un éclair du mauvais thème à chaque lancement — et c'est
+/// exactement le mécanisme qui a produit le défaut de l'onglet de démarrage
+/// corrigé le même jour (voir `SectionCursor`).
 ///
-/// Jusqu'au 2026-08-15 le réglage était un `bool light_theme` (deux thèmes).
-/// Le supprimer sans plus rendrait son choix à tout appareil déjà installé —
-/// quelqu'un qui avait mis le clair se réveillerait sur autre chose sans avoir
-/// rien touché. La migration se fait donc à la **première lecture** : l'ancienne
-/// clé est lue si la nouvelle est absente, puis n'est plus jamais écrite.
-///
-/// ⚠️ L'ancienne clé n'est **pas effacée** : si on devait revenir en arrière,
-/// l'effacer aurait déjà détruit l'information. Elle ne coûte qu'un booléen.
-class ThemeChoicePref extends Notifier<NeoThemeChoice> {
-  static const _key = 'theme_choice';
-  static const _legacyKey = 'light_theme';
+/// La valeur est désormais lue dans `main()`, avant `runApp`, et posée dans
+/// [identityAtLaunchProvider]. Ce notifier part donc **déjà juste**, et ne sert
+/// plus qu'à porter les changements que Jay fait dans les Réglages.
+class ThemeIdentityPref extends Notifier<NeoIdentity> {
+  static const key = 'theme_choice';
 
-  @override
-  NeoThemeChoice build() {
-    _load();
-    // Valeur d'attente, le temps de la lecture asynchrone. Le sombre plutôt
-    // que le NeoVibe : passer du sombre au dégradé se voit à peine, l'inverse
-    // ferait un éclair clair au lancement de ceux qui ont choisi le sombre.
-    return NeoThemeChoice.dark;
-  }
+  /// L'ancien réglage booléen, d'avant le 2026-08-15 (`true` = thème clair).
+  ///
+  /// ⚠️ Il n'est **jamais effacé** : si on devait revenir en arrière, l'effacer
+  /// aurait déjà détruit l'information. Il ne coûte qu'un booléen.
+  static const legacyKey = 'light_theme';
 
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getString(_key);
+  /// Traduit ce qui est stocké sur l'appareil en identité.
+  ///
+  /// ⚠️ **`neovibe` devient `aurore`, et c'est délibéré.** L'ancienne valeur
+  /// `neovibe` (le fond dégradé horaire) était la valeur **par défaut**, pas un
+  /// choix : elle était rendue par `fromKey` pour toute clé inconnue et pour
+  /// toute installation neuve. La rendre en `cycle` reconduirait donc l'ancien
+  /// défaut sur tous les appareils déjà installés, et le changement de
+  /// direction artistique décidé par Jay le 2026-08-29 ne se verrait
+  /// **nulle part**. Le cycle reste disponible, à un geste, dans les Réglages.
+  static NeoIdentity resoudre({String? stored, bool? legacyLight}) {
     if (stored != null) {
-      state = NeoThemeChoice.fromKey(stored);
-      return;
+      return switch (stored) {
+        'neovibe' => NeoIdentity.aurore,
+        'light' => NeoIdentity.clair,
+        'dark' => NeoIdentity.sombre,
+        _ => NeoIdentity.fromKey(stored),
+      };
     }
-    // Reprise de l'ancien booléen. Absent = installation neuve → NeoVibe,
-    // le thème signature.
-    final legacy = prefs.getBool(_legacyKey);
-    state = switch (legacy) {
-      true => NeoThemeChoice.light,
-      false => NeoThemeChoice.dark,
-      null => NeoThemeChoice.neovibe,
+    // Aucune nouvelle clé : on reprend l'ancien booléen. Un choix explicite de
+    // clair ou de sombre est un choix, il se conserve. Rien du tout =
+    // installation neuve → la nouvelle identité par défaut.
+    return switch (legacyLight) {
+      true => NeoIdentity.clair,
+      false => NeoIdentity.sombre,
+      null => NeoIdentity.aurore,
     };
   }
 
-  Future<void> set(NeoThemeChoice value) async {
+  @override
+  NeoIdentity build() => ref.read(identityAtLaunchProvider);
+
+  Future<void> set(NeoIdentity value) async {
     state = value;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_key, value.name);
+    await prefs.setString(key, value.name);
   }
 }
 
-final themeChoiceProvider = NotifierProvider<ThemeChoicePref, NeoThemeChoice>(
-  ThemeChoicePref.new,
+final themeIdentityProvider = NotifierProvider<ThemeIdentityPref, NeoIdentity>(
+  ThemeIdentityPref.new,
+);
+
+/// L'identité lue sur le disque **avant le premier rendu**, posée par `main()`.
+///
+/// 🔴 **Sans valeur par défaut, volontairement** — même raison que
+/// [startupTabAtLaunchProvider] : un oubli d'override doit lever, pas ouvrir
+/// silencieusement l'app dans le mauvais thème.
+final identityAtLaunchProvider = Provider<NeoIdentity>(
+  (ref) => throw StateError(
+    'identityAtLaunchProvider doit être posé dans main() '
+    '(ProviderScope overrides) après lecture des préférences.',
+  ),
 );
 
 /// Sens du retournement des Cards au swipe (consigne Jay : le sens naturel

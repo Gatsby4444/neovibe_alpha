@@ -76,7 +76,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 GradientText(
                   'NeoVibe',
                   textAlign: TextAlign.center,
-                  gradient: NeoGradients.brand,
+                  gradient: context.palette.signature,
                   style: Theme.of(context).textTheme.displaySmall?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),

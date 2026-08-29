@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:neovibe/core/palette.dart';
 import 'package:neovibe/core/theme.dart';
 
 /// ⚠️ **Un `FilledButton` réclame TOUTE la largeur disponible.**
@@ -26,7 +27,7 @@ import 'package:neovibe/core/theme.dart';
 void main() {
   Future<void> pomper(WidgetTester tester, Widget ligne) => tester.pumpWidget(
     MaterialApp(
-      theme: NeoTheme.dark(),
+      theme: NeoTheme.of(NeoIdentity.sombre, Brightness.dark),
       home: Scaffold(
         body: Center(
           child: SizedBox(
@@ -92,8 +93,10 @@ void main() {
     // mise en page produit des dizaines d'exceptions par image, que le
     // framework compte et qui rendent un test « j'attends l'erreur »
     // ininterprétable.
-    final taille = NeoTheme.dark().filledButtonTheme.style?.minimumSize
-        ?.resolve({});
+    final taille = NeoTheme.of(
+      NeoIdentity.sombre,
+      Brightness.dark,
+    ).filledButtonTheme.style?.minimumSize?.resolve({});
 
     expect(
       taille?.width,

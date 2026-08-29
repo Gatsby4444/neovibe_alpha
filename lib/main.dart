@@ -137,6 +137,12 @@ Future<void> main() async {
   final startupTab = StartupTab.fromKey(
     prefs.getString(StartupTabPref.prefsKey),
   );
+  // Même raison que l'onglet de démarrage : lue après coup, l'identité
+  // produisait un éclair du mauvais thème à chaque lancement.
+  final identity = ThemeIdentityPref.resoudre(
+    stored: prefs.getString(ThemeIdentityPref.key),
+    legacyLight: prefs.getBool(ThemeIdentityPref.legacyKey),
+  );
 
   {
     CardMediaCache().sweep(prefs.getInt(OwnCardsQuotaMb.prefsKey) ?? 2048);
@@ -164,7 +170,10 @@ Future<void> main() async {
       observers: const [AppLogProviderObserver()],
       // L'onglet d'ouverture, figé pour la session. Voir
       // `startupTabAtLaunchProvider` : sans cet override, il lève.
-      overrides: [startupTabAtLaunchProvider.overrideWithValue(startupTab)],
+      overrides: [
+        startupTabAtLaunchProvider.overrideWithValue(startupTab),
+        identityAtLaunchProvider.overrideWithValue(identity),
+      ],
       child: const NeoVibeApp(),
     ),
   );

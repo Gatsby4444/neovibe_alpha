@@ -128,7 +128,7 @@ class _CameraButtonState extends State<CameraButton>
   @override
   Widget build(BuildContext context) {
     final color = widget.active
-        ? NeoTheme.accentPink
+        ? context.darkPalette.action
         : Colors.white.withValues(alpha: _enabled ? 1 : 0.38);
 
     // Sans fond, l'appui n'a rien à assombrir : le seul retour possible est le

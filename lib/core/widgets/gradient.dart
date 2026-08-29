@@ -7,16 +7,11 @@ import '../theme.dart';
 
 /// Icône peinte avec le dégradé de marque.
 class GradientIcon extends StatelessWidget {
-  const GradientIcon(
-    this.icon, {
-    super.key,
-    this.size = 24,
-    this.gradient = NeoGradients.brandButton,
-  });
+  const GradientIcon(this.icon, {super.key, this.size = 24, this.gradient});
 
   final IconData icon;
   final double size;
-  final Gradient gradient;
+  final Gradient? gradient;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +19,8 @@ class GradientIcon extends StatelessWidget {
       // srcIn : la couleur du dégradé remplace celle de l'icône, en gardant
       // sa forme (alpha). L'icône dessous doit être opaque — d'où le blanc.
       blendMode: BlendMode.srcIn,
-      shaderCallback: (bounds) => gradient.createShader(bounds),
+      shaderCallback: (bounds) =>
+          (gradient ?? context.palette.signatureCourte).createShader(bounds),
       child: Icon(icon, size: size, color: Colors.white),
     );
   }
@@ -36,20 +32,21 @@ class GradientText extends StatelessWidget {
     this.text, {
     super.key,
     this.style,
-    this.gradient = NeoGradients.brandButton,
+    this.gradient,
     this.textAlign,
   });
 
   final String text;
   final TextStyle? style;
-  final Gradient gradient;
+  final Gradient? gradient;
   final TextAlign? textAlign;
 
   @override
   Widget build(BuildContext context) {
     return ShaderMask(
       blendMode: BlendMode.srcIn,
-      shaderCallback: (bounds) => gradient.createShader(bounds),
+      shaderCallback: (bounds) =>
+          (gradient ?? context.palette.signatureCourte).createShader(bounds),
       child: Text(
         text,
         textAlign: textAlign,
@@ -65,12 +62,12 @@ class GradientDot extends StatelessWidget {
     super.key,
     required this.child,
     this.size = 44,
-    this.gradient = NeoGradients.brandButton,
+    this.gradient,
   });
 
   final Widget child;
   final double size;
-  final Gradient gradient;
+  final Gradient? gradient;
 
   @override
   Widget build(BuildContext context) {
@@ -127,11 +124,11 @@ class GradientFab extends StatelessWidget {
       child: Container(
         height: 56,
         decoration: BoxDecoration(
-          gradient: NeoGradients.brandButton,
+          gradient: context.palette.signatureCourte,
           borderRadius: BorderRadius.circular(extended ? 16 : 28),
           boxShadow: [
             BoxShadow(
-              color: NeoTheme.accentPink.withValues(alpha: .35),
+              color: context.palette.action.withValues(alpha: .35),
               blurRadius: 16,
               offset: const Offset(0, 4),
             ),
@@ -162,6 +159,7 @@ class GradientRing extends StatelessWidget {
     this.size = 56,
     this.thickness = 2.5,
     this.ring = true,
+    this.gradient,
   });
 
   final Widget child;
@@ -169,15 +167,23 @@ class GradientRing extends StatelessWidget {
   final double thickness;
   final bool ring;
 
+  /// Le dégradé de l'anneau. Par défaut, la signature de l'identité.
+  ///
+  /// ⚠️ Il est **fourni de l'extérieur** parce qu'un anneau dira bientôt le
+  /// palier d'amitié : la couleur appartient alors à la relation, pas au
+  /// widget. Un `if (palier)` ici ferait de ce composant le juge d'une règle
+  /// sociale qu'il n'a aucun moyen de connaître.
+  final Gradient? gradient;
+
   @override
   Widget build(BuildContext context) {
     if (!ring) return SizedBox(width: size, height: size, child: child);
     return Container(
       width: size,
       height: size,
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: NeoGradients.brand,
+        gradient: gradient ?? context.palette.signature,
       ),
       padding: EdgeInsets.all(thickness),
       child: Container(

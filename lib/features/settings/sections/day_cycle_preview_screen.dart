@@ -431,7 +431,9 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
                         Icon(
                           ok ? Icons.check_circle_outline : Icons.warning_amber,
                           size: 18,
-                          color: ok ? Colors.white70 : NeoTheme.accentPink,
+                          color: ok
+                              ? Colors.white70
+                              : context.darkPalette.action,
                         ),
                         const SizedBox(width: 8),
                         Expanded(
@@ -445,7 +447,9 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
                                       '${DayCycle.justNoticeable}.',
                             style: TextStyle(
                               fontSize: 12,
-                              color: ok ? Colors.white70 : NeoTheme.accentPink,
+                              color: ok
+                                  ? Colors.white70
+                                  : context.darkPalette.action,
                             ),
                           ),
                         ),
@@ -523,7 +527,7 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
               label: Text(
                 _pristine ? 'Ordre' : 'Ordre modifié',
                 style: TextStyle(
-                  color: _pristine ? Colors.white : NeoTheme.accentPink,
+                  color: _pristine ? Colors.white : context.darkPalette.action,
                 ),
               ),
             ),
@@ -582,7 +586,7 @@ class _DayCyclePreviewScreenState extends State<DayCyclePreviewScreen>
           style: TextStyle(
             color: ratio >= DayCycle.accentMinContrast
                 ? Colors.white70
-                : NeoTheme.accentPink,
+                : context.darkPalette.action,
             fontSize: 11,
           ),
         ),

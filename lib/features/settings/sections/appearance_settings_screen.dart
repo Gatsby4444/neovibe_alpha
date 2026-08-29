@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/palette.dart';
 import '../../../core/prefs.dart';
+import '../../../core/typography.dart';
 import '../settings_common.dart';
 
 /// Apparence et démarrage : ce que l'app montre, et par où elle s'ouvre.
@@ -10,40 +12,36 @@ class AppearanceSettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final choice = ref.watch(themeChoiceProvider);
+    final identity = ref.watch(themeIdentityProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Apparence et démarrage')),
       body: ListView(
         children: [
           const SettingsHeader('Thème'),
-          // Trois thèmes MUTUELLEMENT EXCLUSIFS (décision de Jay 2026-08-14).
-          // C'est ce découpage qui évite qu'un réglage horaire se batte avec un
-          // interrupteur clair/sombre : l'heure est une propriété du seul thème
-          // NeoVibe, donc choisir clair ou sombre suffit à l'éteindre.
-          RadioGroup<NeoThemeChoice>(
-            groupValue: choice,
+          // Cinq identités MUTUELLEMENT EXCLUSIVES (Jay, 2026-08-29). Aurore et
+          // Sable suivent le jour et la nuit du téléphone ; les trois autres
+          // sont des choix fermes. C'est ce découpage qui évite qu'un réglage
+          // horaire se batte avec un interrupteur clair/sombre.
+          RadioGroup<NeoIdentity>(
+            groupValue: identity,
             onChanged: (v) => v == null
                 ? null
-                : ref.read(themeChoiceProvider.notifier).set(v),
+                : ref.read(themeIdentityProvider.notifier).set(v),
             child: Column(
               children: [
-                for (final t in NeoThemeChoice.values)
-                  RadioListTile<NeoThemeChoice>(
+                for (final t in NeoIdentity.values)
+                  RadioListTile<NeoIdentity>(
                     value: t,
-                    secondary: Icon(switch (t) {
-                      NeoThemeChoice.neovibe => Icons.gradient,
-                      NeoThemeChoice.light => Icons.light_mode,
-                      NeoThemeChoice.dark => Icons.dark_mode,
-                    }),
+                    // L'aperçu vaut mieux qu'une icône : on choisit une couleur,
+                    // donc on doit la voir avant de la choisir.
+                    secondary: _Apercu(identity: t),
                     title: Text(t.label),
-                    subtitle: Text(switch (t) {
-                      NeoThemeChoice.neovibe =>
-                        'Un dégradé qui suit l\'heure, du matin à la nuit. '
-                            'Le changement est trop lent pour se voir.',
-                      NeoThemeChoice.light => 'Blanc, fixe.',
-                      NeoThemeChoice.dark => 'Noir, fixe.',
-                    }),
+                    subtitle: Text(
+                      t.suitLeSysteme
+                          ? '${t.description} · suit le jour et la nuit'
+                          : t.description,
+                    ),
                   ),
               ],
             ),
@@ -106,6 +104,67 @@ class _StartupTabSection extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Trois pastilles : le fond, la surface posée dessus, et la couleur d'action.
+///
+/// ⚠️ **Un aperçu se construit depuis la palette, jamais depuis des couleurs
+/// recopiées.** Recopiées, elles cesseraient de dire la vérité au premier
+/// changement de palette — et un aperçu faux est pire que pas d'aperçu.
+class _Apercu extends StatelessWidget {
+  const _Apercu({required this.identity});
+
+  final NeoIdentity identity;
+
+  @override
+  Widget build(BuildContext context) {
+    // On montre la palette de JOUR : c'est celle qu'on a sous les yeux en
+    // réglant, et montrer la nuit ici ferait douter du choix.
+    final p = identity.palette(Brightness.light);
+    return SizedBox(
+      width: 40,
+      height: 40,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: p.ground,
+                borderRadius: BorderRadius.circular(NeoRadius.sm),
+                border: Border.all(color: p.line),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 6,
+            top: 6,
+            right: 14,
+            bottom: 14,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: p.surface,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: p.line),
+              ),
+            ),
+          ),
+          Positioned(
+            right: 6,
+            bottom: 6,
+            child: Container(
+              width: 13,
+              height: 13,
+              decoration: BoxDecoration(
+                gradient: identity.fondDuCycle ? null : p.signatureCourte,
+                color: identity.fondDuCycle ? p.action : null,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

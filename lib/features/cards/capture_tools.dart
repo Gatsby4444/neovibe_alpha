@@ -255,7 +255,7 @@ class _ScreenFlashControlState extends State<ScreenFlashControl> {
                             icon: Icon(
                               on ? Icons.wb_incandescent : Icons.flash_off,
                               color: on == widget.on
-                                  ? NeoTheme.accentPink
+                                  ? context.darkPalette.action
                                   : Colors.white,
                             ),
                             onPressed: () => widget.onToggle(on),
@@ -503,7 +503,9 @@ class _CaptureTimerControlState extends State<CaptureTimerControl> {
                       tooltip: 'Sans retardateur',
                       icon: Icon(
                         Icons.timer_off,
-                        color: armed ? Colors.white : NeoTheme.accentPink,
+                        color: armed
+                            ? Colors.white
+                            : context.darkPalette.action,
                       ),
                       onPressed: () => _pick(0),
                     ),
@@ -518,7 +520,7 @@ class _CaptureTimerControlState extends State<CaptureTimerControl> {
                             fontSize: 14,
                             fontWeight: FontWeight.w700,
                             color: value == widget.seconds
-                                ? NeoTheme.accentPink
+                                ? context.darkPalette.action
                                 : Colors.white,
                           ),
                         ),

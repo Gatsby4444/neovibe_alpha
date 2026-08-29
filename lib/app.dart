@@ -33,11 +33,10 @@ class NeoVibeApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Thème piloté par le réglage de Jay (2026-08-10), pas par le système :
-    // l'utilisateur choisit explicitement parmi TROIS thèmes exclusifs
-    // (décision du 2026-08-14). Seul le thème NeoVibe suit l'heure.
-    final choice = ref.watch(themeChoiceProvider);
-    final isNeovibe = choice == NeoThemeChoice.neovibe;
+    // L'identité visuelle choisie par Jay (2026-08-29). Cinq identités
+    // mutuellement exclusives ; deux d'entre elles — Aurore et Sable — suivent
+    // le jour et la nuit du téléphone, les trois autres sont des choix fermes.
+    final identity = ref.watch(themeIdentityProvider);
 
     return MaterialApp(
       title: 'NeoVibe',
@@ -46,15 +45,23 @@ class NeoVibeApp extends ConsumerWidget {
       // Trace le parcours d'écran en écran : sans lui, une erreur du journal
       // n'a pas de contexte (on voit le symptôme, pas d'où venait l'utilisateur).
       navigatorObservers: [AppLogNavigatorObserver(), routeObserver],
-      theme: isNeovibe ? NeoTheme.neovibe() : NeoTheme.light(),
-      darkTheme: isNeovibe ? NeoTheme.neovibe() : NeoTheme.dark(),
-      themeMode: choice == NeoThemeChoice.light
-          ? ThemeMode.light
-          : ThemeMode.dark,
+      theme: NeoTheme.of(identity, Brightness.light),
+      darkTheme: NeoTheme.of(identity, Brightness.dark),
+      // ⚠️ **C'est l'identité qui décide si le système a son mot à dire.**
+      // Une identité qui ne suit pas le système reçoit deux fois la même
+      // palette (voir `NeoIdentity.palette`) : le forçage ci-dessous n'est donc
+      // qu'une ceinture — il évite qu'un futur `Brightness` ajouté à une
+      // palette fixe se mette à réagir au réglage du téléphone sans qu'on l'ait
+      // demandé.
+      themeMode: identity.suitLeSysteme
+          ? ThemeMode.system
+          : (identity.palette(Brightness.light).isDark
+                ? ThemeMode.dark
+                : ThemeMode.light),
       // Le dégradé du cycle, posé UNE fois sous toute l'app.
       //
-      // C'est ici que le thème NeoVibe se branche, et nulle part ailleurs : les
-      // Scaffold sont transparents (voir `NeoTheme.neovibe`), donc ce fond est
+      // C'est ici que l'identité « Cycle du jour » se branche, et nulle part
+      // ailleurs : ses Scaffold sont transparents (voir `NeoTheme`), donc ce fond est
       // celui de tous les écrans à la fois. Aucun des 60 Scaffold n'a été
       // touché — et aucun futur écran n'aura à s'en soucier.
       //
@@ -63,7 +70,7 @@ class NeoVibeApp extends ConsumerWidget {
       // `home`, pas ses enfants. Un Stack autour de `home` seul laisserait donc
       // toutes les navigations sur un fond noir — et le défaut ne se verrait
       // qu'à la deuxième page.
-      builder: isNeovibe ? _gradientBuilder : null,
+      builder: identity.fondDuCycle ? _gradientBuilder : null,
       home: const RootGate(),
     );
   }

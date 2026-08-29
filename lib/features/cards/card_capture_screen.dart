@@ -2640,7 +2640,7 @@ class _FlashControlState extends State<_FlashControl> {
                         icon: Icon(
                           _icon(mode),
                           color: mode == widget.mode
-                              ? NeoTheme.accentPink
+                              ? context.darkPalette.action
                               : Colors.white,
                         ),
                         onPressed: () {
