@@ -24,7 +24,7 @@ import 'camera_controls.dart';
 import 'gallery_import_screen.dart';
 import 'native_camera.dart';
 import 'send/circle_settings_screen.dart';
-import 'send/send_format_screen.dart';
+import 'send/share_screen.dart';
 import 'send/vibe_draft.dart';
 
 /// Flux de création d'une Card.
@@ -2559,7 +2559,7 @@ class _RecapStepState extends State<_RecapStep> {
                   // l'étape 1 (découpage du 2026-08-14).
                   builder: (_) => draft.direct
                       ? CircleSettingsScreen(draft: draft)
-                      : SendFormatScreen(draft: draft),
+                      : ShareScreen(draft: draft),
                 ),
               );
             },

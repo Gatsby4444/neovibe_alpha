@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/crypto/chunked_seal.dart';
 import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
+import '../connections/friendship.dart';
 import '../../core/models/story.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
@@ -180,6 +181,15 @@ class StoriesRepository {
     bool backIsVideo = false,
     bool shareable = false,
     bool saveable = false,
+    // ⚠️ **Le cercle qui verra cette story.** La colonne `stories.min_tier`
+    // existait depuis les paliers du 2026-08-30 et **personne ne l'écrivait** :
+    // toutes les stories partaient sur le défaut. `private.story_audience` la
+    // lisait pourtant à chaque lecture — un filtre qui ne filtrait jamais rien,
+    // sans qu'aucune erreur ne le signale.
+    //
+    // ⚠️ **Le défaut est le palier le plus BAS**, jamais le plus haut : un
+    // repli qui ferme fait disparaître du contenu sans que personne comprenne.
+    FriendshipTier minTier = FriendshipTier.friend,
   }) async {
     final me = _client.auth.currentUser!.id;
     final storyId = newUuid();
@@ -235,6 +245,7 @@ class StoriesRepository {
         'p_shareable': shareable,
         'p_media_key': mediaKey,
         'p_saveable': saveable,
+        'p_min_tier': minTier.name,
       },
     );
 

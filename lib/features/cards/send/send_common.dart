@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/motion.dart';
 
 import '../../../core/content/saved_store.dart';
+import '../../../core/prefs.dart';
 import '../../../core/models/card.dart';
 import '../../../core/theme.dart';
 import '../../../core/widgets/avatar.dart';
@@ -165,36 +166,15 @@ class SaveableSwitch extends StatelessWidget {
   }
 }
 
-/// Partage hors cercle — story ET publication, même mécanique serveur
-/// (`share_content`) : le contenu voyage d'ami en ami, sans limite de sauts, et
-/// chaque saut est une personne qui décide.
-class ShareableSwitch extends StatelessWidget {
-  const ShareableSwitch({
-    super.key,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SwitchListTile(
-      title: const Text('Partageable'),
-      subtitle: Text(
-        value
-            ? 'Ceux qui la voient pourront la relayer à leurs amis, qui '
-                  'pourront la relayer à leur tour — elle peut sortir de ton '
-                  'cercle.'
-            : 'Elle reste dans ton cercle : personne ne peut la relayer '
-                  'ailleurs.',
-      ),
-      value: value,
-      onChanged: onChanged,
-    );
-  }
-}
+// ⚠️ **`ShareableSwitch` a été SUPPRIMÉ le 2026-08-31**, avec les quatre écrans
+// de paramétrage. Le nouvel écran de partage règle « Partageable » par une puce
+// compacte, posée sur la ligne de la destination — demande de Jay :
+// *« des boutons et containers à taille réduite pour bien proposer toutes les
+// options »*. Un `SwitchListTile` par option y ferait doubler la hauteur de
+// chaque ligne.
+//
+// ⚠️ **`ScrubbableSwitch` reste**, lui : il est appelé par `ViewingRulesSheet`.
+// Vérifié à l'inventaire avant de couper — j'ai failli l'emporter avec.
 
 /// Barre de lecture des vidéos (défaut : intouchable — consigne Jay).
 class ScrubbableSwitch extends StatelessWidget {
@@ -429,4 +409,237 @@ class SendEmptyNote extends StatelessWidget {
       ),
     ),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Les règles de visionnage
+// ---------------------------------------------------------------------------
+//
+// ⚠️ **Déplacées ici depuis `circle_settings_screen.dart` le 2026-08-31**, avec
+// le nouvel écran de partage. Elles obéissent aux mêmes règles partout où l'on
+// envoie à des PERSONNES — ce qui est exactement le critère d'entrée de ce
+// fichier. Les recopier dans l'écran de partage aurait fait deux définitions
+// d'« une ouverture », qui auraient fini par diverger.
+//
+// ⚠️ **Elles ne concernent QUE les personnes.** Une story ou une publication
+// n'a ni compteur d'ouvertures ni durée par face : c'est écrit dans la feuille
+// elle-même, et c'est pour ça qu'elle ne s'affiche que lorsqu'au moins une
+// personne est cochée.
+
+/// Le rappel des règles en vigueur, cliquable.
+///
+/// Il existe parce que les régler est passé derrière un bouton : sans lui,
+/// « 2 ouvertures » deviendrait une règle qui s'applique sans jamais s'annoncer
+/// — exactement ce que la refonte cherchait à éviter en les sortant du chemin.
+class ViewingRulesSummary extends StatelessWidget {
+  const ViewingRulesSummary({
+    super.key,
+    required this.maxViews,
+    required this.viewDuration,
+    required this.onTap,
+  });
+
+  final int? maxViews;
+  final int? viewDuration;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final views = maxViews == null
+        ? 'ouvertures illimitées'
+        : '$maxViews ouverture${maxViews! > 1 ? 's' : ''}';
+    final duration = viewDuration == null
+        ? 'lecture illimitée'
+        : '$viewDuration s par face';
+    return ListTile(
+      dense: true,
+      leading: const Icon(Icons.tune, size: 18),
+      title: Text('$views · $duration'),
+      subtitle: Text(
+        'Retourner la Vibe ne consomme rien',
+        style: TextStyle(color: context.muted),
+      ),
+      trailing: const Icon(Icons.chevron_right, size: 18),
+      onTap: onTap,
+    );
+  }
+}
+
+/// Les règles de visionnage, derrière le bouton « réglages » de l'AppBar.
+class ViewingRulesSheet extends StatefulWidget {
+  const ViewingRulesSheet({
+    super.key,
+    required this.draft,
+    required this.maxViews,
+    required this.viewDuration,
+    required this.scrubbable,
+    required this.onChanged,
+  });
+
+  final VibeDraft draft;
+  final int? maxViews;
+  final int? viewDuration;
+  final bool scrubbable;
+  final void Function(int? maxViews, int? viewDuration, bool scrubbable)
+  onChanged;
+
+  @override
+  State<ViewingRulesSheet> createState() => ViewingRulesSheetState();
+}
+
+class ViewingRulesSheetState extends State<ViewingRulesSheet> {
+  /// 1-5 ouvertures ; **6 = illimité**. Le curseur porte le cran « illimité »
+  /// au lieu d'un interrupteur à côté : c'est le même réglage, il n'a pas à se
+  /// faire en deux gestes à deux endroits.
+  late int _views = widget.maxViews ?? 6;
+
+  /// 1-20 s ; **21 = illimitée**.
+  late int _duration = widget.viewDuration ?? 21;
+
+  late bool _scrubbable = widget.scrubbable;
+
+  void _push() => widget.onChanged(
+    _views == 6 ? null : _views,
+    _duration == 21 ? null : _duration,
+    _scrubbable,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final draft = widget.draft;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Règles de visionnage',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Elles ne s\'appliquent qu\'ici : une story ou une publication '
+              'n\'en a pas.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: context.muted),
+            ),
+            const SizedBox(height: 14),
+
+            Text(
+              _views == 6 ? 'Ouvertures : illimitées' : 'Ouvertures : $_views',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            Text(
+              'Une ouverture, pas un affichage : la Vibe se retourne autant '
+              'qu\'on veut tant qu\'elle est ouverte.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: context.muted),
+            ),
+            Slider(
+              value: _views.toDouble(),
+              min: 1,
+              max: 6,
+              divisions: 5,
+              label: _views == 6 ? '∞' : '$_views',
+              onChanged: (v) {
+                setState(() => _views = v.round());
+                _push();
+              },
+            ),
+
+            // La durée de lecture ne concerne que les faces photo : une face
+            // vidéo se lit en entier (consigne Jay 2026-07-12).
+            if (draft.hasPhoto) ...[
+              const SizedBox(height: 8),
+              Text(
+                _duration == 21
+                    ? 'Durée de lecture${draft.hasVideo ? ' (face photo)' : ''} : illimitée'
+                    : 'Durée de lecture${draft.hasVideo ? ' (face photo)' : ''} : $_duration s',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              Text(
+                'Par face, et le compte se met en pause quand on retourne la '
+                'Vibe.',
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: context.muted),
+              ),
+              Slider(
+                value: _duration.toDouble(),
+                min: 1,
+                max: 21,
+                divisions: 20,
+                label: _duration == 21 ? '∞' : '$_duration s',
+                onChanged: (v) {
+                  setState(() => _duration = v.round());
+                  _push();
+                },
+              ),
+            ],
+
+            if (draft.hasVideo) ...[
+              const SizedBox(height: 4),
+              ScrubbableSwitch(
+                value: _scrubbable,
+                onChanged: (v) {
+                  setState(() => _scrubbable = v);
+                  _push();
+                },
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Popup de première utilisation : comment vivent les Vibes (consigne Jay).
+///
+/// ⚠️ **Déplacée ici le 2026-08-31**, avec la disparition de l'écran de choix
+/// de format. Elle vivait dans ce fichier-là : l'y laisser l'aurait fait
+/// disparaître avec lui, et le premier écran d'envoi n'aurait plus rien
+/// expliqué — sans qu'aucune erreur ne le signale.
+///
+/// Appelée depuis **tout premier écran d'envoi atteint** : le partage, et le
+/// paramétrage du cercle quand on y entre directement depuis un chat.
+Future<void> maybeShowVibesExplainer(
+  BuildContext context,
+  WidgetRef ref,
+) async {
+  if (ref.read(cardsExplainerShownProvider)) return;
+  await showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Comment vivent tes Vibes'),
+      content: const SingleChildScrollView(
+        child: Text(
+          'Dans les chats, une Vibe s\'ouvre un nombre limité de fois '
+          '(2 par défaut). Une ouverture, c\'est une ouverture : tant que la '
+          'Vibe est ouverte, tu peux la retourner autant que tu veux sans rien '
+          'consommer.\n\n'
+          'Le temps de lecture est illimité par défaut ; tu peux le limiter '
+          'par Vibe. Tes défauts se règlent dans Réglages > Vibes.\n\n'
+          'Chaque Vibe apparaît dans le chat comme un container : on clique '
+          'pour l\'ouvrir, jamais d\'aperçu. Le container reste 24 h et le '
+          'destinataire peut te demander un replay : rien ne se revoit sans '
+          'ton accord.\n\n'
+          'Si tu l\'envoies à UNE seule personne sans la publier, elle devient '
+          'une One of One : exclusive, pour elle seule, à jamais.\n\n'
+          'Dans ta bibliothèque, ce que tu publies se regarde sans limite.',
+        ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Compris'),
+        ),
+      ],
+    ),
+  );
+  await ref.read(cardsExplainerShownProvider.notifier).markShown();
 }

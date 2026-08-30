@@ -5,11 +5,9 @@ import '../../../core/content/saved_store.dart';
 import '../../../core/models/card.dart';
 import '../../../core/prefs.dart';
 import '../../../core/supabase_providers.dart';
-import '../../../core/theme.dart';
 import '../../connections/connections_repository.dart';
 import '../cards_repository.dart';
 import 'send_common.dart';
-import 'send_format_screen.dart';
 import 'vibe_draft.dart';
 
 /// **Étape 2 — le cercle.** Partage direct en DM et en groupe : le seul
@@ -94,7 +92,7 @@ class _CircleSettingsScreenState extends ConsumerState<CircleSettingsScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => _ViewingRulesSheet(
+      builder: (_) => ViewingRulesSheet(
         draft: _draft,
         maxViews: _maxViews,
         viewDuration: _viewDuration,
@@ -200,7 +198,7 @@ class _CircleSettingsScreenState extends ConsumerState<CircleSettingsScreen> {
               subtitle: const Text('Elle partira dans cette conversation.'),
             ),
           if (_isOneOfOne) const OneOfOneBanner(),
-          _RulesSummary(
+          ViewingRulesSummary(
             maxViews: _maxViews,
             viewDuration: _draft.hasPhoto ? _viewDuration : null,
             onTap: _openSettings,
@@ -246,176 +244,6 @@ class _CircleSettingsScreenState extends ConsumerState<CircleSettingsScreen> {
             onPressed: _send,
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Le rappel des règles en vigueur, cliquable.
-///
-/// Il existe parce que les régler est passé derrière un bouton : sans lui,
-/// « 2 ouvertures » deviendrait une règle qui s'applique sans jamais s'annoncer
-/// — exactement ce que la refonte cherchait à éviter en les sortant du chemin.
-class _RulesSummary extends StatelessWidget {
-  const _RulesSummary({
-    required this.maxViews,
-    required this.viewDuration,
-    required this.onTap,
-  });
-
-  final int? maxViews;
-  final int? viewDuration;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final views = maxViews == null
-        ? 'ouvertures illimitées'
-        : '$maxViews ouverture${maxViews! > 1 ? 's' : ''}';
-    final duration = viewDuration == null
-        ? 'lecture illimitée'
-        : '$viewDuration s par face';
-    return ListTile(
-      dense: true,
-      leading: const Icon(Icons.tune, size: 18),
-      title: Text('$views · $duration'),
-      subtitle: Text(
-        'Retourner la Vibe ne consomme rien',
-        style: TextStyle(color: context.muted),
-      ),
-      trailing: const Icon(Icons.chevron_right, size: 18),
-      onTap: onTap,
-    );
-  }
-}
-
-/// Les règles de visionnage, derrière le bouton « réglages » de l'AppBar.
-class _ViewingRulesSheet extends StatefulWidget {
-  const _ViewingRulesSheet({
-    required this.draft,
-    required this.maxViews,
-    required this.viewDuration,
-    required this.scrubbable,
-    required this.onChanged,
-  });
-
-  final VibeDraft draft;
-  final int? maxViews;
-  final int? viewDuration;
-  final bool scrubbable;
-  final void Function(int? maxViews, int? viewDuration, bool scrubbable)
-  onChanged;
-
-  @override
-  State<_ViewingRulesSheet> createState() => _ViewingRulesSheetState();
-}
-
-class _ViewingRulesSheetState extends State<_ViewingRulesSheet> {
-  /// 1-5 ouvertures ; **6 = illimité**. Le curseur porte le cran « illimité »
-  /// au lieu d'un interrupteur à côté : c'est le même réglage, il n'a pas à se
-  /// faire en deux gestes à deux endroits.
-  late int _views = widget.maxViews ?? 6;
-
-  /// 1-20 s ; **21 = illimitée**.
-  late int _duration = widget.viewDuration ?? 21;
-
-  late bool _scrubbable = widget.scrubbable;
-
-  void _push() => widget.onChanged(
-    _views == 6 ? null : _views,
-    _duration == 21 ? null : _duration,
-    _scrubbable,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    final draft = widget.draft;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Règles de visionnage',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Elles ne s\'appliquent qu\'ici : une story ou une publication '
-              'n\'en a pas.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: context.muted),
-            ),
-            const SizedBox(height: 14),
-
-            Text(
-              _views == 6 ? 'Ouvertures : illimitées' : 'Ouvertures : $_views',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            Text(
-              'Une ouverture, pas un affichage : la Vibe se retourne autant '
-              'qu\'on veut tant qu\'elle est ouverte.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: context.muted),
-            ),
-            Slider(
-              value: _views.toDouble(),
-              min: 1,
-              max: 6,
-              divisions: 5,
-              label: _views == 6 ? '∞' : '$_views',
-              onChanged: (v) {
-                setState(() => _views = v.round());
-                _push();
-              },
-            ),
-
-            // La durée de lecture ne concerne que les faces photo : une face
-            // vidéo se lit en entier (consigne Jay 2026-07-12).
-            if (draft.hasPhoto) ...[
-              const SizedBox(height: 8),
-              Text(
-                _duration == 21
-                    ? 'Durée de lecture${draft.hasVideo ? ' (face photo)' : ''} : illimitée'
-                    : 'Durée de lecture${draft.hasVideo ? ' (face photo)' : ''} : $_duration s',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              Text(
-                'Par face, et le compte se met en pause quand on retourne la '
-                'Vibe.',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: context.muted),
-              ),
-              Slider(
-                value: _duration.toDouble(),
-                min: 1,
-                max: 21,
-                divisions: 20,
-                label: _duration == 21 ? '∞' : '$_duration s',
-                onChanged: (v) {
-                  setState(() => _duration = v.round());
-                  _push();
-                },
-              ),
-            ],
-
-            if (draft.hasVideo) ...[
-              const SizedBox(height: 4),
-              ScrubbableSwitch(
-                value: _scrubbable,
-                onChanged: (v) {
-                  setState(() => _scrubbable = v);
-                  _push();
-                },
-              ),
-            ],
-          ],
-        ),
       ),
     );
   }

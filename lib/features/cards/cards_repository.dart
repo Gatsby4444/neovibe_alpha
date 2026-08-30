@@ -244,6 +244,66 @@ class CardsRepository {
     }
   }
 
+  /// Envoie une Vibe **dans une conversation déjà connue**, DM ou groupe.
+  ///
+  /// ## ⚠️ Pourquoi cette méthode existe à côté de [send]
+  ///
+  /// [send] part d'une liste de personnes et ouvre une conversation DIRECTE
+  /// avec chacune (`get_or_create_direct_conversation`). Envoyer ainsi dans un
+  /// groupe créerait **N conversations à deux** au lieu d'un message dans le
+  /// groupe — chaque membre recevrait la Vibe en privé, et personne ne la
+  /// verrait dans le fil commun.
+  ///
+  /// L'écran de partage, lui, travaille avec des **conversations** : il sait
+  /// déjà où poster. Lui faire redécouvrir la conversation à partir des
+  /// membres serait refaire un chemin qu'il a déjà.
+  ///
+  /// ⚠️ **Une seule Card pour toute la conversation, autant de livraisons que
+  /// de membres.** C'est ce qui fait qu'envoyer à dix personnes ne coûte qu'une
+  /// montée de fichier.
+  Future<void> sendToConversation(
+    CardModel card,
+    String conversationId,
+    List<String> recipientIds,
+  ) async {
+    final me = _client.auth.currentUser!.id;
+    if (card.type == CardType.oneOfOne && recipientIds.length > 1) {
+      throw StateError("Une Vibe 1/1 ne peut avoir qu'un destinataire");
+    }
+    final message = await _client
+        .from('messages')
+        .insert({
+          'conversation_id': conversationId,
+          'sender_id': me,
+          'kind': 'card',
+          'card_id': card.id,
+        })
+        .select()
+        .single();
+    for (final recipientId in recipientIds) {
+      await _client.from('card_deliveries').insert({
+        'card_id': card.id,
+        'recipient_id': recipientId,
+        'message_id': message['id'],
+      });
+    }
+  }
+
+  /// **Envoie une Vibe à quelqu'un qu'on a croisé** — pas encore un ami.
+  ///
+  /// Ce n'est pas un message : c'est une **demande d'ami qui porte une Vibe**,
+  /// ouverte 24 h après un croisement mutuel. Il n'existe aucun canal de
+  /// discussion vers un inconnu qu'on a quitté, et il ne doit pas en exister.
+  ///
+  /// ⚠️ **Toutes les vérifications sont côté serveur** — croisement constaté,
+  /// pas déjà amis, pas bloqués, Vibe m'appartenant. L'app ne fait que
+  /// demander : une barrière tenue par le client n'est pas une barrière
+  /// (`RAPPELS.md` #93).
+  Future<void> sendToCrossed(CardModel card, String userId) => _client.rpc(
+    'request_connection_with_vibe',
+    params: {'peer': userId, 'p_card_id': card.id},
+  );
+
   /// Ma livraison pour une card donnée (état de visionnage).
   Future<CardDelivery?> myDelivery(String cardId) async {
     final me = _client.auth.currentUser!.id;
