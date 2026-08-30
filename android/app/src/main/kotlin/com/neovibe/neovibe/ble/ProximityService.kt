@@ -156,6 +156,22 @@ class ProximityService : Service(), BleEngine.Listener {
     private val cycleHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
     /**
+     * **Le reveil qui sonne meme quand l'appareil dort.** Voir [SlotAlarm].
+     *
+     * ⚠️ **Deux reveils, deux metiers, et il faut les lire ensemble.**
+     *
+     * | Qui | Ce qu'il garantit | Ce qu'il ne peut pas |
+     * |---|---|---|
+     * | [cycleTick] (`Handler`) | la rotation **a l'interieur** d'un creneau | survivre au sommeil du processeur |
+     * | [slotAlarm] (`AlarmManager`) | le passage **au creneau suivant** | tourner toutes les 400 ms |
+     *
+     * Le `Handler` n'est donc pas remplace : il reste seul capable de la
+     * cadence rapide du mode cycle. Ce qui change, c'est qu'il n'est plus le
+     * **seul** a pouvoir faire tourner la page — et c'etait ca, le defaut.
+     */
+    private val slotAlarm by lazy { SlotAlarm(this) { emitNext() } }
+
+    /**
      * Cadence de rotation a l'interieur d'un creneau.
      *
      * Chaque changement d'annonce coute un arret/relance de l'advertising. A un
@@ -256,9 +272,54 @@ class ProximityService : Service(), BleEngine.Listener {
         dernierBattement != 0L &&
             android.os.SystemClock.elapsedRealtime() - dernierBattement < graceBattement
 
+    /**
+     * La plus grande derive de creneau jamais observee, et quand.
+     *
+     * ## 🔴 Pourquoi une trace HAUTE, et pas la valeur de l'instant
+     *
+     * `advertSlotDrift` a ete ecrit le 2026-08-29 pour mesurer exactement le
+     * defaut de la nuit du 2026-08-30 — et il a affiche **0** sur les deux
+     * rapports. Non parce qu'il n'y avait rien, mais parce que **le lire
+     * suppose de reveiller l'appareil et d'ouvrir l'app**, c'est-a-dire de le
+     * reparer avant de le mesurer.
+     *
+     * ⚠️ **Un instrument qu'on ne peut consulter qu'en detruisant ce qu'il
+     * mesure ne mesure rien.** Il ne se contredit pas, il ne leve rien : il
+     * affiche zero avec l'assurance d'une mesure.
+     *
+     * ## Pourquoi le relevé se fait ICI, au debut de [emitNext]
+     *
+     * [emitNext] est appele par les deux reveils, et **c'est lui qui repare**.
+     * Le premier appel apres une nuit de sommeil voit donc la derive complete,
+     * une milliseconde avant de l'effacer. La reparation devient la mesure —
+     * aucune sonde separee a maintenir, et aucun endroit ou l'oublier.
+     */
+    @Volatile
+    private var driftMax = 0L
+
+    /** `elapsedRealtime` du relevé de [driftMax]. Zero = jamais. */
+    @Volatile
+    private var driftMaxA = 0L
+
     private fun emitNext() {
         val plan = schedule ?: return
         val now = System.currentTimeMillis()
+
+        // ⚠️ **Avant toute chose, et surtout avant d'ecrire quoi que ce soit.**
+        // Voir [driftMax] : c'est le seul instant ou la derive existe encore.
+        // ⚠️ **Le meme diviseur que partout ailleurs.** Le repere retenu par
+        // `AdvertOnAir` est pose plus bas avec `slotMillis`, et `stats()` l'y
+        // compare avec `slotMillis` : diviser ici par la valeur du plan
+        // donnerait un nombre qui ne se compare a rien le jour ou les deux
+        // different.
+        val enLAir = engine.advertSlotOnAir
+        if (enLAir >= 0) {
+            val derive = now / slotMillis - enLAir
+            if (derive > driftMax) {
+                driftMax = derive
+                driftMaxA = android.os.SystemClock.elapsedRealtime()
+            }
+        }
 
         // ⚠️ **Le filtre est pose ICI, et nulle part ailleurs.** C'est le seul
         // passage par lequel un jeton atteint la radio : les deux modes
@@ -330,6 +391,20 @@ class ProximityService : Service(), BleEngine.Listener {
             // besoin.
             emitNext()
             cycleHandler.postDelayed(cycleTick, nextDelay())
+            // ⚠️ **La duree du creneau vient du PLAN, et c'est le seul endroit
+            // du fichier ou ce soit le bon choix.** Le champ `slotMillis` est
+            // pose par la table de RECONNAISSANCE, qui arrive apres le plan
+            // (`_deposePlan` cote Dart) : armer dessus reglerait le reveil de
+            // l'EMISSION sur une valeur qui ne la concerne pas — et sur la
+            // valeur par defaut au tout premier depot.
+            //
+            // 🟡 Les deux valent 900 000 aujourd'hui, et viennent de la meme
+            // constante Dart. Le jour ou elles divergeront, ce commentaire est
+            // le seul endroit qui dise laquelle repond a quelle question.
+            slotAlarm.arm(plan.rawSlotMillis)
+        } else {
+            // Plan vide : plus rien a crier, donc plus aucune page a tourner.
+            slotAlarm.cancel()
         }
     }
 
@@ -518,6 +593,12 @@ class ProximityService : Service(), BleEngine.Listener {
         // sa mort, c'est exactement le genre de noeud orphelin que ce projet
         // passe son temps a chasser.
         cycleHandler.removeCallbacks(cycleTick)
+        // ⚠️ **Le reveil survit au service s'il n'est pas desarme**, et il est
+        // pose aupres du SYSTEME : une alarme oubliee reveillerait le telephone
+        // toutes les quinze minutes pour un service qui n'existe plus. C'est
+        // exactement le noeud orphelin de la regle 8 de `CLAUDE.md`, en pire —
+        // il coute de la batterie a quelqu'un qui a coupe la fonction.
+        slotAlarm.cancel()
         schedule = null
         // La table et les constats appartiennent a ce service : les laisser
         // derriere serait garder une trace de qui a ete croise, sans personne
@@ -612,6 +693,28 @@ class ProximityService : Service(), BleEngine.Listener {
         "advertSlotDrift" to
             if (engine.advertSlotOnAir < 0) -1L
             else System.currentTimeMillis() / slotMillis - engine.advertSlotOnAir,
+        // 🔴 **LA LIGNE A LIRE APRES UN TEST DE NUIT.** Voir [driftMax].
+        //
+        // `advertSlotDrift` ci-dessus ne vaut que pour l'instant present, et cet
+        // instant est toujours celui ou l'on vient de reveiller l'appareil.
+        // Celle-ci retient **la pire derive depuis le demarrage du service**,
+        // avec son age : elle survit au reveil, donc elle peut accuser.
+        //
+        // Lecture : `0` = la page a toujours ete tournee a l'heure. `24` = le
+        // jeton a passe six heures fige (24 creneaux de 15 min).
+        "advertSlotDriftMax" to driftMax,
+        "advertSlotDriftMaxAgeMillis" to
+            if (driftMaxA == 0L) -1L
+            else android.os.SystemClock.elapsedRealtime() - driftMaxA,
+        // ⚠️ **Les deux temoins du reveil de veille** (voir [SlotAlarm]).
+        //
+        // `slotAlarmReveils` proche de zero apres une nuit = le systeme n'a pas
+        // honore l'alarme, et le correctif du 2026-08-30 n'a pas pris. Un
+        // `slotAlarmRetardMax` superieur a une duree de creneau veut dire que
+        // Doze l'a repoussee au-dela de la fenetre de tolerance : la derive
+        // repasse alors au-dessus de 1, et les deux lignes se lisent ensemble.
+        "slotAlarmReveils" to slotAlarm.reveils,
+        "slotAlarmRetardMaxMillis" to slotAlarm.retardMaxMillis,
         // ⚠️ **Un refus de contenu d'annonce, rendu VISIBLE.**
         // `setAdvertisingData` est asynchrone : elle ne rend rien et ne leve
         // rien. Ce compteur est la seule trace qu'un refus ait existe.

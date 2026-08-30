@@ -382,6 +382,32 @@ au remplacement de l'interface.
   `PlanStoreTest.kt`**. Ce code tourne **au seul moment où personne ne
   regarde** ; une panne y serait indiscernable de celle qu'il corrige.
 
+- **`SlotAlarm.kt`** — *(nouveau, 2026-08-30)* le **réveil qui sonne même quand
+  l'appareil dort**. Le plan a rendu le natif indépendant du Dart pour savoir
+  *quoi* crier ; la main qui **tourne la page** restait un
+  `Handler.postDelayed`, et un `Handler` dort avec le processeur. En mode
+  parallèle les jeux d'annonces sont déjà en l'air : la puce continue de
+  rayonner seule, donc l'appareil endormi criait le jeton d'un créneau révolu
+  **en continu, sans lever la moindre erreur**.
+  ⚠️ **Mesuré au test de nuit du 2026-08-30** : la tablette a reçu 110 694
+  jetons privés du téléphone et n'en a reconnu **aucun** ; les deux appareils ne
+  se sont pas vus de 02:45 à 07:00.
+  ⚠️ **`setAndAllowWhileIdle`, PAS `setExactAndAllowWhileIdle`** : la version
+  exacte exige `SCHEDULE_EXACT_ALARM`, refusée par défaut sur Android 13 et
+  réservée par Google Play aux réveils et aux agendas. L'exactitude n'est pas
+  nécessaire — `RecognitionTable.match` tolère le créneau **à un près**.
+  ⚠️ **Le quota Doze est d'un réveil par ~9 min** ; le créneau vaut 15 min. Un
+  créneau raccourci sous 9 minutes rendrait ce réveil silencieusement
+  insuffisant.
+  ⚠️ **Récepteur enregistré à l'exécution**, jamais au manifeste : déclaré au
+  manifeste, il relancerait le service après un arrêt voulu par l'utilisateur.
+  Le calcul de la frontière est **pur** et éprouvé — 3 tests dans
+  `SlotAlarmTest.kt`, dont le contre-test de la marge.
+  🍎 **iOS : aucun équivalent, et c'est un mur connu.** Il n'y a pas d'API de
+  réveil périodique en arrière-plan ; `CoreBluetooth` fait tourner l'advertising
+  mais l'app ne choisit pas quand réécrire sa charge utile. À traiter avec
+  `AdvertSchedule` et `SightingBook`, qui butent sur la même limite.
+
 ### 🔴 UN SEUL MODE EN L'AIR À LA SORTIE (2026-08-29)
 
 **Fichier : `BleEngine.kt`.** Il y a **deux façons d'être en l'air** — les jeux
@@ -488,6 +514,8 @@ fantôme que rien d'autre n'expliquerait :
 | `foreignTokenScans` | **`ProximityService`** | des jetons privés **destinés à quelqu'un d'autre**, écartés |
 | `advertSlotDrift` | **`AdvertOnAir`** → `ProximityService` | **de quand date ce qui rayonne**. `0` = le jeton du créneau courant ; toute autre valeur = on crie le passé, donc on est entendu par tous et reconnu par personne. `-1` = aucun jeu confirmé |
 | `advertDataRefus` | **`AdvertOnAir`** | la pile a **refusé** un contenu d'annonce — la seule trace qu'un refus ait existé |
+| `advertSlotDriftMax` / `...MaxAgeMillis` | **`ProximityService`** | 🔴 **la PIRE dérive depuis le démarrage, et son âge.** `advertSlotDrift` ne dit que l'instant présent — or on ne lit un diagnostic qu'après avoir réveillé l'appareil, donc après l'avoir réparé. Le 2026-08-30 il affichait `0` au terme d'une nuit entière de dérive. Une trace haute survit au réveil, donc elle peut accuser |
+| `slotAlarmReveils` / `slotAlarmRetardMaxMillis` | **`SlotAlarm`** | le réveil de veille a-t-il sonné, et avec quel retard. Sans eux, une dérive nulle ne distingue pas « c'est réparé » de « l'alarme n'a jamais été honorée » |
 
 🔴 **`foreignTokenScans` a changé de maison le 2026-08-28, et c'est une leçon à
 porter sur iOS.** Il était déclaré dans `BleEngine`, publié dans `stats()`… et

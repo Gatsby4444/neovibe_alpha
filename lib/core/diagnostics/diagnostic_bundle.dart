@@ -164,6 +164,22 @@ class DiagnosticBundle {
         // l'appareil est reconnaissable ; à toute autre valeur, il est entendu
         // par tous et reconnu par personne. Voir `ProximityService.stats()`.
         'advertSlotDrift',
+        // ⚠️ **Les quatre lignes d'un TEST DE NUIT, et elles se lisent
+        // ensemble.** `advertSlotDrift` ci-dessus ne dit que l'instant présent
+        // — or on ne lit un diagnostic qu'après avoir réveillé l'appareil,
+        // c'est-à-dire après l'avoir réparé. Le 2026-08-30, il affichait 0 sur
+        // les deux appareils au terme d'une nuit où la tablette a reçu 110 694
+        // jetons d'ami sans en reconnaître un seul.
+        //
+        // `advertSlotDriftMax` retient la PIRE dérive depuis le démarrage du
+        // service, et `...AgeMillis` dit quand : les deux survivent au réveil.
+        // Les deux `slotAlarm...` disent si le réveil de veille a bien sonné —
+        // sans eux, une dérive nulle ne distinguerait pas « c'est réparé » de
+        // « l'alarme n'a jamais été honorée ».
+        'advertSlotDriftMax',
+        'advertSlotDriftMaxAgeMillis',
+        'slotAlarmReveils',
+        'slotAlarmRetardMaxMillis',
         'advertDataRefus',
         'advertRappelsPerimes',
         // ⚠️ **Vrai = le service a repris sur le plan écrit sur le disque.**
