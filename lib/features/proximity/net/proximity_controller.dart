@@ -8,11 +8,14 @@ import '../ping_store.dart';
 import '../nearby_people.dart';
 import '../presence_feed.dart';
 import '../proximity_identity.dart';
+import '../../connections/connections_repository.dart';
 import 'connection_trace.dart';
 import 'peer_network.dart';
 import '../../connections/friendships_repository.dart';
-import 'presque_ledger.dart';
+import 'presque_delai.dart';
+import 'wave_rules.dart';
 import 'peer_session.dart';
+import 'presence_book.dart';
 import 'proximity_journal.dart';
 import 'ble_radio.dart';
 import 'distance_estimate.dart';
@@ -119,6 +122,18 @@ class ProximityController extends AsyncNotifier<void> {
 
     if (me != null) await _ensureNetwork();
 
+    // ⚠️ **Un tour TOUT DE SUITE, avant d'armer le minuteur.** L'app a pu être
+    // fermée pendant l'heure qui suivait un croisement : sans ce premier tour,
+    // le verdict attendrait cinq minutes de plus à chaque lancement, et un
+    // lancement plus court que ça ne le rendrait jamais.
+    if (me != null) {
+      unawaited(_rendreVerdicts());
+      _verdicts ??= Timer.periodic(
+        verdictEvery,
+        (_) => unawaited(_rendreVerdicts()),
+      );
+    }
+
     _publishPresence();
   }
 
@@ -130,7 +145,8 @@ class ProximityController extends AsyncNotifier<void> {
     _peerFeed = null;
     _sightingSweep?.cancel();
     _sightingSweep = null;
-    _presque.oublieTout();
+    _verdicts?.cancel();
+    _verdicts = null;
     final network = _network;
     _network = null; // ← la ligne qui manquait
     // ⚠️ **La présence ne se vide PLUS ici** (2026-08-29), et ce n'était pas
@@ -180,6 +196,7 @@ class ProximityController extends AsyncNotifier<void> {
   /// le téléphone.
   Future<void> _forgetLocalPing() async {
     await _journal.clear();
+    await _presences.clear();
     // ⚠️ **Après le premier `await`, et c'est ce qui le rend légal.** Vider
     // la présence, c'est modifier un autre fournisseur : interdit pendant un
     // cycle de vie (`build` synchrone, `onDispose`), permis ensuite. C'est
@@ -213,16 +230,12 @@ class ProximityController extends AsyncNotifier<void> {
     // possible.
     unawaited(ref.read(proximitySyncProvider).run());
 
-    _radioFeed = supervisor.events.listen((event) {
-      // ⚠️ **La radio s'arrête : les présences en cours n'existent plus**, et
-      // le réseau les jette sans émettre de `PeerLost`. Garder leur souvenir
-      // ferait taire à tort le « presque » d'une vraie rencontre brève, plus
-      // tard, avec la même personne.
-      if (event is RadioStatusEvent && !event.status.isDetecting) {
-        _presque.oublieTout();
-      }
-      network.onRadioEvent(event);
-    });
+    // ⚠️ **Plus rien à oublier quand la radio s'arrête** (2026-08-30). Il
+    // fallait vider le registre en mémoire, parce qu'un souvenir de présence
+    // en cours y survivait à l'extinction. Le carnet, lui, ne retient que des
+    // contacts **terminés** et datés : une radio qui s'arrête n'en fabrique
+    // aucun, et le réseau jette ses sessions sans émettre de `PeerLost`.
+    _radioFeed = supervisor.events.listen(network.onRadioEvent);
     _peerFeed = network.events.listen(_onPeerEvent);
 
     _appliquerBalayage(ref.read(proximitySupervisorProvider).wantsFriends);
@@ -302,17 +315,16 @@ class ProximityController extends AsyncNotifier<void> {
       case PresenceChanged():
         _publishPresence();
       case PeerIdentified():
-        // ⚠️ **Plus de « presque » ici depuis le 2026-08-29.** Reconnaître
-        // quelqu'un et l'avoir raté sont deux choses différentes — voir
-        // [_maybeWave].
+        // ⚠️ **Rien ne part ici depuis le 2026-08-29.** Reconnaître quelqu'un et
+        // l'avoir raté sont deux choses différentes — voir [_finDePresence].
         _publishPresence();
       case PeerLost(:final peer):
-        await _peutEtreUnPresque(peer);
+        await _finDePresence(peer);
         _publishPresence();
     }
   }
 
-  /// Une présence vient de se terminer : était-ce un « presque » ?
+  /// Une présence vient de se terminer : on l'enregistre, et on juge.
   ///
   /// ## 🔴 Le défaut que ceci corrige — signalé par Jay le 2026-08-29
   ///
@@ -353,12 +365,35 @@ class ProximityController extends AsyncNotifier<void> {
   ///
   /// ⚠️ **Une radio qui s'arrête n'émet pas de `PeerLost`**, et c'est juste :
   /// couper sa visibilité n'est pas quelqu'un qui s'en va.
-  Future<void> _peutEtreUnPresque(PresencePeer peer) async {
+  Future<void> _finDePresence(PresencePeer peer) async {
     final snapshot = peer.snapshot;
     if (snapshot == null) return;
-    if (!_presque.finDePresence(snapshot.userId)) return;
     if (!await _isFriend(snapshot.userId)) return;
-    await _maybeWave(snapshot);
+
+    final contact = Presence(debut: peer.firstSeen, fin: peer.lastSeen);
+    // ⚠️ **On enregistre AVANT de juger, et toujours.** Un contact qui ne
+    // déclenche rien reste un fait : c'est lui qui, dans une heure, empêchera
+    // un presque de partir pour un croisement qu'on n'a pas raté. Ne garder
+    // que les contacts intéressants, c'est se priver de la moitié de la règle.
+    await _presences.noter(
+      snapshot.userId,
+      contact: contact,
+      detections: peer.sightings,
+    );
+
+    // « Ton ami est tout près » se décide MAINTENANT — c'est toute sa raison
+    // d'être. Le presque, lui, attend l'heure d'après ; voir [_rendreVerdicts].
+    final historique = await _presences.historique(
+      snapshot.userId,
+      sauf: contact,
+    );
+    if (WaveRules.toutPres(
+      historique: historique,
+      contact: contact,
+      detections: peer.sightings,
+    )) {
+      await _notifierToutPres(snapshot);
+    }
   }
 
   /// Le canal natif, pour récupérer ce que le service a constaté seul.
@@ -374,11 +409,34 @@ class ProximityController extends AsyncNotifier<void> {
   /// est une décision produit, et elle n'a rien à faire sous la frontière radio.
   final _sightings = SightingLog();
 
-  /// Ce qui décide si une présence terminée était un « presque ».
+  /// La mémoire des présences passées, sur le disque.
   ///
-  /// ⚠️ **Elle vit ici, du côté de qui décide**, et pas dans la session : le
-  /// réseau constate une présence, il n'a pas à savoir ce qu'on en tire.
-  final _presque = PresqueLedger();
+  /// ## 🔴 Ce qu'elle remplace, et pourquoi le remplacement était obligatoire
+  ///
+  /// `PresqueLedger` était un **ensemble d'identifiants en mémoire vive** : il
+  /// savait seulement « cette présence a produit un constat ». Les règles
+  /// décidées par Jay le 2026-08-30 regardent **deux heures avant et une heure
+  /// après** — il ne pouvait donc répondre à aucune d'elles, et il repartait de
+  /// zéro à chaque redémarrage alors que le verdict du presque se rend une
+  /// heure plus tard.
+  ///
+  /// ⚠️ **Il est SUPPRIMÉ, pas gardé « au cas où ».** Sa question — *ce contact
+  /// a-t-il compté ?* — est désormais posée par `WaveRules` avec sa propre
+  /// définition (moins de 20 secondes). Deux définitions du même mot finissent
+  /// toujours par se contredire, et celle-là l'aurait fait en silence.
+  final _presences = PresenceBook();
+
+  /// Le balayage qui rend les verdicts de presque mûrs.
+  ///
+  /// ⚠️ **Une cadence à lui, et surtout PAS celle des constats.** Le balayage
+  /// des constats tourne toutes les deux secondes et ne touche pas au disque
+  /// (`_sweepSightings`) ; celui-ci lit et réécrit un fichier. Les fusionner
+  /// ferait trente lectures de disque par minute pour une question dont la
+  /// réponse ne peut changer qu'une fois par heure — c'est exactement le défaut
+  /// du point C du 2026-08-18, imposer le rythme du plus rapide au plus lent.
+  static const verdictEvery = Duration(minutes: 5);
+
+  Timer? _verdicts;
 
   // ------------------------------------------------------------------
   // Constats de croisement (réciprocité serveur)
@@ -415,11 +473,6 @@ class ProximityController extends AsyncNotifier<void> {
       // le 2026-08-27). Autant ne pas l'envoyer.
       if (!await _isFriend(userId)) continue;
       _sightings.observe(userId, now, band: session.toPresence().band);
-      // ⚠️ **Ce contact a compté : ce ne sera donc pas un « presque ».** On le
-      // note quel que soit le sort du constat — déjà envoyé pour ce créneau ou
-      // non, la question ici n'est pas « faut-il l'envoyer ? » mais « cette
-      // présence a-t-elle été un vrai croisement ? ». Voir [_peutEtreUnPresque].
-      _presque.noteCroisement(userId);
     }
 
     if (_sightings.length == 0) return;
@@ -502,38 +555,76 @@ class ProximityController extends AsyncNotifier<void> {
   Future<bool> _isFriend(String userId) async =>
       (await _keyBook.all()).containsKey(userId);
 
-  /// Envoie le « presque », si le délai de garde le permet.
+  /// **« Ton ami est tout près »** — la notification INSTANTANÉE.
   ///
-  /// ⚠️ **Elle ne décide plus de rien d'autre.** La question « est-ce un
-  /// presque ? » se pose une seule fois, dans [_peutEtreUnPresque] ; ici il ne
-  /// reste que « en a-t-il déjà reçu un récemment ? ». Tant que les deux
-  /// vivaient au même endroit, la première n'était posée par personne.
-  Future<void> _maybeWave(PingPeerSnapshot friend) async {
-    if (!await _journal.mayWave(friend.userId, waveCooldown)) return;
-    await _journal.noteWave(friend.userId);
-
+  /// ⚠️ **Elle n'est pas enregistrée**, ni sur l'appareil ni au serveur
+  /// (décision de Jay, 2026-08-30). Ce n'est pas un souvenir, c'est une
+  /// information sur l'instant : l'historique de `Profil → ♥` ne contient que
+  /// des presque. Lui donner une ligne serveur reviendrait à tenir le journal
+  /// de qui a été près de qui, ce que le presque, lui, assume et borne.
+  ///
+  /// ⚠️ **C'est ELLE que le palier accélère depuis le 2026-08-30**, et plus le
+  /// presque : voir [PresqueDelai].
+  Future<void> _notifierToutPres(PingPeerSnapshot friend) async {
     final profile = await ref.read(myProfileProvider.future);
     // ⚠️ **Le contrôleur ne connaît AUCUN palier et n'en lit aucune règle.** Il
-    // demande un rang au dépôt des amitiés — qui vit hors du ping — et le
-    // passe à une règle pure. C'est le strict minimum de contact exigé par la
+    // demande un rang au dépôt des amitiés — qui vit hors du ping — et le passe
+    // à une règle pure. C'est le strict minimum de contact exigé par la
     // consigne de Jay du 2026-08-28.
     final rang = ref.read(tierOfProvider(friend.userId)).rang;
-    final when = DateTime.now().add(
-      PresqueDelai.pour(
-        rangDuPalier: rang,
-        tempsReelChoisi: profile?.realtimeWaves ?? false,
-      ),
+    final delai = PresqueDelai.pour(
+      rangDuPalier: rang,
+      tempsReelChoisi: profile?.realtimeWaves ?? false,
     );
     await NotificationService.instance.schedule(
       NotifChannel.waves,
+      'Tout près…',
+      '${friend.username} est juste à côté.',
+      DateTime.now().add(delai),
+    );
+  }
+
+  /// **Le presque** — rendu UNE HEURE après le contact, jamais avant.
+  ///
+  /// ## ⚠️ Pourquoi c'est un balayage et pas une notification programmée
+  ///
+  /// L'ancienne version décidait tout de suite et programmait la notification
+  /// plus tard. Ce n'est plus possible : la règle 3 de Jay regarde **l'heure
+  /// qui suit** le croisement, donc la réponse n'existe pas encore au moment du
+  /// croisement. On ne peut programmer qu'un **re-examen**, pas un verdict.
+  ///
+  /// ⚠️ **Le verdict est marqué même quand il est NÉGATIF.** « Pas de presque »
+  /// est une réponse aussi définitive que « presque » : sans la marque, chaque
+  /// tour rejugerait les mêmes contacts pour toujours.
+  Future<void> _rendreVerdicts() async {
+    if (ref.read(currentUserIdProvider) == null) return;
+    for (final murs in await _presences.aJuger()) {
+      await _presences.marquerJuge(murs.userId, murs.contact);
+      if (!WaveRules.wave(historique: murs.historique, contact: murs.contact)) {
+        continue;
+      }
+      if (!await _isFriend(murs.userId)) continue;
+      if (!await _journal.mayWave(murs.userId, waveCooldown)) continue;
+      await _journal.noteWave(murs.userId);
+      await _envoyerPresque(murs.userId);
+    }
+  }
+
+  /// Notifie et consigne un presque confirmé.
+  Future<void> _envoyerPresque(String userId) async {
+    final nom =
+        (await ref.read(profileByIdProvider(userId).future))?.displayName ??
+        "Quelqu'un";
+    await NotificationService.instance.schedule(
+      NotifChannel.waves,
       'Le presque…',
-      '${friend.username} est passé tout près de toi.',
-      when,
+      '$nom est passé tout près de toi.',
+      DateTime.now(),
     );
     await ref.read(pingStoreProvider).enqueue({
       'type': 'wave',
-      'peerId': friend.userId,
-      'notifyAfter': when.toUtc().toIso8601String(),
+      'peerId': userId,
+      'notifyAfter': DateTime.now().toUtc().toIso8601String(),
     });
     unawaited(ref.read(proximitySyncProvider).pushOutbox());
   }

@@ -109,6 +109,7 @@ class PresencePeer {
     required this.trend,
     this.snapshot,
     this.txPower = 127,
+    this.sightings = 0,
   });
 
   /// Adresse BLE courante. **Clé de transport, jamais une identité.**
@@ -125,6 +126,15 @@ class PresencePeer {
   final ProximityTrend trend;
   final PingPeerSnapshot? snapshot;
   final int txPower;
+
+  /// Combien de fois la radio a entendu ce pair pendant CETTE présence.
+  ///
+  /// ⚠️ **Publié depuis le 2026-08-30, pour la borne PAR LE BAS de « ton ami
+  /// est tout près »** (`WaveRules.presDetectionsMin`). Sans lui, un seul
+  /// paquet capté par erreur produisait une notification — et on sait depuis le
+  /// 2026-08-29 que la radio hoquette. La session comptait déjà : ce qui
+  /// manquait, c'est que le compte SORTE de la session.
+  final int sightings;
 
   String? get userId => snapshot?.userId;
 
@@ -312,6 +322,7 @@ class PeerSession {
     trend: trend,
     snapshot: snapshot,
     txPower: txPower,
+    sightings: sightings,
   );
 }
 

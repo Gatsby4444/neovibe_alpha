@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/palette.dart';
 import 'package:neovibe/features/connections/friendship.dart';
-import 'package:neovibe/features/proximity/net/presque_ledger.dart';
+import 'package:neovibe/features/proximity/net/presque_delai.dart';
 
 void main() {
   group('Le palier lu depuis la base', () {
