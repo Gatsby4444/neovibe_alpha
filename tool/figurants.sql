@@ -139,3 +139,90 @@ order by 1;
 -- comptes orphelins dans `auth.users`, invisibles depuis l'app — le genre de
 -- reste mort qui devient la panne de demain.
 -- ===========================================================================
+
+-- ===========================================================================
+-- RÉDUCTION À 40 — 2026-08-30
+-- ===========================================================================
+--
+-- Consigne de Jay : *« supprime les amis que tu as créé hier […] mais pas tous,
+-- garde en 40 répartis dans les différentes catégories »*.
+--
+-- ## Ce que « catégories » veut dire ici, et pourquoi DEUX dimensions
+--
+-- Les figurants n'ont pas de `device_keys` : ils n'apparaissent donc jamais
+-- dans le Ping, seulement dans la liste d'amis et la constellation. La
+-- catégorie qui les distingue est le **palier**. Mais la mention spéciale est,
+-- elle aussi, une catégorie d'affichage — et elle est arrivée après ce script.
+-- Les deux sont donc tenues ensemble.
+--
+-- **Les paliers, gardés EN PROPORTION** (ce que Jay regarde depuis hier reste
+-- le même, en plus petit) :
+--
+--   | Palier | Avant | Après |
+--   |---|---|---|
+--   | Inséparable (18 j) | 21 | 6 |
+--   | Proche (9 j) | 44 | 12 |
+--   | Ami, série de 3 | 22 | 6 |
+--   | Ami, jamais croisé | 63 | 16 |
+--
+-- **Les mentions, réparties À ÉGALITÉ dans chaque palier** (14 privées,
+-- 13 publiques, 13 sans) : à six exemplaires par palier, une sélection au fil
+-- des identifiants aurait pu n'en garder qu'un seul type — la mention cycle
+-- avec une période de 6 et le palier avec une période de 7.
+--
+-- ⚠️ **Relevé APRÈS coup, pas déduit du script** : 40 profils, 40 comptes
+-- `auth.users`, 40 connexions, 234 `meeting_days`, zéro orphelin.
+--
+-- ⚠️ **Une conversation est restée à un seul membre** — Charles avait ouvert un
+-- chat de test avec un figurant supprimé. Elle a été retirée dans la foulée :
+-- c'est le sens sortant de la règle 8 de `CLAUDE.md`, ce que le nœud supprimé
+-- APPELAIT devient orphelin à son tour. `content_grants` et `library_vibes`
+-- vérifiés à zéro avant de couper (ce sont les deux seuls à ne pas casser en
+-- cascade proprement : l'un est en `SET NULL`).
+--
+-- La requête telle qu'elle a été jouée :
+--
+-- with fig as (
+--   select p.id,
+--          c.tier::text as palier,
+--          c.tier_days,
+--          case when p.special_mention is null then 'sans'
+--               when p.special_mention_public then 'publique'
+--               else 'privee' end as mention
+--   from public.profiles p
+--   join public.connections c on c.user_low = p.id
+--   where p.id::text like '00000000-0000-4000-8000-%'
+-- ),
+-- -- On numerote D'ABORD a l'interieur de chaque (palier, etat de mention) :
+-- -- c'est ce rang qui, une fois trie en premier, fait alterner les trois etats
+-- -- de mention au lieu de prendre les 6 premiers d'un seul bloc.
+-- cycle as (
+--   select f.*,
+--          row_number() over (partition by palier, tier_days, mention order by id) as rm
+--   from fig f
+-- ),
+-- range as (
+--   select c.*,
+--          row_number() over (partition by palier, tier_days order by rm, mention, id) as rang
+--   from cycle c
+-- ),
+-- quota as (
+--   select * from (values
+--     ('inner', 18, 6),
+--     ('close',  9, 12),
+--     ('friend', 3, 6),
+--     ('friend', 0, 16)
+--   ) as q(palier, tier_days, combien)
+-- ),
+-- garder as (
+--   select r.id from range r join quota q
+--     on q.palier = r.palier and q.tier_days = r.tier_days
+--   where r.rang <= q.combien
+-- )
+-- -- ⚠️ Le filtre de prefixe est repete ICI, et pas seulement dans les CTE : c'est
+-- -- lui, et lui seul, qui borne la portee de la suppression aux figurants.
+-- -- La cascade part de auth.users : profiles, puis connections et meeting_days.
+-- delete from auth.users u
+-- where u.id::text like '00000000-0000-4000-8000-%'
+--   and u.id not in (select id from garder);
+-- ===========================================================================
