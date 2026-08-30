@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../connections/tier_avatar.dart';
 import '../../core/typography.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -19,7 +20,6 @@ import 'net/ping_beacon_service.dart';
 import 'net/ping_nearby_feed.dart';
 import 'net/ping_repository.dart';
 import 'proximity_repository.dart';
-import 'net/distance_estimate.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_supervisor.dart';
 import 'net/radio_status.dart';
@@ -250,7 +250,11 @@ class _PingScreenState extends ConsumerState<PingScreen> {
     return [
       // La tuile ne reçoit qu'une ADRESSE : elle va chercher elle-même ce
       // qu'elle affiche, et ne se reconstruit que quand cela change.
-      for (final address in keys.identified) _TuilePair(address: address),
+      _GrilleDeTuiles(
+        enfants: [
+          for (final address in keys.identified) _TuilePair(address: address),
+        ],
+      ),
     ];
   }
 }
@@ -435,95 +439,68 @@ class _TuilePair extends ConsumerWidget {
     // Le bouton « demander en ami » qui s'affichait dans ce cas est parti avec :
     // il ne pouvait de toute façon que se faire refuser par le serveur, qui
     // n'accepte pas de demande entre gens déjà connectés.
-    return ListTile(
-      leading: CircleAvatar(
-        child: Text(snapshot.displayName.characters.first.toUpperCase()),
-      ),
-      title: Text(snapshot.displayName),
-      // ⚠️ **Une BANDE et une TENDANCE, jamais des mètres.**
-      //
-      // Demande de Jay le 2026-08-16 : afficher la distance en temps réel. La
-      // formule existe, mais le bruit de la vraie vie — un corps entre les deux
-      // appareils absorbe 10 à 20 dB — rend un chiffre en mètres faux d'un
-      // facteur 2 à 4. Afficher « 3,2 m » fabriquerait une précision qui
-      // n'existe pas, et une distance au mètre près transformerait une app de
-      // rencontre en outil de traque (spec 4.2).
-      //
-      // La TENDANCE, elle, est solide : les erreurs systématiques décalent le
-      // niveau du signal, jamais le signe de sa pente. Elle est aussi plus
-      // utile socialement — « il arrive » vaut mieux que « il est à 3 m ».
-      //
-      // La fourchette chiffrée existe, avec son incertitude assumée, dans
-      // Développeur → Diagnostic proximité.
-      subtitle: Row(
-        children: [
-          Icon(
-            Icons.circle,
-            size: 10,
-            color: switch (peer.band) {
-              ProximityBand.contact => Colors.greenAccent,
-              ProximityBand.close => Colors.lightGreen,
-              ProximityBand.room => Colors.amber,
-              ProximityBand.far => Colors.orange,
-            },
-          ),
-          const SizedBox(width: 6),
-          Text(peer.band.label),
-          if (peer.trend != ProximityTrend.stable) ...[
-            const SizedBox(width: 8),
-            Icon(
-              peer.trend == ProximityTrend.approaching
-                  ? Icons.trending_up
-                  : Icons.trending_down,
-              size: 14,
-              color: peer.trend == ProximityTrend.approaching
-                  ? Colors.greenAccent
-                  : context.muted,
+    final p = context.palette;
+
+    // ⚠️ **LA DISTANCE N'EST PLUS AFFICHÉE — décision de Jay, 2026-08-30** :
+    // *« pour les amis on n'a plus besoin de la distance, c'était pour les
+    // tests ; on peut la garder mais sans l'afficher »*.
+    //
+    // Le commentaire d'origine (2026-08-16) annonçait déjà cette issue : la
+    // bande et la tendance étaient là pour que Jay JUGE la fiabilité sur le
+    // terrain. Le jugement est rendu.
+    //
+    // ✅ **Rien ne devient orphelin** : `PeerSession` continue de calculer
+    // bande, tendance et fourchette, et Développeur → Diagnostic proximité les
+    // affiche toujours. C'est l'affichage grand public qui s'arrête, pas la
+    // mesure — vérifié avant de retirer, dans les deux sens.
+    return GestureDetector(
+      onTap: () => _ouvrirProfil(context, ref, snapshot),
+      child: Container(
+        decoration: BoxDecoration(
+          color: p.surface,
+          borderRadius: BorderRadius.circular(NeoRadius.md),
+          border: Border.all(color: p.line),
+        ),
+        padding: const EdgeInsets.all(NeoSpace.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // L'anneau de palier — le même composant que partout ailleurs.
+            TierAvatar(
+              peerId: snapshot.userId,
+              storedAvatar: null,
+              initiale: snapshot.displayName.characters.first.toUpperCase(),
+              size: 42,
             ),
-            const SizedBox(width: 3),
+            const SizedBox(height: NeoSpace.sm),
             Text(
-              peer.trend.label,
-              style: TextStyle(
-                color: peer.trend == ProximityTrend.approaching
-                    ? Colors.greenAccent
-                    : context.muted,
+              snapshot.displayName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: context.pseudo,
+            ),
+            // ⚠️ **« À portée » et rien de plus.** Un ami reconnu par la radio
+            // EST à portée : c'est la seule façon dont il peut arriver ici.
+            // Le dire suffit ; le chiffrer fabriquait une précision qui
+            // n'existe pas.
+            Text('À portée', style: context.tagName),
+            const Spacer(),
+            Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                icon: const Icon(Icons.chat_bubble_outline),
+                tooltip: 'Message',
+                // ⚠️ **La conversation SERVEUR, et elle seule** (2026-08-27).
+                // Un ami a déjà une conversation partout ailleurs dans l'app :
+                // en ouvrir une seconde, locale et éphémère, faisait deux
+                // historiques pour une même personne.
+                onPressed: () =>
+                    _ouvrirConversation(context, ref, snapshot.userId),
               ),
             ),
           ],
-          const SizedBox(width: 10),
-          const Icon(Icons.link, size: 14),
-          // ⚠️ **Affiché à la demande de Jay pour les relevés du 2026-08-16**,
-          // et présenté comme ce que c'est : une ESTIMATION, avec sa
-          // fourchette. Il veut juger la fiabilité sur le terrain plutôt que
-          // sur ma parole — c'est la bonne façon de trancher.
-          //
-          // ⚠️ **À revoir après les relevés.** Si la fourchette se révèle aussi
-          // large qu'annoncée, ce chiffre n'a rien à faire dans l'interface
-          // d'un utilisateur : il redescendra dans le diagnostic. Ce n'est pas
-          // une régression, c'est la décision que les mesures auront dictée.
-          const SizedBox(width: 10),
-          Text(
-            '≈ ${peer.distanceLabel}',
-            style: TextStyle(color: context.faint, fontSize: 12),
-          ),
-        ],
+        ),
       ),
-      // ⚠️ **La conversation SERVEUR, et elle seule** (2026-08-27).
-      //
-      // Cette tuile n'affiche que des **amis** : eux seuls sont reconnus par la
-      // radio. Or un ami a déjà une conversation directe partout ailleurs dans
-      // l'app — ouvrir ici un second fil, local et éphémère, faisait deux
-      // historiques pour une même personne.
-      //
-      // ⚠️ **Un `Row` enveloppait ce bouton, et il n'a plus qu'un enfant depuis
-      // que le bouton « demander en ami » est parti** (2026-08-28) : une rangée
-      // d'un seul élément est un reste de mise en page, pas une intention.
-      trailing: IconButton(
-        icon: const Icon(Icons.chat_bubble_outline),
-        tooltip: 'Message',
-        onPressed: () => _ouvrirConversation(context, ref, snapshot.userId),
-      ),
-      onTap: () => _ouvrirProfil(context, ref, snapshot),
     );
   }
 
@@ -788,7 +765,29 @@ class _GrilleInconnus extends StatelessWidget {
   final bool aPortee;
 
   @override
-  Widget build(BuildContext context) => Padding(
+  Widget build(BuildContext context) => _GrilleDeTuiles(
+    enfants: [
+      for (final personne in gens)
+        _TuileInconnu(personne: personne, aPortee: aPortee),
+    ],
+  );
+}
+
+/// **Deux tuiles par ligne**, la même grille pour les amis et les inconnus.
+///
+/// ⚠️ **Une seule grille, pas une par section.** Deux grilles finiraient par
+/// avoir deux hauteurs de tuile, et les deux blocs de l'écran ne s'aligneraient
+/// plus — le genre d'écart qu'on ne remarque pas un par un et qui fait ensemble
+/// une page « pas finie ».
+class _GrilleDeTuiles extends StatelessWidget {
+  const _GrilleDeTuiles({required this.enfants});
+
+  final List<Widget> enfants;
+
+  @override
+  Widget build(BuildContext context) => _grille(enfants);
+
+  static Widget _grille(List<Widget> enfants) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: NeoSpace.lg),
     child: GridView.builder(
       shrinkWrap: true,
@@ -802,9 +801,8 @@ class _GrilleInconnus extends StatelessWidget {
         mainAxisSpacing: NeoSpace.md,
         mainAxisExtent: 196,
       ),
-      itemCount: gens.length,
-      itemBuilder: (context, i) =>
-          _TuileInconnu(personne: gens[i], aPortee: aPortee),
+      itemCount: enfants.length,
+      itemBuilder: (context, i) => enfants[i],
     ),
   );
 }
