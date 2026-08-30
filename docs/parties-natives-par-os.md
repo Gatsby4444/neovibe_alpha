@@ -382,6 +382,28 @@ au remplacement de l'interface.
   `PlanStoreTest.kt`**. Ce code tourne **au seul moment où personne ne
   regarde** ; une panne y serait indiscernable de celle qu'il corrige.
 
+- **`PresenceLog.kt`** — *(nouveau, 2026-08-30)* **combien de temps un ami a
+  été là**, et non plus seulement « il était là ». Les règles de waves décidées
+  par Jay le 2026-08-30 regardent la **durée** d'un contact ; `SightingBuffer`
+  déduplique par `(ami, créneau)` et ne répond donc à aucune d'elles.
+  ⚠️ **Le natif avait l'information et la jetait** : il voit chaque annonce,
+  c'est la déduplication qui effaçait la durée. Ici, deux dates et un compteur
+  par présence.
+  ⚠️ **C'est la SEULE source des durées.** Le Dart sait aussi mesurer une
+  présence (`PeerSession`), mais seulement tant que le pont est attaché — deux
+  mesures d'un même fait, dont une avec des trous, c'est deux vérités à tenir
+  d'accord, et rien ne les distingue une fois écrites.
+  ⚠️ **Le seuil de coupure DESCEND du Dart** (`presenceGapMillis`, envoyé avec
+  la table de reconnaissance) : c'est `PresenceRules.forgetAfter`, et il n'y a
+  qu'une définition de « la présence est terminée ».
+  ⚠️ **Plein, il jette le PLUS ANCIEN** — l'inverse de `SightingBuffer`, qui
+  refuse les nouvelles entrées. La règle ne regarde que les trois dernières
+  heures : perdre le récent serait perdre ce qu'il faut juger.
+  Logique **PURE**, l'instant lui est passé — **9 tests dans
+  `PresenceLogTest.kt`**, contre-test de la coupure compris.
+  🍎 **iOS : à écrire, et c'est le même mur que `SightingBook`** — il suppose un
+  processus qui survit à l'interface.
+
 - **`SlotAlarm.kt`** — *(nouveau, 2026-08-30)* le **réveil qui sonne même quand
   l'appareil dort**. Le plan a rendu le natif indépendant du Dart pour savoir
   *quoi* crier ; la main qui **tourne la page** restait un

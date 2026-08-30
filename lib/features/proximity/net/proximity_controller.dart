@@ -318,8 +318,12 @@ class ProximityController extends AsyncNotifier<void> {
         // ⚠️ **Rien ne part ici depuis le 2026-08-29.** Reconnaître quelqu'un et
         // l'avoir raté sont deux choses différentes — voir [_finDePresence].
         _publishPresence();
-      case PeerLost(:final peer):
-        await _finDePresence(peer);
+      case PeerLost():
+        // ⚠️ **Plus aucun jugement ici depuis le 2026-08-30.** La fin d'une
+        // présence vue par le Dart et celle vue par le natif sont le MÊME fait :
+        // le natif est la seule source, parce que c'est le seul des deux qui ne
+        // manque rien quand l'interface disparaît (voir
+        // [_collectNativePresences]).
         _publishPresence();
     }
   }
@@ -365,34 +369,74 @@ class ProximityController extends AsyncNotifier<void> {
   ///
   /// ⚠️ **Une radio qui s'arrête n'émet pas de `PeerLost`**, et c'est juste :
   /// couper sa visibilité n'est pas quelqu'un qui s'en va.
-  Future<void> _finDePresence(PresencePeer peer) async {
-    final snapshot = peer.snapshot;
-    if (snapshot == null) return;
-    if (!await _isFriend(snapshot.userId)) return;
-
-    final contact = Presence(debut: peer.firstSeen, fin: peer.lastSeen);
+  /// Enregistre un contact terminé, et rend le jugement INSTANTANÉ.
+  ///
+  /// ⚠️ **Appelé pour les présences venues du NATIF, jamais de `PeerLost`.**
+  /// Voir [_collectNativePresences] : le Dart sait aussi mesurer une présence,
+  /// mais seulement tant que le pont est attaché. Deux mesures d'un même fait,
+  /// dont une avec des trous, c'est deux vérités à tenir d'accord — et rien ne
+  /// les distingue une fois écrites dans le carnet.
+  Future<void> _noterContact(
+    String userId, {
+    required Presence contact,
+    required int detections,
+  }) async {
     // ⚠️ **On enregistre AVANT de juger, et toujours.** Un contact qui ne
     // déclenche rien reste un fait : c'est lui qui, dans une heure, empêchera
-    // un presque de partir pour un croisement qu'on n'a pas raté. Ne garder
-    // que les contacts intéressants, c'est se priver de la moitié de la règle.
-    await _presences.noter(
-      snapshot.userId,
-      contact: contact,
-      detections: peer.sightings,
-    );
+    // un presque de partir pour un croisement qu'on n'a pas raté. Ne garder que
+    // les contacts intéressants, c'est se priver de la moitié de la règle.
+    await _presences.noter(userId, contact: contact, detections: detections);
 
     // « Ton ami est tout près » se décide MAINTENANT — c'est toute sa raison
     // d'être. Le presque, lui, attend l'heure d'après ; voir [_rendreVerdicts].
-    final historique = await _presences.historique(
-      snapshot.userId,
-      sauf: contact,
-    );
-    if (WaveRules.toutPres(
+    final historique = await _presences.historique(userId, sauf: contact);
+    if (!WaveRules.toutPres(
       historique: historique,
       contact: contact,
-      detections: peer.sightings,
+      detections: detections,
     )) {
-      await _notifierToutPres(snapshot);
+      return;
+    }
+    final profil = await ref.read(profileByIdProvider(userId).future);
+    await _notifierToutPres(userId, profil?.displayName ?? 'Un ami');
+  }
+
+  /// Les présences **terminées** mesurées par le service, et leur jugement.
+  ///
+  /// ## ⚠️ Un rang d'une table périmée est JETÉ, comme pour les constats
+  ///
+  /// Le natif rend « le rang 3 a été là de tant à tant ». Ce rang n'a de sens
+  /// que pour la table qui l'a produit : si le carnet a changé depuis,
+  /// l'attribuer serait notifier la mauvaise personne.
+  Future<void> _collectNativePresences() async {
+    final supervisor = ref.read(proximitySupervisorProvider.notifier);
+    final List<Map<String, dynamic>> bruts;
+    try {
+      bruts = await _radio.takePresences();
+    } catch (_) {
+      // Le service ne tourne pas : il n'a rien mesuré, et ce n'est pas une
+      // panne — c'est l'état normal quand la visibilité est coupée.
+      return;
+    }
+    for (final brut in bruts) {
+      final userId = supervisor.friendOfSighting(
+        (brut['tableId'] as num?)?.toInt() ?? -1,
+        (brut['index'] as num?)?.toInt() ?? -1,
+      );
+      if (userId == null) continue;
+      if (!await _isFriend(userId)) continue;
+      await _noterContact(
+        userId,
+        contact: Presence(
+          debut: DateTime.fromMillisecondsSinceEpoch(
+            (brut['debut'] as num).toInt(),
+          ),
+          fin: DateTime.fromMillisecondsSinceEpoch(
+            (brut['fin'] as num).toInt(),
+          ),
+        ),
+        detections: (brut['detections'] as num?)?.toInt() ?? 0,
+      );
     }
   }
 
@@ -462,6 +506,7 @@ class ProximityController extends AsyncNotifier<void> {
     if (ref.read(currentUserIdProvider) == null) return;
 
     await _collectNativeSightings();
+    await _collectNativePresences();
 
     final now = network.now();
     for (final session in network.presence.sessions) {
@@ -565,13 +610,13 @@ class ProximityController extends AsyncNotifier<void> {
   ///
   /// ⚠️ **C'est ELLE que le palier accélère depuis le 2026-08-30**, et plus le
   /// presque : voir [PresqueDelai].
-  Future<void> _notifierToutPres(PingPeerSnapshot friend) async {
+  Future<void> _notifierToutPres(String userId, String nom) async {
     final profile = await ref.read(myProfileProvider.future);
     // ⚠️ **Le contrôleur ne connaît AUCUN palier et n'en lit aucune règle.** Il
     // demande un rang au dépôt des amitiés — qui vit hors du ping — et le passe
     // à une règle pure. C'est le strict minimum de contact exigé par la
     // consigne de Jay du 2026-08-28.
-    final rang = ref.read(tierOfProvider(friend.userId)).rang;
+    final rang = ref.read(tierOfProvider(userId)).rang;
     final delai = PresqueDelai.pour(
       rangDuPalier: rang,
       tempsReelChoisi: profile?.realtimeWaves ?? false,
@@ -579,7 +624,7 @@ class ProximityController extends AsyncNotifier<void> {
     await NotificationService.instance.schedule(
       NotifChannel.waves,
       'Tout près…',
-      '${friend.username} est juste à côté.',
+      '$nom est juste à côté.',
       DateTime.now().add(delai),
     );
   }

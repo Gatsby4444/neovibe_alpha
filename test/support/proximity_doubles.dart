@@ -315,6 +315,18 @@ class RadioFactice implements BleRadio {
     return const [];
   }
 
+  /// Les présences terminées à rendre au prochain balayage. Voir `PresenceLog`.
+  List<Map<String, dynamic>> presences = const [];
+  var presencesLues = 0;
+
+  @override
+  Future<List<Map<String, dynamic>>> takePresences() async {
+    presencesLues++;
+    final out = presences;
+    presences = const [];
+    return out;
+  }
+
   @override
   Future<void> publicHeartbeat() async => battements++;
 

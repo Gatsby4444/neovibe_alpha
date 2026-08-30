@@ -173,6 +173,11 @@ class ProximityBridge(
                         ?: return result.error("ARG", "perSlot manquant", null)
                     val tokenLength = call.argument<Int>("tokenLength")
                         ?: return result.error("ARG", "tokenLength manquant", null)
+                    // ⚠️ **Le seuil de fin de presence descend avec la table**
+                    // (2026-08-30) : c'est `PresenceRules.forgetAfter`, et il n'y
+                    // en a qu'une definition. Voir `PresenceLog`.
+                    val presenceGapMillis = (call.argument<Number>("presenceGapMillis")
+                        ?: return result.error("ARG", "presenceGapMillis manquant", null)).toLong()
                     val service = ProximityService.instance
                     if (service == null) {
                         result.error("NO_SERVICE", "Le service de proximite ne tourne pas", null)
@@ -188,6 +193,7 @@ class ProximityBridge(
                                 tokenLength = tokenLength,
                             ),
                             slotMillis,
+                            presenceGapMillis,
                         )
                         result.success(null)
                     }
@@ -209,6 +215,25 @@ class ProximityBridge(
                 }
 
                 // Ce que le service a constate pendant que le Dart etait absent.
+                // ⚠️ **Les presences, et non les constats** (2026-08-30). Deux
+                // ordres pour deux lectures du meme flux : un constat est un
+                // fait par creneau, une presence est une duree. Les rendre
+                // ensemble aurait force les deux a partager une cadence.
+                "takePresences" -> {
+                    val service = ProximityService.instance
+                    result.success(
+                        service?.takePresences()?.map {
+                            mapOf(
+                                "tableId" to it.tableId,
+                                "index" to it.friendIndex,
+                                "debut" to it.debutMillis,
+                                "fin" to it.finMillis,
+                                "detections" to it.detections,
+                            )
+                        } ?: emptyList<Map<String, Any?>>(),
+                    )
+                }
+
                 "takeSightings" -> {
                     val service = ProximityService.instance
                     result.success(

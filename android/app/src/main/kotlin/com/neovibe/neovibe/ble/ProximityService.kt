@@ -453,6 +453,18 @@ class ProximityService : Service(), BleEngine.Listener {
 
     private val sightings = SightingBuffer()
 
+    /**
+     * **Combien de temps chacun a ete la.** Voir [PresenceLog].
+     *
+     * ⚠️ **A cote de [sightings], et surtout PAS fusionne avec lui.** Les deux
+     * regardent le meme flux d'annonces et n'en tirent pas la meme chose : un
+     * constat est un fait par creneau, une presence est une duree. Les melanger
+     * imposerait la deduplication de l'un a la mesure de l'autre — c'est
+     * exactement ce qui rendait la duree impossible a connaitre avant le
+     * 2026-08-30.
+     */
+    private val presences = PresenceLog()
+
     /** Duree d'un creneau, deposee avec la table. */
     @Volatile
     private var slotMillis = 900_000L
@@ -464,9 +476,20 @@ class ProximityService : Service(), BleEngine.Listener {
      * Dart sait a qui correspond le rang 3, et il le sait pour CETTE table —
      * d'ou le `tableId` renvoye avec chaque constat.
      */
-    fun setRecognitionTable(table: RecognitionTable, slotDurationMillis: Long) {
+    fun setRecognitionTable(
+        table: RecognitionTable,
+        slotDurationMillis: Long,
+        presenceGapMillis: Long,
+    ) {
         recognition = table
         slotMillis = slotDurationMillis
+        // ⚠️ **Le seuil de fin de presence ne se choisit PAS ici.** Il vaut
+        // `PresenceRules.forgetAfter`, et il descend avec la table pour qu'il
+        // n'y ait qu'une definition de « la presence est terminee ». Recopiee
+        // cote natif, elle aurait diverge sans que rien ne leve : les durees
+        // mesurees de chaque cote auraient simplement cesse de vouloir dire la
+        // meme chose.
+        presences.gapMillis = presenceGapMillis
         persiste()
     }
 
@@ -486,6 +509,17 @@ class ProximityService : Service(), BleEngine.Listener {
 
     /** Rend les constats accumules et vide le tampon. */
     fun takeSightings(): List<NativeSighting> = sightings.drain()
+
+    /**
+     * Rend les presences TERMINEES et vide le journal.
+     *
+     * ⚠️ **L'instant est passe au journal**, qui s'en sert pour fermer ce qui
+     * n'a plus rien donne. Sans cet appel, une presence qui s'acheve pendant que
+     * le Dart est absent resterait ouverte pour toujours — et le contact ne
+     * serait jamais juge.
+     */
+    fun takePresences(): List<NativePresence> =
+        presences.drain(System.currentTimeMillis())
 
     // ⚠️ **`sightingCount()` a ete RETIRE le 2026-08-28** : aucun appelant, ni
     // dans le pont, ni dans les tests. Le tampon se lit par `takeSightings`,
@@ -583,7 +617,14 @@ class ProximityService : Service(), BleEngine.Listener {
         // ⚠️ Le premier jeton est celui d'un AMI : il part avec son vrai type,
         // sinon les autres appareils le prendraient pour un identifiant public.
         engine.start(premier, BleConstants.TYPE_FRIEND)
-        setRecognitionTable(repris.table, repris.table.rawSlotMillis)
+        // ⚠️ **Le seuil de fin de presence n'est PAS sur le disque**, et il n'a
+        // pas a y etre : il ne depend que de la version installee. La valeur
+        // d'attente de `PresenceLog` tient jusqu'au premier depot du Dart.
+        setRecognitionTable(
+            repris.table,
+            repris.table.rawSlotMillis,
+            PresenceLog.GAP_PAR_DEFAUT,
+        )
         setAdvertSchedule(repris.plan)
         return true
     }
@@ -605,6 +646,10 @@ class ProximityService : Service(), BleEngine.Listener {
         // pour la reclamer.
         recognition = null
         sightings.clear()
+        // Une duree de presence designe quelqu'un autant qu'un constat : la
+        // laisser derriere serait garder une trace de qui a ete croise, sans
+        // personne pour la reclamer.
+        presences.clear()
         engine.detach()
         instance = null
         super.onDestroy()
@@ -826,6 +871,11 @@ class ProximityService : Service(), BleEngine.Listener {
                         txPower = txPower,
                     ),
                 )
+                // ⚠️ **Le meme evenement, deux lectures.** Ici on ne deduplique
+                // pas : c'est la suite ininterrompue des annonces qui donne la
+                // duree, et c'est elle que les waves lisent depuis le
+                // 2026-08-30.
+                presences.note(table.tableId, rang, atMillis)
             } else {
                 // Un jeton prive qu'on n'attend pas est celui d'une AUTRE paire.
                 foreignTokenScans++

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'peer_session.dart';
 import 'radio_status.dart';
 
 /// Client Dart du service de proximité natif.
@@ -149,7 +150,28 @@ class BleRadio {
     'slotCount': slotCount,
     'perSlot': perSlot,
     'tokenLength': tokenLength,
+    // ⚠️ **Le seuil de fin de présence descend AVEC la table**, il n'est pas
+    // recopié côté natif. C'est `PresenceRules.forgetAfter`, et il n'y a qu'une
+    // définition de « la présence est terminée » — sans quoi les durées
+    // mesurées de chaque côté cesseraient de vouloir dire la même chose, sans
+    // qu'aucune erreur ne soit levée.
+    'presenceGapMillis': PresenceRules.forgetAfter.inMilliseconds,
   });
+
+  /// Les présences **terminées** que le service a mesurées, et il les oublie.
+  ///
+  /// ⚠️ **C'est la SEULE source des durées de contact** depuis le 2026-08-30.
+  /// Le Dart sait aussi les mesurer (`PeerSession`), mais seulement tant que le
+  /// pont est attaché : deux mesures d'un même fait, dont une avec des trous,
+  /// c'est deux vérités à tenir d'accord — et rien ne les distingue une fois
+  /// écrites.
+  Future<List<Map<String, dynamic>>> takePresences() async {
+    final raw = await _methods.invokeListMethod<Object?>('takePresences');
+    return [
+      for (final item in raw ?? const [])
+        Map<String, dynamic>.from(item as Map),
+    ];
+  }
 
   /// Récupère ce que le service a constaté **pendant que le Dart était absent**.
   ///
