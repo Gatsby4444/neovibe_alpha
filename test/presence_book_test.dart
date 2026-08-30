@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:neovibe/core/diagnostics/diagnostic_bundle.dart';
 import 'package:neovibe/features/proximity/net/presence_book.dart';
 import 'package:neovibe/features/proximity/net/wave_rules.dart';
 
@@ -117,6 +118,38 @@ void main() {
     await livre.noter('ami', contact: dedans, detections: 9);
 
     expect(await livre.historique('ami'), [dedans]);
+  });
+
+  test('🔴 la mesure a un LECTEUR — le diagnostic la rend', () async {
+    // Le carnet a été livré le 2026-08-30 sans être branché sur aucun rapport :
+    // la mesure était juste, et personne ne pouvait la sortir de l'appareil.
+    // Ce test est le contre-défaut — il tombe si la section cesse de dire ce
+    // qu'elle a mesuré.
+    final livre = carnet();
+    await livre.noter(
+      'abcdef0123456789',
+      contact: p(
+        t.subtract(const Duration(minutes: 10)),
+        const Duration(seconds: 12),
+      ),
+      detections: 9,
+    );
+
+    final texte = await DiagnosticBundle.presences(livre: livre);
+
+    expect(texte, contains('abcdef01'), reason: 'de quoi retrouver qui');
+    expect(texte, isNot(contains('abcdef0123456789')), reason: 'et pas plus');
+    expect(texte, contains('12s'), reason: 'la durée, la donnée qui manquait');
+    expect(texte, contains('9 vues'));
+    expect(texte, contains('en attente'), reason: "le verdict n'est pas rendu");
+    expect(texte, contains('total 1 contacts'));
+  });
+
+  test('un carnet vide le DIT, il ne rend pas une section muette', () async {
+    expect(
+      await DiagnosticBundle.presences(livre: carnet()),
+      'Aucun contact retenu.',
+    );
   });
 
   test('effacer oublie tout — bascule de compte', () async {

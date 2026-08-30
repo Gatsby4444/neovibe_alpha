@@ -252,6 +252,54 @@ Tests de référence : `test/derived_list_test.dart`,
 
 ---
 
+## Règle impérative : UN DÉFAUT TROUVÉ SE RÉPARE TOUT DE SUITE
+
+*Consigne de Jay, 2026-08-30 — impérative, sans exception.*
+
+> « On ne laisse jamais des défauts trouvés en attente. Après, c'est cela qui
+> nous perd et qui crée de plus grosses erreurs. »
+
+**Le moment où un défaut est trouvé est le seul moment où il est entièrement
+compris.** Une heure plus tard il ne reste que sa description ; un jour plus
+tard, une ligne dans `RAPPELS.md` que quelqu'un devra ré-instruire depuis zéro.
+
+### Ce qu'il faut faire
+
+1. **Réparer dans la foulée**, dans la même session, avant de passer à la suite.
+   Consigner ne remplace jamais réparer : `RAPPELS.md` sert à ce qui demande une
+   DÉCISION de Jay, pas à ranger ce qu'on sait déjà corriger.
+2. **Le défaut qu'on vient de créer soi-même passe en premier.** Il est encore
+   frais, et personne d'autre ne sait qu'il existe.
+3. **Si la réparation ne peut vraiment pas se faire maintenant**, le dire à Jay
+   avec la raison — et c'est *lui* qui reporte, pas moi.
+
+### Pourquoi c'est un principe, et pas de la propreté
+
+Un défaut en attente ne reste pas de la même taille : le code continue de
+s'écrire **par-dessus** lui. Les correctifs suivants se posent sur une base dont
+on sait qu'elle est fausse, et chacun devient un point à démêler le jour de la
+vraie réparation. Le coût ne croît pas linéairement, il se ramifie.
+
+⚠️ **Et le cas le plus coûteux est celui d'un INSTRUMENT défaillant** — une
+mesure illisible, un libellé qui ment, un compteur jamais incrémenté. Il ne
+gêne rien tout de suite : il fausse simplement toutes les décisions prises
+ensuite, sans que rien ne le signale. *Le 2026-08-30, deux instruments ont été
+livrés le même jour sans sortie lisible ; le second promettait de répondre à une
+question qu'il ne pouvait pas atteindre.*
+
+### ⚠️ Le test à s'appliquer
+
+**« Est-ce que je viens d'écrire, ou de dire, que quelque chose ne va pas ? »**
+Si oui, ça se répare maintenant. Une phrase qui commence par *« à corriger plus
+tard »* ou *« à noter pour la prochaine session »* doit être justifiée devant
+Jay, jamais décidée seul.
+
+Voir aussi la règle 8 (« toute suppression est une opération sur un réseau ») :
+un reste mort d'aujourd'hui est la panne de demain — c'est la même règle, vue
+depuis la suppression.
+
+---
+
 ## Règle impérative : rapport de session
 
 **À chaque nouvelle session**, créer un rapport dans le dossier `rapports-de-sessions/` à la racine du repo.

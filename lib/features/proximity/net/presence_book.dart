@@ -245,6 +245,27 @@ class PresenceBook {
     await _ecrire(_elaguer(map));
   }
 
+  /// **Tout le carnet, tel quel** — pour le diagnostic, et rien d'autre.
+  ///
+  /// ## 🔴 Pourquoi cet accesseur existe
+  ///
+  /// Ce carnet a été livré le 2026-08-30 en annonçant à Jay qu'il « dirait tout
+  /// seul » si les durées se mesurent pendant que le téléphone dort. **Il
+  /// n'était branché sur aucun rapport** : la mesure était juste, et personne ne
+  /// pouvait la sortir de l'appareil.
+  ///
+  /// ⚠️ **Un instrument dont la sortie n'est pas lisible ne mesure rien.**
+  /// C'était le deuxième du même jour, après `advertSlotDrift`. Le test à
+  /// s'appliquer avant de livrer une mesure : *par quel chemin quelqu'un la
+  /// lira-t-il ?* Si la réponse est « il faudrait ouvrir le fichier », il n'y a
+  /// pas d'instrument.
+  ///
+  /// ⚠️ **Lecture seule, et surtout aucun jugement ici.** Le formatage
+  /// appartient au diagnostic, la décision à `WaveRules` : ce carnet range des
+  /// contacts, il ne dit pas ce qu'ils valent.
+  Future<Map<String, List<ContactEnregistre>>> tout() async =>
+      Map.unmodifiable(await _lire());
+
   /// Oublie tout — bascule de compte, ou remise à zéro.
   Future<void> clear() async {
     _cache = null;

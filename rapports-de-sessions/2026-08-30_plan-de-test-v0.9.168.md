@@ -1,8 +1,8 @@
-# Plan de test — v0.9.167
+# Plan de test — v0.9.168
 
 *Établi le 2026-08-30. Jay fera les tests plus tard.*
 
-Les deux appareils doivent être en **v0.9.167**, sinon les relevés ne se
+Les deux appareils doivent être en **v0.9.168**, sinon les relevés ne se
 comparent pas. Téléphone = **Charles** (Xiaomi M2101K6G, Android 13) ·
 tablette = **mimi** (Lenovo TB-X606F, Android 10).
 
@@ -119,7 +119,7 @@ prochain test : un bot devenu ami ne peut plus servir à ce test.
 
 ## Test 4 — La nuit
 
-Les deux appareils en v0.9.167, laissés une nuit, puis **un diagnostic sur
+Les deux appareils en v0.9.168, laissés une nuit, puis **un diagnostic sur
 chacun** au réveil (ils arrivent dans `dev_reports`).
 
 ### Les trois lignes à relever
@@ -142,24 +142,18 @@ Le **carnet des présences** n'est branché sur aucun rapport — voir ci-dessou
 
 ---
 
-## ⚠️ Ce qui fausse la lecture — deux défauts connus, non corrigés
+## ✅ Les deux défauts qui faussaient la lecture sont CORRIGÉS (v0.9.168)
 
-### 1. Le réglage ment
+Ils étaient listés ici comme « à corriger avant le test ». Consigne de Jay du
+2026-08-30 : *« on ne laisse jamais des défauts trouvés en attente, après c'est
+cela qui nous perd et qui crée de plus grosses erreurs »* — devenue une règle
+impérative de `CLAUDE.md`.
 
-Réglages → Sécurité et confidentialité affiche toujours
-**« Waves — le presque »** et *« Par défaut, tu es prévenu après coup »*.
-**C'est faux depuis la v0.9.166** : cet interrupteur commande désormais
-**« Tout près »**, et le presque est différé d'une heure quoi qu'il arrive.
-`RAPPELS.md` #105.
+- **Le réglage** dit maintenant ce qu'il fait : « Quand un ami est tout près » /
+  « Me prévenir tout de suite », avec les trois délais de palier, et une note
+  qui rappelle que le presque arrive à part une heure après.
+- **Le carnet des présences** a sa section dans le diagnostic — durée, nombre de
+  détections, et « jugé » ou « en attente depuis N min » pour chaque contact.
 
-### 2. Le carnet des présences est invisible
-
-`PresenceBook` n'apparaît dans aucune section du diagnostic. **La question
-« les durées se mesurent-elles pendant que le téléphone dort ? » ne peut donc
-pas être répondue par le test de nuit**, contrairement à ce que j'ai annoncé à
-Jay le 2026-08-30. `RAPPELS.md` #106.
-
-⚠️ **C'est la deuxième fois dans la même journée** que je livre un instrument
-dont la sortie n'est pas lisible — après `advertSlotDrift`. Corriger les deux
-avant le test de nuit rendrait la nuit exploitable ; les laisser fait perdre une
-nuit.
+➡️ **Faire les tests en v0.9.168**, pas en v0.9.167 : la nuit devient
+exploitable pour les trois questions au lieu de deux.

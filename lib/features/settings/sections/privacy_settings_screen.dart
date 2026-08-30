@@ -63,19 +63,34 @@ class PrivacySettingsScreen extends ConsumerWidget {
             ).push(MaterialPageRoute(builder: (_) => const BlockedScreen())),
           ),
           const Divider(),
-          const SettingsHeader('Waves — « le presque »'),
+          // 🔴 **Réécrit le 2026-08-30, et le texte d'avant était devenu FAUX.**
+          //
+          // Il annonçait « Waves — le presque » et « par défaut tu es prévenu
+          // après coup ». Cet interrupteur ne commande plus le presque depuis la
+          // refonte du même jour : il commande **« Tout près »**, et le presque
+          // est différé d'une heure quoi qu'il arrive (`WaveRules.apresFenetre`).
+          //
+          // ⚠️ **Un libellé périmé ne lève rien et ne casse rien** — il fait
+          // seulement chercher un défaut là où il n'y en a pas. C'est le cas
+          // exact que vise la règle « un défaut trouvé se répare tout de suite »
+          // (`CLAUDE.md`, 2026-08-30) : il ne coûte que des décisions fausses,
+          // et il les coûte en silence.
+          const SettingsHeader('Quand un ami est tout près'),
           SwitchListTile(
-            title: const Text('Notifications en temps réel'),
+            title: const Text('Me prévenir tout de suite'),
             subtitle: const Text(
-              'Par défaut, tu es prévenu après coup. Active pour savoir sur le '
-              'moment.',
+              'Sans ça, le délai dépend de ton palier d\'amitié : immédiat pour '
+              'un inséparable, un quart d\'heure pour un proche, trois quarts '
+              'd\'heure sinon.',
             ),
             value: profile?.realtimeWaves ?? false,
             onChanged: (v) async =>
                 ref.read(profileRepositoryProvider).setRealtimeWaves(v),
           ),
           const SettingsNote(
-            'L\'historique des croisements manqués vit dans Profil → ♥',
+            'Le « presque » — quand vous vous êtes vraiment ratés — arrive à '
+            'part, une heure après le croisement, et ce réglage ne le change '
+            'pas. Son historique vit dans Profil → ♥',
           ),
         ],
       ),

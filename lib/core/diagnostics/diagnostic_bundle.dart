@@ -8,6 +8,7 @@ import 'card_rules_trace.dart';
 import '../../features/proximity/geo/coarse_location.dart';
 import '../../features/proximity/net/ble_radio.dart';
 import '../../features/proximity/net/connection_trace.dart';
+import '../../features/proximity/net/presence_book.dart';
 
 /// Tout ce qu'il faut pour diagnostiquer, en **un seul** copier-coller.
 ///
@@ -311,6 +312,69 @@ class DiagnosticBundle {
   /// précise n'est pas accordée » et « le dernier point en cache est mauvais ».
   /// Il a fallu lire le code pour le savoir. Un instrument qui ne peut pas
   /// mesurer la chose qu'on soupçonne ne sert à rien.
+  /// **Ce que le carnet des présences a retenu** — des faits, pas un verdict.
+  ///
+  /// ## 🔴 Pourquoi cette section existe
+  ///
+  /// Le carnet a été livré le 2026-08-30 en annonçant qu'il répondrait à *« les
+  /// durées se mesurent-elles pendant que le téléphone dort ? »*. Il n'était
+  /// branché sur **aucun** rapport : la mesure existait, juste, et personne ne
+  /// pouvait la lire. Deuxième instrument sans sortie du même jour, après
+  /// `advertSlotDrift`.
+  ///
+  /// ## Ce qu'on peut en conclure, et ce qu'on ne peut pas
+  ///
+  /// | Ce qu'on lit | Ce que ça veut dire |
+  /// |---|---|
+  /// | des contacts datés de la nuit | le suivi tient quand l'écran est éteint |
+  /// | **rien**, alors qu'on s'est croisés | le natif ne remonte pas au Dart |
+  /// | des contacts « en attente » vieux de plus d'une heure | le balayage des verdicts ne tourne pas |
+  ///
+  /// ⚠️ **Identités abrégées à huit caractères.** De quoi retrouver qui c'est en
+  /// base, sans faire de ce rapport un carnet d'adresses. Un diagnostic part par
+  /// un geste explicite, ce n'est pas une raison pour qu'il en dise plus que
+  /// nécessaire.
+  ///
+  /// [livre] : injectable **pour que cette section soit éprouvable**. Le défaut
+  /// qu'on répare ici était justement une mesure sans lecteur ; en livrer la
+  /// correction sans test aurait été refaire la moitié de l'erreur.
+  static Future<String> presences({PresenceBook? livre}) async {
+    final buffer = StringBuffer();
+    try {
+      final carnet = await (livre ?? PresenceBook()).tout();
+      if (carnet.isEmpty) return 'Aucun contact retenu.';
+
+      final maintenant = DateTime.now();
+      var total = 0;
+      var enAttente = 0;
+      for (final entry in carnet.entries) {
+        final contacts = [...entry.value]
+          ..sort((a, b) => a.debut.compareTo(b.debut));
+        buffer.writeln('${entry.key.substring(0, 8)} — ${contacts.length}');
+        for (final c in contacts) {
+          total++;
+          final murissant = !c.juge;
+          if (murissant) enAttente++;
+          final age = maintenant.difference(c.fin);
+          buffer.writeln(
+            '  ${_hhmmss(c.debut)} · ${c.fin.difference(c.debut).inSeconds}s '
+            '· ${c.detections} vues · '
+            '${c.juge ? 'jugé' : 'en attente depuis ${age.inMinutes} min'}',
+          );
+        }
+      }
+      buffer.writeln('total $total contacts, dont $enAttente en attente');
+    } catch (e) {
+      buffer.writeln('relevé impossible : $e');
+    }
+    return buffer.toString();
+  }
+
+  static String _hhmmss(DateTime d) =>
+      '${d.hour.toString().padLeft(2, '0')}:'
+      '${d.minute.toString().padLeft(2, '0')}:'
+      '${d.second.toString().padLeft(2, '0')}';
+
   static Future<String> location() async {
     final buffer = StringBuffer();
     try {
@@ -356,6 +420,12 @@ class DiagnosticBundle {
       buffer
         ..writeln('\n===== PROXIMITÉ — CE QUE LA RADIO A REÇU =====')
         ..writeln(await proximity())
+        // ⚠️ **Juste après la radio, et AVANT les journaux.** C'est la section
+        // qui dit si les durées de contact se mesurent quand personne ne
+        // regarde — enfouie après 40 000 caractères de journal caméra, elle ne
+        // serait jamais lue. Même raison que la section proximité elle-même.
+        ..writeln('\n===== PRÉSENCES — CE QUE LE CARNET A RETENU =====')
+        ..writeln(await presences())
         ..writeln('\n===== CONNEXIONS — DEMANDES ET SYNCHRONISATION =====')
         ..writeln(connections())
         ..writeln('\n===== POSITION — CE QU\'ANDROID A ACCORDÉ =====')
