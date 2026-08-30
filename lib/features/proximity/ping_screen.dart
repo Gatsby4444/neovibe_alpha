@@ -410,6 +410,106 @@ class _BandeauEtat extends ConsumerWidget {
   };
 }
 
+/// **Le cadre commun des deux tuiles du Ping.**
+///
+/// ## ⚠️ Pourquoi un cadre partagé, et pas deux tuiles « qui se ressemblent »
+///
+/// Consigne de Jay, 2026-08-30 : *« ils doivent être en format vertical 4:3 et
+/// tous identiques »*. Deux tuiles écrites cote à cote finissent **toujours**
+/// par diverger — l'une gagne une ligne, l'autre un espacement — et l'écart ne
+/// se voit pas tuile par tuile : il se voit une fois la page pleine, et il se
+/// lit comme « pas fini ». Ici il n'y a **qu'une** mise en page ; un ami et un
+/// inconnu ne choisissent que ce qu'ils mettent dedans.
+///
+/// ## L'ordre est le même pour tout le monde
+///
+/// photo (centrée en haut) → pseudo → une ligne de situation → la mention →
+/// les gestes. C'est l'ordre de lecture demandé par Jay le 2026-08-30.
+///
+/// ⚠️ **La mention est dans un `Expanded`, et c'est ce qui rend le débordement
+/// IMPOSSIBLE.** Le texte se fait rogner quand la place manque au lieu de
+/// pousser les boutons hors du cadre — un débordement s'affiche en rayures
+/// jaunes en debug et **ne se voit presque pas en release**. Le nombre de
+/// caractères est borné à la saisie (`profile_edit_screen.dart`) pour que ce
+/// rognage reste théorique ; ceci est la ceinture, pas les bretelles.
+class _CadreTuile extends StatelessWidget {
+  const _CadreTuile({
+    required this.avatar,
+    required this.nom,
+    required this.situation,
+    required this.mention,
+    required this.actions,
+    this.onTap,
+  });
+
+  final Widget avatar;
+  final String nom;
+
+  /// Une ligne, toujours présente : « À portée », un @tag, ou « Croisé hier ».
+  final String situation;
+
+  /// La mention spéciale, ou `null` — l'espace est réservé dans les deux cas,
+  /// sans quoi les tuiles d'une même ligne n'auraient pas leurs boutons à la
+  /// même hauteur.
+  final String? mention;
+
+  final List<Widget> actions;
+  final VoidCallback? onTap;
+
+  /// Le diamètre de la photo, le même pour les deux tuiles.
+  static const _photo = 48.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final tuile = Container(
+      decoration: BoxDecoration(
+        color: p.surface,
+        borderRadius: BorderRadius.circular(NeoRadius.md),
+        border: Border.all(color: p.line),
+      ),
+      padding: const EdgeInsets.all(NeoSpace.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Center(child: avatar),
+          const SizedBox(height: NeoSpace.sm),
+          Text(
+            nom,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.pseudo,
+          ),
+          Text(
+            situation,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: context.tagName,
+          ),
+          const SizedBox(height: NeoSpace.xs),
+          Expanded(
+            child: mention == null
+                ? const SizedBox.shrink()
+                : Center(
+                    child: Text(
+                      mention!,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+          ),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: actions),
+        ],
+      ),
+    );
+    return onTap == null ? tuile : GestureDetector(onTap: onTap, child: tuile);
+  }
+}
+
 /// **Un ami à portée**, reconnu par la radio à son jeton rotatif.
 class _TuilePair extends ConsumerWidget {
   const _TuilePair({required this.address});
@@ -439,7 +539,17 @@ class _TuilePair extends ConsumerWidget {
     // Le bouton « demander en ami » qui s'affichait dans ce cas est parti avec :
     // il ne pouvait de toute façon que se faire refuser par le serveur, qui
     // n'accepte pas de demande entre gens déjà connectés.
-    final p = context.palette;
+    // ⚠️ **La photo et la mention viennent du LOT de profils d'amis**, pas
+    // d'une requête par tuile. `friendProfilesProvider` est déjà chargé pour la
+    // liste d'amis et le Cercle : la tuile ne fait que lire, et une grille de
+    // vingt amis ne déclenche toujours qu'une requête (règle du 2026-08-30 sur
+    // les profils d'amis, `friendProfilesProvider`).
+    //
+    // ⚠️ **`null` tant que le lot n'est pas là** — la tuile affiche alors
+    // l'initiale et pas de mention. Elle ne bloque pas, ne clignote pas, et se
+    // complète toute seule : un ami reconnu par la radio doit apparaître même
+    // si le réseau est absent (`feedback_local_first_own_content`).
+    final profil = ref.watch(friendProfilesProvider).value?[snapshot.userId];
 
     // ⚠️ **LA DISTANCE N'EST PLUS AFFICHÉE — décision de Jay, 2026-08-30** :
     // *« pour les amis on n'a plus besoin de la distance, c'était pour les
@@ -453,54 +563,34 @@ class _TuilePair extends ConsumerWidget {
     // bande, tendance et fourchette, et Développeur → Diagnostic proximité les
     // affiche toujours. C'est l'affichage grand public qui s'arrête, pas la
     // mesure — vérifié avant de retirer, dans les deux sens.
-    return GestureDetector(
+    return _CadreTuile(
       onTap: () => _ouvrirProfil(context, ref, snapshot),
-      child: Container(
-        decoration: BoxDecoration(
-          color: p.surface,
-          borderRadius: BorderRadius.circular(NeoRadius.md),
-          border: Border.all(color: p.line),
-        ),
-        padding: const EdgeInsets.all(NeoSpace.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // L'anneau de palier — le même composant que partout ailleurs.
-            TierAvatar(
-              peerId: snapshot.userId,
-              storedAvatar: null,
-              initiale: snapshot.displayName.characters.first.toUpperCase(),
-              size: 42,
-            ),
-            const SizedBox(height: NeoSpace.sm),
-            Text(
-              snapshot.displayName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: context.pseudo,
-            ),
-            // ⚠️ **« À portée » et rien de plus.** Un ami reconnu par la radio
-            // EST à portée : c'est la seule façon dont il peut arriver ici.
-            // Le dire suffit ; le chiffrer fabriquait une précision qui
-            // n'existe pas.
-            Text('À portée', style: context.tagName),
-            const Spacer(),
-            Align(
-              alignment: Alignment.centerRight,
-              child: IconButton(
-                icon: const Icon(Icons.chat_bubble_outline),
-                tooltip: 'Message',
-                // ⚠️ **La conversation SERVEUR, et elle seule** (2026-08-27).
-                // Un ami a déjà une conversation partout ailleurs dans l'app :
-                // en ouvrir une seconde, locale et éphémère, faisait deux
-                // historiques pour une même personne.
-                onPressed: () =>
-                    _ouvrirConversation(context, ref, snapshot.userId),
-              ),
-            ),
-          ],
-        ),
+      // L'anneau de palier — le même composant que partout ailleurs. Il ne
+      // s'affiche que sur la tuile d'un ami : un inconnu n'a pas de palier, et
+      // lui en dessiner un serait affirmer une relation qui n'existe pas.
+      avatar: TierAvatar(
+        peerId: snapshot.userId,
+        storedAvatar: profil?.avatarUrl,
+        initiale: snapshot.displayName.characters.first.toUpperCase(),
+        size: _CadreTuile._photo,
       ),
+      nom: snapshot.displayName,
+      // ⚠️ **« À portée » et rien de plus.** Un ami reconnu par la radio EST à
+      // portée : c'est la seule façon dont il peut arriver ici. Le dire
+      // suffit ; le chiffrer fabriquait une précision qui n'existe pas.
+      situation: 'À portée',
+      mention: profil?.specialMention,
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.chat_bubble_outline),
+          tooltip: 'Message',
+          // ⚠️ **La conversation SERVEUR, et elle seule** (2026-08-27).
+          // Un ami a déjà une conversation partout ailleurs dans l'app :
+          // en ouvrir une seconde, locale et éphémère, faisait deux
+          // historiques pour une même personne.
+          onPressed: () => _ouvrirConversation(context, ref, snapshot.userId),
+        ),
+      ],
     );
   }
 
@@ -666,86 +756,46 @@ class _TuileInconnu extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final p = context.palette;
     final initiale = personne.displayName.isEmpty
         ? "?"
         : personne.displayName.substring(0, 1).toUpperCase();
 
-    return Container(
-      decoration: BoxDecoration(
-        color: p.surface,
-        borderRadius: BorderRadius.circular(NeoRadius.md),
-        border: Border.all(color: p.line),
+    return _CadreTuile(
+      // ⚠️ **Le widget partagé, et pas un `NetworkImage`.** `avatar_url`
+      // porte un chemin de coffre privé, pas une URL : le donner tel quel à
+      // `NetworkImage` levait « No host specified in URI » et laissait un
+      // rond vide (constaté par Jay le 2026-08-26). `Avatar` sait lire les
+      // deux formes, passe par la politique du coffre, et garde le fichier.
+      avatar: Avatar(
+        stored: personne.avatarUrl,
+        radius: _CadreTuile._photo / 2,
+        fallback: Text(initiale),
       ),
-      padding: const EdgeInsets.all(NeoSpace.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ⚠️ **Le widget partagé, et pas un `NetworkImage`.** `avatar_url`
-          // porte un chemin de coffre privé, pas une URL : le donner tel quel à
-          // `NetworkImage` levait « No host specified in URI » et laissait un
-          // rond vide (constaté par Jay le 2026-08-26). `Avatar` sait lire les
-          // deux formes, passe par la politique du coffre, et garde le fichier.
-          Avatar(
-            stored: personne.avatarUrl,
-            radius: 21,
-            fallback: Text(initiale),
+      nom: personne.displayName,
+      situation: aPortee
+          ? (personne.tagName == null ? "À portée" : "@${personne.tagName}")
+          : "Croisé ${vagueTimeAgo(personne.lastSeenAt)}",
+      // La MENTION SPÉCIALE — la deuxième bio, écrite pour les gens qu'on
+      // croise sans les connaître.
+      //
+      // ⚠️ **Absente ne veut pas dire vide** : le serveur ne l'envoie que si
+      // la personne a ouvert son interrupteur. L'app n'a donc rien à décider,
+      // et rien à cacher.
+      mention: personne.specialMention,
+      // Deux gestes, deux boutons : écrire, ou demander en ami. Les confondre
+      // obligerait l'utilisateur à deviner lequel il déclenche.
+      actions: [
+        _BoutonDemande(
+          userId: personne.userId,
+          displayName: personne.displayName,
+        ),
+        if (aPortee)
+          IconButton(
+            tooltip: "Écrire",
+            icon: const Icon(Icons.chat_bubble_outline),
+            onPressed: () => _ouvrirChatProximite(ref, personne),
           ),
-          const SizedBox(height: NeoSpace.sm),
-          Text(
-            personne.displayName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: context.pseudo,
-          ),
-          Text(
-            aPortee
-                ? (personne.tagName == null
-                      ? "À portée"
-                      : "@${personne.tagName}")
-                : "Croisé ${vagueTimeAgo(personne.lastSeenAt)}",
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: context.tagName,
-          ),
-          const SizedBox(height: NeoSpace.sm),
-
-          // La MENTION SPÉCIALE — la deuxième bio, écrite pour les gens qu'on
-          // croise sans les connaître.
-          //
-          // ⚠️ **Absente ne veut pas dire vide** : le serveur ne l'envoie que
-          // si la personne a ouvert son interrupteur. L'app n'a donc rien à
-          // décider, et rien à cacher.
-          Expanded(
-            child: personne.specialMention == null
-                ? const SizedBox.shrink()
-                : Text(
-                    personne.specialMention!,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-          ),
-
-          // Deux gestes, deux boutons : écrire, ou demander en ami. Les
-          // confondre obligerait l'utilisateur à deviner lequel il déclenche.
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _BoutonDemande(
-                userId: personne.userId,
-                displayName: personne.displayName,
-              ),
-              if (aPortee)
-                IconButton(
-                  tooltip: "Écrire",
-                  icon: const Icon(Icons.chat_bubble_outline),
-                  onPressed: () => _ouvrirChatProximite(ref, personne),
-                ),
-            ],
-          ),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -799,7 +849,22 @@ class _GrilleDeTuiles extends StatelessWidget {
         crossAxisCount: 2,
         crossAxisSpacing: NeoSpace.md,
         mainAxisSpacing: NeoSpace.md,
-        mainAxisExtent: 196,
+        // ⚠️ **4:3 VERTICAL — consigne de Jay, 2026-08-30.** Trois de large
+        // pour quatre de haut, donc `largeur / hauteur = 3 / 4`.
+        //
+        // 🔴 **Ceci ANNULE la décision de la veille**, qui imposait une hauteur
+        // FIXE (196) précisément parce qu'un rapport de forme fait dépendre la
+        // hauteur de la largeur de l'écran. L'objection était juste, et elle
+        // reste vraie : c'est la conséquence — le débordement — qui a été
+        // supprimée autrement. La mention vit dans un `Expanded` et se fait
+        // rogner, et sa longueur est bornée à la saisie. Le rapport de forme
+        // n'a donc plus de quoi casser quoi que ce soit.
+        //
+        // 🟡 Sur une tablette, deux colonnes donnent une tuile large, donc
+        // haute. C'est le prix assumé de « deux par ligne » (2026-08-29) plus
+        // « 4:3 » : les deux ensemble décident de la taille, on ne peut pas
+        // choisir les trois.
+        childAspectRatio: 3 / 4,
       ),
       itemCount: enfants.length,
       itemBuilder: (context, i) => enfants[i],

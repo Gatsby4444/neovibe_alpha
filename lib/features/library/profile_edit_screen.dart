@@ -208,7 +208,29 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
           const SizedBox(height: NeoSpace.md),
           TextField(
             controller: _mention,
-            maxLength: 90,
+            // ⚠️ **45 caractères, et ce n'est pas un chiffre rond : c'est la
+            // place réelle de la tuile du Ping** (consigne de Jay, 2026-08-30 :
+            // *« la place pour la mention spéciale est limitée donc on limite
+            // le nombre de caractères en écriture pour que cela rentre »*).
+            //
+            // Le calcul, sur le téléphone le plus étroit qu'on vise (360 dp) :
+            // deux colonnes, marges et gouttière retirées, il reste **134 dp**
+            // de texte par tuile, en `bodySmall` (13 sp) sur **deux** lignes —
+            // soit une quarantaine de caractères. L'exemple que Jay a lui-même
+            // écrit dans le champ, « Cherche un binôme pour le TP de physique »,
+            // en fait 40 : la limite est calibrée sur son propre usage.
+            //
+            // ⚠️ **La base accepte 90** (`profiles_special_mention_check`), et
+            // les deux nombres ne se contredisent pas : la base pose un
+            // PLAFOND, ce champ pose une RÈGLE D'ÉCRITURE. Baisser la
+            // contrainte SQL rejetterait les mentions déjà en base — dont
+            // celles des figurants. Une mention plus longue s'affiche
+            // simplement rognée.
+            //
+            // ⚠️ **Borner ici ne suffirait pas seul** : la tuile garde son
+            // `Expanded` (`_CadreTuile`), sans quoi une vieille mention de 90
+            // caractères pousserait les boutons hors du cadre.
+            maxLength: 45,
             maxLines: 2,
             decoration: const InputDecoration(
               labelText: 'Mention spéciale',
