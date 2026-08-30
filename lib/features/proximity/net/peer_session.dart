@@ -252,8 +252,8 @@ class PeerSession {
   /// Depuis combien de temps ce pair est en contact continu.
   ///
   /// ⚠️ **Point d'observation de test : aucun appelant dans `lib/`.** Vérifié à
-  /// l'audit du 2026-08-18 (point E), toujours vrai à l'inventaire du
-  /// 2026-08-27. **À retirer avant la mise en production** (`RAPPELS.md`).
+  /// l'audit du 2026-08-18 (point E), toujours vrai aux inventaires du
+  /// 2026-08-27 et du 2026-08-30. **À retirer avant la mise en production** (`RAPPELS.md`).
   Duration contactDuration(DateTime now) => now.difference(firstHeard);
 
   // ------------------------------------------------------------- mise à jour
@@ -374,7 +374,8 @@ class PeerRegistry {
   /// Combien de pairs sont identifiés à cet instant.
   ///
   /// ⚠️ **Point d'observation de test : aucun appelant dans `lib/`.** Vérifié à
-  /// l'audit du 2026-08-18 (point E), toujours vrai au 2026-08-27. L'écran
+  /// l'audit du 2026-08-18 (point E), toujours vrai aux 2026-08-27
+  /// et 2026-08-30. L'écran
   /// compte lui-même à partir de `presenceKeysProvider` — il ne lit pas le
   /// registre. **À retirer avant la mise en production** (`RAPPELS.md`).
   int get identifiedCount =>
