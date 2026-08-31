@@ -329,8 +329,26 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         desiredAdvertId = advertId
         desiredAdvertType = type
         scanRetried = false
+        // 🔴 **TOUS LES COMPTEURS, OU AUCUN — corrige le 2026-08-31.**
+        //
+        // Seuls `rawScans` et `neoScans` repartaient de zero ici. Les quatre
+        // autres couraient depuis la creation du moteur — et `start()` est
+        // rappele automatiquement 1,2 s apres chaque rallumage du Bluetooth.
+        //
+        // Les huit chiffres sont ensuite affiches cote a cote dans le meme
+        // rapport, comme s'ils couvraient la meme periode. Un `neoScans = 0`
+        // avec `otherVersionScans = 500` se lisait « la radio n'entend rien
+        // mais a entendu 500 annonces d'une autre version » — alors que les 500
+        // pouvaient dater d'avant le dernier redemarrage.
+        //
+        // ⚠️ Un instrument dont les graduations n'ont pas la meme origine ne
+        // mesure pas, il suggere.
         rawScans = 0
         neoScans = 0
+        selfScans = 0
+        otherVersionScans = 0
+        advertStaleCallbacks = 0
+        onAir.reinitialiseRefus()
         // ⚠️ **Une session neuve reessaie le parallele.** Le repli est une
         // constatation sur un instant, pas une propriete de l'appareil : le
         // reconduire sans le retester, c'est transformer un incident en
@@ -534,6 +552,36 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * comptant ce qui emet.
      */
     val advertSetsOnAir: Int get() = advertSets.size
+
+    /**
+     * Le plafond de jeux d'annonces simultanes, et le temps restant avant de
+     * pouvoir retenter le parallele.
+     *
+     * ## 🔴 Pourquoi ces deux chiffres sont publies — 2026-08-31
+     *
+     * `advertMode` dit « cycle », ce qui est vrai, et ne dit pas POURQUOI. Or
+     * il y a deux raisons tres differentes de s'y trouver, et elles ne se
+     * corrigent pas de la meme facon :
+     *
+     * | Ce qu'on lit | Ce que ca veut dire |
+     * |---|---|
+     * | `advertTokensPerSlot > advertMaxSets` | **le plafond**, atteint des 6 jetons — donc des 5 amis avec la decouverte allumee |
+     * | `advertParallelCooldownMs > 0` | **un refus** de la pile, qu'on retentera tout seul |
+     *
+     * ⚠️ **Le premier cas ramene le defaut d'echelle que le mode parallele
+     * existe pour supprimer** : en cycle, le jeton d'un ami n'est en l'air que
+     * 1/N du temps. Il ne levait rien et ne se comptait nulle part — on ne
+     * pouvait donc pas savoir, en lisant un rapport, si un croisement rate
+     * venait de la ou d'ailleurs.
+     *
+     * ⚠️ **On publie des FAITS, pas un verdict.** `maxParallelSets` reste une
+     * valeur raisonnee et non mesuree : la monter sans releve sur appareil ne
+     * ferait que deplacer la supposition. Ces deux lignes disent ou elle mord.
+     */
+    val advertMaxSets: Int get() = maxParallelSets
+
+    val advertParallelCooldownMs: Long
+        get() = (parallelRefusedUntil - System.currentTimeMillis()).coerceAtLeast(0L)
 
     /** Arrete tous les jeux, sans rien dire a personne. */
     private fun stopParallelAdverts() {
@@ -915,8 +963,22 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             val type = payload[3]
             val id = payload.copyOfRange(4, BleConstants.ADVERT_PAYLOAD_SIZE)
 
-            // ⚠️ **Notre propre annonce.** Le jeton d'ami est symetrique : sans
-            // ce filtre, on se reconnait soi-meme comme l'ami a qui on crie.
+            // ⚠️ **Notre propre annonce**, captee par reflexion, par un relais,
+            // ou parce que la puce nous la remonte. Sans ce filtre, elle
+            // ressortirait comme une detection.
+            //
+            // ⚠️ **Le commentaire qui vivait ici disait « le jeton d'ami est
+            // symetrique » — c'etait faux depuis le 2026-08-26**, et la
+            // documentation de [ownTokens], deux cents lignes plus haut dans ce
+            // meme fichier, expliquait justement que la symetrie avait ete
+            // supprimee. Deux commentaires du meme fichier se contredisaient ;
+            // corrige le 2026-08-31.
+            //
+            // La difference compte : quand le jeton etait symetrique, ce filtre
+            // jetait TOUTES les annonces de l'ami (une sur deux du trafic).
+            // Depuis que le jeton porte le nom de son emetteur
+            // (`ProximityIdentity.pairToken`), « le mien » et « le sien » sont
+            // deux valeurs differentes, et le filtre est exact.
             if (isOwnToken(id)) {
                 selfScans++
                 return

@@ -130,6 +130,11 @@ data class NativeSighting(
  * Et la borne n'est pas decorative : une memoire non bornee dans un service qui
  * vit des jours est une fuite, et elle ne se voit qu'au bout de longtemps.
  *
+ * ⚠️ **Au plein, c'est le constat le plus VIEUX qui part**, jamais le nouveau
+ * (corrige le 2026-08-31). Jeter le nouveau revient a arreter d'observer au
+ * bout de N constats — ce qui, sur une nuit, fait perdre les dernieres heures
+ * plutot que les premieres.
+ *
  * ## ⚠️ En memoire seulement
  *
  * Si Android tue le PROCESSUS (et pas seulement l'interface), ces constats sont
@@ -149,7 +154,24 @@ class SightingBuffer(private val maxEntries: Int = 500) {
             if (sighting.rssi > existant.rssi) retenus[cle] = sighting
             return
         }
-        if (retenus.size >= maxEntries) return
+        // 🔴 **AU PLEIN, ON JETTE LE PLUS VIEUX — corrige le 2026-08-31.**
+        //
+        // Cette borne faisait `return` : une fois les 500 entrees atteintes,
+        // tout nouveau constat etait **ignore**, et les anciens conserves.
+        // C'est l'inverse de ce qu'il faut pour une fenetre glissante.
+        //
+        // 500 entrees valent ami x creneau. Une nuit de douze heures fait
+        // 48 creneaux : le plafond est atteint des **onze amis**, et ce sont
+        // alors les heures les plus RECENTES qui etaient perdues — chez les
+        // utilisateurs qui en ont le plus. Silencieusement, et d'autant plus
+        // qu'on a d'amis.
+        if (retenus.size >= maxEntries) {
+            val plusVieux = retenus.entries.minByOrNull { it.value.slot } ?: return
+            // Si le nouveau est LUI-MEME le plus vieux, le garder ne gagne
+            // rien : on prefere ce qui est deja la.
+            if (plusVieux.value.slot >= sighting.slot) return
+            retenus.remove(plusVieux.key)
+        }
         retenus[cle] = sighting
     }
 

@@ -265,11 +265,27 @@ class NeoBuildIn extends StatelessWidget {
       animation: animation,
       child: child,
       builder: (context, inner) {
-        final t = Interval(
-          begin,
-          end == begin ? 1.0 : end,
-          curve: NeoMotion.enter,
-        ).transform(animation.value.clamp(0.0, 1.0));
+        // ⚠️ **Le garde-fou qui échouait exactement dans le cas qu'il
+        // visait** — corrigé le 2026-08-31.
+        //
+        // Il s'écrivait `end == begin ? 1.0 : end`. Or les deux valeurs sont
+        // bornées à `[0, 1]` juste au-dessus : quand un rang dépasse le total
+        // (index >= total), elles valent **toutes deux 1.0**, et le garde
+        // produisait `Interval(1.0, 1.0)` — une division par zéro, donc une
+        // opacité `NaN` que `Opacity` refuse.
+        //
+        // Ici, un élément dont la fenêtre est vide est simplement **déjà
+        // arrivé** : c'est la réponse juste, et elle ne peut pas lever.
+        final double t;
+        if (end <= begin) {
+          t = 1.0;
+        } else {
+          t = Interval(
+            begin,
+            end,
+            curve: NeoMotion.enter,
+          ).transform(animation.value.clamp(0.0, 1.0));
+        }
         return Opacity(
           opacity: t,
           child: Transform.translate(

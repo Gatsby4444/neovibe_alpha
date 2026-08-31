@@ -186,4 +186,69 @@ class AdvertOnAirTest {
     fun `l'hexadecimal est celui de la table de reconnaissance`() {
         assertEquals("00010aff", AdvertOnAir.hex(byteArrayOf(0, 1, 10, -1)))
     }
+
+    // ------------------------------------------------------------------
+    // Le rang qui disparait puis revient — defaut du 2026-08-31
+    // ------------------------------------------------------------------
+
+    /**
+     * 🔴 **Le contre-test du defaut trouve a l'audit du 2026-08-31.**
+     *
+     * `noteDemande` purgeait les rangs disparus de `confirme`, jamais de
+     * `enVol`. Un rang qui s'en va laissait donc son ecrit « en vol » pour
+     * toujours : rien ne le retire, puisque ni `noteConfirme` ni `noteRefus` ne
+     * seront jamais appeles pour un jeu qu'on n'a plus.
+     *
+     * Quand il revient avec le MEME jeton — ce qui arrive des qu'on eteint puis
+     * rallume « Croiser mes amis » dans le meme creneau — `besoinDEcrire`
+     * repondait `false`, l'ecriture etait sautee, et le repere restait bloque
+     * sur « on ne sait pas » : `advertSlotDrift = -1` sur une emission
+     * parfaitement saine.
+     *
+     * ⚠️ Retirer la purge de `enVol` dans `noteDemande` doit faire tomber ce
+     * test. C'est la seule chose qui prouve que cette ligne sert.
+     */
+    @Test
+    fun `un rang qui disparait puis revient se reecrit`() {
+        val air = AdvertOnAir()
+
+        // Deux jetons : le public et celui d'un ami.
+        air.noteDemande(jetons("aa", "bb"), repere = 10)
+        air.noteEcrit(0, "aa")
+        air.noteEcrit(1, "bb")
+        // Le jeu 1 part vers la pile, et la reponse n'arrive jamais : on eteint
+        // « Croiser mes amis » entre-temps.
+        air.noteConfirme(0)
+
+        // Le plan retrecit : le rang 1 n'existe plus.
+        air.noteDemande(jetons("aa"), repere = 10)
+
+        // Puis il revient, avec le meme jeton et dans le meme creneau.
+        air.noteDemande(jetons("aa", "bb"), repere = 10)
+
+        assertTrue(
+            "le rang revenu doit etre reecrit : rien ne l'a jamais confirme",
+            air.besoinDEcrire(1, "bb"),
+        )
+    }
+
+    @Test
+    fun `un rang disparu ne bloque plus le repere`() {
+        val air = AdvertOnAir()
+        air.noteDemande(jetons("aa", "bb"), repere = 10)
+        air.noteEcrit(0, "aa")
+        air.noteEcrit(1, "bb")
+        air.noteConfirme(0)
+
+        air.noteDemande(jetons("aa"), repere = 10)
+        air.noteDemande(jetons("aa", "bb"), repere = 10)
+        air.noteEcrit(1, "bb")
+        air.noteConfirme(1)
+
+        assertEquals(
+            "les deux jeux portent ce qu'on demande : le repere est connu",
+            10L,
+            air.repereEnLAir,
+        )
+    }
 }

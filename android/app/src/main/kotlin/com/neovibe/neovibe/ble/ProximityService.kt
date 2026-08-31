@@ -136,6 +136,23 @@ class ProximityService : Service(), BleEngine.Listener {
     private val pendingScans = ConcurrentLinkedQueue<BufferedScan>()
     private val scanBufferMax = 200
 
+    /**
+     * Combien d'annonces sont en attente.
+     *
+     * ## 🔴 Pourquoi un compteur a cote de la file — 2026-08-31
+     *
+     * `ConcurrentLinkedQueue.size()` n'est pas un champ : il **parcourt la
+     * file**. Le bornage s'ecrivait `while (pendingScans.size > max)` et
+     * tournait a chaque annonce recue — donc en continu des que l'interface
+     * est absente, c'est-a-dire toute la nuit, sur le fil principal, a 200
+     * noeuds par passage.
+     *
+     * Ce n'etait pas une panne : juste un cout que rien ne montrait. Un
+     * `AtomicInteger` rend la reponse en O(1) et reste juste quel que soit le
+     * fil qui appelle.
+     */
+    private val pendingScansSize = java.util.concurrent.atomic.AtomicInteger(0)
+
     // ------------------------------------------------------------------
     // Le plan d'emission — la correction du point H
     // ------------------------------------------------------------------
@@ -253,16 +270,27 @@ class ProximityService : Service(), BleEngine.Listener {
      *
      * ## 🔴 Le defaut que ceci corrige — audit du 2026-08-28
      *
-     * Le plan porte **75 minutes** de jetons d'avance, pour que le service
+     * Le plan porte **douze heures** de jetons d'avance, pour que le service
      * survive seul a la mort du Dart. C'est juste pour les jetons d'AMIS : un
-     * ami reconnait tout seul, sans reseau, app fermee — leur horizon est de
-     * douze heures et c'est voulu.
+     * ami reconnait tout seul, sans reseau, app fermee.
      *
      * L'identifiant PUBLIC, lui, ne vaut rien sans la balise serveur. Quand
      * Android rangeait l'app, la balise mourait en cinq minutes et l'appareil
-     * continuait de crier **jusqu'a soixante-dix minutes de plus** — un
-     * identifiant que personne ne pouvait traduire, mais que n'importe quel
-     * scanner pouvait suivre.
+     * continuait de le crier **jusqu'a la fin du plan** — un identifiant que
+     * personne ne pouvait traduire, mais que n'importe quel scanner pouvait
+     * suivre.
+     *
+     * ## ⚠️ Et depuis le 2026-08-31, c'est le SEUL mecanisme qui le borne
+     *
+     * Le Dart avait aussi, du 2026-08-28 au 2026-08-31, un « horizon public »
+     * de 75 creneaux qui repondait a la meme question. Il a ete supprime : il
+     * rendait le nombre de jetons **variable d'un creneau a l'autre**, ce que
+     * le tampon a plat ne supporte pas — le natif lisait alors les jetons
+     * decales, puis se taisait, et rien n'etait persiste.
+     *
+     * Deux mecanismes pour un seul besoin, dont un seul cassait le reste. Celui
+     * qui reste est aussi le plus fin : cinq minutes au lieu de soixante-quinze,
+     * et il ne suppose rien sur la duree de survie du Dart.
      *
      * ⚠️ **Le depot d'un plan compte comme un battement.** Le Dart qui depose
      * un plan est vivant par definition ; sans ca, allumer la decouverte
@@ -314,7 +342,7 @@ class ProximityService : Service(), BleEngine.Listener {
         // different.
         val enLAir = engine.advertSlotOnAir
         if (enLAir >= 0) {
-            val derive = now / slotMillis - enLAir
+            val derive = now / planSlotMillis - enLAir
             if (derive > driftMax) {
                 driftMax = derive
                 driftMaxA = android.os.SystemClock.elapsedRealtime()
@@ -362,7 +390,15 @@ class ProximityService : Service(), BleEngine.Listener {
         // et le diagnostic le compare a l'instant present. Sans lui, « ce qui
         // rayonne » ne pouvait pas etre date — c'est tout le defaut du
         // 2026-08-29.
-        val creneau = now / slotMillis
+        //
+        // 🔴 **Le diviseur est celui du PLAN, pas celui de la table — corrige le
+        // 2026-08-31.** C'est le plan qui choisit le jeton (`tokensAt` divise
+        // par SA duree de creneau) ; calculer le repere avec la duree deposee
+        // par la table de RECONNAISSANCE, c'est dater ce qui rayonne avec
+        // l'horloge d'autre chose. Les deux valent 900 000 aujourd'hui et
+        // viennent de la meme constante Dart — le jour ou elles divergent, la
+        // derive affichee serait fausse sans que rien ne le signale.
+        val creneau = now / planSlotMillis
 
         if (engine.applyAdverts(duCreneau.first, duCreneau.second, creneau)) {
             parallel = true
@@ -375,12 +411,43 @@ class ProximityService : Service(), BleEngine.Listener {
         engine.updateAdvert(duCreneau.first[lequel], duCreneau.second[lequel], creneau)
     }
 
-    /** Le Dart depose un nouveau plan. Il remplace entierement le precedent. */
-    fun setAdvertSchedule(plan: AdvertSchedule) {
+    /**
+     * Duree d'un creneau **selon le plan d'emission**.
+     *
+     * ⚠️ **A cote de [slotMillis], et surtout pas fusionne avec lui.** Celui-ci
+     * date ce qu'on CRIE ; l'autre, depose avec la table, date ce qu'on
+     * RECONNAIT. Ils valent la meme chose aujourd'hui et repondent a deux
+     * questions : les melanger, c'est accepter que la reponse a l'une devienne
+     * fausse le jour ou l'autre change.
+     */
+    @Volatile
+    private var planSlotMillis = 900_000L
+
+    /**
+     * Le Dart depose un nouveau plan. Il remplace entierement le precedent.
+     *
+     * [duDart] est faux dans un seul cas : la reprise depuis le disque, ou le
+     * plan ne vient pas du Dart et ne prouve donc rien sur sa sante. Voir
+     * [repartDuDisque].
+     */
+    fun setAdvertSchedule(plan: AdvertSchedule, duDart: Boolean = true) {
         // ⚠️ **Deposer un plan, c'est prouver qu'on est vivant.** Voir
         // [publicAutorise] : sans cette ligne, allumer la decouverte laisserait
         // l'appareil muet jusqu'a la premiere republication de balise.
-        battementPublic()
+        //
+        // ⚠️ **Sauf quand le plan vient du DISQUE** (2026-08-31). Un plan relu
+        // apres la mort du processus ne dit rien du Dart — il dit seulement
+        // qu'on avait ecrit quelque chose avant. S'en servir comme d'un signe
+        // de vie accordait cinq minutes de droit a l'identifiant public a un
+        // appareil dont le Dart etait mort.
+        //
+        // Inoffensif jusqu'ici **parce que** le plan du disque ne contient
+        // aucun jeton public (`friendsOnly`) : le droit etait accorde et n'avait
+        // rien a couvrir. C'etait une propriete, pas une garantie — et une
+        // garantie qui repose sur une propriete d'ailleurs finit toujours par
+        // tomber quand cet ailleurs bouge.
+        if (duDart) battementPublic()
+        planSlotMillis = plan.rawSlotMillis
         schedule = plan
         persiste()
         cursor = 0
@@ -625,7 +692,10 @@ class ProximityService : Service(), BleEngine.Listener {
             repris.table.rawSlotMillis,
             PresenceLog.GAP_PAR_DEFAUT,
         )
-        setAdvertSchedule(repris.plan)
+        // ⚠️ `duDart = false` : ce plan vient du disque. Il ne prouve rien sur
+        // la sante du Dart, et ne doit donc pas rouvrir le droit de crier
+        // l'identifiant public. Voir [setAdvertSchedule].
+        setAdvertSchedule(repris.plan, duDart = false)
         return true
     }
 
@@ -720,6 +790,14 @@ class ProximityService : Service(), BleEngine.Listener {
         // defaut du 2026-08-29 — un ancien plan reste en l'air pendant qu'on en
         // annonce un nouveau, et rien d'autre ne le montrait.
         "advertSetsOnAir" to engine.advertSetsOnAir,
+        // ⚠️ **POURQUOI on est en cycle, et pas seulement qu'on y est.**
+        // Voir [BleEngine.advertMaxSets] : `advertTokensPerSlot` au-dessus de
+        // `advertMaxSets` = le plafond (donc des 5 amis avec la decouverte
+        // allumee) ; un `advertParallelCooldownMs` non nul = un refus de la
+        // pile, qui se retentera tout seul. Les deux se lisent ensemble, et
+        // aucun des deux n'existait avant le 2026-08-31.
+        "advertMaxSets" to engine.advertMaxSets,
+        "advertParallelCooldownMs" to engine.advertParallelCooldownMs,
         // 🔴 **DE QUAND DATE CE QUI RAYONNE — la ligne qui manquait le
         // 2026-08-29.**
         //
@@ -737,7 +815,7 @@ class ProximityService : Service(), BleEngine.Listener {
         // `advertSetsOnAir` et `advertDataRefus` juste a cote.
         "advertSlotDrift" to
             if (engine.advertSlotOnAir < 0) -1L
-            else System.currentTimeMillis() / slotMillis - engine.advertSlotOnAir,
+            else System.currentTimeMillis() / planSlotMillis - engine.advertSlotOnAir,
         // 🔴 **LA LIGNE A LIRE APRES UN TEST DE NUIT.** Voir [driftMax].
         //
         // `advertSlotDrift` ci-dessus ne vaut que pour l'instant present, et cet
@@ -888,7 +966,11 @@ class ProximityService : Service(), BleEngine.Listener {
             return
         }
         pendingScans.add(BufferedScan(address, advertId, rssi, txPower, type, atMillis))
-        while (pendingScans.size > scanBufferMax) pendingScans.poll()
+        pendingScansSize.incrementAndGet()
+        while (pendingScansSize.get() > scanBufferMax) {
+            if (pendingScans.poll() == null) break
+            pendingScansSize.decrementAndGet()
+        }
     }
 
     // ⚠️ **`onLink` et `onFrame` ont ete SUPPRIMES le 2026-08-27**, avec le
@@ -910,6 +992,7 @@ class ProximityService : Service(), BleEngine.Listener {
         target.onStatus(lastStatus)
         while (true) {
             val scan = pendingScans.poll() ?: break
+            pendingScansSize.decrementAndGet()
             target.onScan(
                 scan.address,
                 scan.advertId,

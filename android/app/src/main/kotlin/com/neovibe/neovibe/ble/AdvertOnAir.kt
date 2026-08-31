@@ -62,6 +62,18 @@ class AdvertOnAir {
         private set
 
     /**
+     * Remet le compteur de refus a zero, au demarrage d'une session de radio.
+     *
+     * ⚠️ **Existe pour que TOUS les compteurs du diagnostic aient la meme
+     * origine** (2026-08-31). `oublie()` ne le fait pas et ne doit pas le
+     * faire : il est appele a chaque silence, et un refus survenu pendant la
+     * session doit rester visible jusqu'a la fin de cette session.
+     */
+    fun reinitialiseRefus() {
+        refus = 0
+    }
+
+    /**
      * Le jeu [index] a-t-il besoin qu'on lui ecrive [tokenHex] ?
      *
      * Rend `false` s'il le porte deja, **ou** si un ecrit du meme contenu est
@@ -97,6 +109,26 @@ class AdvertOnAir {
         // retrecit ne bloque pas le repere` tombe.
         confirme.keys.toList().forEach { rang ->
             if (!demande.containsKey(rang)) confirme.remove(rang)
+        }
+        // 🔴 **ET LES ECRITS EN VOL DES RANGS DISPARUS — corrige le 2026-08-31.**
+        //
+        // Seul `confirme` etait purge. Un rang qui disparait laissait donc son
+        // entree dans `enVol` **pour toujours** : rien ne la retire, puisque ni
+        // `noteConfirme` ni `noteRefus` ne seront jamais appeles pour un jeu
+        // qu'on n'a plus.
+        //
+        // Consequence quand le rang revient avec le meme jeton — ce qui arrive
+        // des qu'on eteint puis rallume « Croiser mes amis » dans le meme
+        // creneau : [besoinDEcrire] repond `false` (« un ecrit du meme contenu
+        // est en vol »), l'ecriture est sautee, `confirme` reste vide, et
+        // [repereEnLAir] reste bloque sur [REPERE_INCONNU].
+        //
+        // ⚠️ Le diagnostic affichait alors `advertSlotDrift = -1` — « on ne sait
+        // pas » — sur une emission parfaitement saine. L'instrument ecrit pour
+        // trouver le defaut du 2026-08-29 devenait illisible apres un
+        // aller-retour d'interrupteur.
+        enVol.keys.toList().forEach { rang ->
+            if (!demande.containsKey(rang)) enVol.remove(rang)
         }
         majRepere()
     }

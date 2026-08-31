@@ -160,6 +160,22 @@ class DiagnosticBundle {
         'protocolVersion',
         'advertMode',
         'advertTokensPerSlot',
+        // ⚠️ **POURQUOI on est en cycle** — ajoutées le 2026-08-31.
+        //
+        // `advertMode` disait « cycle », ce qui est vrai, et ne disait pas d'où
+        // ça vient. Il y a deux causes, et elles ne se corrigent pas pareil :
+        //
+        //   • `advertTokensPerSlot` > `advertMaxSets` → **le plafond**, atteint
+        //     dès 6 jetons, donc dès 5 amis avec la découverte allumée. Le
+        //     défaut d'échelle que le mode parallèle existe pour supprimer
+        //     revient alors : le jeton d'un ami n'est en l'air que 1/N du temps.
+        //   • `advertParallelCooldownMs` > 0 → **un refus** de la pile, qu'on
+        //     retentera tout seul dans les dix minutes.
+        //
+        // Sans ces deux nombres, un croisement raté à six amis était
+        // indiscernable d'un croisement raté pour toute autre raison.
+        'advertMaxSets',
+        'advertParallelCooldownMs',
         // ⚠️ **Remontées tout en haut, et pas rangées avec les capacités.** Ce
         // sont les deux lignes qui datent ce que la radio crie vraiment : à 0,
         // l'appareil est reconnaissable ; à toute autre valeur, il est entendu

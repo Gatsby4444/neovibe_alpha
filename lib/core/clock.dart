@@ -34,7 +34,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 /// ⚠️ **Choisir la période la plus GROSSIÈRE qui tienne la promesse produit.**
 /// Une expiration qu'on peut voir disparaître avec 5 s de retard n'a aucune
 /// raison d'être vérifiée toutes les 100 ms.
-final tickProvider = StreamProvider.family<DateTime, Duration>((ref, period) {
+/// ⚠️ **`autoDispose`, et ce n'est pas un détail** (2026-08-31).
+///
+/// Vérifié dans le paquet installé (`riverpod 3.3.2`) : hors génération de
+/// code, un provider n'est **pas** auto-libéré par défaut. Sans ce modificateur,
+/// le premier écran qui observait l'horloge laissait un `Timer.periodic(5 s)`
+/// tourner pour **toute la vie de l'app**, longtemps après que le dernier
+/// consommateur de péremption a disparu.
+///
+/// C'est l'inverse exact de ce que ce fichier annonce plus haut — *« le rythme
+/// appartient au consommateur »*. Un rythme qui survit à tous ses consommateurs
+/// n'appartient plus à personne.
+final tickProvider = StreamProvider.autoDispose.family<DateTime, Duration>((
+  ref,
+  period,
+) {
   // Une première valeur immédiatement : sans elle, tout ce qui dépend du temps
   // attendrait une période entière avant d'exister — et afficherait donc, le
   // temps d'un battement, exactement ce qu'on cherche à masquer.
@@ -54,6 +68,9 @@ final tickProvider = StreamProvider.family<DateTime, Duration>((ref, period) {
 const kExpiryTick = Duration(seconds: 5);
 
 /// L'heure courante, arrondie à [kExpiryTick], pour ce qui périme.
-final expiryClockProvider = Provider<DateTime>((ref) {
+/// ⚠️ `autoDispose` aussi : un provider gardé en vie garderait [tickProvider]
+/// en vie derrière lui, et le modificateur posé sur l'un seul n'aurait rien
+/// changé.
+final expiryClockProvider = Provider.autoDispose<DateTime>((ref) {
   return ref.watch(tickProvider(kExpiryTick)).value ?? DateTime.now();
 });

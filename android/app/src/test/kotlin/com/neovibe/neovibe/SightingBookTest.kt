@@ -165,4 +165,56 @@ class SightingBookTest {
         assertEquals(0, buffer.size)
         assertEquals(0, buffer.drain().size)
     }
+
+    // ------------------------------------------------------------------
+    // Le tampon plein — defaut du 2026-08-31
+    // ------------------------------------------------------------------
+
+    /**
+     * 🔴 **Le contre-test du defaut trouve a l'audit du 2026-08-31.**
+     *
+     * Au plein, `note` faisait `return` : tout nouveau constat etait ignore et
+     * les anciens conserves. C'est l'inverse de ce qu'il faut pour une fenetre
+     * glissante.
+     *
+     * 500 entrees valent ami x creneau. Une nuit de douze heures fait
+     * 48 creneaux : le plafond est atteint des **onze amis**, et ce sont alors
+     * les heures les plus RECENTES qui etaient perdues — chez les utilisateurs
+     * qui en ont le plus, et sans que rien ne le signale.
+     *
+     * ⚠️ Remettre le `return` doit faire tomber ce test.
+     */
+    @Test
+    fun `au plein, c'est le constat le plus VIEUX qui part`() {
+        val buffer = SightingBuffer(maxEntries = 3)
+        // Trois creneaux consecutifs, meme ami.
+        for (slot in 10L..12L) {
+            buffer.note(NativeSighting(tableId = 1, friendIndex = 0, slot = slot, rssi = -60, txPower = 0))
+        }
+        assertEquals(3, buffer.size)
+
+        // Le quatrieme arrive alors que c'est plein.
+        buffer.note(NativeSighting(tableId = 1, friendIndex = 0, slot = 13L, rssi = -60, txPower = 0))
+
+        val restants = buffer.drain().map { it.slot }.sorted()
+        assertEquals(
+            "le creneau 10 part, le 13 entre : on garde la fenetre RECENTE",
+            listOf(11L, 12L, 13L),
+            restants,
+        )
+    }
+
+    @Test
+    fun `au plein, un constat plus vieux que tout le reste est ignore`() {
+        val buffer = SightingBuffer(maxEntries = 2)
+        buffer.note(NativeSighting(tableId = 1, friendIndex = 0, slot = 20L, rssi = -60, txPower = 0))
+        buffer.note(NativeSighting(tableId = 1, friendIndex = 0, slot = 21L, rssi = -60, txPower = 0))
+
+        // Un retardataire du creneau 5 : le jeter ne gagne rien, on prefere ce
+        // qui est deja la.
+        buffer.note(NativeSighting(tableId = 1, friendIndex = 0, slot = 5L, rssi = -60, txPower = 0))
+
+        val restants = buffer.drain().map { it.slot }.sorted()
+        assertEquals(listOf(20L, 21L), restants)
+    }
 }

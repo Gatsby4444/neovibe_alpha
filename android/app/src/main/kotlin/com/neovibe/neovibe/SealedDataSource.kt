@@ -32,7 +32,17 @@ import java.io.IOException
  * n'est pas sûre en accès concurrent, et n'a pas à l'être.
  */
 @UnstableApi
-class SealedDataSource(private val newReader: () -> SealedChunkReader) : DataSource {
+class SealedDataSource(
+    private val newReader: () -> SealedChunkReader,
+    /**
+     * Prevenus quand cette source **ouvre** et **ferme** son fichier.
+     *
+     * Ils servent a la fabrique, qui ne doit tenir que les sources ayant un
+     * descripteur ouvert. Voir [Factory.created].
+     */
+    private val aLOuverture: (SealedDataSource) -> Unit = {},
+    private val aLaFermeture: (SealedDataSource) -> Unit = {},
+) : DataSource {
 
     /** Le schéma n'existe que pour donner une URI au lecteur ; rien ne la résout. */
     companion object {
@@ -62,6 +72,7 @@ class SealedDataSource(private val newReader: () -> SealedChunkReader) : DataSou
             minOf(dataSpec.length, reader.plainLength - position)
         }
         opened = true
+        aLOuverture(this)
         listeners.forEach { it.onTransferStart(this, dataSpec, /* isNetwork= */ false) }
         return remaining
     }
@@ -95,12 +106,14 @@ class SealedDataSource(private val newReader: () -> SealedChunkReader) : DataSou
         // saut.
         reader?.close()
         reader = null
+        aLaFermeture(this)
     }
 
     /** Filet : ferme le fichier d'une source qu'ExoPlayer n'aurait pas refermée. */
     fun release() {
         reader?.close()
         reader = null
+        aLaFermeture(this)
     }
 
     /**
@@ -112,17 +125,41 @@ class SealedDataSource(private val newReader: () -> SealedChunkReader) : DataSou
      */
     class Factory(private val newReader: () -> SealedChunkReader) : DataSource.Factory {
         /**
-         * Toutes les sources créées pour un même média, pour pouvoir les fermer
+         * Les sources qui ont un fichier OUVERT, pour pouvoir les fermer
          * ensemble : une source oubliée garde un descripteur de fichier ouvert.
+         *
+         * ## 🔴 Ce qu'elle contenait avant le 2026-08-31
+         *
+         * **Toutes les sources jamais créées**, et rien ne les en retirait
+         * avant [releaseAll]. Or ExoPlayer réclame une source à la demande — en
+         * pratique une par déplacement dans la vidéo. La liste grandissait donc
+         * avec le nombre de sauts, en gardant des objets qui avaient déjà tout
+         * refermé.
+         *
+         * Ce n'était pas une fuite de descripteurs : chaque source ferme bien
+         * son fichier dans [close]. C'était la liste qui ne correspondait plus
+         * à ce qu'elle prétendait décrire.
+         *
+         * ⚠️ **Elle suit maintenant l'ouverture, pas la création.** Une source
+         * y entre quand elle ouvre son fichier et en sort quand elle le ferme :
+         * son contenu est donc, à tout instant, exactement l'ensemble des
+         * fichiers ouverts. C'est ce que le filet doit refermer, et rien de
+         * plus.
          */
-        private val created = mutableListOf<SealedDataSource>()
+        private val created = mutableSetOf<SealedDataSource>()
 
-        override fun createDataSource(): DataSource =
-            SealedDataSource(newReader).also { created.add(it) }
+        override fun createDataSource(): DataSource = SealedDataSource(
+            newReader,
+            aLOuverture = { created.add(it) },
+            aLaFermeture = { created.remove(it) },
+        )
 
         fun releaseAll() {
-            created.forEach { it.release() }
+            // ⚠️ On copie AVANT de libérer : `release()` retire de `created`,
+            // et modifier une collection pendant qu'on la parcourt lève.
+            val ouvertes = created.toList()
             created.clear()
+            ouvertes.forEach { it.release() }
         }
     }
 }
