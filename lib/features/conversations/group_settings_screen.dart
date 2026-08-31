@@ -76,7 +76,19 @@ class GroupSettingsScreen extends ConsumerWidget {
                       ? '${member.displayName} (moi)'
                       : member.displayName,
                 ),
-                trailing: member.id == me
+                // 🔴 **LE BOUTON N'APPARAÎT QUE S'IL PEUT AGIR — 2026-08-31.**
+                //
+                // La règle serveur est passée à « soi-même, ou le créateur »
+                // (décision de Jay). Cet écran offrait « Retirer » à TOUT le
+                // monde, et l'échec aurait été **muet** : un `delete` refusé
+                // par la sécurité au niveau des lignes ne lève pas, il
+                // supprime zéro ligne et répond « ok ». L'écran se serait
+                // rechargé avec le membre toujours là, sans un mot.
+                //
+                // ⚠️ C'est le « mur sans issue » de `CLAUDE.md` : un bouton
+                // dont le seul effet possible est de ne rien faire est pire
+                // qu'un bouton absent — il fait douter de l'app, pas de soi.
+                trailing: (member.id == me || conv.createdBy != me)
                     ? null
                     : IconButton(
                         icon: const Icon(Icons.remove_circle_outline),

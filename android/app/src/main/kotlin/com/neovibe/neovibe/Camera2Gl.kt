@@ -49,9 +49,12 @@ import java.util.concurrent.TimeUnit
  *   caméra → `SurfaceTexture` (texture externe OES, sortie MATÉRIELLE) → shader
  *   GPU → `EGLWindowSurface` adossée à une texture Flutter (`SurfaceProducer`).
  *
- * C'est le chemin de GoNext (rendu GPU, ~45 i/s), par opposition au rendu
- * logiciel de [Camera2Dual] (`lockCanvas`, ~20-27 i/s + freezes). **Validé sur
- * le Redmi de Jay : ~30 i/s CONSTANT, zéro freeze.**
+ * C'est le chemin de GoNext (rendu GPU, ~45 i/s), par opposition à l'ancien
+ * rendu logiciel par `lockCanvas` (~20-27 i/s + freezes). **Validé sur le Redmi
+ * de Jay : ~30 i/s CONSTANT, zéro freeze.**
+ *
+ * ⚠️ Ce paragraphe citait `[Camera2Dual]`, **supprimée avec le moteur logiciel**
+ * (étape 5d) : le lien ne résolvait plus rien. Corrigé le 2026-08-31.
  *
  * ## Orientation (v0.9.7)
  *
@@ -160,8 +163,47 @@ class Camera2Gl(
     /** Rotation portrait + miroir, appliquée aux COORDONNÉES DE TEXTURE. */
     private val texRotMatrix = FloatArray(16)
 
-    /** La seule configuration tolérée par ce matériel (mesurée). */
-    private val camSize = Size(1280, 720)
+    /**
+     * La taille demandée à la caméra.
+     *
+     * ## 🔴 C'était une constante, mesurée sur UN appareil — 2026-08-31
+     *
+     * Elle valait `Size(1280, 720)` avec pour tout commentaire *« la seule
+     * configuration tolérée par ce matériel (mesurée) »*. Le matériel en
+     * question était le Redmi de Jay ; la phrase se lisait comme une propriété
+     * du format, alors que c'est une propriété d'un téléphone.
+     *
+     * ⚠️ **Et ce chemin n'est pas un écran de test** : le Oneshot ouvre le
+     * double flux GPU en production. Sur un appareil qui n'expose pas
+     * 1280×720 pour une `SurfaceTexture`, la session était refusée et le
+     * Oneshot repliait en photo simple — sans que rien ne dise pourquoi.
+     *
+     * On **demande** donc au matériel ce qu'il propose, et on garde 1280×720
+     * quand il l'offre. À défaut, la plus grande taille 16:9 sous 1920×1080 :
+     * l'aperçu et l'encodeur suivent, puisque tout est dérivé d'ici.
+     */
+    private var camSize = Size(1280, 720)
+
+    /**
+     * Choisit la taille de capture parmi celles que l'appareil déclare.
+     *
+     * Ne devine rien : `StreamConfigurationMap` est la source, et le repli
+     * n'existe que si la taille préférée n'y est pas.
+     */
+    private fun pickSize(chars: CameraCharacteristics): Size {
+        val map = chars.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)
+            ?: return Size(1280, 720)
+        val offertes = map.getOutputSizes(SurfaceTexture::class.java) ?: return Size(1280, 720)
+        val prefere = offertes.firstOrNull { it.width == 1280 && it.height == 720 }
+        if (prefere != null) return prefere
+        val seize = offertes
+            .filter { it.width * 9 == it.height * 16 && it.width <= 1920 }
+            .maxByOrNull { it.width.toLong() * it.height }
+        val retenue = seize ?: offertes.maxByOrNull { it.width.toLong() * it.height }
+            ?: Size(1280, 720)
+        CamLog.i("gl", "1280x720 indisponible — repli sur ${retenue.width}x${retenue.height}")
+        return retenue
+    }
 
     private var active = false
 
@@ -236,6 +278,8 @@ class Camera2Gl(
             sensorOrientation = chars.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
             mirror = mirrorParam
             fpsRange = pickFpsRange(chars)
+            // AVANT tout ce qui en dérive : la sortie, la texture, l'encodeur.
+            camSize = pickSize(chars)
 
             // Sortie PORTRAIT (720×1280 = 9:16). L'orientation est ici un
             // PARAMÈTRE testable (0/90/180/270) au lieu d'être devinée : Jay
@@ -648,7 +692,18 @@ class Camera2Gl(
             // Même instant, mais sur l'horloge `System.nanoTime` — c'est celle
             // de la capture audio. Sert d'origine COMMUNE aux deux pistes
             // (voir onAudioSample) sans avoir à corréler l'horloge du capteur.
-            videoFirstWallNs = System.nanoTime()
+            //
+            // 🔴 **Écrit SOUS [muxerLock] depuis le 2026-08-31.** Cette valeur
+            // est posée ici, sur le thread GL, et lue dans `onAudioSample`, sur
+            // le thread audio — qui, lui, prenait bien le verrou. Un verrou tenu
+            // d'un seul côté ne garantit rien : rien n'oblige le thread audio à
+            // voir l'écriture, et il aurait continué de lire `0`.
+            //
+            // ⚠️ La conséquence n'était pas une corruption mais un **silence
+            // au début de la vidéo** : `onAudioSample` jette tout échantillon
+            // tant que l'origine vaut zéro. Le genre de défaut qu'on met sur le
+            // compte du micro.
+            synchronized(muxerLock) { videoFirstWallNs = System.nanoTime() }
         }
         val ptsNs = (timestampNs - videoFirstTimestampNs).coerceAtLeast(0)
         EGL14.eglMakeCurrent(eglDisplay, encSurf, encSurf, eglContext)
@@ -664,7 +719,29 @@ class Camera2Gl(
     private fun drainEncoder(endOfStream: Boolean) {
         val codec = encoder ?: return
         if (endOfStream) runCatching { codec.signalEndOfInputStream() }
+        // 🔴 **L'ATTENTE DE FIN DE FLUX EST BORNÉE — corrigé le 2026-08-31.**
+        //
+        // La boucle disait : « fin de flux : on continue d'attendre le drain
+        // complet », sans limite. Un codec qui n'émet jamais son marqueur de
+        // fin — pile occupée, `signalEndOfInputStream` refusé (il est dans un
+        // `runCatching`), matériel en vrac — la faisait tourner **pour
+        // toujours**, dix millisecondes par tour, sur le thread GL.
+        //
+        // ⚠️ **Et ce n'était pas seulement une vidéo perdue.** Le thread GL
+        // bloqué, `releaseEncoder()` n'est jamais atteint, `close()` poste son
+        // `finish()` sur le même handler et ne s'exécute jamais : la caméra
+        // n'est **jamais rendue**, `releaseDualEngines` n'appelle jamais son
+        // `onDone`, et toute ouverture ultérieure attend indéfiniment. Une
+        // vidéo ratée gelait la caméra pour le reste de la session.
+        //
+        // 4 secondes : c'est la borne que `stopRecording` s'accorde déjà pour
+        // attendre ce drain. Au-delà, l'appelant a de toute façon renoncé.
+        val limite = System.nanoTime() + 4_000_000_000L
         while (true) {
+            if (endOfStream && System.nanoTime() > limite) {
+                CamLog.e("gl", "$previewKey : fin de flux jamais signalée — on abandonne le drain")
+                break
+            }
             val outIndex = codec.dequeueOutputBuffer(
                 encoderBufferInfo,
                 if (endOfStream) 10_000 else 0,

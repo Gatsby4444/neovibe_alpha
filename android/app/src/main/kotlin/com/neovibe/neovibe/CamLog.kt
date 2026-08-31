@@ -25,6 +25,9 @@ import java.util.Locale
 object CamLog {
 
     private const val MAX_BYTES = 256 * 1024
+
+    /** Une lecture de taille toutes les N lignes, pas a chaque ligne. */
+    private const val LIGNES_ENTRE_CONTROLES = 200
     private val stamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     private val lock = Any()
 
@@ -70,16 +73,55 @@ object CamLog {
         Unit
     }
 
+    /** Lignes ecrites depuis le dernier controle de taille. */
+    private var depuisLeDernierControle = 0
+
     private fun write(level: String, tag: String, message: String) {
-        val line = "${stamp.format(Date())} $level/$tag [${Thread.currentThread().name}] $message"
-        Log.i("NeoVibeCam", line)
-        synchronized(lock) {
-            val f = file ?: return
-            runCatching { f.appendText(line + "\n") }
+        // 🔴 **L'HORODATAGE SE FORME SOUS LE VERROU — corrige le 2026-08-31.**
+        //
+        // `SimpleDateFormat` n'est PAS sur pour l'acces concurrent, et il etait
+        // appele ICI, hors du verrou, depuis quatre threads a la fois (GL,
+        // camera, audio, principal). Deux formatages simultanes corrompent son
+        // etat interne : au mieux un horodatage absurde, au pire une
+        // `ArrayIndexOutOfBoundsException` **levee depuis l'appel de journal
+        // lui-meme**.
+        //
+        // ⚠️ Un journal qui fait tomber le thread qu'il observe est le pire
+        // instrument possible : il ne se contente pas de mal mesurer, il change
+        // ce qu'il mesure. Et le crash serait apparu dans la pile du rendu
+        // camera, tres loin de sa cause.
+        val line = synchronized(lock) {
+            val ligne = "${stamp.format(Date())} $level/$tag " +
+                "[${Thread.currentThread().name}] $message"
+            val f = file
+            if (f != null) {
+                runCatching { f.appendText(ligne + "\n") }
+                // 🔴 **LA BORNE S'APPLIQUE EN ECRIVANT, plus seulement au
+                // demarrage.** `trimIfNeeded` n'etait appele que par `init` :
+                // le plafond de 256 Ko annonce plus haut ne valait donc que
+                // pour la taille du fichier a l'OUVERTURE de l'app. Une session
+                // bavarde — et le rendu GPU journalise a chaque image quand il
+                // echoue — pouvait ecrire des centaines de Mo dans l'espace
+                // prive, sans que rien ne l'arrete.
+                //
+                // Un controle toutes les 200 lignes : il coute une lecture de
+                // taille, l'ecriture n'en vaut pas une a chaque ligne.
+                if (++depuisLeDernierControle >= LIGNES_ENTRE_CONTROLES) {
+                    depuisLeDernierControle = 0
+                    trimIfNeeded()
+                }
+            }
+            ligne
         }
+        Log.i("NeoVibeCam", line)
     }
 
-    /** Garde la moitié récente quand le fichier dépasse la taille max. */
+    /**
+     * Garde la moitié récente quand le fichier dépasse la taille max.
+     *
+     * ⚠️ **Appelée SOUS [lock]**, par [init] et par [write] : elle ne doit
+     * donc jamais le reprendre.
+     */
     private fun trimIfNeeded() {
         val f = file ?: return
         runCatching {

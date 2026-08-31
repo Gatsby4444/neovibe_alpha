@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/motion.dart';
+import '../../core/utils/ids.dart';
 
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
@@ -793,9 +794,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     image.dispose();
     final out = await recorder.endRecording().toImage(targetW, targetH);
     final data = await out.toByteData(format: ui.ImageByteFormat.png);
-    final file = File(
-      '${Directory.systemTemp.path}/card_${DateTime.now().millisecondsSinceEpoch}.png',
-    );
+    // ⚠️ **`out` se libère aussi** (2026-08-31). C'est une image NATIVE : la
+    // ramasse-miettes de Dart ne la voit pas, seul `dispose` rend ses octets.
+    // À 1440×2560 en ARGB c'est ~14 Mo par capture, retenus jusqu'à la fin de
+    // la session. La source l'était déjà, la destination non.
+    out.dispose();
+    // ⚠️ **Un identifiant, pas un horodatage.** Deux replis dans la même
+    // milliseconde se seraient écrasés — même défaut que les chemins de
+    // stockage des Vibes, corrigé le même jour.
+    final file = File('${Directory.systemTemp.path}/card_${newUuid()}.png');
     await file.writeAsBytes(data!.buffer.asUint8List());
     return file;
   }

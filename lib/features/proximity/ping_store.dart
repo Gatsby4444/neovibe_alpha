@@ -92,9 +92,34 @@ class PingStore {
     }
   }
 
+  /// Au-delà, les plus anciens éléments partent.
+  ///
+  /// ## 🔴 Il n'y avait AUCUNE borne — corrigé le 2026-08-31
+  ///
+  /// `_sweepSightings` dépose un lot dès qu'il constate du nouveau, et
+  /// `pushOutbox` échoue **en silence** hors ligne (`_unSeul` avale). Le
+  /// compteur de tentatives ne monte donc pas — il ne monte qu'à un envoi
+  /// *tenté* — et rien n'abandonne jamais rien : la file grossissait tant que
+  /// le réseau manquait.
+  ///
+  /// ⚠️ **Et le coût est quadratique** : chaque dépôt relit puis réécrit le
+  /// fichier ENTIER. Le millième élément coûte mille fois le premier. C'est le
+  /// genre de défaut qui ne se voit qu'après plusieurs jours hors ligne, chez
+  /// quelqu'un qu'on n'a pas sous la main.
+  ///
+  /// 500 : très au-delà de ce qu'un usage normal accumule (un constat par ami
+  /// et par créneau de 15 min), et le serveur **refuse** de toute façon un
+  /// constat vieux de plus de 48 h (`report_sightings`). Ce qui déborde était
+  /// déjà périmé.
+  static const outboxMax = 500;
+
   Future<void> enqueue(Map<String, dynamic> item) async {
     final list = await outbox();
     list.add(item);
+    // Les plus VIEUX partent : ce sont eux que le serveur refuserait.
+    if (list.length > outboxMax) {
+      list.removeRange(0, list.length - outboxMax);
+    }
     await (await _outboxFile()).writeAsString(jsonEncode(list));
   }
 

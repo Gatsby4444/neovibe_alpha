@@ -65,28 +65,77 @@ class StorageSweep {
 
       var supprimes = 0;
       for (final entry in parCoffre.entries) {
-        try {
-          await client.storage.from(entry.key).remove(entry.value);
-          // ⚠️ **On ne raye la liste QUE si la suppression n'a pas levé.**
-          //
-          // Un fichier déjà absent ne lève pas : le rayer est juste, il n'y a
-          // plus rien à supprimer. Mais une panne réseau, elle, doit laisser
-          // l'inscription en place — sinon le serveur oublierait un fichier qui
-          // existe encore, et **plus rien ne le supprimerait jamais**. Une
-          // fonction de ménage qui perd sa liste est pire que pas de ménage.
-          await client.rpc(
-            'octets_supprimes',
-            params: {'p_bucket': entry.key, 'p_names': entry.value},
-          );
-          supprimes += entry.value.length;
-        } catch (_) {
-          // Ce coffre repassera au prochain démarrage. Les autres continuent :
-          // un coffre en panne ne doit pas bloquer le ménage des autres.
-        }
+        supprimes += await _viderLeCoffre(client, entry.key, entry.value);
       }
       return supprimes;
     } catch (_) {
       return 0;
+    }
+  }
+
+  /// Supprime les fichiers d'UN coffre, sans qu'un seul chemin puisse bloquer
+  /// les autres.
+  ///
+  /// ## 🔴 Le défaut que cette méthode supprime — trouvé le 2026-08-31, dans
+  /// mon propre correctif du matin
+  ///
+  /// La première version supprimait le lot d'un coup et ne rayait la liste
+  /// **que si l'appel n'avait pas levé**. C'est la bonne règle pour une panne
+  /// réseau — mais elle transforme un seul chemin définitivement indélébile en
+  /// **blocage permanent de tout le coffre** : l'inscription fautive revient à
+  /// chaque démarrage, en tête de liste, et emporte les autres avec elle.
+  ///
+  /// Et un tel chemin pouvait exister : `publish_story` ne vérifiait pas que
+  /// les chemins fournis appartiennent à l'auteur, donc une inscription
+  /// pouvait nommer le fichier de quelqu'un d'autre — que la politique du
+  /// coffre refuse évidemment de nous laisser supprimer. *(La cause est
+  /// supprimée côté serveur dans le même lot ; ceci reste le filet.)*
+  ///
+  /// ⚠️ **Le lot d'abord, le détail seulement en cas d'échec.** Un chemin à la
+  /// fois coûterait un aller-retour par fichier à chaque démarrage, pour le cas
+  /// qui n'arrive jamais.
+  Future<int> _viderLeCoffre(
+    dynamic client,
+    String coffre,
+    List<String> chemins,
+  ) async {
+    try {
+      await client.storage.from(coffre).remove(chemins);
+      await _rayer(client, coffre, chemins);
+      return chemins.length;
+    } catch (_) {
+      // Le lot a échoué : on isole. Ce qui part est rayé, ce qui résiste reste
+      // inscrit — mais il ne retient plus personne.
+      final partis = <String>[];
+      for (final chemin in chemins) {
+        try {
+          await client.storage.from(coffre).remove([chemin]);
+          partis.add(chemin);
+        } catch (_) {
+          // Celui-là reviendra. Les autres, non.
+        }
+      }
+      if (partis.isNotEmpty) await _rayer(client, coffre, partis);
+      return partis.length;
+    }
+  }
+
+  /// ⚠️ **On ne raye la liste QUE pour ce qui est réellement parti.**
+  ///
+  /// Un fichier déjà absent ne lève pas : le rayer est juste, il n'y a plus
+  /// rien à supprimer. Mais une panne réseau doit laisser l'inscription en
+  /// place — sinon le serveur oublierait un fichier qui existe encore, et
+  /// **plus rien ne le supprimerait jamais**. Une fonction de ménage qui perd
+  /// sa liste est pire que pas de ménage.
+  Future<void> _rayer(dynamic client, String coffre, List<String> noms) async {
+    try {
+      await client.rpc(
+        'octets_supprimes',
+        params: {'p_bucket': coffre, 'p_names': noms},
+      );
+    } catch (_) {
+      // Les fichiers sont partis, l'inscription reste : le prochain passage
+      // retentera une suppression sans effet, puis rayera. Sans conséquence.
     }
   }
 }

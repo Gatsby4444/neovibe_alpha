@@ -156,6 +156,7 @@ class Conversation {
     required this.type,
     this.title,
     required this.createdAt,
+    this.createdBy,
     this.members = const [],
     this.lastMessage,
   });
@@ -164,6 +165,27 @@ class Conversation {
   final ConversationType type;
   final String? title;
   final DateTime createdAt;
+
+  /// Qui a créé ce groupe. **Nul** pour une conversation directe ou de
+  /// proximité, et pour un groupe dont le créateur a supprimé son compte
+  /// (`on delete set null`).
+  ///
+  /// ## 🔴 Pourquoi ce champ est arrivé le 2026-08-31
+  ///
+  /// La règle serveur de retrait d'un membre est passée de « n'importe quel
+  /// membre » à « soi-même, ou le créateur » (décision de Jay). L'écran des
+  /// réglages de groupe, lui, offrait le bouton « Retirer » à **tout le
+  /// monde**.
+  ///
+  /// ⚠️ **Et l'échec aurait été SILENCIEUX** : un `delete` refusé par la
+  /// sécurité au niveau des lignes ne lève pas, il supprime zéro ligne et
+  /// répond « ok ». L'écran se serait rechargé avec le membre toujours là,
+  /// sans un mot. C'est le « mur sans issue » de `CLAUDE.md` — un bouton dont
+  /// le seul effet possible est de ne rien faire.
+  ///
+  /// La colonne existait déjà en base et était simplement ignorée à la
+  /// lecture.
+  final String? createdBy;
   final List<Profile> members;
   final Message? lastMessage;
 
@@ -183,6 +205,7 @@ class Conversation {
     type: ConversationType.fromDb(json['conversation_type'] as String),
     title: json['title'] as String?,
     createdAt: DateTime.parse(json['created_at'] as String),
+    createdBy: json['created_by'] as String?,
     members: (json['members'] as List<dynamic>? ?? [])
         .map(
           (m) => Profile.fromJson(
@@ -198,6 +221,7 @@ class Conversation {
         type: type,
         title: title,
         createdAt: createdAt,
+        createdBy: createdBy,
         members: members ?? this.members,
         lastMessage: lastMessage ?? this.lastMessage,
       );
@@ -213,6 +237,7 @@ class Conversation {
       other.id == id &&
       other.type == type &&
       other.title == title &&
+      other.createdBy == createdBy &&
       other.createdAt == createdAt &&
       other.lastMessage == lastMessage &&
       listEquals(other.members, members);

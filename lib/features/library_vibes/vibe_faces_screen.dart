@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/crypto/media_open.dart';
+import '../../core/clock.dart';
 import '../../core/models/library_vibe.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/vibe_face.dart';
@@ -85,7 +86,9 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
       } catch (_) {}
     }
 
-    if (!vibe.revealed) return;
+    // Un geste se juge au moment où il est fait : l'instantané est ici le
+    // bon choix, et il est écrit comme tel.
+    if (!vibe.revealedMaintenant) return;
 
     // Révélée : on remplace les placeholders par les vraies faces.
     try {
@@ -118,7 +121,9 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
   @override
   Widget build(BuildContext context) {
     final vibe = widget.vibe;
-    final revealed = vibe.revealed;
+    // Même correction que dans la bibliothèque (2026-08-31) : l'heure est une
+    // source qu'on surveille, sinon l'écran reste sur « masqué » après 18h30.
+    final revealed = vibe.revealedAt(ref.watch(expiryClockProvider));
 
     return Scaffold(
       backgroundColor: Colors.black,

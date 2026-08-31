@@ -67,15 +67,43 @@ class LibraryVibe {
 
   bool get hasBack => placeholderBackPath != null;
 
-  /// Le contenu est-il révélé ? C'est une simple comparaison d'horloge, et
-  /// c'est aussi la règle appliquée côté serveur — rien ne « bascule » à 18h30.
-  bool get revealed => DateTime.now().isAfter(revealAt);
+  /// Le contenu est-il révélé **à l'instant [now]** ? C'est une simple
+  /// comparaison d'horloge, et c'est aussi la règle appliquée côté serveur —
+  /// rien ne « bascule » à 18h30.
+  ///
+  /// ## 🔴 Pourquoi l'instant est un PARAMÈTRE — corrigé le 2026-08-31
+  ///
+  /// C'était `bool get revealed => DateTime.now().isAfter(revealAt)`, et trois
+  /// `build()` le lisaient. Un `build` ne se rejoue que si l'une de ses sources
+  /// change — et l'heure n'en était pas une.
+  ///
+  /// ⚠️ **Conséquence : le reveal ne se produisait pas à l'écran.** Quelqu'un
+  /// qui attend 18h30 devant sa bibliothèque voyait les vibes rester masquées,
+  /// jusqu'à ce qu'un événement sans rapport reconstruise le widget. C'est le
+  /// défaut décrit dans `core/clock.dart` — mais posé sur le seul moment de
+  /// l'app que les gens attendent vraiment.
+  ///
+  /// La règle du projet : on s'abonne au temps (`expiryClockProvider`), ou on
+  /// assume l'instantané **en l'écrivant**. Ici on s'abonne, et l'instant
+  /// descend d'en haut.
+  bool revealedAt(DateTime now) => now.isAfter(revealAt);
 
-  /// Le serveur accepte-t-il déjà de livrer le média scellé ? Il ouvre 5
-  /// minutes avant, pour que l'app ait les octets en main à l'heure pile et que
-  /// le reveal soit instantané. Les octets restent illisibles sans la clé.
-  bool get prefetchable =>
-      DateTime.now().isAfter(revealAt.subtract(const Duration(minutes: 5)));
+  /// L'instantané, **réservé aux callbacks** — un geste se juge au moment où il
+  /// est fait, et il n'y a alors rien à réafficher.
+  ///
+  /// ⚠️ **Jamais dans un `build`.** Voir [revealedAt].
+  bool get revealedMaintenant => revealedAt(DateTime.now());
+
+  /// Le serveur accepte-t-il déjà de livrer le média scellé **à [now]** ? Il
+  /// ouvre 5 minutes avant, pour que l'app ait les octets en main à l'heure
+  /// pile et que le reveal soit instantané. Les octets restent illisibles sans
+  /// la clé.
+  bool prefetchableAt(DateTime now) =>
+      now.isAfter(revealAt.subtract(const Duration(minutes: 5)));
+
+  /// L'instantané, pour le préchargement — qui est déclenché par un geste, pas
+  /// par un affichage.
+  bool get prefetchableMaintenant => prefetchableAt(DateTime.now());
 
   /// Jour de l'album auquel cette vibe appartient (les albums sont datés,
   /// consigne Jay). La journée de collecte allant de 18h30 à 18h30, c'est la
@@ -103,4 +131,54 @@ class LibraryVibe {
       backIsVideo: json['back_is_video'] as bool? ?? false,
     );
   }
+
+  // 🔴 **ÉGALITÉ DE VALEUR — posée le 2026-08-31, six jours après les autres.**
+  //
+  // Le balayage du 2026-08-25 (checkup `RAPPELS.md` #52) a donné son `==` à
+  // sept modèles — Card, Connection, ConnectionRequest, Message, Profile,
+  // Story, Wave — et **a manqué celui-ci**. Sa propre règle disait pourtant :
+  // *« vérifier par inventaire, pas par le diff »*. L'inventaire n'avait pas
+  // été fait sur le dossier des modèles.
+  //
+  // ⚠️ **Sans `==`, la comparaison retombe sur l'IDENTITÉ, en silence.** Ce
+  // type vit dans une liste rendue par un provider : chaque rechargement
+  // fabrique de nouveaux objets, donc une liste jamais égale à la précédente,
+  // donc **tous les écrans qui l'observent se reconstruisent** — même quand
+  // l'utilisateur verrait exactement la même chose. Rien ne s'affiche de faux ;
+  // c'est un coût qui ne se voit qu'en comptant.
+  @override
+  bool operator ==(Object other) =>
+      other is LibraryVibe &&
+      other.id == id &&
+      other.conversationId == conversationId &&
+      other.authorId == authorId &&
+      other.revealAt == revealAt &&
+      other.saveableByOthers == saveableByOthers &&
+      other.ephemeral == ephemeral &&
+      other.placeholderPath == placeholderPath &&
+      other.sealedPath == sealedPath &&
+      other.placeholderBackPath == placeholderBackPath &&
+      other.sealedBackPath == sealedBackPath &&
+      other.createdAt == createdAt &&
+      other.type == type &&
+      other.frontIsVideo == frontIsVideo &&
+      other.backIsVideo == backIsVideo;
+
+  @override
+  int get hashCode => Object.hash(
+    id,
+    conversationId,
+    authorId,
+    revealAt,
+    saveableByOthers,
+    ephemeral,
+    placeholderPath,
+    sealedPath,
+    placeholderBackPath,
+    sealedBackPath,
+    createdAt,
+    type,
+    frontIsVideo,
+    backIsVideo,
+  );
 }

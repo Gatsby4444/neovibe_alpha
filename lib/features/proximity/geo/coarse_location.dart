@@ -112,10 +112,22 @@ class CoarseFix {
   /// L'incertitude **annoncée** par l'appareil, en mètres — le rayon de
   /// confiance à 68 % que publie Android dans `Position.accuracy`.
   ///
-  /// ⚠️ **C'est elle qui rend le filtre par distance honnête.** Un rayon fixe
-  /// ferait disparaître de la liste des gens réellement à portée dès que la
-  /// position est mauvaise — et rien ne le dirait. Ici, quand on sait mal où
-  /// l'on est, on cherche plus large : `private.ping_reach` côté serveur.
+  /// ⚠️ **Elle n'est LUE par aucune règle du serveur** — vérifié en base le
+  /// 2026-08-31, et `publish_ping_beacon` le dit en toutes lettres depuis le
+  /// 2026-08-28 : elle décidait qui était visible en croyant une précision que
+  /// l'appareil n'atteignait pas. Ce qui filtre aujourd'hui est
+  /// `private.ping_plausible`, sur le carreau seul.
+  ///
+  /// ⚠️ **Le commentaire qui vivait ici annonçait l'inverse** : *« quand on
+  /// sait mal où l'on est, on cherche plus large : `private.ping_reach` côté
+  /// serveur »*. Cette fonction **n'existe pas** — ni aujourd'hui, ni dans
+  /// aucune migration. Un commentaire qui nomme une fonction serveur
+  /// imaginaire est pire qu'un silence : il décrit un mécanisme de repli sur
+  /// lequel on croit pouvoir compter.
+  ///
+  /// Elle reste **transmise et conservée** parce que c'est une mesure : celle
+  /// qui a permis de diagnostiquer la panne du 2026-08-28, celle qui part dans
+  /// les rapports, celle dont le feed local aura besoin.
   final double accuracy;
 
   /// Le palier qui a répondu. Voir [FixSource].

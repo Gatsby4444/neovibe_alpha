@@ -155,10 +155,24 @@ class NativeCamera(
     // annonce `rotation = 0` au Dart — chez lui le problème ne peut pas
     // exister, puisqu'il n'y a plus de rotation à appliquer après coup. C'est
     // la vraie sortie, prévue par le chantier de rendu GPU.
+    // 🔴 **@Volatile, posé le 2026-08-31.** Ces deux champs sont ÉCRITS sur le
+    // thread principal (`bindSingle`) et LUS sur un thread caméra
+    // (`previewFrameCallback.onCaptureCompleted`). Sans barrière mémoire, rien
+    // n'oblige le thread caméra à voir le `awaitingFirstFrame = true` posé
+    // juste avant le bind.
+    //
+    // ⚠️ La panne aurait été **muette et intermittente** : le rappel serait
+    // sorti au premier `if`, `previewReady` ne serait jamais parti, et le Dart
+    // aurait attendu ses 1600 ms de garde-fou avant de lever son voile de
+    // bascule — c'est-à-dire exactement le symptôme que ce mécanisme existe
+    // pour supprimer, mais une fois sur cent.
+
     /** Images comptées depuis le dernier bind du flux simple. */
+    @Volatile
     private var framesSinceBind = 0
 
     /** Le Dart attend-il encore le signal de première image ? */
+    @Volatile
     private var awaitingFirstFrame = false
 
     /**
@@ -399,6 +413,12 @@ class NativeCamera(
                         val back = glBack.capturePhoto()
                         val front = glFront.capturePhoto()
                         if (back == null || front == null) {
+                            // ⚠️ **La face qui a réussi est effacée** (2026-08-31).
+                            // Sans ça, un Oneshot raté à moitié laissait un JPEG
+                            // orphelin dans le cache à chaque tentative — des
+                            // octets d'image que personne ne réclamera jamais.
+                            runCatching { back?.delete() }
+                            runCatching { front?.delete() }
                             mainExecutor.execute {
                                 result.error("GL_CAPTURE_FAILED", "capture GPU impossible", null)
                             }
@@ -425,9 +445,13 @@ class NativeCamera(
                         val okBack = glBack.startRecording(audio)
                         val okFront = if (okBack) glFront.startRecording(audio) else false
                         if (!okBack || !okFront) {
-                            // Repli propre : on coupe ce qui a démarré.
-                            glBack.stopRecording()
-                            glFront.stopRecording()
+                            // Repli propre : on coupe ce qui a démarré, ET on
+                            // efface le .mp4 partiel qu'il a pu produire
+                            // (2026-08-31). `stopRecording` REND le fichier ; ne
+                            // pas le supprimer, c'était laisser une vidéo
+                            // tronquée dans le cache à chaque échec.
+                            runCatching { glBack.stopRecording()?.delete() }
+                            runCatching { glFront.stopRecording()?.delete() }
                             mainExecutor.execute {
                                 result.error(
                                     "GL_VIDEO_FAILED",

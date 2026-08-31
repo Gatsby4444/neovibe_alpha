@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/library_vibe.dart';
+import '../../core/clock.dart';
 import '../../core/theme.dart';
 import '../../core/utils/formats.dart';
 import 'library_vibes_repository.dart';
@@ -76,7 +77,7 @@ class ConversationLibraryScreen extends ConsumerWidget {
   }
 }
 
-class _Album extends StatelessWidget {
+class _Album extends ConsumerWidget {
   const _Album({
     required this.day,
     required this.vibes,
@@ -88,8 +89,18 @@ class _Album extends StatelessWidget {
   final VoidCallback onRefresh;
 
   @override
-  Widget build(BuildContext context) {
-    final revealed = vibes.first.revealed;
+  Widget build(BuildContext context, WidgetRef ref) {
+    // 🔴 **L'HEURE EST UNE SOURCE — 2026-08-31.**
+    //
+    // Ce widget lisait `vibes.first.revealed`, qui appelait `DateTime.now()`.
+    // Un `build` ne se rejoue que si l'une de ses sources change, et l'heure
+    // n'en était pas une : **le reveal ne se produisait pas à l'écran**.
+    // Quelqu'un qui attend 18h30 devant sa bibliothèque voyait les vibes
+    // rester masquées jusqu'à un événement sans rapport.
+    //
+    // `expiryClockProvider` bat toutes les 5 s ; il ne reconstruit que ce qui
+    // le surveille, et seulement quand son résultat change.
+    final revealed = vibes.first.revealedAt(ref.watch(expiryClockProvider));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -188,7 +199,9 @@ class _VibeTileState extends ConsumerState<_VibeTile> {
   @override
   Widget build(BuildContext context) {
     final vibe = widget.vibe;
-    final revealed = vibe.revealed;
+    // Même raison que dans [_Album] : sans horloge surveillée, la tuile reste
+    // masquée après l'heure du reveal.
+    final revealed = vibe.revealedAt(ref.watch(expiryClockProvider));
 
     return GestureDetector(
       // Ouvrable À TOUT MOMENT depuis le 2026-08-10 (demande de Jay) : avant le

@@ -281,8 +281,27 @@ class NativeCameraController extends ChangeNotifier {
   Future<void> startVideo({required bool audio}) =>
       _channel.invokeMethod('startVideo', {'audio': audio});
 
+  /// Arrête la vidéo et rend le fichier.
+  ///
+  /// ## 🔴 La borne de temps qui manquait — 2026-08-31
+  ///
+  /// Côté natif, cette réponse n'arrive **que** dans l'événement `Finalize` de
+  /// CameraX. S'il n'arrive jamais — encodeur en vrac, session perdue — la
+  /// future ne se termine pas, et l'écran de capture reste sur `_busy = true` :
+  /// déclencheur gelé, aucun message, aucune sortie.
+  ///
+  /// ⚠️ **Toutes les autres méthodes de ce canal étaient bornées** —
+  /// `takePicture` à 8 s, `open` et `normalize` à 10 s. Celle-ci ne l'était
+  /// pas, et c'est la seule dont l'échec bloque l'interface : les autres
+  /// laissent au moins l'aperçu vivant. « Un chargement sans fin est pire
+  /// qu'une erreur » (leçon du 2026-08-12) valait ici aussi.
+  ///
+  /// 15 s : au-delà de ce que la finalisation d'un .mp4 demande, très en
+  /// dessous de ce qu'un utilisateur accepte de regarder sans rien comprendre.
   Future<File> stopVideo() async {
-    final res = await _channel.invokeMapMethod<String, dynamic>('stopVideo');
+    final res = await _channel
+        .invokeMapMethod<String, dynamic>('stopVideo')
+        .timeout(const Duration(seconds: 15));
     return File(res!['path'] as String);
   }
 

@@ -225,7 +225,7 @@ class LibraryVibesRepository {
   /// préparation qui n'a pas eu lieu, et l'ouverture retombera sur le
   /// téléchargement direct.
   Future<void> prefetch(LibraryVibe vibe) async {
-    if (!vibe.prefetchable) return;
+    if (!vibe.prefetchableMaintenant) return;
     try {
       await cacheFace(vibe);
       if (vibe.hasBack) await cacheFace(vibe, back: true);
