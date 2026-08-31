@@ -203,10 +203,18 @@ l'architecture 4 couches) prend d'autant plus d'importance.
 
 ---
 
-## 3. Proximité — BLE (détection + échange de contact + chat ping)
+## 3. Proximité — BLE (preuve de proximité, et rien d'autre)
 
-**Rôle** : détecter les pairs à proximité, échanger les mini-profils, et servir
-de tuyau d'octets pour le **chat ping** (texte, petits paquets).
+**Rôle** : **prouver qu'on est physiquement à côté de quelqu'un.** Le BLE crie
+des jetons opaques et rapporte ceux qu'il entend. Il ne transporte plus rien.
+
+⚠️ **Ce titre et ce rôle disaient encore « échange de contact + chat ping » et
+« servir de tuyau d'octets » — corrigé le 2026-08-31.** Le transport GATT a été
+supprimé le **2026-08-27** (décision de Jay : *« le BLE ne sert qu'à valider et
+authentifier la proximité réelle »*), et le tableau des canaux juste en dessous
+documentait déjà ces suppressions. **L'en-tête contredisait son propre tableau.**
+Mini-profils, messagerie, demandes d'ami et certificats passent tous par le
+serveur.
 
 ⚠️ **Entièrement reconstruit le 2026-08-16** (carte blanche de Jay). `NativeBle.kt`
 et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
@@ -227,13 +235,21 @@ et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
 
 **Fichiers : `ProximityService.kt`, `AdvertSchedule.kt`, `ProximityBridge.kt`.**
 
-Le défaut corrigé : le plan porte **75 minutes** de jetons d'avance, pour que le
-service survive seul à la mort du Dart. C'est juste pour les jetons d'**ami** —
+Le défaut corrigé : le plan porte **douze heures** de jetons d'avance, pour que
+le service survive seul à la mort du Dart. C'est juste pour les jetons d'**ami** —
 un ami reconnaît tout seul, sans réseau, app fermée. L'identifiant **public**,
 lui, ne vaut rien sans la balise que le Dart republie au serveur toutes les
 60 s et qui meurt 5 min après lui. L'appareil continuait donc de crier, **jusqu'à
-70 minutes de plus**, un identifiant que plus personne ne pouvait traduire — mais
+la fin du plan**, un identifiant que plus personne ne pouvait traduire — mais
 que n'importe quel scanner pouvait suivre.
+
+⚠️ **Depuis le 2026-08-31, ce battement est le SEUL mécanisme qui borne
+l'identifiant public.** Le Dart en avait un second — un « horizon public » de
+cinq créneaux, posé le 2026-08-28 — supprimé parce qu'il rendait le nombre de
+jetons variable d'un créneau à l'autre : le tampon à plat remis au natif se lit
+par un pas constant, et le natif émettait donc les jetons **décalés** à partir
+du sixième créneau, puis se taisait. Deux mécanismes pour un besoin, dont un
+seul cassait le reste.
 
 | | |
 |---|---|
