@@ -536,7 +536,23 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
     // éteinte et carnet d'amis vide. Il n'y a alors rien à crier, et déposer un
     // plan sans jeton ferait taire la radio de toute façon — on le laisse
     // passer, le natif se tait tout seul (`AdvertSchedule.isEmpty`).
-    final perSlot = plan.forSlot(_slot).length;
+    // 🔴 **LE PAS DU TAMPON VIENT DU PLAN — corrigé le 2026-08-31.**
+    //
+    // Cette ligne comptait les jetons du **premier** créneau
+    // (`plan.forSlot(_slot).length`) et appliquait ce nombre aux 48. C'était
+    // juste tant que tous les créneaux se ressemblaient ; l'horizon public
+    // borné (2026-08-28) l'a rendu faux sans rien contredire — 53 jetons pour
+    // 48 créneaux, annoncés à 2 par créneau.
+    //
+    // Le natif lisait donc décalé d'un jeton de plus à chaque créneau à partir
+    // du 6ᵉ, se taisait vers le 27ᵉ, et rien n'était persisté. **Invisible tant
+    // que l'app vivait** : le plan est redéposé toutes les heures et seuls les
+    // premiers créneaux servaient.
+    //
+    // ⚠️ Ce n'est plus un comptage : `AdvertPlan` **vérifie** l'uniformité à sa
+    // construction et refuse un plan qui la viole. Le nombre vient de là, d'un
+    // seul endroit, et il ne peut plus être faux.
+    final perSlot = plan.tokensPerSlot;
     final flat = Uint8List(plan.tokens.length * ProximityIdentity.tokenLength);
     // ⚠️ **Le type descend avec le jeton, il ne se déduit pas en bas.**
     // `audience == null` désigne l'identifiant public du mode ping ; tout le

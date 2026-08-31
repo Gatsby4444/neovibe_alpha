@@ -203,4 +203,53 @@ class AdvertScheduleTest {
         )
         assertNull(p.tokensAt(1000L * slotMillis))
     }
+
+    // ------------------------------------------------------------------
+    // friendsOnly : l'hypothese qui n'etait pas verifiee — 2026-08-31
+    // ------------------------------------------------------------------
+
+    /**
+     * 🔴 **Le contre-test du defaut trouve a l'audit du 2026-08-31.**
+     *
+     * `friendsOnly` ne lit que les types du PREMIER creneau, puis applique sa
+     * conclusion aux 48 autres. C'est juste tant que chaque creneau porte le
+     * meme agencement — une hypothese que rien n'ecrivait ni ne verifiait.
+     *
+     * ⚠️ **Et c'est cette hypothese qui garantit qu'on n'ecrit jamais
+     * l'identifiant public sur le disque** (decision de Jay, 2026-08-28) : la
+     * moitie d'une regle de vie privee reposait sur une supposition.
+     *
+     * On refuse plutot que de deviner. Retirer la boucle de verification doit
+     * faire tomber ce test.
+     */
+    @Test
+    fun `friendsOnly REFUSE un plan dont l'agencement change d'un creneau a l'autre`() {
+        // Creneau 0 : [public, ami] — creneau 1 : [ami, ami].
+        val types = byteArrayOf(
+            BleConstants.TYPE_PUBLIC, BleConstants.TYPE_FRIEND,
+            BleConstants.TYPE_FRIEND, BleConstants.TYPE_FRIEND,
+        )
+        val p = plan(fromSlot = 100, slots = 2, perSlot = 2, types = types)
+        assertNull(
+            "un plan qu'on ne sait pas decouper ne se persiste pas",
+            p.friendsOnly(),
+        )
+    }
+
+    @Test
+    fun `friendsOnly accepte un plan uniforme et n'en garde que les amis`() {
+        val types = byteArrayOf(
+            BleConstants.TYPE_PUBLIC, BleConstants.TYPE_FRIEND,
+            BleConstants.TYPE_PUBLIC, BleConstants.TYPE_FRIEND,
+        )
+        val p = plan(fromSlot = 100, slots = 2, perSlot = 2, types = types)
+        val amis = p.friendsOnly()
+        assertNotNull(amis, )
+        assertEquals("un seul jeton par creneau : celui de l'ami", 1, amis!!.cycleLength)
+
+        // Le jeton retenu au creneau 0 doit etre le SECOND du plan d'origine.
+        val attendu = p.tokensAt(100 * slotMillis, avecPublic = true)!!.first[1]
+        val obtenu = amis.tokensAt(100 * slotMillis, avecPublic = true)!!.first[0]
+        assertArrayEquals("c'est bien le jeton d'ami qui est persiste", attendu, obtenu)
+    }
 }

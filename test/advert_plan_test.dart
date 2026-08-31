@@ -17,7 +17,12 @@ import 'package:neovibe/features/proximity/proximity_identity.dart';
 /// 1. le plan couvre réellement l'horizon annoncé (sinon le trou revient, avec
 ///    juste un délai plus long) ;
 /// 2. chaque créneau porte le même nombre de jetons — c'est ce qui autorise le
-///    tampon à plat envoyé au natif ;
+///    tampon à plat envoyé au natif. ⚠️ **Ce point a été violé du 2026-08-28
+///    au 2026-08-31 sans qu'aucun test ne tombe** : celui qui le gardait
+///    ouvrait sa fenêtre sur 5 créneaux, exactement la longueur de l'horizon
+///    public d'alors. Il ne pouvait donc pas contenir la preuve du contraire.
+///    L'invariant est désormais vérifié par `AdvertPlan` lui-même, et les
+///    tests regardent l'horizon RÉEL ;
 /// 3. le mode ping ajoute l'identifiant public, et **rien d'autre** ;
 /// 4. un jeton n'est lisible que par son destinataire.
 void main() {
@@ -33,21 +38,22 @@ void main() {
   const moi = 'u-moi';
 
   group('le plan d\'émission', () {
-    /// ## 🔴 Deux horizons dans un seul plan (2026-08-28)
+    /// ## 🔴 L'horizon public borné a été RETIRÉ le 2026-08-31
     ///
-    /// Consigne de Jay : *« les 12 heures, on s'en fout pour le ping inconnus,
-    /// c'est uniquement utile pour le ping entre amis »*.
+    /// Il existait depuis le 2026-08-28 et n'ajoutait l'identifiant public que
+    /// sur les 5 premiers créneaux. Il rendait donc le plan **non uniforme** —
+    /// et le tampon à plat remis au natif se lit par un pas constant.
     ///
-    /// Un jeton d'ami reste **utile** douze heures : l'ami d'en face le
-    /// reconnaît tout seul, sans réseau, app fermée. Un identifiant public ne
-    /// vaut **rien** sans la balise qui le nomme au serveur — et cette balise
-    /// meurt cinq minutes après la dernière fois que l'app était à l'écran.
+    /// Ce qu'il cherchait à éviter (crier un identifiant public que plus
+    /// personne ne peut traduire) est tenu depuis le 2026-08-29 par l'homme
+    /// mort du natif : cinq minutes après le dernier `publicHeartbeat`, le
+    /// jeton public cesse d'être émis. Deux mécanismes pour un seul besoin,
+    /// dont un seul cassait le reste.
     ///
-    /// ⚠️ **Le défaut ne levait rien** : le téléphone criait un identifiant
-    /// public jusqu'à douze heures alors que plus personne ne pouvait le
-    /// nommer. De la batterie et une émission radio pour rien.
+    /// ⚠️ Ce test remplace « l'identifiant public a un horizon BORNÉ ». Il dit
+    /// l'inverse, et c'est voulu.
     test(
-      "l'identifiant public a un horizon BORNÉ, le jeton d'ami non",
+      "l'identifiant public couvre le MÊME horizon que les jetons d'ami",
       () async {
         final plan = await planner.plan(
           secrets: {'u-a': secret(1)},
@@ -57,35 +63,69 @@ void main() {
           pingSeed: secret(9),
         );
 
-        final publics = plan.tokens.where((t) => t.audience == null).toList();
-        final amis = plan.tokens.where((t) => t.audience != null).toList();
+        final publics = plan.tokens.where((t) => t.audience == null).length;
+        final amis = plan.tokens.where((t) => t.audience != null).length;
 
+        expect(amis, 48, reason: "le jeton d'ami couvre la nuit — le point H");
         expect(
-          amis.length,
+          publics,
           48,
-          reason: "le jeton d'ami couvre toute la nuit — c'est le point H",
-        );
-        expect(
-          publics.length,
-          publicHorizon.inMilliseconds ~/
-              ProximityIdentity.slotDuration.inMilliseconds,
-          reason: "l'identifiant public s'arrête bien avant",
-        );
-        expect(
-          publics.length,
-          lessThan(amis.length),
           reason:
-              'sinon les deux horizons sont confondus, et le défaut revient',
+              'un créneau sans jeton public rendrait le pas du tampon variable',
         );
+        expect(plan.tokensPerSlot, 2);
       },
     );
 
-    test("l'horizon public dépasse la cadence de redépôt du plan", () {
-      // ⚠️ Le plan est redéposé toutes les heures (`_rotation`). Un horizon
-      // public plus court laisserait quelqu'un en train de se servir de l'app
-      // cesser d'être découvrable en attendant le tour suivant.
-      expect(publicHorizon, greaterThan(const Duration(hours: 1)));
+    /// ## 🔴 Le test qui garde le tampon à plat, sur l'horizon RÉEL
+    ///
+    /// L'ancien ouvrait sa fenêtre sur `slots: 5`. C'était exactement la
+    /// longueur de l'horizon public d'alors : dans cette fenêtre, tous les
+    /// créneaux portaient le jeton public, donc l'invariant tenait. **Le test
+    /// ne pouvait pas voir la rupture qu'il était censé garder**, et il l'a
+    /// laissée passer trois jours.
+    ///
+    /// Leçon générale : un test dont la fenêtre est calée sur la même constante
+    /// que ce qu'il vérifie ne vérifie rien.
+    test('porte le MÊME nombre de jetons à chaque créneau, sur 12 h', () async {
+      final plan = await planner.plan(
+        secrets: {'u-a': secret(1), 'u-b': secret(2), 'u-c': secret(3)},
+        meUserId: moi,
+        fromSlot: slot,
+        slots: 48,
+        pingSeed: secret(9),
+      );
+      for (var s = slot; s <= plan.toSlot; s++) {
+        expect(
+          plan.forSlot(s).length,
+          4,
+          reason: '3 amis + l\'identifiant public, à CHAQUE créneau',
+        );
+      }
+      expect(plan.tokensPerSlot, 4);
+      expect(plan.tokens.length, 48 * 4);
     });
+
+    /// ⚠️ **Le contre-test.** Sans lui, la vérification d'uniformité pourrait
+    /// être retirée sans qu'aucun test ne tombe — et on serait revenu au
+    /// 2026-08-28 avec l'illusion d'être protégé.
+    test('un plan non uniforme est REFUSÉ à la construction', () {
+      expect(
+        () => AdvertPlan(
+          fromSlot: slot,
+          toSlot: slot + 1,
+          tokens: [
+            AdvertToken(slot: slot, bytes: secret(1), audience: null),
+            AdvertToken(slot: slot, bytes: secret(2), audience: 'u-a'),
+            // Le second créneau n'en porte qu'un : c'est exactement la forme
+            // que l'horizon public borné produisait.
+            AdvertToken(slot: slot + 1, bytes: secret(3), audience: 'u-a'),
+          ],
+        ),
+        throwsStateError,
+      );
+    });
+
     test('couvre tout l\'horizon annoncé', () async {
       final plan = await planner.plan(
         secrets: {'u-a': secret(1), 'u-b': secret(2)},
@@ -108,25 +148,20 @@ void main() {
       expect(plan.tokens.length, 48 * 2);
     });
 
-    test('porte le MÊME nombre de jetons à chaque créneau', () async {
-      // ⚠️ C'est l'invariant sur lequel repose le tampon à plat envoyé au natif.
-      // S'il tombait, le natif lirait les jetons décalés — sans erreur, et sans
-      // que personne ne le reconnaisse.
-      final plan = await planner.plan(
-        secrets: {'u-a': secret(1), 'u-b': secret(2), 'u-c': secret(3)},
-        meUserId: moi,
-        fromSlot: slot,
-        slots: 5,
-        pingSeed: secret(9),
-      );
-      for (var s = slot; s <= plan.toSlot; s++) {
-        expect(
-          plan.forSlot(s).length,
-          4,
-          reason: '3 amis + l\'identifiant public',
-        );
-      }
-    });
+    // ⚠️ **Le test « porte le MÊME nombre de jetons à chaque créneau » qui
+    // vivait ici a été RETIRÉ le 2026-08-31, et remplacé plus haut par sa
+    // version sur 12 h.**
+    //
+    // Il ouvrait sa fenêtre sur `slots: 5` — exactement la longueur de
+    // l'horizon public d'alors. Tous les créneaux de sa fenêtre portaient donc
+    // le jeton public, et l'invariant y tenait pendant qu'il était violé
+    // partout ailleurs. Son commentaire promettait pourtant : *« S'il tombait,
+    // le natif lirait les jetons décalés — sans erreur, et sans que personne ne
+    // le reconnaisse. »* C'est exactement ce qui s'est produit.
+    //
+    // Le garder à côté du nouveau aurait laissé deux tests du même nom, dont un
+    // aveugle — et c'est celui qui passe le plus facilement qu'on finit par
+    // croire.
 
     test('sans mode ping, aucun identifiant public n\'est émis', () async {
       final plan = await planner.plan(

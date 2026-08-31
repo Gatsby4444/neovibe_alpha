@@ -61,12 +61,49 @@ class AdvertToken {
 }
 
 /// Le plan d'émission : tout ce que l'appareil doit crier, et quand.
+///
+/// ## 🔴 L'INVARIANT DE CE TYPE — posé le 2026-08-31
+///
+/// **Tous les créneaux portent le même nombre de jetons.** Ce n'est pas une
+/// propriété esthétique : le plan part au natif sous forme d'un **tampon à
+/// plat**, dans lequel il navigue par un calcul —
+/// `créneau × jetons_par_créneau + rang` (`AdvertSchedule.tokensAt`). Le calcul
+/// n'a de sens que si le pas est constant.
+///
+/// ### Le défaut que cet invariant supprime
+///
+/// L'horizon public borné (2026-08-28) ajoutait l'identifiant public sur les
+/// **5 premiers créneaux seulement**, et les jetons d'amis sur les 48. Avec un
+/// ami et la découverte allumée : 53 jetons pour 48 créneaux, quand le
+/// superviseur annonçait 2 par créneau — il comptait ceux du **premier**.
+///
+/// À partir du 6ᵉ créneau le natif lisait donc à côté, d'un jeton de plus à
+/// chaque fois ; vers le 27ᵉ il sortait du tampon et se taisait. Et
+/// `AdvertSchedule.friendsOnly()`, qui prépare ce qu'on écrit sur le disque,
+/// sortait du tampon lui aussi et rendait `null` : **rien n'était jamais
+/// persisté**, donc la reprise après la mort du processus ne pouvait pas
+/// fonctionner.
+///
+/// ⚠️ **Rien de tout cela ne se voyait tant que l'app vivait** : le plan est
+/// redéposé toutes les heures, seuls les premiers créneaux servaient. Le défaut
+/// ne mordait que le Dart mort — le seul cas pour lequel les douze heures
+/// d'avance existent.
+///
+/// ### Pourquoi l'invariant vit ICI et pas dans une note
+///
+/// Il vivait dans un commentaire de test, qui promettait exactement ceci :
+/// *« S'il tombait, le natif lirait les jetons décalés — sans erreur, et sans
+/// que personne ne le reconnaisse. »* Il est tombé, et le test ne pouvait pas
+/// le voir : sa fenêtre valait exactement l'horizon public.
+///
+/// Ici, **on ne peut plus construire un plan non uniforme** : le constructeur
+/// refuse. C'est la cause supprimée, pas un garde-fou de plus.
 class AdvertPlan {
-  const AdvertPlan({
+  AdvertPlan({
     required this.fromSlot,
     required this.toSlot,
     required this.tokens,
-  });
+  }) : tokensPerSlot = _verifieUniforme(fromSlot, toSlot, tokens);
 
   /// Premier créneau couvert (inclus).
   final int fromSlot;
@@ -76,7 +113,39 @@ class AdvertPlan {
 
   final List<AdvertToken> tokens;
 
+  /// Combien de jetons chaque créneau porte — **le même nombre partout**.
+  ///
+  /// ⚠️ **C'est cette valeur qui part au natif**, et pas un comptage refait
+  /// ailleurs. Le superviseur comptait les jetons du premier créneau : juste
+  /// tant que l'invariant tenait, faux dès qu'il est tombé, et silencieux.
+  final int tokensPerSlot;
+
   bool get isEmpty => tokens.isEmpty;
+
+  static int _verifieUniforme(
+    int fromSlot,
+    int toSlot,
+    List<AdvertToken> tokens,
+  ) {
+    if (tokens.isEmpty) return 0;
+    final parCreneau = <int, int>{};
+    for (final t in tokens) {
+      parCreneau[t.slot] = (parCreneau[t.slot] ?? 0) + 1;
+    }
+    final attendu = parCreneau[fromSlot] ?? 0;
+    for (var slot = fromSlot; slot <= toSlot; slot++) {
+      final combien = parCreneau[slot] ?? 0;
+      if (combien != attendu) {
+        throw StateError(
+          'Plan d\'émission non uniforme : le créneau $slot porte $combien '
+          'jeton(s) au lieu de $attendu. Le tampon à plat remis au natif se lit '
+          'par un pas constant — un plan à pas variable le fait émettre le '
+          'jeton d\'un autre créneau, sans lever la moindre erreur.',
+        );
+      }
+    }
+    return attendu;
+  }
 
   /// Les jetons du créneau [slot], dans l'ordre où les émettre.
   List<AdvertToken> forSlot(int slot) => [
@@ -129,30 +198,40 @@ const slotTolerance = 1;
 /// 12 h : couvre une nuit entière app fermée. À revoir sur mesure d'appareil.
 const planHorizon = Duration(hours: 12);
 
-/// Horizon de l'identifiant PUBLIC — **et il n'a rien à voir avec le précédent**.
-///
-/// ## ⚠️ Pourquoi les deux ne peuvent pas être le même nombre
-///
-/// Consigne de Jay, 2026-08-28 : *« les 12 heures, on s'en fout pour le ping
-/// inconnus, c'est uniquement utile pour le ping entre amis — c'est deux choses
-/// totalement différentes »*.
-///
-/// Un jeton d'ami reste **utile** douze heures : l'ami d'en face sait le
-/// reconnaître tout seul, sans réseau, app fermée. Un identifiant public, lui,
-/// ne vaut **rien** sans la balise déposée au serveur — et cette balise expire
-/// au bout de **5 minutes** sans rafraîchissement, or elle n'est rafraîchie que
-/// tant que l'app est à l'écran.
-///
-/// Conséquence mesurée avant ce correctif : app rangée par Android sans que le
-/// processus soit tué, le téléphone criait un identifiant public **jusqu'à
-/// douze heures** alors que plus personne ne pouvait le nommer depuis cinq
-/// minutes. Pas dangereux — mais de la batterie et une émission radio pour rien.
-///
-/// **75 minutes**, et ce n'est pas un chiffre rond : le plan est redéposé toutes
-/// les heures (`_rotation`), donc l'horizon doit dépasser 60 minutes, sinon un
-/// utilisateur en train de se servir de l'app cesserait d'être découvrable en
-/// attendant le tour suivant. Un quart d'heure de marge, soit cinq créneaux.
-const publicHorizon = Duration(minutes: 75);
+// ⚠️ **`publicHorizon` a été SUPPRIMÉ le 2026-08-31**, et il faut comprendre
+// pourquoi avant d'être tenté de le remettre.
+//
+// Il valait 75 minutes, et bornait le nombre de créneaux portant l'identifiant
+// public. Le problème qu'il traitait était réel : app rangée par Android sans
+// que le processus soit tué, le téléphone criait un identifiant public pendant
+// douze heures alors que plus personne ne pouvait le nommer depuis cinq
+// minutes — la balise serveur qui le traduit vit `private.ping_beacon_ttl()`.
+//
+// 🔴 **Mais il portait un défaut, et il était devenu inutile le lendemain.**
+//
+// Le défaut : deux horizons dans un seul plan rendaient le nombre de jetons
+// VARIABLE d'un créneau à l'autre, ce que le tampon à plat remis au natif ne
+// supporte pas (voir l'invariant de [AdvertPlan]). Le natif lisait décalé à
+// partir du 6ᵉ créneau, puis se taisait, et rien n'était jamais persisté.
+//
+// L'inutilité : le **2026-08-29**, `ProximityService.publicAutorise()` a posé
+// un homme mort — l'identifiant public cesse d'être crié **cinq minutes** après
+// le dernier `publicHeartbeat`, que le Dart envoie à chaque republication de la
+// balise. Il répond donc à la même question que l'horizon, et il y répond
+// mieux : 5 minutes au lieu de 75, et sans supposer combien de temps le Dart
+// va survivre.
+//
+// ⚠️ **Deux mécanismes pour un seul besoin, c'est le plus permissif qui
+// décide** — sauf ici, où c'était le plus coûteux qui cassait le reste. C'est
+// la règle 6 de `CLAUDE.md` : après un changement d'architecture (l'homme
+// mort), rejouer les décisions qui en dépendaient. Celle-ci n'avait pas été
+// rejouée.
+//
+// Vérifié avant de supprimer : `BleRadio.publicHeartbeat()`
+// (`ble_radio.dart:66`) est bien appelé par `ping_beacon_service.dart:228` à
+// chaque republication réussie de la balise, et atteint
+// `ProximityService.battementPublic()` par `ProximityBridge`. L'homme mort est
+// branché, pas seulement écrit.
 
 /// Calcule le plan d'émission et la table de reconnaissance.
 ///
@@ -184,25 +263,22 @@ class AdvertPlanner {
     required int slots,
     required String? meUserId,
     Uint8List? pingSeed,
-    int? publicSlots,
   }) async {
     final tokens = <AdvertToken>[];
     final toSlot = fromSlot + slots - 1;
-    // ⚠️ **Deux horizons dans un seul plan** — voir [publicHorizon]. Le jeton
-    // d'ami vaut douze heures ; l'identifiant public ne vaut rien sans la balise
-    // qui le nomme, et cette balise meurt cinq minutes après la dernière fois
-    // que l'app était à l'écran.
-    final dernierPublic =
-        fromSlot +
-        (publicSlots ??
-            publicHorizon.inMilliseconds ~/
-                ProximityIdentity.slotDuration.inMilliseconds) -
-        1;
+    // ⚠️ **Chaque créneau porte EXACTEMENT la même chose** : l'identifiant
+    // public s'il y en a un, puis un jeton par ami. C'est l'invariant de
+    // [AdvertPlan], et le constructeur refuse un plan qui le viole.
+    //
+    // Ce qui borne la durée de vie de l'identifiant public n'est donc plus un
+    // horizon posé ici, mais l'homme mort du natif : cinq minutes après le
+    // dernier signe de vie du Dart, il cesse d'être crié. Voir la note à la
+    // place de `publicHorizon`, plus haut.
     for (var slot = fromSlot; slot <= toSlot; slot++) {
       // L'identifiant public d'abord : quand le ping est actif, c'est lui qu'un
       // inconnu doit pouvoir capter vite. Les amis, eux, ont tout le temps —
       // ils nous croisent, ils ne nous cherchent pas.
-      if (pingSeed != null && slot <= dernierPublic) {
+      if (pingSeed != null) {
         tokens.add(
           AdvertToken(
             slot: slot,

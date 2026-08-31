@@ -123,9 +123,16 @@ class AdvertSchedule(
      *
      * L'identifiant PUBLIC, lui, ne vaut rien sans la balise que le Dart
      * republie au serveur, et qui meurt cinq minutes apres lui. L'appareil
-     * continuait donc de le crier **jusqu'a soixante-dix minutes de plus** : un
-     * identifiant que plus personne au monde ne pouvait traduire, mais que
-     * n'importe quel scanner pouvait suivre.
+     * continuait donc de le crier **jusqu'a la fin du plan** : un identifiant
+     * que plus personne au monde ne pouvait traduire, mais que n'importe quel
+     * scanner pouvait suivre.
+     *
+     * ⚠️ **Depuis le 2026-08-31, ce filtre est le SEUL a borner l'identifiant
+     * public.** Le Dart en avait un second — un « horizon public » de cinq
+     * creneaux — supprime parce qu'il rendait le nombre de jetons variable d'un
+     * creneau a l'autre, ce que le tampon a plat ne supporte pas. Le plan porte
+     * donc de nouveau le jeton public sur TOUS ses creneaux, et c'est ici qu'on
+     * decide de le crier ou non.
      *
      * ⚠️ **Le plan ne decide pas s'il a le droit** — il ne sait rien du Dart,
      * ni du serveur, ni de l'heure du dernier signe de vie. Il execute. Qui
@@ -192,6 +199,31 @@ class AdvertSchedule(
             }
         }
         if (parCreneau.isEmpty()) return null
+
+        // 🔴 **L'HYPOTHESE QUI N'ETAIT PAS ECRITE — verifiee depuis le
+        // 2026-08-31.**
+        //
+        // La boucle ci-dessus ne lit que les types du PREMIER creneau, puis
+        // applique sa conclusion aux 48 autres. C'est juste tant que chaque
+        // creneau porte le meme agencement — et c'est exactement l'invariant
+        // que l'horizon public borne avait casse cote Dart, du 2026-08-28 au
+        // 2026-08-31.
+        //
+        // ⚠️ **Et c'est cette hypothese qui garantit qu'on n'ecrit jamais
+        // l'identifiant public sur le disque** (decision de Jay, 2026-08-28) :
+        // la moitie d'une regle de vie privee reposait sur une supposition que
+        // rien ne verifiait. Un agencement different aurait pu persister le
+        // jeton public en le prenant pour un jeton d'ami.
+        //
+        // On refuse plutot que de deviner : un plan qu'on ne sait pas decouper
+        // ne se persiste pas, et `PlanStore` efface au lieu d'ecrire du faux.
+        for (s in 1 until slotCount) {
+            for (i in 0 until perSlot) {
+                val attendu = types.getOrElse(i) { BleConstants.TYPE_PUBLIC }
+                val reel = types.getOrElse(s * perSlot + i) { BleConstants.TYPE_PUBLIC }
+                if (reel != attendu) return null
+            }
+        }
 
         val sortie = ByteArray(slotCount * parCreneau.size * tokenLength)
         var pos = 0
