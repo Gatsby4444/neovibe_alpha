@@ -181,6 +181,11 @@ class LibraryRepository {
     // expirée dont le journal survit.
     await _client.from('contents').delete().eq('id', itemId);
     await ref.read(contentMediaCacheProvider).purge(itemId);
+    // La clé locale de MON contenu part avec lui : sans contenu, elle ne
+    // déchiffre plus rien et n'est qu'un secret orphelin de plus sur le disque.
+    // Ajouté le 2026-08-31 — c'était le seul appelant qui manquait à
+    // `OwnKeyStore.remove`, dont la documentation promettait un effacement.
+    await ref.read(ownKeyStoreProvider).remove(itemId);
     final me = _client.auth.currentUser!.id;
     ref.invalidate(libraryItemsProvider(me));
     ref.invalidate(libraryKeysProvider(me));

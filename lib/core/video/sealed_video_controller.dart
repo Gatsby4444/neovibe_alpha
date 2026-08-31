@@ -157,6 +157,11 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
   Completer<void>? _ready;
   var _disposed = false;
 
+  /// Le fichier **en clair** produit par le repli hérité, à supprimer en
+  /// quittant. Nul dans tous les autres cas — et c'est la règle : un média au
+  /// format par blocs ne produit jamais de clair sur le disque.
+  File? _clairAJeter;
+
   /// L'identifiant de texture à donner à un widget `Texture`.
   int? get textureId => _id;
 
@@ -211,6 +216,20 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
       // télécharge en entier, comme avant — ces contenus s'éteignent d'eux-mêmes.
       final file = await fallback();
       _path = file.path;
+      // 🔴 **CE FICHIER EST EN CLAIR SUR LE DISQUE, ET PERSONNE NE LE
+      // SUPPRIMAIT — corrigé le 2026-08-31.**
+      //
+      // Le repli hérité déchiffre le média entier dans le répertoire
+      // temporaire. Côté `content_face.dart`, l'objet `OpenedMedia` qui le
+      // porte est jeté aussitôt : on n'en garde que le chemin, et le
+      // `ref.onDispose(media.dispose)` qui devait le nettoyer n'existe que sur
+      // l'autre branche. Le `legacy_clear_*.mp4` restait donc, indéfiniment.
+      //
+      // ⚠️ Un média déchiffré qui survit à l'écran contredit ce que ce fichier
+      // annonce en tête — « l'isolate Dart ne transporte plus un octet de
+      // vidéo » — et surtout la promesse produit. **Le propriétaire du fichier,
+      // c'est le contrôleur** : c'est lui qui décide quand la lecture s'arrête.
+      _clairAJeter = file;
       // Le fichier rendu est en clair et complet, et le natif le classerait
       // « complet » à juste titre — mais l'utilisateur vient d'attendre son
       // téléchargement ENTIER. Le classer ainsi ferait entrer la plus lente des
@@ -368,6 +387,12 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
     // Sans attendre : `dispose` est synchrone, et un lecteur natif se ferme de
     // toute façon sans que l'interface ait à le savoir.
     if (id != null) _channel.invokeMethod<void>('dispose', {'id': id});
+    // Le clair du repli hérité meurt avec l'écran. Même raison de ne pas
+    // attendre : la suppression d'un fichier temporaire n'intéresse personne,
+    // et un échec (fichier déjà parti) ne doit rien casser.
+    final clair = _clairAJeter;
+    _clairAJeter = null;
+    if (clair != null) clair.delete().catchError((_) => clair);
     super.dispose();
   }
 }

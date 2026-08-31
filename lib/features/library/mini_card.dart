@@ -147,6 +147,8 @@ class _PublicationThumb extends ConsumerWidget {
         encrypted: item.encrypted,
         // Une grille : les clés viennent du lot, pas une par vignette.
         batchOwner: item.ownerId,
+        // Permanente : voir `publication_viewer_screen.dart`.
+        expiresAt: null,
       )),
     );
     // Trois états, trois rendus DISTINCTS. Un chargement qui ressemble à un

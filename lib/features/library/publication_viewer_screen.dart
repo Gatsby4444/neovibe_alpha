@@ -69,6 +69,9 @@ class _PublicationViewerScreenState
     encrypted: widget.item.encrypted,
     // Un contenu isolé : un appel de clé suffit, pas de lot à charger.
     batchOwner: null,
+    // Une publication est permanente (décision de Jay, 2026-08-11) : rien à
+    // faire expirer côté cache.
+    expiresAt: null,
   );
 
   @override

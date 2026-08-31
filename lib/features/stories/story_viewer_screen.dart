@@ -108,6 +108,9 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     isVideo: front ? story.frontIsVideo : story.backIsVideo,
     encrypted: story.encrypted,
     batchOwner: null,
+    // Une story expire : le cache doit le savoir, sinon ses octets restent
+    // indexes comme permanents et survivent au contenu (defaut du 2026-08-31).
+    expiresAt: story.expiresAt,
   );
 
   /// ⚠️ Capturés à l'initialisation. **`ref` est interdit dans `dispose()`** —

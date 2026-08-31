@@ -296,11 +296,35 @@ class StoriesRepository {
   }
 
   Future<void> remove(String storyId) async {
-    await _client.from('stories').delete().eq('id', storyId);
-    // Les fichiers locaux n'ont plus de raison d'être : le serveur ne les
-    // sert plus. L'identité et le graphe, eux, survivent côté serveur — c'est
-    // ce qui permettra la traçabilité après coup.
+    // 🔴 **ON SUPPRIME `contents`, PAS `stories` — corrigé le 2026-08-31.**
+    //
+    // Le lien ne va que dans un sens : `stories.id → contents.id ON DELETE
+    // CASCADE`. Supprimer la ligne `stories` laissait donc derrière elle la
+    // ligne `contents` **et sa clé de déchiffrement** — pour toujours.
+    //
+    // ⚠️ Ce n'était pas théorique : une ligne orpheline du 2026-08-14 dormait
+    // encore en base au moment de l'audit. Et il y avait **deux chemins de
+    // suppression aux résultats différents** — la tâche de purge, elle,
+    // supprimait bien `contents`. C'est la règle 3 de `CLAUDE.md` : compter les
+    // chemins, pas les corriger un par un.
+    //
+    // Supprimer `contents` emporte, par cascade déclarée : la ligne `stories`,
+    // `content_media_keys`, `content_grants`, `content_views` et les
+    // signalements. Et le déclencheur sur `stories` inscrit les fichiers du
+    // coffre à la suppression (voir `mes_octets_a_supprimer`).
+    await _client.from('contents').delete().eq('id', storyId);
+    // Les fichiers locaux n'ont plus de raison d'être : le serveur ne les sert
+    // plus — `story_audience` ne trouve plus de ligne, donc ni la clé ni les
+    // octets ne s'obtiennent.
+    //
+    // ⚠️ **Les octets du COFFRE, eux, ne partent pas ici** : Supabase refuse la
+    // suppression directe dans `storage.objects`, et la contourner n'effacerait
+    // que la ligne, pas le fichier. Ils sont inscrits par le déclencheur serveur
+    // et supprimés par `StorageSweep` au démarrage suivant, via l'API Storage —
+    // le seul chemin qui supprime vraiment.
     await ref.read(contentMediaCacheProvider).purge(storyId);
+    // La clé locale de MON contenu n'a plus d'objet : le contenu n'existe plus.
+    await ref.read(ownKeyStoreProvider).remove(storyId);
     _invalidate();
   }
 

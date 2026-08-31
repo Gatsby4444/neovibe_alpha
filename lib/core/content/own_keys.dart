@@ -26,11 +26,30 @@ import 'package:path_provider/path_provider.dart';
 /// du serveur, à chaque ouverture. C'est là qu'est la garantie, et elle n'est
 /// pas touchée.
 ///
-/// ### Révocation
+/// ### Révocation — ce que ce magasin NE fait PAS
 ///
-/// Un de mes contenus révoqué doit devenir illisible pour moi aussi. La clé
-/// locale est donc effacée par le même balayage que les sauvegardes — même
-/// mécanisme, même limite coopérative.
+/// ⚠️ **Le paragraphe qui vivait ici était faux, et il l'a été vingt jours.**
+/// Il annonçait : *« Un de mes contenus révoqué doit devenir illisible pour moi
+/// aussi. La clé locale est donc effacée par le même balayage que les
+/// sauvegardes. »* Ce balayage n'existait pas : `SavedStore.purgeRevoked` ne
+/// touche que les Enregistrements, et [remove] n'avait alors aucun appelant.
+/// Un commentaire qui décrit un mécanisme absent est pire qu'un silence — il
+/// dispense d'aller voir.
+///
+/// **Décision de Jay, 2026-08-31 : c'est le commentaire qui était en trop, pas
+/// le code.** Un contenu que j'ai produit et qui est déjà sur mon téléphone
+/// m'appartient, même révoqué. La révocation coupe ce que le **serveur** sert —
+/// à tout le monde, moi compris. Elle ne va pas reprendre ce qui est déjà là.
+///
+/// Ce qui efface donc une clé, et rien d'autre :
+///
+/// - je supprime le contenu moi-même ([remove], appelée par
+///   `StoriesRepository.remove` et `LibraryRepository.removeItem`) ;
+/// - je change de compte ([clear], appelée par `LocalContentOwner`).
+///
+/// ⚠️ **Ce qui reste vrai et n'est pas touché** : la clé du contenu d'AUTRUI ne
+/// s'obtient jamais que du serveur, à chaque ouverture. La garantie est là, et
+/// elle ne dépend pas de ce fichier.
 class OwnKeyStore {
   OwnKeyStore();
 
@@ -79,7 +98,15 @@ class OwnKeyStore {
     if ((await _load()).remove(contentId) != null) await _flush();
   }
 
-  Future<List<String>> ids() async => (await _load()).keys.toList();
+  // ⚠️ **`ids()` a été SUPPRIMÉE le 2026-08-31** : aucun appelant, ni dans le
+  // code ni dans les tests.
+  //
+  // Elle n'existait que pour un balayage de révocation qui n'a jamais été
+  // écrit — et dont la documentation de cette classe promettait pourtant
+  // l'existence. La décision de Jay du 2026-08-31 est de ne pas l'écrire :
+  // rendre la liste des identifiants n'a donc plus aucun usage, et une méthode
+  // publique sans appelant finit toujours par en trouver un qui la comprend de
+  // travers.
 
   Future<void> clear() async {
     _keys = <String, dynamic>{};

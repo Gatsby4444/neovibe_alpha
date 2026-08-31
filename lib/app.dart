@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'core/content/local_content_owner.dart';
 import 'core/content/saved_store.dart';
+import 'core/content/storage_sweep.dart';
 import 'core/day_cycle_background.dart';
 import 'core/day_cycle_clock.dart';
 import 'core/diagnostics/app_log_observers.dart';
@@ -122,8 +124,25 @@ class _RootGateState extends ConsumerState<RootGate> {
     //
     // Différé après la première image : rien ici ne doit retarder l'affichage.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // ⚠️ **Le compte d'abord, toujours.** Purger « mes » Enregistrements
+      // avant de savoir s'ils sont à moi, c'est faire du ménage chez quelqu'un
+      // d'autre — et l'effacement qui suit rendrait le résultat sans objet.
+      try {
+        await ref.read(localContentBoundProvider.future);
+      } catch (_) {
+        // Un liage qui échoue n'efface rien — c'est l'état d'avant le
+        // 2026-08-31, pas une régression. Mais il ne doit pas emporter les deux
+        // balayages ci-dessous avec lui : ils ne dépendent pas de lui.
+      }
+      if (!mounted) return;
+
       final removed = await ref.read(savedStoreProvider).purgeRevoked();
-      if (removed > 0) ref.invalidate(savedItemsProvider);
+      if (removed > 0 && mounted) ref.invalidate(savedItemsProvider);
+
+      // Les octets des contenus qui n'existent plus côté serveur. Le serveur
+      // dit lesquels ; l'API Storage est le seul chemin qui les supprime
+      // vraiment. Voir [StorageSweep] — et sa limite, écrite.
+      if (mounted) await ref.read(storageSweepProvider).run();
     });
   }
 
@@ -165,6 +184,26 @@ class _RootGateState extends ConsumerState<RootGate> {
     ref.watch(proximitySupervisorProvider);
     ref.watch(proximityControllerProvider);
     ref.watch(pingBeaconProvider);
+
+    // 🔴 **À QUI APPARTIENT CE QUI EST SUR CET APPAREIL — 2026-08-31.**
+    //
+    // Les Enregistrements, les clés de mes contenus et les caches de médias
+    // sont des fichiers **sans propriétaire inscrit**, et `signOut()` ne
+    // nettoyait que la session serveur. Un compte B ouvert sur le même
+    // téléphone héritait de tout : l'écran « Enregistrements » ne filtre sur
+    // personne, donc **B voyait les photos et vidéos de A, en clair**.
+    //
+    // ⚠️ C'est la fuite déjà fermée pour le ping le 2026-08-17, jamais
+    // appliquée au contenu. Voir [LocalContentOwner].
+    //
+    // ⚠️ **Observé AVANT le profil, et l'app attend sa réponse.** Peindre un
+    // écran pendant que l'effacement tourne, c'est risquer d'afficher ce qu'on
+    // est en train d'effacer. Le coût est une lecture de préférences déjà en
+    // mémoire — bien moins que l'aller-retour du profil juste en dessous.
+    final lieAuCompte = ref.watch(localContentBoundProvider);
+    if (lieAuCompte.isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     final profile = ref.watch(myProfileProvider);
     return profile.when(

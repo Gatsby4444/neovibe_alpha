@@ -1158,6 +1158,9 @@ class _SharedContentTile extends ConsumerWidget {
             isVideo: story?.frontIsVideo ?? item!.frontIsVideo,
             encrypted: story?.encrypted ?? item!.encrypted,
             batchOwner: null,
+            // Une story expire, une publication non. Le partage dans un fil
+            // n'y change rien : c'est le contenu qui porte sa péremption.
+            expiresAt: story?.expiresAt,
           )),
         );
 

@@ -96,6 +96,7 @@ class ContentPreloader {
   Future<void> preload(ContentFace spec) async {
     final id = '${spec.contentId}_${spec.front ? 'f' : 'b'}';
     if (!_done.add(id)) return;
+    _borne(_done);
 
     try {
       final client = _ref.read(supabaseProvider);
@@ -118,6 +119,7 @@ class ContentPreloader {
       final cachePath = await cache.streamingPath(
         spec.contentId,
         front: spec.front,
+        expiresAt: spec.expiresAt,
       );
       final (url, key) = await (urlFuture, keyFuture).wait;
 
@@ -135,10 +137,30 @@ class ContentPreloader {
       });
       // Marqué seulement si les octets sont VRAIMENT arrivés : une mesure ne
       // doit pas s'annoncer « amorcée » sur un amorçage qui a échoué.
-      if (ok == true) _primed.add(id);
+      if (ok == true) {
+        _primed.add(id);
+        _borne(_primed);
+      }
     } catch (_) {
       // Réessayable plus tard : on ne garde pas un échec en mémoire.
       _done.remove(id);
+    }
+  }
+
+  /// ⚠️ **Ces deux ensembles étaient les seuls NON BORNÉS** de cette classe
+  /// (corrigé le 2026-08-31), alors que `_keys` et `_urls` l'étaient depuis
+  /// toujours. Ils grandissaient d'une entrée par face jamais préchargée de la
+  /// session — pas une fuite dangereuse, mais une incohérence qui laissait
+  /// croire que la question du bornage avait été tranchée partout.
+  ///
+  /// La borne est plus large que [_maxKeys] : ce ne sont que des chaînes, et
+  /// oublier qu'une face a été préchargée coûte un préchargement de plus, pas
+  /// une erreur.
+  static const _maxFaces = 200;
+
+  void _borne(Set<String> ensemble) {
+    while (ensemble.length > _maxFaces) {
+      ensemble.remove(ensemble.first);
     }
   }
 

@@ -28,6 +28,25 @@ class ContentMediaCache {
 
   static const othersMaxBytes = 150 * 1024 * 1024; // 150 Mo
 
+  /// Plafond de l'espace `own/` — MES contenus, déposés à la publication.
+  ///
+  /// ## 🔴 Il n'y en avait AUCUN avant le 2026-08-31
+  ///
+  /// `tryOwn` marquait la date d'accès avec un commentaire `// usage LRU`, et
+  /// **aucune éviction ne lisait cette date** : `_enforceLimits` ne balayait que
+  /// `others/`. Chaque story et chaque publication déposait donc ses octets
+  /// scellés sur l'appareil, définitivement — seul un « vider le cache » manuel
+  /// les enlevait.
+  ///
+  /// ⚠️ **Le mécanisme existait pourtant, à côté** : `CardMediaCache` a son
+  /// `_enforceOwnQuota`, qui trie exactement sur cette date. Il a été écrit d'un
+  /// côté et oublié de l'autre — et la marque restée en place faisait croire au
+  /// lecteur que les deux se ressemblaient.
+  ///
+  /// 200 Mo : plus généreux que `others/`, parce que perdre le cache de MON
+  /// contenu coûte un téléchargement de ce que j'ai moi-même publié.
+  static const ownMaxBytes = 200 * 1024 * 1024; // 200 Mo
+
   Directory? _root;
   Map<String, dynamic>? _index;
 
@@ -85,6 +104,7 @@ class ContentMediaCache {
   }) async {
     try {
       await sealed.copy(_faceFile(await _dir('own'), contentId, front).path);
+      await _enforceOwnLimit();
     } catch (_) {
       // Le cache est un confort : un échec ne doit jamais bloquer la
       // publication (le contenu existe déjà côté serveur à ce moment-là).
@@ -95,9 +115,41 @@ class ContentMediaCache {
     final file = _faceFile(await _dir('own'), contentId, front);
     if (!await file.exists()) return null;
     try {
-      await file.setLastModified(DateTime.now()); // usage LRU
+      // La date d'accès, lue par [_enforceOwnLimit] : les moins récemment
+      // OUVERTES partent d'abord, pas les plus anciennement créées.
+      //
+      // ⚠️ Jusqu'au 2026-08-31, cette ligne portait `// usage LRU` et **rien ne
+      // lisait cette date** : il n'existait aucune éviction sur `own/`. Le
+      // commentaire décrivait un mécanisme absent.
+      await file.setLastModified(DateTime.now());
     } catch (_) {}
     return file;
+  }
+
+  /// Ramène `own/` sous [ownMaxBytes] : les faces les moins récemment ouvertes
+  /// repassent au cloud.
+  ///
+  /// Perdre une face de MON contenu n'est pas grave : elle se retéléchargera
+  /// depuis le coffre, où elle est toujours. C'est un cache, pas un original.
+  Future<void> _enforceOwnLimit() async {
+    final dir = await _dir('own');
+    var total = 0;
+    final fichiers = <(File, DateTime, int)>[];
+    await for (final entity in dir.list()) {
+      if (entity is! File) continue;
+      final stat = await entity.stat();
+      total += stat.size;
+      fichiers.add((entity, stat.modified, stat.size));
+    }
+    if (total <= ownMaxBytes) return;
+    fichiers.sort((a, b) => a.$2.compareTo(b.$2)); // le plus vieux d'abord
+    for (final (file, _, size) in fichiers) {
+      if (total <= ownMaxBytes) break;
+      try {
+        await file.delete();
+        total -= size;
+      } catch (_) {}
+    }
   }
 
   /// Où vit le cache **partiel** d'une face lue en flux.
@@ -121,6 +173,10 @@ class ContentMediaCache {
       index[contentId] = {
         if (expiresAt != null) 'expiresAt': expiresAt.toIso8601String(),
         'storedAt': DateTime.now().toIso8601String(),
+        // ⚠️ **`false` explicitement, et c'est le correctif du 2026-08-31.**
+        // Voir [others] : « le fichier existe » n'est PAS « le fichier est
+        // complet », et c'est ici que la différence naît.
+        'complete': false,
       };
       await _saveIndex();
     }
@@ -141,11 +197,30 @@ class ContentMediaCache {
   }) async {
     final file = _faceFile(await _dir('others'), contentId, front);
     final index = await _loadIndex();
-    if (await file.exists() && index.containsKey(contentId)) return file;
+    // 🔴 **« LE FICHIER EXISTE » N'EST PAS « LE FICHIER EST COMPLET » —
+    // corrigé le 2026-08-31.**
+    //
+    // Cette condition était `file.exists() && index.containsKey(contentId)`.
+    // Or [streamingPath] pose l'entrée d'index **avant** tout téléchargement, et
+    // le lecteur natif crée le fichier dès l'ouverture — vide s'il refuse le
+    // média.
+    //
+    // Conséquence : le repli des vidéos scellées **avant** le format par blocs
+    // appelait cette méthode, recevait un fichier de zéro octet présenté comme
+    // complet, et échouait au déchiffrement. Le repli écrit exactement pour ces
+    // contenus ne pouvait pas s'exécuter.
+    //
+    // ⚠️ Le partage du même fichier entre le cache partiel et le téléchargement
+    // complet reste le bon choix (un cache partiel rempli EST le fichier
+    // scellé). Ce qui manquait, c'est de savoir lequel des deux on tient.
+    final connu = index[contentId];
+    final complet = connu is Map && connu['complete'] == true;
+    if (await file.exists() && complet) return file;
     await _download(await signedUrl(), file);
     index[contentId] = {
       if (expiresAt != null) 'expiresAt': expiresAt.toIso8601String(),
       'storedAt': DateTime.now().toIso8601String(),
+      'complete': true,
     };
     await _saveIndex();
     await _enforceLimits();

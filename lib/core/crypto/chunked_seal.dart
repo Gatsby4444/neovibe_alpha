@@ -44,10 +44,23 @@ class ChunkedSeal {
   /// 256 Ko : assez gros pour que le surcoût de 28 octets soit négligeable
   /// (0,01 %), assez petit pour que la lecture d'un bloc reste instantanée et
   /// la mémoire bornée.
+  ///
+  /// ⚠️ **Cette constante ne vaut QUE pour l'écriture.** À la lecture, la
+  /// taille de bloc se lit dans l'en-tête du fichier ouvert ([_entete]) : c'est
+  /// ce qui permet de changer cette valeur sans rendre illisibles les médias
+  /// déjà scellés. La modifier reste donc sans danger — ce qui n'était pas vrai
+  /// avant le 2026-08-31.
   static const chunkSize = 256 * 1024;
 
   static const _overhead = 12 + 16; // nonce + MAC
-  static const _sealedChunk = chunkSize + _overhead;
+  // ⚠️ **`_sealedChunk` a été RETIRÉ le 2026-08-31.** Il valait
+  // `chunkSize + _overhead` et servait à naviguer dans un fichier existant —
+  // c'est-à-dire à supposer, à la LECTURE, la taille de bloc de la version
+  // courante. La taille se lit désormais dans l'en-tête du fichier lu (voir
+  // [_entete]), et le pas se calcule à partir d'elle.
+  //
+  // Le garder aurait laissé, à côté du chemin juste, une constante qui
+  // ressemble à la bonne réponse et n'en est plus une.
   static const headerSize = 16;
   static const _magic = 0x4E564331; // 'NVC1'
 
@@ -96,7 +109,16 @@ class ChunkedSeal {
         var remaining = plainLength;
         while (remaining > 0) {
           final take = remaining < chunkSize ? remaining : chunkSize;
-          final clear = await input.read(take);
+          final clear = await _lireExactement(input, take);
+          if (clear.length != take) {
+            // La source a rétréci sous nos pieds, ou la lecture s'est arrêtée
+            // court. Écrire quand même produirait un fichier dont tous les
+            // blocs suivants seraient décalés — illisible, et sans erreur.
+            throw StateError(
+              'Source tronquée pendant le scellage : ${clear.length} octets '
+              'lus au lieu de $take',
+            );
+          }
           final box = await _algorithm.encrypt(clear, secretKey: key);
           out.add(box.concatenation());
           remaining -= take;
@@ -109,11 +131,63 @@ class ChunkedSeal {
     }
   }
 
+  /// L'en-tête d'un média scellé : la taille d'un bloc **telle qu'elle y est
+  /// écrite**, et la longueur du clair d'origine.
+  ///
+  /// ## 🔴 Pourquoi la taille de bloc se LIT — corrigé le 2026-08-31
+  ///
+  /// Le format écrit cette taille dans son en-tête précisément pour être
+  /// auto-descriptif. La moitié Kotlin la lit, et le commente : *« Lue dans
+  /// l'en-tête, jamais supposée. »* **Cette moitié-ci utilisait la constante
+  /// compilée** et ignorait le champ.
+  ///
+  /// Sans conséquence aujourd'hui — les deux valent 256 Ko. Mais le jour où
+  /// [chunkSize] change, le natif continue de lire correctement les médias
+  /// d'avant et le Dart cesse de le faire, **en silence**, par un échec
+  /// d'authentification incompréhensible. Les deux moitiés d'un même format ne
+  /// peuvent pas avoir deux niveaux de tolérance : c'est la plus stricte qui
+  /// décide, et personne ne sait laquelle c'est.
+  static Future<({int chunkSize, int plainLength})> _entete(File sealed) async {
+    // On collecte le flux au lieu de prendre son premier morceau : rien ne
+    // garantit qu'une lecture de 16 octets arrive en un seul événement.
+    final head = await sealed
+        .openRead(0, headerSize)
+        .fold<List<int>>([], (acc, part) => acc..addAll(part));
+    if (head.length < headerSize) {
+      throw StateError('En-tête NVC1 tronqué : ${head.length} octets');
+    }
+    final data = ByteData.sublistView(Uint8List.fromList(head));
+    final taille = data.getUint32(4);
+    if (taille <= 0) {
+      throw StateError('En-tête NVC1 incohérent : bloc = $taille');
+    }
+    return (chunkSize: taille, plainLength: data.getUint64(8));
+  }
+
   /// Longueur du clair, lue dans l'en-tête. Le lecteur vidéo en a besoin
   /// **avant** de demander le moindre octet.
-  static Future<int> plainLength(File sealed) async {
-    final head = await sealed.openRead(0, headerSize).first;
-    return ByteData.sublistView(Uint8List.fromList(head)).getUint64(8);
+  static Future<int> plainLength(File sealed) async =>
+      (await _entete(sealed)).plainLength;
+
+  /// Lit exactement [combien] octets, ou moins seulement en fin de fichier.
+  ///
+  /// ⚠️ **`RandomAccessFile.read` peut rendre MOINS que demandé.** Le scellage
+  /// supposait le contraire (`remaining -= take` après un unique `read`) : une
+  /// lecture courte aurait produit un bloc plus petit que la taille annoncée,
+  /// et **tous les blocs suivants auraient été décalés** — un format à pas fixe
+  /// n'a pas d'index pour s'en apercevoir. Le fichier aurait été illisible sans
+  /// que rien, à l'écriture, ne le signale.
+  static Future<List<int>> _lireExactement(
+    RandomAccessFile input,
+    int combien,
+  ) async {
+    final out = BytesBuilder(copy: false);
+    while (out.length < combien) {
+      final part = await input.read(combien - out.length);
+      if (part.isEmpty) break; // fin de fichier
+      out.add(part);
+    }
+    return out.takeBytes();
   }
 
   /// Déchiffre l'intervalle de clair `[start, end)` — et **rien d'autre**.
@@ -128,25 +202,34 @@ class ChunkedSeal {
     int? end,
   }) async* {
     final key = SecretKey(base64Decode(keyBase64));
-    final total = await plainLength(sealed);
+    // ⚠️ **Taille de bloc et longueur du clair viennent TOUTES DEUX de
+    // l'en-tête** (2026-08-31). Mélanger une valeur lue et une valeur compilée,
+    // c'est décrire deux fichiers différents avec la même arithmétique.
+    final entete = await _entete(sealed);
+    final taille = entete.chunkSize;
+    final scelleParBloc = taille + _overhead;
+    final total = entete.plainLength;
     final last = (end ?? total).clamp(0, total);
     if (start >= last) return;
 
-    final firstChunk = start ~/ chunkSize;
-    final lastChunk = (last - 1) ~/ chunkSize;
+    final firstChunk = start ~/ taille;
+    final lastChunk = (last - 1) ~/ taille;
 
     final input = await sealed.open();
     try {
       for (var i = firstChunk; i <= lastChunk; i++) {
         // La position se CALCULE : taille scellée fixe, pas de table d'index.
-        await input.setPosition(headerSize + i * _sealedChunk);
+        await input.setPosition(headerSize + i * scelleParBloc);
 
         // Taille du clair dans CE bloc : pleine, sauf le dernier.
-        final chunkStart = i * chunkSize;
-        final plainInChunk = (total - chunkStart).clamp(0, chunkSize);
+        final chunkStart = i * taille;
+        final plainInChunk = (total - chunkStart).clamp(0, taille);
         if (plainInChunk <= 0) break;
 
-        final sealedBytes = await input.read(plainInChunk + _overhead);
+        final sealedBytes = await _lireExactement(
+          input,
+          plainInChunk + _overhead,
+        );
         final clear = await _algorithm.decrypt(
           SecretBox.fromConcatenation(
             sealedBytes,

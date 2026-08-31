@@ -45,6 +45,23 @@ typedef ContentFace = ({
   /// utilisateur, au lieu d'un appel par face. C'est ce qui rend une grille
   /// tenable. Nul pour un contenu isolé (visionneuse, aperçu dans un fil).
   String? batchOwner,
+
+  /// Quand ce contenu cesse d'exister côté serveur. **Nul = permanent**
+  /// (une publication) ; non nul pour une story.
+  ///
+  /// ## 🔴 Pourquoi ce champ existe — 2026-08-31
+  ///
+  /// `ContentMediaCache` accepte un `expiresAt` depuis toujours et **personne
+  /// ne le passait**. Toutes les entrées étaient donc indexées comme
+  /// permanentes, et la purge par expiration de `_enforceLimits` ne
+  /// s'appliquait à rien : le cache ne se vidait que par son plafond de 150 Mo.
+  /// Des stories mortes depuis des jours occupaient la place de contenus vivants.
+  ///
+  /// ⚠️ **Le champ est OBLIGATOIRE, sans valeur par défaut.** Un défaut à
+  /// `null` aurait laissé chaque nouveau site d'appel retomber en silence sur
+  /// « permanent » — c'est exactement ce qui vient de se produire pendant vingt
+  /// jours. Ici, ajouter un écran force à répondre à la question.
+  DateTime? expiresAt,
 });
 
 /// Une face **ouverte**, prête à l'affichage.
@@ -157,6 +174,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
     final cachePath = await cache.streamingPath(
       spec.contentId,
       front: spec.front,
+      expiresAt: spec.expiresAt,
     );
     final (url, key) = await (urlFuture, keyFuture).wait;
     // Le jalon marque la fin des DEUX : c'est ce que l'utilisateur attend. Qui
@@ -176,6 +194,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
           spec.contentId,
           front: spec.front,
           signedUrl: signedUrl,
+          expiresAt: spec.expiresAt,
         );
         final media = await MediaOpen.open(
           file,
@@ -192,6 +211,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
     spec.contentId,
     front: spec.front,
     signedUrl: signedUrl,
+    expiresAt: spec.expiresAt,
   );
   trace?.mark(VideoOpenStep.scelle);
 

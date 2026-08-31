@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/crypto/chunked_seal.dart';
+import '../../core/utils/ids.dart';
 import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
@@ -94,7 +95,17 @@ class CardsRepository {
     bool scrubbable = false,
   }) async {
     final me = _client.auth.currentUser!.id;
-    final stamp = DateTime.now().millisecondsSinceEpoch;
+    // 🔴 **UN IDENTIFIANT, PAS UN HORODATAGE — corrigé le 2026-08-31.**
+    //
+    // Les chemins de stockage se bâtissaient sur `millisecondsSinceEpoch`.
+    // Deux Vibes créées dans la même milliseconde par le même compte se
+    // seraient donc disputé le même chemin, et le second téléversement aurait
+    // échoué — ou pire, écrasé le premier selon le mode d'envoi.
+    //
+    // ⚠️ Le reste du projet le fait déjà bien : stories et publications
+    // nomment leurs fichiers d'après leur Content ID (`newUuid`). Ce chemin-ci
+    // était le seul à supposer que le temps suffit à distinguer.
+    final stamp = newUuid();
     final frontPath = '$me/${stamp}_front.${frontIsVideo ? 'mp4' : 'jpg'}';
     final backPath = back == null
         ? null
