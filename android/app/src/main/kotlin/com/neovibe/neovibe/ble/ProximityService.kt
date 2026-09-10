@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -782,6 +783,24 @@ class ProximityService : Service(), BleEngine.Listener {
         // annonce que 1/N du temps : c'est la premiere chose a regarder quand un
         // croisement se rate sans raison apparente. Et c'est le seul endroit qui
         // dise si le repli s'est declenche - il ne leve rien par ailleurs.
+        // ⚠️ **A quel rythme on ECOUTE, et pourquoi** — ajoute le 2026-09-10,
+        // apres le signalement de Jay sur ses ecouteurs Bluetooth.
+        //
+        // Le BLE et l'audio Bluetooth partagent la meme antenne. On ecoutait en
+        // continu (`continu`), ce qui ne laissait plus de creneau a la musique.
+        // Desormais, casque branche => `cyclique` (environ un quart du temps).
+        //
+        // ⚠️ **Les deux lignes se lisent ENSEMBLE.** `scanMode` seul ne dit pas
+        // s'il est la consequence d'un casque ou d'un defaut : `casqueBluetooth`
+        // repond. Et un `cyclique` sans casque serait la signature d'un etat
+        // reste colle — invisible autrement.
+        "scanMode" to when (engine.modeDeScanEnCours) {
+            ScanSettings.SCAN_MODE_LOW_LATENCY -> "continu"
+            ScanSettings.SCAN_MODE_BALANCED -> "cyclique"
+            -1 -> "aucun scan"
+            else -> "autre (${engine.modeDeScanEnCours})"
+        },
+        "casqueBluetooth" to engine.casqueBluetooth,
         "advertMode" to if (engine.parallelAdvertising) "parallele" else "cycle",
         // ⚠️ **Ce qui EMET vraiment, compte — pas le mode qu'on croit tenir.**
         //

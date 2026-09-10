@@ -559,6 +559,33 @@ implémentation du même accord, sans point de contact, est une divergence promi
   genre d'écart qu'on veut connaître avant le portage, pas pendant.
   Méthode de canal : `advertCapacity`.
 
+- **`AudioLink.kt`** — *(nouveau, 2026-09-10)* **y a-t-il un casque Bluetooth
+  branché en ce moment ?** Rien d'autre.
+  🔴 **Il existe parce que le BLE et l'audio Bluetooth partagent la même radio
+  et la même antenne.** Signalé par Jay le 2026-09-10 : casque branché, puis
+  ping allumé, et la musique se tait. Notre scan tournait en
+  `SCAN_MODE_LOW_LATENCY` — **en continu, 100 % du temps** — et ne s'arrêtait
+  jamais. `BleEngine` lit ce constat et passe en `SCAN_MODE_BALANCED`
+  (~25 % du temps) tant qu'un casque est là.
+  ⚠️ **Il CONSTATE, il ne décide de rien** (règle « dissocier l'acquisition de
+  l'usage ») : il ne touche ni au scan, ni à l'émission. Il ne réveille son
+  lecteur que si la réponse **change**.
+  ⚠️ **`AudioManager`, et surtout pas `BluetoothProfile`** : la route Bluetooth
+  exigerait la permission `BLUETOOTH_CONNECT`, que l'app n'a pas et qu'il
+  faudrait demander à l'utilisateur pour une information de confort.
+  `AudioManager` répond sans **aucune** permission, et voit en plus les casques
+  BLE Audio (`TYPE_BLE_HEADSET`) que le profil A2DP ignore.
+  ⚠️ **Ce qu'il ne sait pas** : si le casque **joue**. Un casque connecté et
+  silencieux fait lever le pied pour rien — assumé, l'inverse demanderait de
+  surveiller les sessions audio des autres applications.
+  ⚠️ **iOS (à faire)** : `AVAudioSession.currentRoute.outputs`, en cherchant
+  `.bluetoothA2DP`, `.bluetoothHFP` et `.bluetoothLE`, avec
+  `AVAudioSession.routeChangeNotification` pour les changements. La question et
+  la réponse se transposent directement. **Mais le remède, lui, ne se transpose
+  pas** : `CBCentralManager` n'expose aucun équivalent de `setScanMode` — iOS
+  décide seul de son rythme de scan. À relever au portage, pas maintenant.
+  Aucune méthode de canal : lu à travers `stats()` (`casqueBluetooth`).
+
 ⚠️ **Cinq compteurs de diagnostic remontent par `stats()`** et doivent rester
 visibles même à zéro — le jour où ils montent, ils expliquent une détection
 fantôme que rien d'autre n'expliquerait :

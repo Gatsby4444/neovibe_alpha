@@ -164,6 +164,23 @@ class DiagnosticBundle {
         'neoScans',
         'otherVersionScans',
         'protocolVersion',
+        // ⚠️ **À quel rythme on ÉCOUTE, et pourquoi** — ajoutées le 2026-09-10
+        // après le signalement de Jay : casque Bluetooth branché, puis ping
+        // allumé, et la musique se tait.
+        //
+        // Le BLE et l'audio Bluetooth partagent la même antenne. On écoutait en
+        // permanence (`continu`) sans jamais la relâcher. Désormais, casque
+        // branché ⇒ `cyclique`, environ un quart du temps.
+        //
+        // ⚠️ **Les deux se lisent ENSEMBLE, et aucune ne se lit seule** :
+        //   • `cyclique` + `casqueBluetooth: true`  → normal, c'est le remède ;
+        //   • `cyclique` + `casqueBluetooth: false` → un état resté collé, donc
+        //     une détection ralentie sans raison — invisible autrement ;
+        //   • `continu`  + `casqueBluetooth: true`  → le remède n'a PAS pris,
+        //     et c'est exactement ce qu'il faut savoir avant de conclure que la
+        //     coupure de son vient d'ailleurs.
+        'scanMode',
+        'casqueBluetooth',
         'advertMode',
         'advertTokensPerSlot',
         // ⚠️ **POURQUOI on est en cycle** — ajoutées le 2026-08-31.

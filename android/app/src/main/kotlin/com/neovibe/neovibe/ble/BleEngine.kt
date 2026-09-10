@@ -53,6 +53,7 @@ const val TX_POWER_UNKNOWN = 127
 @SuppressLint("MissingPermission") // vérifiées explicitement par evaluateRadio()
 class BleEngine(private val context: Context, private val listener: Listener) {
 
+
     /** Ce que le moteur remonte. Aucune de ces méthodes ne doit bloquer. */
     interface Listener {
         fun onStatus(status: RadioStatus)
@@ -91,6 +92,19 @@ class BleEngine(private val context: Context, private val listener: Listener) {
     }
 
     private val main = Handler(Looper.getMainLooper())
+
+    /**
+     * **Y a-t-il un casque Bluetooth branche ?** — voir [AudioLink].
+     *
+     * ⚠️ Il ACQUIERT, il ne decide pas : la seule chose qu'il declenche ici est
+     * une relecture de la decision, prise par [modeDeScan].
+     *
+     * ⚠️ **Declare APRES [main], et ce n'est pas cosmetique.** Kotlin initialise
+     * les proprietes dans l'ordre du fichier : place plus haut, il recevait un
+     * `main` encore nul et l'app tombait a la construction du moteur — avant
+     * meme le premier scan.
+     */
+    private val audioLink = AudioLink(context, main) { revoirLeRythmeDeScan() }
     private val manager get() =
         context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
     private val adapter: BluetoothAdapter? get() = manager?.adapter
@@ -252,6 +266,10 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         )
     }
 
+    /** Un casque Bluetooth est-il branche en ce moment ? Voir [AudioLink]. */
+    val casqueBluetooth: Boolean
+        get() = audioLink.connecte()
+
     private var lastPublished: RadioStatus? = null
 
     /**
@@ -296,6 +314,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             adapterWatcher,
             IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
         )
+        audioLink.attach()
         publish(currentStatus())
     }
 
@@ -305,6 +324,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         } catch (_: IllegalArgumentException) {
             // Jamais enregistré : rien à faire.
         }
+        audioLink.detach()
         stop()
     }
 
@@ -1078,6 +1098,12 @@ class BleEngine(private val context: Context, private val listener: Listener) {
          */
         override fun onScanFailed(errorCode: Int) {
             scanning = false
+            // ⚠️ **Le SECOND chemin qui arrete le scan.** `stopScanning` n'est
+            // pas le seul : un refus de la pile met fin au scan sans passer par
+            // lui. Ne remettre le temoin qu'a un seul des deux endroits laissait
+            // le diagnostic annoncer « continu » apres un echec — la meme
+            // famille de mensonge, par le chemin qu'on n'avait pas compte.
+            modeDeScanEnCours = -1
             when (errorCode) {
                 SCAN_FAILED_ALREADY_STARTED -> {
                     // Un scan de NOTRE application est encore enregistre cote
@@ -1181,18 +1207,94 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         // Contrepartie assumee : on est reveille pour chaque annonce BLE des
         // environs, pas seulement les notres. Mesurable via `stats()`.
         val filter = ScanFilter.Builder().build()
+        val mode = modeDeScan()
         val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setScanMode(mode)
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
             .build()
         scanner.startScan(listOf(filter), settings, scanCallback)
         scanning = true
+        modeDeScanEnCours = mode
+    }
+
+    /**
+     * Le mode de scan **en vigueur**, ou -1 tant qu'aucun scan n'a demarre.
+     *
+     * ⚠️ **Un instrument, pas un confort.** Sans lui, « on a leve le pied » est
+     * une affirmation invérifiable : rien d'autre, ni a l'ecran ni dans un
+     * journal, ne distingue un scan continu d'un scan cyclique. C'est
+     * exactement le defaut d'instrument que `CLAUDE.md` interdit de laisser
+     * passer.
+     */
+    var modeDeScanEnCours = -1
+        private set
+
+    /**
+     * **A quel rythme on ecoute** — la seule decision de ce chantier.
+     *
+     * ## Le probleme, signale par Jay le 2026-09-10
+     *
+     * Casque Bluetooth branche, puis ping allume : la musique se tait. Le BLE et
+     * l'audio Bluetooth partagent **la meme antenne**. `SCAN_MODE_LOW_LATENCY`
+     * ecoute **en continu** et ne relachait jamais l'antenne — les paquets audio
+     * n'avaient plus de creneau.
+     *
+     * ## ⚠️ Pourquoi on ne fait PAS de pauses nous-memes
+     *
+     * La solution evidente — arreter et relancer le scan en boucle — est un
+     * piege : **Android limite un processus a quelques `startScan` par tranche
+     * de 30 secondes** (`SCAN_FAILED_SCANNING_TOO_FREQUENTLY`, deja gere plus
+     * bas). Un cycle maison de quelques secondes se ferait donc bannir, et la
+     * detection s'arreterait **completement**. `SCAN_MODE_BALANCED` demande le
+     * meme decoupage **a la puce**, qui n'est soumise a aucun quota.
+     *
+     * ## Ce que ca coute, dit franchement
+     *
+     * `BALANCED` ecoute environ **un quart du temps** au lieu de la totalite. Un
+     * ami est donc reconnu un peu plus lentement. C'est acceptable ici et
+     * nulle part ailleurs : la tolerance de presence est de 11 secondes
+     * (`PresenceRules.freshFor`), et un ami emet toutes les 100 ms — meme au
+     * quart du temps, il reste largement au-dessus des
+     * [PresenceRules.minSightings] detections exigees.
+     *
+     * ## ⚠️ On ne leve le pied QUE si un casque est branche
+     *
+     * Regle « le defaut juste, pas l'option supplementaire » : pas de reglage a
+     * proposer a l'utilisateur, et **aucun changement** quand il n'y a pas de
+     * casque. La cause n'existe pas ? Le remede non plus.
+     */
+    private fun modeDeScan(): Int =
+        if (audioLink.connecte()) ScanSettings.SCAN_MODE_BALANCED
+        else ScanSettings.SCAN_MODE_LOW_LATENCY
+
+    /**
+     * Un casque vient d'arriver ou de partir : on reprend le scan au bon rythme.
+     *
+     * ⚠️ **Seulement si le mode CHANGE vraiment.** Chaque `startScan` compte
+     * dans le quota d'Android ; en relancer un pour rien rapproche du bannissement
+     * decrit ci-dessus.
+     *
+     * ⚠️ **Rien si on ne scanne pas.** Sans cette garde, brancher un casque
+     * ping eteint DEMARRERAIT la detection — un objet qui constate se mettrait
+     * a commander.
+     */
+    private fun revoirLeRythmeDeScan() {
+        if (!scanning) return
+        if (modeDeScan() == modeDeScanEnCours) return
+        stopScanning()
+        startScanning()
     }
 
     private fun stopScanning() {
         if (!scanning) return
         runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
         scanning = false
+        // ⚠️ **Sinon l'instrument ment.** `modeDeScanEnCours` garderait le mode
+        // du dernier scan, et le diagnostic afficherait « continu » alors que
+        // plus rien n'ecoute — un chiffre juste hier, faux aujourd'hui, et
+        // indiscernable du vrai. C'est exactement le defaut d'instrument que
+        // `CLAUDE.md` interdit de laisser passer.
+        modeDeScanEnCours = -1
     }
 
     // ------------------------------------------------------------------
