@@ -559,6 +559,26 @@ implémentation du même accord, sans point de contact, est une divergence promi
   genre d'écart qu'on veut connaître avant le portage, pas pendant.
   Méthode de canal : `advertCapacity`.
 
+- **`AdvertCapacityStore.kt`** — *(nouveau, 2026-09-01 ; **absent de ce
+  catalogue jusqu'au 2026-09-11**, oubli de la session interrompue)* **la
+  mémoire du plafond d'annonces, par appareil**.
+  🔴 **Pourquoi il existe** : `AdvertCapacityProbe` ci-dessous *mesure*, mais une
+  mesure qu'on recopie à la main dans le code redevient une constante — la même
+  erreur qu'avant, avec une meilleure source. Ce magasin retient ce que **cette
+  puce-ci** a réellement accordé, et `BleEngine` le lit à l'exécution.
+  ⚠️ **Signé par `Build.FINGERPRINT`** : une mise à jour d'Android change la
+  pile Bluetooth, donc la mesure se périme avec elle.
+  ⚠️ **Pas d'`effacer()`, délibérément** : rien ici n'appartient à un compte,
+  c'est une propriété du **matériel**. Le vider au changement d'utilisateur
+  ferait réapprendre pour rien ce que l'appareil sait déjà.
+  ⚠️ **On n'écrit que vers le BAS, et jamais 0** : un refus passager ne doit pas
+  condamner l'appareil au mode cycle pour toujours.
+  ⚠️ **iOS (à faire)** : sans objet en l'état — `CBPeripheralManager` n'expose
+  pas d'annonces multiples, il n'y a donc pas de plafond à apprendre. À
+  reconsidérer seulement si iOS ouvre un jour cette capacité.
+  Aucune méthode de canal : lu à travers `stats()` (`advertMaxSets`,
+  `advertPlafondAppris`).
+
 - **`AudioLink.kt`** — *(nouveau, 2026-09-10)* **y a-t-il un casque Bluetooth
   branché en ce moment ?** Rien d'autre.
   🔴 **Il existe parce que le BLE et l'audio Bluetooth partagent la même radio
