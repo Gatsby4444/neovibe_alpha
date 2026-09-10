@@ -69,20 +69,33 @@ class NotificationService {
     ),
   );
 
+  /// [id] : **à fournir dès qu'on voudra pouvoir l'annuler**.
+  ///
+  /// ⚠️ Sans lui, l'identifiant est tiré de l'heure : la notification est donc
+  /// **introuvable** une seconde plus tard. C'est ce qui rendait impossible de
+  /// retirer « ton ami est tout près » quand l'ami repartait — le seul moment où
+  /// cette notification doit disparaître.
   Future<void> show(
     NotifChannel channel,
     String title,
     String body, {
     String? payload,
+    int? id,
   }) async {
     await init();
     await _plugin.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      id ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
       _details(channel),
       payload: payload,
     );
+  }
+
+  /// Retire une notification déjà affichée ou programmée.
+  Future<void> cancel(int id) async {
+    await init();
+    await _plugin.cancel(id);
   }
 
   /// Notification différée (Waves par défaut : jamais en temps réel

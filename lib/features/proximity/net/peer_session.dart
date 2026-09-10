@@ -20,7 +20,31 @@ class PresenceRules {
   /// Décision de Jay (2026-08-18) : plus rien pendant 5 s = parti. Tenable, car
   /// l'advertising tourne à ~100 ms : cinq secondes de silence, c'est une
   /// cinquantaine d'annonces manquées d'affilée.
-  static const freshFor = Duration(seconds: 5);
+  ///
+  /// ## 🔴 Porté à 11 s le 2026-09-01 — décision de Jay
+  ///
+  /// **La justification de 2026-08-18 n'était vraie qu'en mode parallèle.**
+  /// Elle suppose que le jeton d'un ami est en l'air en permanence ; en mode
+  /// **cycle**, l'émetteur change de jeton toutes les 400 ms
+  /// (`ProximityService.cycleMillis`), donc le trou entre deux passages vaut
+  /// **(nombre de jetons − 1) × 0,4 s**.
+  ///
+  /// | Jetons en jeu | Trou | Verdict avec 5 s |
+  /// |---|---|---|
+  /// | 6 (5 amis + public) | 2,0 s | tenait |
+  /// | 14 (13 amis + public) | 5,2 s | **l'ami « disparaissait » puis revenait** |
+  ///
+  /// Le seuil se franchissait donc à **13 amis**, et rien ne l'aurait signalé :
+  /// l'écran aurait simplement clignoté. À 11 s, il se franchit à **27 amis**.
+  ///
+  /// ⚠️ **Ce que ça coûte, et c'est assumé** : « il est parti » met maintenant
+  /// onze secondes à s'afficher au lieu de cinq.
+  ///
+  /// ⚠️ **[forgetAfter] doit rester nettement au-dessus.** Les deux répondent à
+  /// des questions différentes (voir plus bas) ; s'ils se rejoignaient, oublier
+  /// et cesser d'afficher deviendraient le même geste, et le seuil anti-passant
+  /// repartirait de zéro à chaque trou de radio.
+  static const freshFor = Duration(seconds: 11);
 
   /// Contact continu exigé avant de **constater un croisement**.
   ///
@@ -44,8 +68,9 @@ class PresenceRules {
   /// la seconde efface la durée de contact continu, donc le seuil anti-passant.
   ///
   /// Un pair non frais n'est **ni affiché, ni joignable** : il n'existe plus
-  /// pour le produit dès [freshFor]. Ces 25 secondes supplémentaires ne servent
-  /// qu'à absorber un trou de radio sans faire repartir [firstHeard] de zéro.
+  /// pour le produit dès [freshFor]. Ces **19 secondes** supplémentaires (30 − 11
+  /// depuis le 2026-09-01) ne servent qu'à absorber un trou de radio sans faire
+  /// repartir [firstHeard] de zéro.
   static const forgetAfter = Duration(seconds: 30);
 
   /// Nombre minimal d'observations avant de considérer un contact continu.

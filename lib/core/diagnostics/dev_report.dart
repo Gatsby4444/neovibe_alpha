@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../supabase_providers.dart';
+import '../../features/proximity/net/ble_radio.dart';
 import 'diagnostic_bundle.dart';
 
 /// Envoi d'un rapport de diagnostic au serveur.
@@ -81,7 +82,7 @@ class DevReport {
   Future<void> sendEverything({String? note}) async {
     String body;
     try {
-      body = await DiagnosticBundle.build();
+      body = await DiagnosticBundle.build(radio: ref.read(bleRadioProvider));
     } catch (e) {
       // Même en échec, on envoie de quoi comprendre l'échec : un rapport vide
       // n'apprend rien, un rapport qui dit pourquoi il est vide, si.

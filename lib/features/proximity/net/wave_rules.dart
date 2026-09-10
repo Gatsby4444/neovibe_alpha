@@ -88,10 +88,14 @@ abstract final class WaveRules {
   ///
   /// ⚠️ **C'est elle qui rend le presque forcément tardif** : on ne peut pas
   /// savoir avant qu'elle soit écoulée. Le presque arrive donc au plus tôt une
-  /// heure après le croisement — et c'est la raison pour laquelle le délai de
-  /// palier a déménagé sur « ton ami est tout près » (décision de Jay,
-  /// 2026-08-30). Un délai de 45 minutes posé sur une notification déjà en
-  /// retard d'une heure ne se serait jamais vu.
+  /// heure après le croisement.
+  ///
+  /// ⚠️ **Ce commentaire affirmait qu'un délai de palier « ne se serait jamais
+  /// vu » par-dessus cette heure. C'est faux** — vérifié le 2026-09-01 : le
+  /// verdict est rendu par un balayage de 5 minutes
+  /// (`ProximityController.verdictEvery`), donc 1 h 00 et 1 h 45 sont deux
+  /// instants parfaitement distincts. Le délai de palier est revenu ici, sur
+  /// décision de Jay du 2026-09-01. Voir `PresqueDelai`.
   static const apresFenetre = Duration(hours: 1);
   static const apresSeuil = Duration(minutes: 2);
 
@@ -119,6 +123,31 @@ abstract final class WaveRules {
   /// la définition déjà écrite de « ce n'est pas un passant ». En poser un
   /// second aurait fait deux définitions du même mot.
   static int get presDetectionsMin => PresenceRules.minSightings;
+
+  // ------------------------------------------------------------------
+  // L'identité d'un « tout près » affiché
+  // ------------------------------------------------------------------
+
+  /// Identifiant **stable** de la notification « tout près » d'un ami.
+  ///
+  /// ## Pourquoi il vit ICI et pas dans le contrôleur — 2026-09-10
+  ///
+  /// C'est une **règle**, pas de la plomberie : elle décide si l'app saura
+  /// retrouver une notification qu'elle a posée. Elle vivait dans
+  /// `ProximityController`, en privé, avec tout ce qui parle à la radio, au
+  /// disque et au serveur — donc **intestable** sans monter la pile entière.
+  ///
+  /// ⚠️ **Ce qu'elle doit garantir, et que le test vérifie** :
+  /// - **stable** : deux appels pour le même ami donnent le même nombre, sinon
+  ///   `cancel` ne retrouve rien et la notification reste affichée après le
+  ///   départ de l'ami *(c'était le défaut du 2026-09-01 : l'identifiant était
+  ///   tiré de l'heure)* ;
+  /// - **distincte** : deux amis différents ne se marchent pas dessus, sinon
+  ///   le départ de l'un efface la notification de l'autre ;
+  /// - **bornée** : Android veut un entier 32 bits signé. Le préfixe `0x0F`
+  ///   réserve l'espace des waves et garde le résultat positif.
+  static int idToutPres(String userId) =>
+      0x0F000000 | (userId.hashCode & 0xFFFFFF);
 
   // ------------------------------------------------------------------
   // Les deux jugements

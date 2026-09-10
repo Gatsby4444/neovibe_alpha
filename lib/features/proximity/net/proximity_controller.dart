@@ -314,10 +314,12 @@ class ProximityController extends AsyncNotifier<void> {
       // lecture de fichier, c'est refaire le défaut du point C.
       case PresenceChanged():
         _publishPresence();
+        _revoirToutPres();
       case PeerIdentified():
         // ⚠️ **Rien ne part ici depuis le 2026-08-29.** Reconnaître quelqu'un et
         // l'avoir raté sont deux choses différentes — voir [_finDePresence].
         _publishPresence();
+        _revoirToutPres();
       case PeerLost():
         // ⚠️ **Plus aucun jugement ici depuis le 2026-08-30.** La fin d'une
         // présence vue par le Dart et celle vue par le natif sont le MÊME fait :
@@ -325,6 +327,7 @@ class ProximityController extends AsyncNotifier<void> {
         // manque rien quand l'interface disparaît (voir
         // [_collectNativePresences]).
         _publishPresence();
+        _revoirToutPres();
     }
   }
 
@@ -397,8 +400,17 @@ class ProximityController extends AsyncNotifier<void> {
     )) {
       return;
     }
-    final profil = await ref.read(profileByIdProvider(userId).future);
-    await _notifierToutPres(userId, profil?.displayName ?? 'Un ami');
+    // ⚠️ **« Tout près » NE PART PLUS D'ICI — 2026-09-01.**
+    //
+    // Ce chemin ne reçoit que des présences **terminées** : le natif ne rend une
+    // présence qu'après [PresenceRules.forgetAfter] de silence
+    // (`PresenceLog.drain`). La notification « X est juste à côté » arrivait donc
+    // au plus tôt trente secondes **après** le départ de l'ami, au présent, pour
+    // quelqu'un qui n'était plus là. Le commentaire d'à côté promettait pourtant
+    // *« se décide MAINTENANT — c'est toute sa raison d'être »*.
+    //
+    // Elle part désormais de la présence VIVANTE : voir [_revoirToutPres].
+    // Ce chemin-ci ne fait plus qu'enregistrer le contact et juger le presque.
   }
 
   /// Les présences **terminées** mesurées par le service, et leur jugement.
@@ -600,32 +612,93 @@ class ProximityController extends AsyncNotifier<void> {
   Future<bool> _isFriend(String userId) async =>
       (await _keyBook.all()).containsKey(userId);
 
-  /// **« Ton ami est tout près »** — la notification INSTANTANÉE.
+  /// Les « tout près » actuellement AFFICHÉS, par ami.
+  ///
+  /// ⚠️ **La clé est réservée avant le premier `await`.** Sans ça, deux annonces
+  /// BLE arrivant coup sur coup lanceraient deux fois la même notification —
+  /// le chemin est appelé à la fréquence de la radio.
+  final _toutPresAffiches = <String, int>{};
+
+  // ⚠️ **L'identifiant stable a démenagé dans [WaveRules.idToutPres]** le
+  // 2026-09-10. C'est une règle — elle décide si l'app saura retrouver la
+  // notification qu'elle a posée — et ici elle était intestable : il aurait
+  // fallu monter la radio, le disque et le serveur pour l'atteindre.
+
+  /// **« Ton ami est tout près »** — sur la présence VIVANTE, pour TOUS les amis.
+  ///
+  /// ## 🔴 Ce que ceci corrige — 2026-09-01
+  ///
+  /// Elle partait de [_noterContact], qui ne voit que des présences **finies** :
+  /// elle arrivait donc au plus tôt trente secondes après le départ de l'ami, au
+  /// présent. Et le palier lui ajoutait jusqu'à 45 minutes de retard, sans que
+  /// rien ne l'annule si l'ami repartait — pour un ami simple, elle sonnait donc
+  /// trois quarts d'heure après, en affirmant qu'il était « juste à côté ».
+  ///
+  /// ➡️ **Décision de Jay, 2026-09-01** : instantanée, **pour tous les amis**,
+  /// sans palier ; elle **disparaît** quand l'ami s'en va ; et c'est le
+  /// **presque** qui porte le délai de palier (voir [PresqueDelai]).
   ///
   /// ⚠️ **Elle n'est pas enregistrée**, ni sur l'appareil ni au serveur
-  /// (décision de Jay, 2026-08-30). Ce n'est pas un souvenir, c'est une
-  /// information sur l'instant : l'historique de `Profil → ♥` ne contient que
-  /// des presque. Lui donner une ligne serveur reviendrait à tenir le journal
-  /// de qui a été près de qui, ce que le presque, lui, assume et borne.
+  /// (décision de Jay, 2026-08-30) : ce n'est pas un souvenir, c'est une
+  /// information sur l'instant.
   ///
-  /// ⚠️ **C'est ELLE que le palier accélère depuis le 2026-08-30**, et plus le
-  /// presque : voir [PresqueDelai].
-  Future<void> _notifierToutPres(String userId, String nom) async {
-    final profile = await ref.read(myProfileProvider.future);
-    // ⚠️ **Le contrôleur ne connaît AUCUN palier et n'en lit aucune règle.** Il
-    // demande un rang au dépôt des amitiés — qui vit hors du ping — et le passe
-    // à une règle pure. C'est le strict minimum de contact exigé par la
-    // consigne de Jay du 2026-08-28.
-    final rang = ref.read(tierOfProvider(userId)).rang;
-    final delai = PresqueDelai.pour(
-      rangDuPalier: rang,
-      tempsReelChoisi: profile?.realtimeWaves ?? false,
-    );
-    await NotificationService.instance.schedule(
+  /// ⚠️ **Le chemin chaud reste sans disque.** L'historique n'est relu qu'au
+  /// moment où un ami devient stable **et** n'a pas déjà sa notification —
+  /// c'est-à-dire une fois par rencontre, pas une fois par annonce.
+  void _revoirToutPres() {
+    final registre = _network?.presence;
+    if (registre == null) return;
+    final maintenant = DateTime.now();
+    final presents = <String>{};
+    for (final session in registre.sessions) {
+      final userId = session.userId;
+      if (userId == null || !session.isFresh(maintenant)) continue;
+      presents.add(userId);
+      if (!session.isStable(maintenant)) continue;
+      if (_toutPresAffiches.containsKey(userId)) continue;
+      _toutPresAffiches[userId] = WaveRules.idToutPres(userId);
+      unawaited(_annoncerToutPres(userId, session, maintenant));
+    }
+    // ⚠️ **Il est parti : la notification n'a plus d'objet.** La laisser
+    // afficherait une affirmation au présent sur quelqu'un d'absent — la
+    // famille exacte des messages qui font chercher la cause ailleurs.
+    for (final userId in _toutPresAffiches.keys.toList()) {
+      if (presents.contains(userId)) continue;
+      final id = _toutPresAffiches.remove(userId);
+      if (id != null) unawaited(NotificationService.instance.cancel(id));
+    }
+  }
+
+  Future<void> _annoncerToutPres(
+    String userId,
+    PeerSession session,
+    DateTime maintenant,
+  ) async {
+    void renoncer() => _toutPresAffiches.remove(userId);
+    if (!await _isFriend(userId)) return renoncer();
+    // ⚠️ **Le contact est en COURS** : sa fin, c'est maintenant. C'est la seule
+    // différence avec l'ancien chemin, et c'est toute la correction.
+    final contact = Presence(debut: session.firstHeard, fin: maintenant);
+    final historique = await _presences.historique(userId, sauf: contact);
+    if (!WaveRules.toutPres(
+      historique: historique,
+      contact: contact,
+      detections: session.sightings,
+    )) {
+      return renoncer();
+    }
+    // Le pair a pu partir pendant les deux lectures ci-dessus.
+    if (!_toutPresAffiches.containsKey(userId)) return;
+    final nom =
+        (await ref.read(profileByIdProvider(userId).future))?.displayName ??
+        'Un ami';
+    final id = _toutPresAffiches[userId];
+    if (id == null) return;
+    await NotificationService.instance.show(
       NotifChannel.waves,
       'Tout près…',
       '$nom est juste à côté.',
-      DateTime.now().add(delai),
+      id: id,
     );
   }
 
@@ -651,20 +724,41 @@ class ProximityController extends AsyncNotifier<void> {
       if (!await _isFriend(murs.userId)) continue;
       if (!await _journal.mayWave(murs.userId, waveCooldown)) continue;
       await _journal.noteWave(murs.userId);
-      await _envoyerPresque(murs.userId);
+      await _envoyerPresque(murs.userId, murs.contact);
     }
   }
 
   /// Notifie et consigne un presque confirmé.
-  Future<void> _envoyerPresque(String userId) async {
+  ///
+  /// ⚠️ **C'est ICI que le palier d'amitié agit depuis le 2026-09-01**, et plus
+  /// sur « tout près » : un inséparable te le dit tout de suite, un proche au
+  /// bout d'un quart d'heure, un ami simple trois quarts d'heure plus tard. Le
+  /// presque étant déjà en retard d'une heure par construction, ces délais
+  /// s'ajoutent — et ils sont bien visibles, le verdict étant rendu par un
+  /// balayage de cinq minutes ([verdictEvery]).
+  ///
+  /// ⚠️ **Le texte dit QUAND**, parce qu'il parle du passé. « Il est passé tout
+  /// près » sans repère laisse croire à un événement en cours, et c'est
+  /// exactement la confusion que « tout près » existe pour éviter.
+  Future<void> _envoyerPresque(String userId, Presence contact) async {
     final nom =
         (await ref.read(profileByIdProvider(userId).future))?.displayName ??
         "Quelqu'un";
+    // ⚠️ **Le contrôleur ne connaît AUCUN palier et n'en lit aucune règle.** Il
+    // demande un rang au dépôt des amitiés — qui vit hors du ping — et le passe
+    // à une règle pure. C'est le strict minimum de contact exigé par la
+    // consigne de Jay du 2026-08-28.
+    final profile = await ref.read(myProfileProvider.future);
+    final delai = PresqueDelai.pour(
+      rangDuPalier: ref.read(tierOfProvider(userId)).rang,
+      tempsReelChoisi: profile?.realtimeWaves ?? false,
+    );
+    final quand = DateTime.now().add(delai);
     await NotificationService.instance.schedule(
       NotifChannel.waves,
       'Le presque…',
-      '$nom est passé tout près de toi.',
-      DateTime.now(),
+      '$nom est passé tout près de toi ${_ilYA(quand.difference(contact.fin))}.',
+      quand,
     );
     await ref.read(pingStoreProvider).enqueue({
       'type': 'wave',
@@ -672,6 +766,23 @@ class ProximityController extends AsyncNotifier<void> {
       'notifyAfter': DateTime.now().toUtc().toIso8601String(),
     });
     unawaited(ref.read(proximitySyncProvider).pushOutbox());
+  }
+
+  /// « il y a une heure », « il y a 1 h 45 » — arrondi à ce qui se dit.
+  ///
+  /// ⚠️ **Calculé à la programmation, pas au déclenchement.** Le texte d'une
+  /// notification programmée est figé au moment où on la pose : le compter
+  /// depuis « maintenant » ferait mentir chaque notification retardée.
+  static String _ilYA(Duration ecart) {
+    final minutes = ecart.inMinutes;
+    if (minutes < 2) return 'à l\'instant';
+    if (minutes < 60) return 'il y a $minutes min';
+    final heures = minutes ~/ 60;
+    final reste = minutes % 60;
+    if (reste < 5) {
+      return 'il y a ${heures == 1 ? 'une heure' : '$heures heures'}';
+    }
+    return 'il y a $heures h $reste';
   }
 
   // ------------------------------------------------------------------

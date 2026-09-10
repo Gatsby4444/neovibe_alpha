@@ -1,4 +1,4 @@
-/// **Le DÉLAI de « ton ami est tout près », décidé par le palier d'amitié.**
+/// **Le DÉLAI du « presque », décidé par le palier d'amitié.**
 ///
 /// ## 🔴 Il a changé de destinataire le 2026-08-30
 ///
@@ -11,9 +11,27 @@
 /// l'aurait signalé.
 ///
 /// ⚠️ **Décision de Jay, 2026-08-30** : le palier déménage sur la notification
-/// **instantanée** — *« ton ami est tout près »*. C'est elle qui a un sens à
-/// accélérer, donc c'est elle que le palier débloque. Le déblocage garde ainsi
-/// sa valeur au lieu de disparaître dans l'attente du presque.
+/// **instantanée** — *« ton ami est tout près »*.
+///
+/// ## 🔴 REVENU AU PRESQUE le 2026-09-01 — et l'argument de 2026-08-30 était faux
+///
+/// Jay, le 2026-09-01 : *« la notification dont je parlais pour ce système c'est
+/// juste la notification du presque, uniquement si c'était un presque. Pas la
+/// notif instantanée dans le cas où quelqu'un est tout près. C'est deux choses
+/// différentes. […] la notif instantanée c'est pour tout le monde. »*
+///
+/// L'argument qui avait justifié le déménagement — *« un délai de 45 minutes
+/// posé sur une notification déjà en retard d'une heure ne se serait jamais
+/// vu : les trois paliers auraient rendu exactement le même résultat »* —
+/// **est faux, et il a été vérifié à la source cette fois.** Le verdict du
+/// presque est rendu par un balayage qui tourne toutes les **5 minutes**
+/// (`ProximityController.verdictEvery`) : un presque d'inséparable part donc
+/// vers 1 h 00, celui d'un ami simple vers 1 h 45. Les trois paliers donnent
+/// bien trois résultats différents.
+///
+/// ⚠️ **La leçon** : l'argument avait été écrit dans un commentaire, jamais
+/// re-vérifié, et il a décidé d'un déplacement de fonctionnalité. C'est
+/// exactement ce que la règle « un fait se vérifie à la source » interdit.
 ///
 /// ## Ce que ça change pour l'utilisateur
 ///
@@ -37,7 +55,8 @@
 /// ne décide d'aucun palier. Ici il ne fait que passer une valeur qu'on lui a
 /// donnée, et cette règle-ci se teste sans radio, sans réseau et sans disque.
 abstract final class PresqueDelai {
-  /// Le délai pour un ami sans palier particulier. C'est la valeur historique.
+  /// Le délai **ajouté** pour un ami sans palier particulier, par-dessus
+  /// l'heure d'attente que le presque impose déjà par construction.
   static const ami = Duration(minutes: 45);
 
   /// Un proche : assez court pour être utile, assez long pour ne pas être un

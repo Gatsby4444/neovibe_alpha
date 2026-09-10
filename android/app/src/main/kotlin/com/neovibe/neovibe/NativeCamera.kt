@@ -7,7 +7,6 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Matrix
 import android.graphics.Paint
-import android.graphics.Rect
 import android.hardware.camera2.CameraCaptureSession
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.TotalCaptureResult
@@ -958,7 +957,7 @@ class NativeCamera(
         ) {
             sample *= 2
         }
-        var bitmap = BitmapFactory.decodeFile(
+        val bitmap = BitmapFactory.decodeFile(
             sourcePath,
             BitmapFactory.Options().apply { inSampleSize = sample },
         ) ?: throw IllegalStateException("image illisible : $sourcePath")
@@ -975,33 +974,56 @@ class NativeCamera(
             ExifInterface.ORIENTATION_ROTATE_270 -> 270f
             else -> 0f
         }
-        if (degrees != 0f) {
-            val rotated = Bitmap.createBitmap(
-                bitmap, 0, 0, bitmap.width, bitmap.height,
-                Matrix().apply { postRotate(degrees) }, true,
-            )
-            if (rotated != bitmap) bitmap.recycle()
-            bitmap = rotated
-        }
+
+        // 🔴 **LA COPIE TOURNÉE A DISPARU — 2026-09-01.**
+        //
+        // Ce corps fabriquait une seconde bitmap **entière** juste pour tourner
+        // l'image, avant de la recadrer et de la réduire. Sur une photo de
+        // 4000×3000 en ARGB_8888, cette copie pèse **48 Mo**, et elle coexiste
+        // avec l'originale : le pic de la fonction montait à ~110 Mo en HD, et
+        // ~100 Mo en mode normal. Une `OutOfMemoryError` y tue l'app — et elle
+        // tombe sur le fil de fond, donc au pire moment.
+        //
+        // La rotation n'a jamais eu besoin d'exister en pixels : elle se compose
+        // avec le recadrage et la mise à l'échelle dans **une seule matrice**,
+        // appliquée au dessin final. On dessine directement de la photo d'origine
+        // vers la card, tournée, recadrée et réduite en un passage.
+        //
+        // ⚠️ **Le recadrage se calcule dans l'espace TOURNÉ**, pas dans celui de
+        // la photo : c'est le sens dans lequel l'utilisateur a cadré. Inverser
+        // les deux recadrerait au bon ratio dans le mauvais sens, sans rien
+        // lever — l'image serait simplement coupée n'importe comment.
+        val tourne = degrees == 90f || degrees == 270f
+        val vueW = if (tourne) bitmap.height.toFloat() else bitmap.width.toFloat()
+        val vueH = if (tourne) bitmap.width.toFloat() else bitmap.height.toFloat()
 
         // Recadrage centré au ratio de la card, puis mise à l'échelle.
         val ratio = targetWidth.toFloat() / targetHeight
-        var cropW = bitmap.width.toFloat()
-        var cropH = bitmap.height.toFloat()
+        var cropW = vueW
+        var cropH = vueH
         if (cropW / cropH > ratio) cropW = cropH * ratio else cropH = cropW / ratio
-        val src = Rect(
-            ((bitmap.width - cropW) / 2).toInt(),
-            ((bitmap.height - cropH) / 2).toInt(),
-            ((bitmap.width + cropW) / 2).toInt(),
-            ((bitmap.height + cropH) / 2).toInt(),
-        )
+        val cropX = (vueW - cropW) / 2f
+        val cropY = (vueH - cropH) / 2f
+
+        val matrice = Matrix().apply {
+            postRotate(degrees)
+            // Après la rotation, l'image occupe des coordonnées négatives : on la
+            // ramène en (0,0). Ces trois translations sont la définition même de
+            // « tourner autour du coin », rien de plus.
+            when (degrees) {
+                90f -> postTranslate(bitmap.height.toFloat(), 0f)
+                180f -> postTranslate(bitmap.width.toFloat(), bitmap.height.toFloat())
+                270f -> postTranslate(0f, bitmap.width.toFloat())
+            }
+            postTranslate(-cropX, -cropY)
+            postScale(targetWidth / cropW, targetHeight / cropH)
+        }
 
         val card = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
         Canvas(card).drawBitmap(
             bitmap,
-            src,
-            Rect(0, 0, targetWidth, targetHeight),
-            Paint(Paint.FILTER_BITMAP_FLAG),
+            matrice,
+            Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG),
         )
         bitmap.recycle()
 

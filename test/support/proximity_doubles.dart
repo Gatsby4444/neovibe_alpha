@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
 import 'package:flutter/foundation.dart';
+import 'package:neovibe/features/proximity/net/advert_capacity.dart';
 import 'package:neovibe/features/proximity/net/ble_radio.dart';
 import 'package:neovibe/features/proximity/net/radio_status.dart';
 import 'package:neovibe/features/proximity/proximity_identity.dart';
@@ -257,11 +258,30 @@ class RadioFactice implements BleRadio {
   /// Fait échouer le dépôt du plan, pour éprouver le rétablissement.
   bool refusePlan = false;
 
+  /// Combien de fois on a demande a mesurer le plafond d'annonces.
+  ///
+  /// ⚠️ **C'est une SONDE, pas un service** : elle ne doit partir que sur un
+  /// geste explicite. Ce compteur est la pour qu'un appel automatique se voie
+  /// — une mesure qui part toute seule couperait l'emission pour se faire.
+  int mesuresDePlafond = 0;
+
+  /// Ce que la sonde factice rend. Par defaut un refus : un double qui
+  /// **inventerait** un plafond ferait passer un test qui n'a rien mesure.
+  AdvertCapacityResult plafondRendu = const AdvertCapacityRefus(
+    'radio factice — aucune puce a interroger',
+  );
+
   @override
   Stream<RadioEvent> events() => _flux.stream;
 
   @override
   Future<RadioStatus> probe() async => const RadioIdle();
+
+  @override
+  Future<AdvertCapacityResult> advertCapacity() async {
+    mesuresDePlafond++;
+    return plafondRendu;
+  }
 
   /// Le dernier identifiant sur lequel la radio a été démarrée. **C'est la
   /// seule façon de voir ce qu'on crie avant que le plan prenne le relais.**

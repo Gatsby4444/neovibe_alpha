@@ -403,16 +403,6 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         publish(currentStatus())
     }
 
-    /**
-     * Combien de jeux d'annonces on accepte de tenter simultanement.
-     *
-     * ⚠️ **Une borne RAISONNEE, pas mesuree** (2026-08-26). Les controleurs
-     * BLE courants tiennent 4 a 8 jeux ; aucune API ne le dit. Au-dela, on ne
-     * tente meme pas : quelqu'un qui a vingt amis aurait vingt jeux, le
-     * controleur refuserait, et on aurait paye une bascule pour rien. C'est la
-     * premiere valeur a confronter au terrain.
-     */
-    private val maxParallelSets = 6
 
     /**
      * Peut-on esperer emettre [count] jetons en meme temps ?
@@ -422,8 +412,44 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      */
     private fun parallelPossible(count: Int): Boolean =
         System.currentTimeMillis() >= parallelRefusedUntil &&
-            count in 2..maxParallelSets &&
+            count in 2..plafondEffectif &&
             (adapter?.isMultipleAdvertisementSupported == true)
+
+    /**
+     * Le plafond de CET appareil : appris s'il l'a ete, sinon l'hypothese de
+     * depart.
+     *
+     * ⚠️ **Relu a chaque appel, et c'est voulu.** [AdvertCapacityProbe] peut
+     * ecrire dans le magasin depuis un autre fil ; un champ recopie au demarrage
+     * garderait l'ancien chiffre jusqu'au prochain lancement, et la mesure
+     * n'aurait servi a rien avant un redemarrage. La lecture est un
+     * `SharedPreferences` deja en memoire.
+     */
+    private val plafondEffectif: Int
+        get() {
+            val appris = AdvertCapacityStore.lire(context)
+            return if (appris == AdvertCapacityStore.INCONNU) PLAFOND_DE_DEPART
+            else appris
+        }
+
+    /**
+     * La pile a refuse : on retient ce qu'elle a **reellement accorde**.
+     *
+     * [accordes] est le nombre de jeux qui avaient demarre avant le refus. C'est
+     * la seule valeur qu'on ait le droit d'ecrire : elle a ete constatee, pas
+     * deduite d'un modele ni d'une version d'Android.
+     *
+     * ⚠️ **On n'ecrit que vers le BAS, et jamais 0.** Un refus ne prouve pas
+     * qu'on ne peut pas faire mieux un autre jour (pile occupee, autre app qui
+     * annonce) ; il prouve qu'a cet instant, [accordes] ont tenu. Ecrire 0
+     * condamnerait l'appareil au mode cycle pour toujours sur un incident
+     * passager. La sonde manuelle, elle, peut remonter le chiffre.
+     */
+    private fun apprendrePlafond(accordes: Int) {
+        if (accordes < 1) return
+        if (accordes >= plafondEffectif) return
+        AdvertCapacityStore.ecrire(context, accordes)
+    }
 
     /** Le contenu d'une annonce. **Un seul endroit le compose.** */
     private fun advertDataFor(advertId: ByteArray, type: Byte): AdvertiseData =
@@ -574,11 +600,20 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * pouvait donc pas savoir, en lisant un rapport, si un croisement rate
      * venait de la ou d'ailleurs.
      *
-     * ⚠️ **On publie des FAITS, pas un verdict.** `maxParallelSets` reste une
-     * valeur raisonnee et non mesuree : la monter sans releve sur appareil ne
-     * ferait que deplacer la supposition. Ces deux lignes disent ou elle mord.
+     * ⚠️ **On publie des FAITS, pas un verdict.** Ces deux lignes disent ou le
+     * plafond mord, pas si sa valeur est la bonne.
+     *
+     * ⚠️ **Depuis le 2026-09-01, `advertMaxSets` n'est plus une constante** :
+     * c'est ce que CET appareil a appris, ou l'hypothese de depart s'il n'a
+     * encore rien appris. [advertPlafondAppris] dit lequel des deux on lit —
+     * sans quoi un plafond de 10 « jamais essaye » serait indiscernable d'un
+     * plafond de 10 mesure.
      */
-    val advertMaxSets: Int get() = maxParallelSets
+    val advertMaxSets: Int get() = plafondEffectif
+
+    /** Vrai quand [advertMaxSets] vient d'un constat, pas de l'hypothese. */
+    val advertPlafondAppris: Boolean
+        get() = AdvertCapacityStore.lire(context) != AdvertCapacityStore.INCONNU
 
     val advertParallelCooldownMs: Long
         get() = (parallelRefusedUntil - System.currentTimeMillis()).coerceAtLeast(0L)
@@ -658,6 +693,11 @@ class BleEngine(private val context: Context, private val listener: Listener) {
                 return
             }
             if (status != ADVERTISE_SUCCESS || set == null) {
+                // 🔴 **LE SEUL ENDROIT OU LA PUCE DIT SA LIMITE** (2026-09-01).
+                // Aucune API ne la donne : elle ne se connait qu'en essayant, et
+                // c'est ici que l'essai repond. `advertSets.size` est ce qui
+                // avait demarre avant ce refus — un fait, pas une deduction.
+                apprendrePlafond(advertSets.size)
                 fallbackFromParallel("jeu " + index + " refuse (code " + status + ")")
                 return
             }
@@ -784,11 +824,37 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      */
     private val ownTokens = LinkedHashSet<String>()
 
-    private companion object {
-        const val OWN_TOKENS_MAX = 64
+    companion object {
+        private const val OWN_TOKENS_MAX = 64
 
         /** Combien de temps on s'interdit de retenter le mode parallele. */
-        const val PARALLEL_COOLDOWN_MILLIS = 10 * 60 * 1000L
+        private const val PARALLEL_COOLDOWN_MILLIS = 10 * 60 * 1000L
+
+        /**
+         * Par combien de jeux d'annonces on COMMENCE, tant qu'on ne sait rien.
+         *
+         * ## 🔴 Ce n'etait pas ca avant le 2026-09-01
+         *
+         * C'etait `maxParallelSets = 6`, **un plafond en dur** — « une borne
+         * raisonnee, pas mesuree » (2026-08-26). Un seul nombre pour tout le
+         * parc : trop haut, il fait payer un refus a tout le monde ; trop bas,
+         * il prive les bonnes puces de ce qu'elles savent faire. Et il ne
+         * pouvait pas monter, puisqu'on n'essayait jamais au-dela.
+         *
+         * ➡️ **Consigne de Jay** : *« tous les telephones sont differents […] il
+         * faut un systeme automatique qui detecte la capacite de la puce et
+         * ajuste le plafond par telephone. »*
+         *
+         * Le plafond est donc devenu **appris** : on part d'ici, la pile refuse
+         * un jour, et [apprendrePlafond] retient ce qu'elle a reellement
+         * accorde — une fois par appareil, dans [AdvertCapacityStore].
+         *
+         * ⚠️ **Ce nombre n'est plus une limite, c'est une hypothese de depart**,
+         * volontairement haute : une hypothese trop basse ne se corrige jamais
+         * toute seule, faute d'essai qui la contredise. Une hypothese trop haute
+         * coute **un** repli, une seule fois dans la vie de l'appareil.
+         */
+        const val PLAFOND_DE_DEPART = 10
     }
 
     private fun rememberOwnToken(token: ByteArray) {

@@ -791,6 +791,12 @@ class ProximityService : Service(), BleEngine.Listener {
         // annonce un nouveau, et rien d'autre ne le montrait.
         "advertSetsOnAir" to engine.advertSetsOnAir,
         // ⚠️ **POURQUOI on est en cycle, et pas seulement qu'on y est.**
+        // ⚠️ **`advertMaxSets` n'est plus une constante depuis le 2026-09-01** :
+        // c'est ce que CET appareil a appris de sa puce. `advertPlafondAppris`
+        // dit si le chiffre a ete constate ou s'il n'est encore que l'hypothese
+        // de depart — sans cette seconde ligne, un plafond jamais essaye serait
+        // indiscernable d'un plafond mesure.
+        "advertPlafondAppris" to engine.advertPlafondAppris,
         // Voir [BleEngine.advertMaxSets] : `advertTokensPerSlot` au-dessus de
         // `advertMaxSets` = le plafond (donc des 5 amis avec la decouverte
         // allumee) ; un `advertParallelCooldownMs` non nul = un refus de la

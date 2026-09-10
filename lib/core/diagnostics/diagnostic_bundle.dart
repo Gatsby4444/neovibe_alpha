@@ -132,9 +132,15 @@ class DiagnosticBundle {
   /// en cours : le premier rapport envoyé par Jay depuis la tablette ne
   /// contenait donc **rien** sur le ping. Une section manquante ne se voit pas
   /// dans un rapport — on lit ce qui est là, jamais ce qui n'y est pas.
-  static Future<String> proximity() async {
+  ///
+  /// ⚠️ **La radio arrive par l'appelant, elle ne se construit pas ici.**
+  /// Ce collecteur était le dernier des quatre `BleRadio()` que le provider du
+  /// 2026-08-28 devait supprimer : le commentaire de `bleRadioProvider` énonçait
+  /// donc une règle qu'un fichier contredisait, en silence. Relevé et corrigé le
+  /// 2026-09-01.
+  static Future<String> proximity(BleRadio radio) async {
     try {
-      final stats = await BleRadio().stats();
+      final stats = await radio.stats();
       final buffer = StringBuffer();
 
       // ⚠️ **Tout ce que le natif publie, sans liste à tenir à jour.**
@@ -175,6 +181,7 @@ class DiagnosticBundle {
         // Sans ces deux nombres, un croisement raté à six amis était
         // indiscernable d'un croisement raté pour toute autre raison.
         'advertMaxSets',
+        'advertPlafondAppris',
         'advertParallelCooldownMs',
         // ⚠️ **Remontées tout en haut, et pas rangées avec les capacités.** Ce
         // sont les deux lignes qui datent ce que la radio crie vraiment : à 0,
@@ -409,13 +416,17 @@ class DiagnosticBundle {
     return buffer.toString();
   }
 
+  /// [radio] non nul = la section proximité est collectée, et c'est le seul
+  /// moyen de la demander. L'ancien drapeau `proximityState` pouvait valoir
+  /// `true` sans qu'aucune radio ne soit fournie : le collecteur en construisait
+  /// alors une lui-même, ce qui contredisait `bleRadioProvider`.
   static Future<String> build({
+    BleRadio? radio,
     bool device = true,
     bool video = true,
     bool rules = true,
     bool appLog = true,
     bool cameraLog = true,
-    bool proximityState = true,
   }) async {
     final buffer = StringBuffer()
       ..writeln('===== DIAGNOSTIC NEOVIBE =====')
@@ -432,10 +443,10 @@ class DiagnosticBundle {
     // ⚠️ Placée juste après l'appareil, et **avant** les journaux : c'est la
     // section la plus courte et la plus décisive du paquet. Enfouie après
     // 40 000 caractères de journal caméra, elle ne serait jamais lue.
-    if (proximityState) {
+    if (radio != null) {
       buffer
         ..writeln('\n===== PROXIMITÉ — CE QUE LA RADIO A REÇU =====')
-        ..writeln(await proximity())
+        ..writeln(await proximity(radio))
         // ⚠️ **Juste après la radio, et AVANT les journaux.** C'est la section
         // qui dit si les durées de contact se mesurent quand personne ne
         // regarde — enfouie après 40 000 caractères de journal caméra, elle ne

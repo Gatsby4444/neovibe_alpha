@@ -89,10 +89,15 @@ Le ping se coupe et s'allume avec l'interrupteur **« Visible à proximité »**
 2. **C'est le Bluetooth qui prouve que vous êtes vraiment côte à côte** —
    environ **20 mètres**. Sans lui, rien n'est confirmé.
 
-Entre les deux, le serveur applique un **rayon de 300 mètres au minimum**. S'il
-sait mal où vous êtes, ce rayon s'élargit automatiquement de l'incertitude des
-deux téléphones — sinon deux personnes réellement côte à côte pourraient ne
-jamais se voir, juste parce que le GPS s'est trompé.
+Entre les deux, le serveur accepte aussi les **cases voisines**, soit environ
+**1 à 3 km** — sinon deux personnes réellement côte à côte pourraient ne jamais
+se voir, juste parce que le GPS s'est trompé de case.
+
+> **Corrigé le 2026-09-10.** Ce paragraphe annonçait un « rayon de 300 mètres au
+> minimum ». **Cette règle n'existe plus depuis le 2026-08-28** : les fonctions
+> qui la portaient (`ping_reach`, `ping_radius_min`) ont été supprimées et
+> remplacées par le voisinage de cases (`ping_plausible`). Vérifié en base le
+> 2026-09-10.
 
 > **⚠️ Si tu n'autorises que la position approximative**, Android répond à
 > environ 3 km près : la découverte d'inconnus ne fonctionne alors **pas du

@@ -2,15 +2,18 @@
 
 ## Positionnement
 
-NeoVibe est un réseau social qui cherche à **retrouver de l'authenticité et du réel dans les échanges en ligne**, contre le contenu vide et les échanges sans valeur parce que trop faciles (le snap envoyé à tout le monde). L'app mise sur **l'exclusivité et la valeur des relations, pas sur leur quantité** : c'est l'app sur laquelle on discute avec ses amis proches ou ses camarades de classe, ceux qu'on voit tous les jours. Positionnement visé : le juste milieu entre **fun et pratique**, avec un maximum d'authenticité. Concurrent direct de référence : **Snapchat** (caméra-first, éphémère, cercles restreints) — pas Meta.
+NeoVibe est un réseau social qui cherche à **retrouver de l'authenticité et du réel dans les échanges en ligne**, contre le contenu vide et les échanges sans valeur parce que trop faciles (le snap envoyé à tout le monde). L'app mise sur **l'exclusivité et la valeur des relations.
+Concurrent direct de référence : **Snapchat** (caméra-first, éphémère, cercles restreints) — pas Meta.
+
+Les réseaux 
 
 **La présence physique est le mécanisme d'entrée** dans le réseau : on ajoute quelqu'un en ami par proximité BLE, ou par recommandation d'un ami commun quand la rencontre physique est impossible. C'est la barrière fondatrice.
 
 **Corollaire à ne jamais perdre de vue** : une barrière sans contrepartie ne retient personne. Si l'accès au chat est plus difficile ici qu'ailleurs, les utilisateurs vont ailleurs. **Il faut donc donner une légitimité aux barrières sociales** en rendant l'app utile, fun et vivante — c'est la moitié du produit qui reste à construire (voir `docs/vision-produit.md`).
 
-**Ajout du 2026-08-13 — « l'Apple des réseaux sociaux »** : interface **claire et épurée mais qui reste cool**, et **contrôle total de l'écosystème** — *« ce qui se passe sur NeoVibe reste sur NeoVibe »*. C'est la raison d'être du chiffrement et de la livraison sécurisée des médias : ce ne sont pas des précautions d'ingénieur, c'est cette phrase rendue vraie. Conséquence directe : **un média déchiffré écrit en clair sur le disque est un manquement à la promesse**, pas un détail d'implémentation. Corollaire de méthode : la bonne réponse est **le défaut juste, pas l'option supplémentaire** — sans quoi « contrôle total » et « épuré » se contredisent. Détail dans `docs/vision-produit.md` §1.
+« l'Apple des réseaux sociaux » : interface **claire et épurée mais qui reste cool**, et **contrôle total de l'écosystème** — *« ce qui se passe sur NeoVibe reste sur NeoVibe »*. C'est la raison d'être du chiffrement et de la livraison sécurisée des médias: ce ne sont pas des précautions d'ingénieur, c'est cette phrase rendue vraie. Conséquence directe : **un média déchiffré écrit en clair sur le disque est un manquement à la promesse**, pas un détail d'implémentation. Corollaire de méthode : la bonne réponse est **le défaut juste, pas l'option supplémentaire** — sans quoi « contrôle total » et « épuré » se contredisent. Détail dans `docs/vision-produit.md`.
 
-⚠️ **Périmètre de cette phrase — précision de Jay, 2026-08-20.** Elle désigne **la difficulté de faire fuiter du CONTENU NeoVibe vers l'extérieur** : format card, anti-capture, livraison scellée. Ce n'est **pas** un argument sur les métadonnées côté serveur (qui croise qui, qui parle à qui). Ne pas la ressortir pour peser sur un arbitrage de ce type — les arbitrages sur les métadonnées se posent pour eux-mêmes, avec leur coût réel et leur rétention.
+**Périmètre de cette phrase — précision de Jay, 2026-08-20.** Elle désigne **la difficulté de faire fuiter du CONTENU NeoVibe vers l'extérieur** : format card, anti-capture, livraison scellée. Ce n'est **pas** un argument sur les métadonnées côté serveur (qui croise qui, qui parle à qui). Ne pas la ressortir pour peser sur un arbitrage de ce type — les arbitrages sur les métadonnées se posent pour eux-mêmes, avec leur coût réel et leur rétention.
 
 Grille de décision, à appliquer à toute fonctionnalité : **soit elle passe par la présence physique, soit elle augmente la valeur d'une relation existante.** Si elle ne fait ni l'un ni l'autre, c'est du remplissage — exactement le mal qu'on combat. En cas de doute, trancher en faveur de l'authenticité de la relation, même si c'est moins pratique à développer.
 

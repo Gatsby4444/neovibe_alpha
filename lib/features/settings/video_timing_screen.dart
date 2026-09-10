@@ -36,10 +36,11 @@ class _VideoTimingScreenState extends State<VideoTimingScreen> {
       appLog: false,
       cameraLog: false,
       // ⚠️ **Un rapport de timing vidéo n'a rien à dire du ping** (2026-08-28).
-      // Ce drapeau valait son défaut — `true` — alors que les trois autres
-      // étaient coupés : la section proximité voyageait dans un rapport qui ne
-      // la concerne pas, et personne ne l'y cherchait.
-      proximityState: false,
+      // Le drapeau `proximityState` valait son défaut — `true` — alors que les
+      // trois autres étaient coupés : la section proximité voyageait dans un
+      // rapport qui ne la concerne pas, et personne ne l'y cherchait. Depuis le
+      // 2026-09-01 il n'y a plus de drapeau : **ne pas passer de radio, c'est
+      // ne pas collecter la section.** Un oubli ne peut plus la ramener.
     );
     await Clipboard.setData(ClipboardData(text: text));
     if (!mounted) return;

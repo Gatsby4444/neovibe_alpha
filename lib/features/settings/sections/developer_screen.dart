@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/diagnostics/diagnostic_bundle.dart';
+import '../../proximity/net/ble_radio.dart';
 import '../settings_common.dart';
 import 'developer_flags_screen.dart';
 import 'developer_logs_screen.dart';
@@ -102,21 +104,26 @@ class DeveloperScreen extends StatelessWidget {
 /// d'en oublier une — ou de coller la mauvaise. Ici, un seul geste rassemble
 /// l'appareil, la version installée, les mesures vidéo, le journal caméra et
 /// le journal de l'app.
-class _CopyEverythingTile extends StatefulWidget {
+///
+/// ⚠️ **Consommateur, pas cuisinier.** Il lit `bleRadioProvider` et le passe au
+/// collecteur ; c'est ce qui a permis de supprimer le dernier `BleRadio()`
+/// construit à la main (2026-09-01).
+class _CopyEverythingTile extends ConsumerStatefulWidget {
   const _CopyEverythingTile();
 
   @override
-  State<_CopyEverythingTile> createState() => _CopyEverythingTileState();
+  ConsumerState<_CopyEverythingTile> createState() =>
+      _CopyEverythingTileState();
 }
 
-class _CopyEverythingTileState extends State<_CopyEverythingTile> {
+class _CopyEverythingTileState extends ConsumerState<_CopyEverythingTile> {
   var _busy = false;
 
   Future<void> _copy() async {
     setState(() => _busy = true);
     String text;
     try {
-      text = await DiagnosticBundle.build();
+      text = await DiagnosticBundle.build(radio: ref.read(bleRadioProvider));
     } catch (e) {
       // Même en échec, on copie de quoi comprendre l'échec.
       text = 'La collecte a échoué : $e';

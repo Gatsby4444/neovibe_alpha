@@ -272,4 +272,74 @@ void main() {
       );
     });
   });
+
+  group("l'identifiant d'un « tout près » affiché", () {
+    // ⚠️ **Ce que ce groupe défend, et pourquoi il n'existait pas.**
+    //
+    // Jusqu'au 2026-09-01, l'identifiant de la notification « X est juste à
+    // côté » était tiré de l'HEURE. On ne le retrouvait donc pas une seconde
+    // plus tard : `cancel` ne pouvait rien annuler, et la notification restait
+    // affichée longtemps après le départ de l'ami — en affirmant au présent
+    // qu'il était là.
+    //
+    // ⚠️ **Rien n'a jamais levé.** `cancel(unIdInconnu)` réussit : Android
+    // n'a simplement rien à retirer. Le défaut ne se voyait que sur l'écran
+    // verrouillé de Jay, jamais dans un test ni dans un journal.
+
+    test('STABLE : la valeur est FIGÉE, pas seulement égale à elle-même', () {
+      // ⚠️ **Deux appels coup sur coup ne prouvent RIEN.** Vérifié par
+      // contre-test le 2026-09-10 : en remettant l'ancienne version tirée de
+      // l'heure (`microsecondsSinceEpoch`), un test de ce genre restait VERT —
+      // les deux appels tombaient dans la même microseconde. Seul le test
+      // DISTINCT tombait, et par chance.
+      //
+      // Ce qu'il faut vraiment, c'est que la valeur survive à un REDÉMARRAGE de
+      // l'app : la notification, elle, est affichée par Android et lui survit.
+      // D'où une constante écrite en dur — le seul moyen de se comparer à une
+      // exécution précédente.
+      //
+      // ⚠️ **Si ce test casse après une montée du SDK Dart**, ce n'est pas lui
+      // qui a tort : c'est que `String.hashCode` a cessé d'être déterministe,
+      // et que l'annulation des « tout près » est morte en silence. Il faudra
+      // alors une empreinte à nous (SHA-256 tronqué).
+      // Vérifié le 2026-09-10 sur trois exécutions distinctes du VM Dart.
+      expect(
+        WaveRules.idToutPres('u-charles'),
+        0x0F000000 | 284922309 & 0xFFFFFF,
+      );
+      expect(WaveRules.idToutPres('u-mimi'), 0x0F000000 | 686449663 & 0xFFFFFF);
+    });
+
+    test('DISTINCT : deux amis ne partagent pas le même identifiant', () {
+      // Sans ça, le départ de l'un efface la notification de l'autre.
+      expect(
+        WaveRules.idToutPres('u-charles'),
+        isNot(WaveRules.idToutPres('u-mimi')),
+      );
+    });
+
+    test("BORNÉ : l'identifiant tient dans un entier 32 bits POSITIF", () {
+      // Android veut un `int` Java. Un identifiant négatif ou trop grand est
+      // refusé à l'affichage — donc pas de notification du tout, sans erreur
+      // côté Dart.
+      for (final id in ['u-a', 'u-b', 'u-charles', 'u-mimi', '', 'u-' * 40]) {
+        final n = WaveRules.idToutPres(id);
+        expect(n, greaterThan(0), reason: 'négatif pour « $id »');
+        expect(n, lessThan(0x7FFFFFFF), reason: 'hors bornes pour « $id »');
+      }
+    });
+
+    test("RÉSERVÉ : il reste dans l'espace des waves, quel que soit l'ami", () {
+      // Le préfixe sépare les waves des autres notifications de l'app. S'il
+      // sautait, une wave pourrait annuler une notification qui n'est pas à
+      // elle — et le contraire.
+      for (final id in ['u-a', 'u-charles', '', 'u-' * 40]) {
+        expect(
+          WaveRules.idToutPres(id) >> 24,
+          0x0F,
+          reason: 'préfixe perdu pour « $id »',
+        );
+      }
+    });
+  });
 }

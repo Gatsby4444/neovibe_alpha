@@ -89,6 +89,22 @@ class ProximityBridge(
                     result.success(null)
                 }
 
+                // 📏 **La MESURE du plafond d'annonces simultanees** (2026-09-01,
+                // `RAPPELS.md` #113). Voir [AdvertCapacityProbe] pour ce qu'elle
+                // mesure — et surtout pour ce qu'elle ne mesure pas.
+                //
+                // ⚠️ **Sur un fil de fond, obligatoirement.** Les rappels
+                // d'annonce arrivent sur le fil principal : attendre la reponse
+                // ici bloquerait celui-la meme qui doit la delivrer, et la sonde
+                // rendrait « expire » a chaque fois — un instrument qui mesure
+                // sa propre attente.
+                "advertCapacity" -> {
+                    Thread {
+                        val mesure = AdvertCapacityProbe.mesure(context)
+                        main.post { result.success(mesure) }
+                    }.start()
+                }
+
                 // ⚠️ **Les réglages de LOCALISATION du système, pas ceux de
                 // l'app.** Aucune permission ne remplace l'interrupteur : sur
                 // Android 10 et 11, c'est le service lui-même qu'il faut

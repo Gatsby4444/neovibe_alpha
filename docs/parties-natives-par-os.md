@@ -541,6 +541,24 @@ implémentation du même accord, sans point de contact, est une divergence promi
   `AdvertOnAirTest.kt`, dont deux nés d'un **contre-test** (défaut réintroduit,
   aucun test ne tombait).
 
+- **`AdvertCapacityProbe.kt`** — *(nouveau, 2026-09-01)* **combien de jeux
+  d'annonces le contrôleur accepte réellement**. Il en demande un par un, avec
+  les paramètres exacts de la production, et compte ceux que la pile démarre.
+  🔴 **Il existe parce qu'aucune API Android ne donne ce nombre.**
+  `BleEngine.MAX_PARALLEL_SETS = 6` était une borne *raisonnée* : au-delà, on
+  retombe en mode cycle, où le jeton d'un ami n'est en l'air que 1/N du temps.
+  La sonde remplace la supposition par un relevé (`RAPPELS.md` #113).
+  ⚠️ **Elle refuse de tourner pendant que le service émet** — sinon elle
+  mesurerait la capacité *restante*, un chiffre plus petit et indiscernable du
+  vrai. Et **elle n'émet aucun jeton NeoVibe** : son en-tête n'est pas `NV`.
+  ⚠️ **Bloquante, donc appelée hors du fil principal** (`ProximityBridge`) : les
+  rappels d'annonce arrivent sur le fil principal, l'y attendre reviendrait à
+  mesurer sa propre attente.
+  ⚠️ **À porter sur iOS** — et la réponse y sera probablement « un seul jeu » :
+  `CBPeripheralManager` n'expose pas d'annonces multiples. C'est exactement le
+  genre d'écart qu'on veut connaître avant le portage, pas pendant.
+  Méthode de canal : `advertCapacity`.
+
 ⚠️ **Cinq compteurs de diagnostic remontent par `stats()`** et doivent rester
 visibles même à zéro — le jour où ils montent, ils expliquent une détection
 fantôme que rien d'autre n'expliquerait :

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'advert_capacity.dart';
 import 'peer_session.dart';
 import 'radio_status.dart';
 
@@ -51,6 +52,30 @@ class BleRadio {
       _methods.invokeMethod('start', {'advertId': advertId});
 
   Future<void> stop() => _methods.invokeMethod('stop');
+
+  /// 📏 **Combien de jeux d'annonces cette puce accepte-t-elle vraiment ?**
+  ///
+  /// Le mode « parallèle » donne à chaque ami son propre jeu d'annonces. Au-delà
+  /// d'un certain nombre le contrôleur refuse, et l'app retombe en mode cycle,
+  /// où le jeton d'un ami n'est en l'air que 1/N du temps. Ce nombre était
+  /// **supposé** (6) faute d'API pour le demander : cette mesure le remplace par
+  /// un fait (`RAPPELS.md` #113).
+  ///
+  /// ⚠️ **Elle exige que la radio soit ARRÊTÉE.** Sinon on mesurerait la
+  /// capacité restante, pas le plafond — un chiffre plus petit, indiscernable du
+  /// vrai. Le natif refuse alors, avec sa raison.
+  ///
+  /// ⚠️ **Elle ne dit rien de ce que le voisin reçoit** : ça, il faut un second
+  /// appareil.
+  Future<AdvertCapacityResult> advertCapacity() async {
+    final raw = await _methods.invokeMapMethod<Object?, Object?>(
+      'advertCapacity',
+    );
+    if (raw == null) {
+      return const AdvertCapacityRefus('aucune réponse du natif');
+    }
+    return AdvertCapacity.fromMap(raw);
+  }
 
   /// **Je suis vivant, et je veux toujours être découvrable.**
   ///
