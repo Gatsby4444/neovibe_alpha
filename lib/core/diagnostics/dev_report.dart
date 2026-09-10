@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../supabase_providers.dart';
-import '../../features/proximity/net/ble_radio.dart';
 import 'diagnostic_bundle.dart';
 
 /// Envoi d'un rapport de diagnostic au serveur.
@@ -41,6 +40,19 @@ class DevReport {
   ///
   /// On garde la **FIN** du texte : un journal se lit par ce qui vient de se
   /// passer, pas par son démarrage.
+  ///
+  /// ## ⚠️ Ce n'est plus qu'un FILET depuis le 2026-09-11
+  ///
+  /// Les envois réels étaient à **408 125 caractères sur 409 600** — 99,6 %.
+  /// Et couper ici aurait supprimé **le début** du paquet, c'est-à-dire les
+  /// sections courtes et décisives (radio, présences, connexions, position) que
+  /// [DiagnosticBundle] place délibérément en tête. Deux règles justes chacune
+  /// de son côté, qui se contredisaient en silence.
+  ///
+  /// La place est désormais bornée **par journal** et à la source
+  /// (`DiagnosticBundle.maxLogChars`). Ce plafond-ci ne devrait plus jamais
+  /// servir : s'il sert, c'est qu'une section structurée a grossi anormalement,
+  /// et **c'est ça qu'il faut aller regarder**.
   static const maxBodyChars = 400 * 1024;
 
   /// Envoie une section, ou le paquet complet.
@@ -78,11 +90,28 @@ class DevReport {
     });
   }
 
+  /// Le paquet complet, **collecté et rendu tel quel**.
+  ///
+  /// ⚠️ **C'est ce que l'écran doit appeler, jamais [DiagnosticBundle]
+  /// directement.** Règle du projet : un écran ne parle ni au disque, ni au
+  /// natif, ni au réseau — il demande à un dépôt. Et surtout, ça garantit que
+  /// le bouton « tout copier » et le bouton « tout envoyer » rendent
+  /// **exactement le même texte** : deux collectes qui divergent, c'est un
+  /// rapport collé qui ne correspond pas au rapport envoyé, et deux heures
+  /// perdues à chercher pourquoi.
+  Future<String> collect() => DiagnosticBundle.everything(ref);
+
   /// Le paquet complet — l'équivalent du bouton « Tout copier », mais envoyé.
   Future<void> sendEverything({String? note}) async {
     String body;
     try {
-      body = await DiagnosticBundle.build(radio: ref.read(bleRadioProvider));
+      // ⚠️ **[DiagnosticBundle.everything], jamais [DiagnosticBundle.build].**
+      // `build` prend ses sections en OPTION : une zone oubliee ici serait
+      // simplement absente du rapport, sans que rien ne le signale — et on
+      // conclurait sur un paquet incomplet en le croyant complet. `everything`
+      // ne laisse rien a choisir, et c'est le seul endroit a toucher quand une
+      // nouvelle zone de diagnostic apparait.
+      body = await DiagnosticBundle.everything(ref);
     } catch (e) {
       // Même en échec, on envoie de quoi comprendre l'échec : un rapport vide
       // n'apprend rien, un rapport qui dit pourquoi il est vide, si.

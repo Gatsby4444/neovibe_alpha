@@ -1,7 +1,13 @@
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../prefs.dart';
 import '../video/video_open_trace.dart';
+import '../content/content_media_cache.dart';
+import '../content/saved_store.dart';
+import '../../features/cards/card_media_cache.dart';
 import '../../features/cards/native_camera.dart';
+import '../../features/library_vibes/library_vault_cache.dart';
 import 'app_log.dart';
 import 'card_rules_trace.dart';
 
@@ -437,6 +443,166 @@ class DiagnosticBundle {
   /// moyen de la demander. L'ancien drapeau `proximityState` pouvait valoir
   /// `true` sans qu'aucune radio ne soit fournie : le collecteur en construisait
   /// alors une lui-même, ce qui contredisait `bleRadioProvider`.
+  // ------------------------------------------------------------------
+  // La place que chaque journal a le droit de prendre
+  // ------------------------------------------------------------------
+
+  /// Ce qu'un journal peut occuper dans le paquet, au maximum.
+  ///
+  /// ## 🔴 Le défaut que ceci supprime — relevé le 2026-09-11
+  ///
+  /// Les envois réels étaient **à 408 125 caractères pour un plafond de
+  /// 409 600** : 99,6 %. Le prochain rapport un peu plus bavard se faisait
+  /// couper.
+  ///
+  /// ⚠️ **Et il se serait fait couper par le mauvais bout.** [DevReport]
+  /// tronque en gardant la **FIN** du texte — ce qui est juste pour un journal,
+  /// qui se lit par ce qui vient de se passer. Mais le paquet, lui, place
+  /// délibérément les sections **courtes et décisives en TÊTE** (radio,
+  /// présences, connexions, position), précisément parce qu'enfouies après
+  /// 40 000 caractères de journal caméra elles ne seraient jamais lues.
+  ///
+  /// Les deux règles se contredisaient donc en silence : le jour où le plafond
+  /// serait atteint, la troncature aurait supprimé **exactement les sections
+  /// qu'on avait pris soin de mettre en premier**, et le rapport serait arrivé
+  /// amputé sans que rien ne l'indique — un paquet incomplet qu'on aurait lu
+  /// comme complet.
+  ///
+  /// ➡️ On borne donc **chaque journal séparément**, à la source. Les sections
+  /// structurées ne peuvent plus être poussées dehors par un journal bavard, et
+  /// le plafond global de [DevReport] redevient ce qu'il aurait toujours dû
+  /// être : un filet, pas le mécanisme.
+  static const maxLogChars = 120 * 1024;
+
+  /// Garde la **fin** de [texte] — un journal se lit par ce qui vient de se
+  /// passer — et **dit qu'il a coupé**. Un journal tronqué en silence se lit
+  /// comme un journal complet : on conclut alors que « ça n'est jamais arrivé »
+  /// alors que la ligne est simplement tombée.
+  static String bornerJournal(String texte) {
+    if (texte.length <= maxLogChars) return texte;
+    final retires = texte.length - maxLogChars;
+    return '[...] $retires caracteres plus anciens retires de ce journal\n'
+        '${texte.substring(retires)}';
+  }
+
+  // ------------------------------------------------------------------
+  // Les trois zones qui ne remontaient PAS — ajoutées le 2026-09-11
+  // ------------------------------------------------------------------
+
+  /// **Dans quel état étaient les interrupteurs de test ?**
+  ///
+  /// ⚠️ **Sans cette section, tout le reste du paquet est ambigu.** « Forcer la
+  /// vue simple Oneshot » resté allumé explique à lui seul un double live qui
+  /// ne s'ouvre jamais — et rien, nulle part ailleurs dans le rapport, ne
+  /// permettait de le savoir. On aurait cherché un défaut là où il y a un
+  /// réglage. C'est la famille exacte « un instrument qui ne dit pas dans
+  /// quelles conditions il a mesuré ».
+  static String devFlags(Ref ref) {
+    final lignes = <String, bool>{
+      'Anti-capture (FLAG_SECURE)': ref.read(devSecureEnabledProvider),
+      'Compte a rebours visible': ref.read(devShowExpiryProvider),
+      'Diagnostic camera sur l apercu': ref.read(devCameraHudProvider),
+      'Forcer la vue simple Oneshot': ref.read(devDualOneshotProvider),
+    };
+    return lignes.entries
+        .map((e) => '${e.key.padRight(32)} : ${e.value ? 'OUI' : 'non'}')
+        .join('\n');
+  }
+
+  /// **Ce que la caméra sait faire ici, et ce qu'elle a déjà raté.**
+  ///
+  /// ## 🔴 Pourquoi cette section existe — 2026-09-11
+  ///
+  /// Signalement de Jay du 2026-09-10 : le double live du Oneshot ne s'active
+  /// qu'au deuxième passage. Or le paquet de diagnostic ne portait **aucune**
+  /// trace de l'état du double flux — ni s'il avait été tenté, ni s'il avait
+  /// échoué, ni si l'app se l'était interdit pour le reste de la session. La
+  /// question de Jay ne pouvait donc pas être répondue par un rapport.
+  ///
+  /// ⚠️ **[NativeCameraController.dualFailedThisSession] est un verrou à sens
+  /// unique** : posé par n'importe quel échec, y compris passager, et jamais
+  /// relâché avant le redémarrage de l'app. À `OUI`, le Oneshot ne retentera
+  /// **plus rien** — et le journal caméra, plus bas, dit pourquoi il a été posé.
+  ///
+  /// ⚠️ **Le service caméra d'Android peut tomber** après certains échecs
+  /// (`cameraIdList` devient vide). Un appareil dans cet état échoue pour une
+  /// raison qui n'a aucun rapport avec le code qu'on est en train de lire.
+  static Future<String> cameraCaps() async {
+    final buffer = StringBuffer()
+      ..writeln(
+        'double live deja refuse cette session : '
+        '${NativeCameraController.dualFailedThisSession ? 'OUI' : 'non'}',
+      );
+    try {
+      final vivant = await NativeCameraController.isCameraServiceAlive();
+      buffer.writeln(
+        'service camera d Android vivant       : ${vivant ? 'oui' : 'NON'}',
+      );
+    } catch (e) {
+      buffer.writeln(
+        'service camera d Android vivant       : (illisible : $e)',
+      );
+    }
+    return buffer.toString().trimRight();
+  }
+
+  /// **Ce que l'app occupe sur le téléphone**, par contexte de diffusion.
+  ///
+  /// ⚠️ **Les contextes restent SÉPARÉS ici aussi.** Les sauvegardes sont des
+  /// octets en clair, permanents, sans clé ni règle de visionnage ; les copies
+  /// de Vibes et les scellés de bibliothèque obéissent à d'autres cycles de
+  /// vie. Un total unique masquerait exactement ce qui les distingue — et un
+  /// quota qui déborde ne se lit que par celui qui déborde.
+  static Future<String> storage(Ref ref) async {
+    try {
+      final vibes = await ref.read(cardMediaCacheProvider).usage();
+      final contenus = await ref.read(contentMediaCacheProvider).usage();
+      final saved = await ref.read(savedStoreProvider).usedBytes();
+      final vault = await ref.read(libraryVaultCacheProvider).usageBytes();
+      final quotaMo = ref.read(ownCardsQuotaMbProvider);
+      return [
+        'mes Vibes (copies locales) : ${_mo(vibes.ownBytes)} / quota $quotaMo Mo',
+        'Vibes recues               : ${_mo(vibes.othersBytes)}',
+        'contenus — a moi           : ${_mo(contenus.ownBytes)}',
+        'contenus — aux autres      : ${_mo(contenus.othersBytes)}',
+        'sauvegardes (EN CLAIR)     : ${_mo(saved)}',
+        'scelles de bibliotheque    : ${_mo(vault)}',
+        'emplacement                : ${vibes.path}',
+      ].join('\n');
+    } catch (e) {
+      return '(illisible : $e)';
+    }
+  }
+
+  static String _mo(int octets) =>
+      '${(octets / (1024 * 1024)).toStringAsFixed(1)} Mo';
+
+  /// **LE paquet complet — le bouton « un clic » de Jay.**
+  ///
+  /// ## ⚠️ Pourquoi ceci existe EN PLUS de [build]
+  ///
+  /// [build] prend ses sections en option, et c'est voulu : un écran ciblé ne
+  /// doit pas embarquer tout le reste. Mais l'envoi « tout » passait par ce
+  /// même appel à options, et **une section oubliée n'y laissait aucune
+  /// trace** — le rapport arrivait simplement plus court, et rien ne disait
+  /// qu'il manquait quelque chose. Un rapport incomplet qui ne se signale pas
+  /// est pire qu'un rapport absent : on conclut dessus.
+  ///
+  /// ➡️ Ici, **il n'y a rien à choisir**. C'est le seul point d'entrée de
+  /// l'envoi complet, et **le seul endroit à modifier** quand une nouvelle zone
+  /// de diagnostic apparaît : un ajout fait ici arrive dans le rapport de Jay
+  /// sans qu'aucun appelant n'ait à être touché.
+  static Future<String> everything(Ref ref) async {
+    final buffer = StringBuffer(await build(radio: ref.read(bleRadioProvider)))
+      ..writeln('\n===== INTERRUPTEURS DE TEST =====')
+      ..writeln(devFlags(ref))
+      ..writeln('\n===== CAMERA — CAPACITES ET ECHECS =====')
+      ..writeln(await cameraCaps())
+      ..writeln('\n===== STOCKAGE LOCAL =====')
+      ..writeln(await storage(ref));
+    return buffer.toString();
+  }
+
   static Future<String> build({
     BleRadio? radio,
     bool device = true,
@@ -496,7 +662,9 @@ class DiagnosticBundle {
       buffer.writeln('\n===== JOURNAL CAMÉRA =====');
       try {
         final log = await NativeCameraController.readLog();
-        buffer.writeln(log.trim().isEmpty ? '(vide)' : log.trim());
+        buffer.writeln(
+          log.trim().isEmpty ? '(vide)' : bornerJournal(log.trim()),
+        );
       } catch (e) {
         buffer.writeln('(illisible : $e)');
       }
@@ -506,7 +674,9 @@ class DiagnosticBundle {
       buffer.writeln('\n===== JOURNAL DE L\'APP =====');
       try {
         final log = await AppLog.instance.readAll();
-        buffer.writeln(log.trim().isEmpty ? '(vide)' : log.trim());
+        buffer.writeln(
+          log.trim().isEmpty ? '(vide)' : bornerJournal(log.trim()),
+        );
       } catch (e) {
         buffer.writeln('(illisible : $e)');
       }

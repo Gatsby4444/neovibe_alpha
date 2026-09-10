@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/diagnostics/diagnostic_bundle.dart';
-import '../../proximity/net/ble_radio.dart';
+import '../../../core/diagnostics/dev_report.dart';
 import '../settings_common.dart';
 import 'developer_flags_screen.dart';
 import 'developer_logs_screen.dart';
@@ -123,7 +122,12 @@ class _CopyEverythingTileState extends ConsumerState<_CopyEverythingTile> {
     setState(() => _busy = true);
     String text;
     try {
-      text = await DiagnosticBundle.build(radio: ref.read(bleRadioProvider));
+      // ⚠️ **On passe par le depot, pas par le collecteur.** Un ecran ne
+      // collecte pas : il demande. Et c'est ce qui garantit que « tout copier »
+      // et « tout envoyer » rendent EXACTEMENT le meme texte — deux collectes
+      // qui divergent, c'est un rapport colle qui ne correspond pas au rapport
+      // envoye.
+      text = await ref.read(devReportProvider).collect();
     } catch (e) {
       // Même en échec, on copie de quoi comprendre l'échec.
       text = 'La collecte a échoué : $e';
