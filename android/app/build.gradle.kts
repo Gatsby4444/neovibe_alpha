@@ -102,6 +102,24 @@ android {
         //
         // 3000 laisse la place à un éventuel retour au découpage (arm64 vaudrait
         // alors 2000 + 3000 = 5000, toujours croissant).
+        //
+        // 🔴 **CE RETOUR A EU LIEU LE 2026-09-11 (v0.9.174), ET LE PIÈGE A
+        // CHANGÉ DE SENS.** À la demande de Jay (économie de 4G), les builds de
+        // test repartent en `--split-per-abi` et on ne livre que
+        // `app-arm64-v8a-release.apk` : 33,5 Mo au lieu de 90,5.
+        // Relevé à l'`aapt` sur les trois artefacts, pas recopié :
+        // armeabi-v7a **+1000**, arm64-v8a **+2000**, x86_64 **+4000**
+        // (4048 / 5048 / 7048 pour un `versionCode` de base de 3048).
+        //
+        // ⚠️ Ce n'est donc plus « passer au découpage » qui casse, c'est
+        // **REVENIR à l'APK complet** : un complet en `0.9.175+3049` vaudrait
+        // 3049, soit MOINS que le 5048 installé, et Android le refuserait avec
+        // le même `INSTALL_FAILED_VERSION_DOWNGRADE (-25)` — sans que le build
+        // ne signale quoi que ce soit. Le retour au complet ne redevient
+        // possible qu'au-delà de la 0.10.x (base > 5048).
+        //
+        // ➡️ **On reste en découpé, arm64, jusqu'à nouvel ordre de Jay.**
+        // Commande : `flutter build apk --release --split-per-abi`.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
