@@ -19,6 +19,7 @@ import '../../core/theme.dart';
 import '../library_vibes/library_share_screen.dart';
 import '../library_vibes/library_target.dart';
 import 'capture_tools.dart';
+import 'capture_type_state.dart';
 import 'face_background.dart';
 import 'face_editor_screen.dart';
 import 'camera_controls.dart';
@@ -94,9 +95,17 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// affiche un cadre d'attente au lieu d'un écran noir.
   var _dualOpening = false;
 
-  /// Type que la CAMÉRA sert actuellement (≠ [_type] tant que le sélecteur
-  /// n'est pas posé) + minuterie de stabilisation du sélecteur.
-  late CardType _cameraType = _type;
+  /// Ce que le sélecteur affiche ↔ ce que la caméra sert, + la minuterie de
+  /// stabilisation du sélecteur.
+  ///
+  /// ⚠️ **Construit dans [initState], jamais par un initialiseur de champ.**
+  /// Ce champ portait `late CardType _cameraType = _type;` — un `late` avec
+  /// initialiseur n'est évalué qu'au PREMIER ACCÈS, et le premier accès avait
+  /// lieu dans la comparaison « c'est déjà ce que je sers », donc APRÈS que le
+  /// sélecteur avait déjà bougé. Le premier passage en Oneshot n'atteignait
+  /// jamais la caméra (Jay, 2026-09-11 — `RAPPELS.md` #125).
+  /// Détail complet et test : [CaptureTypeState].
+  late final CaptureTypeState _types;
   Timer? _typeSettle;
 
   /// **Type FIGÉ de la card, verrouillé au déclenchement.**
@@ -175,7 +184,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   var _busy = false; // capture ou bascule caméra en cours
   var _switching = false;
   var _micGranted = false; // son des vidéos (permission micro)
-  late CardType _type = widget.bereal ? CardType.bereal : CardType.standard;
+  /// Le type que le SÉLECTEUR affiche. Ce que la caméra sert vraiment est
+  /// dans `_types.servi` — voir [CaptureTypeState].
+  CardType get _type => _types.affiche;
 
   /// Enregistrement vidéo en cours : appui maintenu sur le déclencheur ;
   /// glisser hors du cercle = verrouillage (doigt libéré), re-tap = stop.
@@ -260,6 +271,13 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   @override
   void initState() {
     super.initState();
+    // Posé ICI, et pas par un initialiseur de champ : `widget` n'y est pas
+    // joignable, et surtout un `late` avec initialiseur se déclenche au
+    // premier ACCÈS — c'est ce décalage qui avalait le premier passage en
+    // Oneshot (voir [CaptureTypeState]).
+    _types = CaptureTypeState.ouvertSur(
+      widget.bereal ? CardType.bereal : CardType.standard,
+    );
     // Le bord à bord n'est PLUS basculé ici : il est posé une fois pour toutes
     // au démarrage (`main.dart`). Le basculer changeait la taille utile de la
     // fenêtre en pleine transition, donc remettait tout l'arbre en page —
@@ -582,20 +600,23 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     // sélecteur est déjà bloqué à l'affichage — ceci est la seconde barrière
     // (un événement de page peut être en vol au moment du déclenchement).
     if (_typeLocked) return;
-    setState(() => _type = type);
+    setState(() => _types.poser(type));
     _typeSettle?.cancel();
     _typeSettle = Timer(const Duration(milliseconds: 350), _applyTypeToCamera);
   }
 
   /// Applique à la caméra le type réellement choisi (une fois posé).
   Future<void> _applyTypeToCamera() async {
-    final type = _type;
-    if (type == _cameraType) return;
     // Une ouverture de double flux est en cours : elle se réaligne toute
-    // seule à la fin (voir la fin de _tryOpenDual).
+    // seule à la fin (voir la fin de _tryOpenDual). Testé AVANT `aAppliquer`,
+    // qui marque le type comme servi et ne doit donc pas être consommé pour
+    // rien.
     if (_dualOpening) return;
-    final previous = _cameraType;
-    _cameraType = type;
+    final change = _types.aAppliquer();
+    if (change == null) return;
+    final type = change.nouveau;
+    // `null` au tout premier changement : la caméra ne sortait d'aucun mode.
+    final previous = change.precedent;
 
     if (type == CardType.oneshot) {
       // Le Oneshot ouvre MAINTENANT le double flux par DÉFAUT (décision Jay,
@@ -611,6 +632,16 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       if (!forceSimple && !NativeCameraController.dualFailedThisSession) {
         await _tryOpenDual();
       } else {
+        // 🔴 **Ce repli était MUET, et ça a coûté une session entière.** Le
+        // 2026-09-11, le Oneshot s'ouvrait en vue simple au premier passage :
+        // le journal ne montrait aucune demande, donc « il n'a pas essayé » et
+        // « il a essayé et échoué » étaient indiscernables. Un chemin qui
+        // décide de ne PAS faire la chose attendue doit le DIRE, et dire
+        // laquelle des deux raisons l'a emporté.
+        await NativeCameraController.log(
+          'Oneshot : double live NON tenté — '
+          '${forceSimple ? 'vue simple forcée (réglage dev)' : 'déjà refusé cette session'}',
+        );
         _showOneshotFallbackNotice();
       }
     } else if (previous == CardType.oneshot && _camera.glDualActive) {
@@ -676,8 +707,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       if (mounted) setState(() => _dualOpening = false);
       // Le sélecteur a pu bouger pendant les quelques secondes d'ouverture :
       // on réaligne la caméra sur le type réellement affiché.
-      if (_type != CardType.oneshot) {
-        _cameraType = _type;
+      if (_types.realigner()) {
         if (_camera.glDualActive) {
           await _camera.closeGlDual();
           await _openWithRetry();

@@ -533,11 +533,20 @@ final devCameraHudProvider = NotifierProvider<DevCameraHud, bool>(
   DevCameraHud.new,
 );
 
-/// Double flux Oneshot en Camera2 brut (EXPÉRIMENTAL, DÉVELOPPEUR).
-/// Désactivé par défaut : le moteur Camera2 dual peut planter/verrouiller la
-/// caméra sur certains appareils (crash remonté par Jay le 2026-07-14). Par
-/// défaut le Oneshot reste sur le mode simple fiable (une caméra affichée,
-/// les deux faces capturées). Interrupteur pour tester le double flux.
+/// **FORCER LA VUE SIMPLE en Oneshot** (DÉVELOPPEUR) — `true` = pas de double
+/// live, `false` (défaut) = double live.
+///
+/// ⚠️ **Le sens de cet interrupteur s'est INVERSÉ en cours de route, et ce
+/// commentaire disait encore l'ancien le 2026-09-11.** À sa création
+/// (2026-07-14, après un crash du moteur Camera2 dual chez Jay) il servait à
+/// *activer* un double flux expérimental, le mode simple étant le défaut. Depuis
+/// la décision de Jay du **2026-07-24**, c'est l'inverse : le Oneshot ouvre le
+/// double flux par défaut, et cet interrupteur ne sert plus qu'à le **couper**
+/// pour tester — voir `card_capture_screen.dart`, `forceSimple`, et le libellé
+/// « Forcer la vue simple Oneshot » de l'écran développeur.
+///
+/// 📌 Une décision juste se périme quand sa prémisse change : le commentaire
+/// restait cohérent et argumenté, et il décrivait l'inverse du code.
 class DevDualOneshot extends Notifier<bool> {
   static const prefsKey = 'dev_dual_oneshot';
 
