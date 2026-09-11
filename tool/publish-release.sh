@@ -39,7 +39,11 @@ SDK="${ANDROID_HOME:-D:/Android/Sdk}"
 BT="$(ls -d "$SDK"/build-tools/*/ | sort -V | tail -1)"
 APKSIGNER="${BT}apksigner.bat"
 AAPT="${BT}aapt2.exe"
-APK="build/app/outputs/flutter-apk/app-release.apk"
+# 🔴 **ARM64 SEUL depuis le 2026-09-11** — voir tool/build-release.sh
+# et RAPPELS.md #25. Le controle 3/4 ci-dessous compare au versionCode de la
+# release precedente : c'est lui qui arretera net toute tentative de revenir
+# a l'APK complet (3049 < 5048), et c'est voulu.
+APK="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
 
 # ⚠️ **Les empreintes ATTENDUES, écrites en dur.** C'est ce qui rend le contrôle
 # indépendant de la build précédente. Elles viennent de `docdev/keystore-README.txt`
@@ -48,7 +52,8 @@ NOUVELLE_CLE="b0aa3fc79e5ddb44337373d62d3d9e9cc69654a18957be5fe95bb2982c508474"
 ANCIENNE_CLE="4df8a044a99356be33b0d51e88c353298a397065b114e16004473808ab573f1a"
 
 echo "== 1/4 l'APK existe-t-il ? =="
-[ -f "$APK" ] || { echo "ARRET : $APK introuvable. Lance d'abord tool/build-release.sh." >&2; exit 1; }
+[ -f "$APK" ] || { echo "ARRET : $APK introuvable. Lance d'abord tool/build-release.sh" >&2;
+  echo "(qui construit avec --split-per-abi depuis le 2026-09-11)." >&2; exit 1; }
 
 echo "== 2/4 la preuve de rotation est-elle là ? =="
 CERTS="$("$APKSIGNER" verify --print-certs "$APK" 2>&1)"
@@ -92,7 +97,7 @@ if [ -n "$PRECEDENT" ]; then
 fi
 
 echo "== 4/4 publication de $TAG ($NOM, versionCode $CODE) =="
-CIBLE="build/neovibe-$TAG.apk"
+CIBLE="build/neovibe-$TAG-arm64.apk"
 cp "$APK" "$CIBLE"
 
 if [ -n "$NOTES" ]; then

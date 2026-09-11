@@ -30,10 +30,14 @@ SDK="${ANDROID_HOME:-D:/Android/Sdk}"
 BT="$(ls -d "$SDK"/build-tools/*/ | sort -V | tail -1)"
 APKSIGNER="${BT}apksigner.bat"
 AAPT="${BT}aapt.exe"
-APK="build/app/outputs/flutter-apk/app-release.apk"
+# 🔴 **ARM64 SEUL depuis le 2026-09-11** (demande de Jay : 33,5 Mo au
+# lieu de 90,5, voir RAPPELS.md #25). Le decoupage decale le versionCode de
+# +2000 sur arm64 : une fois cet APK installe, un APK COMPLET ne s'installe
+# plus par-dessus (il redescendrait sous les 5000). On reste donc en decoupe.
+APK="build/app/outputs/flutter-apk/app-arm64-v8a-release.apk"
 
-echo "== 1/3 construction (la signature se fait DANS Gradle) =="
-flutter build apk --release
+echo "== 1/3 construction decoupee par architecture (signature DANS Gradle) =="
+flutter build apk --release --split-per-abi
 
 echo "== 2/3 vérification de la signature, sur l'artefact =="
 # ⚠️ **On relit le fichier, on ne croit pas la construction.** Gradle vérifie
@@ -57,5 +61,6 @@ echo
 echo "OK. APK prêt : $APK"
 echo "Contrôler AVANT de publier :"
 echo "  - versionCode strictement supérieur à la release précédente"
+echo "  - un APK arm64 (le Xiaomi de Jay) — PAS l'APK complet"
 echo "  - un bloc V3.1 avec CN=NeoVibe (appareils Android 13+)"
 echo "  - un bloc V3.0 avec CN=Android Debug (appareils Android 10-12)"
