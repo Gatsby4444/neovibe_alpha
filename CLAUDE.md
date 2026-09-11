@@ -2,22 +2,176 @@
 
 ## Positionnement
 
-NeoVibe est un réseau social qui cherche à **retrouver de l'authenticité et du réel dans les échanges en ligne**, contre le contenu vide et les échanges sans valeur parce que trop faciles (le snap envoyé à tout le monde). L'app mise sur **l'exclusivité et la valeur des relations.
-Concurrent direct de référence : **Snapchat** (caméra-first, éphémère, cercles restreints) — pas Meta.
+> Réécrit le **2026-09-11** à partir de `NeoVibe_vision.docx` et des précisions
+> de Jay du même jour. Le raisonnement complet est dans
+> `docs/vision-produit.md` ; la version antérieure au 2026-09-11 est conservée
+> telle quelle dans `docs/oldvision.md`.
 
-Les réseaux 
+**Le défaut qu'on attaque.** Les réseaux sociaux actuels sont payés à
+l'attention : leur revenu vient de la publicité, donc leur intérêt est que tu
+restes le plus longtemps possible devant l'écran. Le produit, c'est
+l'utilisateur. Ce modèle pousse au contenu court, consommé **seul et
+passivement** même quand on le partage — un utilisateur qui scrolle est seul
+devant son écran. Des réseaux censés rapprocher les gens finissent par les
+isoler.
 
-**La présence physique est le mécanisme d'entrée** dans le réseau : on ajoute quelqu'un en ami par proximité BLE, ou par recommandation d'un ami commun quand la rencontre physique est impossible. C'est la barrière fondatrice.
+⚠️ **Ce n'est pas un jugement de goût, c'est un mécanisme.** L'ancienne
+formulation (« du contenu vide, des échanges sans valeur parce que trop
+faciles ») décrivait un symptôme contestable — on peut y répondre « moi j'aime
+bien ». Celle-ci décrit une chaîne de cause à effet : publicité → temps passé →
+consommation passive → isolement. On peut construire contre.
 
-**Corollaire à ne jamais perdre de vue** : une barrière sans contrepartie ne retient personne. Si l'accès au chat est plus difficile ici qu'ailleurs, les utilisateurs vont ailleurs. **Il faut donc donner une légitimité aux barrières sociales** en rendant l'app utile, fun et vivante — c'est la moitié du produit qui reste à construire (voir `docs/vision-produit.md`).
+**Ce que NeoVibe fait à la place.** NeoVibe est la **passerelle entre le
+numérique et le réel** : un réseau qui te pousse à sortir, à vivre des choses
+avec tes amis et tes cercles, et à en rapporter le contenu.
 
-« l'Apple des réseaux sociaux » : interface **claire et épurée mais qui reste cool**, et **contrôle total de l'écosystème** — *« ce qui se passe sur NeoVibe reste sur NeoVibe »*. C'est la raison d'être du chiffrement et de la livraison sécurisée des médias: ce ne sont pas des précautions d'ingénieur, c'est cette phrase rendue vraie. Conséquence directe : **un média déchiffré écrit en clair sur le disque est un manquement à la promesse**, pas un détail d'implémentation. Corollaire de méthode : la bonne réponse est **le défaut juste, pas l'option supplémentaire** — sans quoi « contrôle total » et « épuré » se contredisent. Détail dans `docs/vision-produit.md`.
+> **le feed te donne envie → tu sors → tu vis quelque chose → tu le filmes →
+> tu le publies → ça nourrit le feed de quelqu'un d'autre**
 
-**Périmètre de cette phrase — précision de Jay, 2026-08-20.** Elle désigne **la difficulté de faire fuiter du CONTENU NeoVibe vers l'extérieur** : format card, anti-capture, livraison scellée. Ce n'est **pas** un argument sur les métadonnées côté serveur (qui croise qui, qui parle à qui). Ne pas la ressortir pour peser sur un arbitrage de ce type — les arbitrages sur les métadonnées se posent pour eux-mêmes, avec leur coût réel et leur rétention.
+**Cette boucle EST la thèse.** Le contenu n'est pas un **substitut** à
+l'expérience : il en est le **résidu**. Ailleurs on regarde la vie des autres à
+la place de vivre la sienne ; ici on ne peut alimenter le feed qu'en étant
+sorti.
 
-Grille de décision, à appliquer à toute fonctionnalité : **soit elle passe par la présence physique, soit elle augmente la valeur d'une relation existante.** Si elle ne fait ni l'un ni l'autre, c'est du remplissage — exactement le mal qu'on combat. En cas de doute, trancher en faveur de l'authenticité de la relation, même si c'est moins pratique à développer.
+**Le temps passé n'est pas l'ennemi — ce dont il est fait l'est.** Une app sur
+laquelle on passe 30 secondes par jour ne sert à rien (Jay, 2026-09-11). On
+vise donc un engagement réel, mais nourri de contenu que quelqu'un a dû
+**sortir de chez lui** pour produire. Stratégie assumée : *« commencer par jouer
+au jeu des plus grands pour s'immiscer petit à petit dans le système, et une
+fois qu'on a assez d'influence lui faire prendre un virage pour le bien des
+utilisateurs. »*
 
-La vision complète (mécaniques fondatrices, ce qui reste à construire, points de vigilance) est dans **`docs/vision-produit.md`** — à relire en début de session avec `RAPPELS.md` et les derniers rapports.
+---
+
+**La présence physique est le mécanisme d'entrée** dans le réseau : on ajoute
+quelqu'un en ami par proximité BLE, ou par recommandation d'un ami commun quand
+la rencontre physique est impossible. C'est la barrière fondatrice, et elle est
+**confirmée le 2026-09-11** — inchangée.
+
+⚠️ **Ce qu'on découvre, ce sont des ACTIVITÉS, jamais des PERSONNES à ajouter.**
+Les activités des commerçants partenaires et les jeux sont ouverts ; devenir
+ami passe toujours par les deux seules portes ci-dessus. Ce sont deux objets
+distincts avec deux chemins distincts — ne jamais les fusionner.
+
+✅ **Le corollaire de la barrière est enfin résolu.** Il disait : *une barrière
+sans contrepartie ne retient personne ; c'est la moitié du produit qui reste à
+construire.* Cette moitié a désormais un nom — **la contrepartie, c'est le
+réel**. La barrière cesse d'être un péage à faire pardonner : elle devient la
+première marche de la promesse. Il est normal de devoir se rencontrer, puisque
+tout le produit consiste à vous faire vous rencontrer.
+
+---
+
+**Le modèle économique pousse dans le même sens que le produit.** Partenariats
+**directs** avec des commerçants locaux, qui s'intègrent à l'app ; activités
+réservables depuis NeoVibe.
+
+⚠️ **Ce n'est pas de la publicité, c'est une FONCTIONNALITÉ** (mot de Jay) — une
+publicité interrompt ce que tu faisais, une activité réservable **est** ce que
+tu cherchais. **Aucune publicité sur le feed au début.** La publicité classique
+reste prévue, plus tard et au second plan, *« pour rassurer les
+investisseurs »*.
+
+🔴 **Ce que cette distinction engage** : elle ne tient que si un commerçant **ne
+peut pas acheter sa place**. Le jour où payer plus fait remonter dans la liste,
+c'est redevenu de la publicité, quel que soit le nom qu'on lui donne. Le modèle
+cohérent avec la thèse est **la commission sur la réservation** : NeoVibe gagne
+quand quelqu'un sort vraiment.
+
+**Le feed n'est pas infini.** Passé un certain nombre de contenus (ordre de
+grandeur donné par Jay : ~60), **le geste du scroll se durcit** et devient de
+plus en plus coûteux. But : *« protéger nos utilisateurs, éviter de les enfermer
+dans une boucle interminable qui perd leur esprit plutôt que de leur montrer ce
+qui se passe autour d'eux »*. Même philosophie que l'anti-capture : **coûteux et
+visible, pas impossible**.
+
+⚠️ **Conséquence à ne pas rater** : un scroll qui résiste, pour qui ignore que
+c'est voulu, **ressemble à une panne**. Le durcissement doit être **lisible au
+moment où il arrive**, sans notice — sinon c'est un bug, pas une protection.
+
+---
+
+« l'Apple des réseaux sociaux » : interface **claire et épurée mais qui reste
+cool**, et **contrôle total de l'écosystème** — *« ce qui se passe sur NeoVibe
+reste sur NeoVibe »*. C'est la raison d'être du chiffrement et de la livraison
+sécurisée des médias : ce ne sont pas des précautions d'ingénieur, c'est cette
+phrase rendue vraie. Conséquence directe : **un média déchiffré écrit en clair
+sur le disque est un manquement à la promesse**, pas un détail
+d'implémentation. Corollaire de méthode : la bonne réponse est **le défaut
+juste, pas l'option supplémentaire** — sans quoi « contrôle total » et
+« épuré » se contredisent.
+
+**Périmètre de cette phrase — deux précisions successives de Jay.**
+
+1. *2026-08-20* — elle désigne **la difficulté de faire fuiter du CONTENU
+   NeoVibe vers l'extérieur** : format card, anti-capture, livraison scellée.
+   Ce n'est **pas** un argument sur les métadonnées côté serveur (qui croise
+   qui, qui parle à qui). Ne pas la ressortir pour peser sur un arbitrage de ce
+   type — les arbitrages sur les métadonnées se posent pour eux-mêmes, avec
+   leur coût réel et leur rétention.
+2. *2026-09-11* — elle ne couvre pas tout de la même façon :
+
+   | Surface | Règle |
+   |---|---|
+   | **DM / chat** | **verrouillé** — pas de capture d'écran, pas d'enregistrement, pas d'export |
+   | **Feed / publications** | **partageable** — c'est même le moteur de circulation |
+
+   Les deux coexistent sans se contredire parce qu'un contenu appartient à **un
+   seul contexte de diffusion** (`docs/stockage-et-acces.md`).
+
+---
+
+**Le partage, c'est ajouter au feed de l'autre — pas lui envoyer.** Partager une
+publication à un ami ne la lui **envoie** pas : ça l'**ajoute à son feed**.
+Envoyer crée une dette (l'autre doit répondre) ; ajouter est une invitation. Le
+feed est donc fait de **ce qui se passe autour de toi** + **ce que tes cercles
+t'ont tendu** : pas d'algorithme de recommandation, **les amis SONT
+l'algorithme**.
+
+**Et l'ajout est anonyme** (idée de Jay, 2026-09-11) : celui qui ajoute reste
+anonyme pour le destinataire — *« sauf si cet ami like le contenu, il découvrira
+qui lui a envoyé »*. But : *« empêcher que les utilisateurs se sentent obligés
+de liker le contenu d'un ami uniquement parce que c'est lui »*. L'expéditeur ne
+sait **pas** si son ajout a été vu ; il n'est notifié **qu'au like**, et le
+contenu s'affiche alors dans le chat pendant 24 h. ➡️ **Le like cesse d'être un
+accusé de réception et ouvre une conversation**, là où partout ailleurs il la
+clôt.
+
+**NeoVibe est aussi un jeu social géant** : des jeux à l'échelle d'une ville
+entière (un loup-garou géant), des défis — à filmer et à publier. C'est la
+« dynamique renouvelée en permanence » réclamée depuis le 2026-07-26, et elle
+**exige** la densité locale : la barrière devient une récompense au lieu d'un
+péage. *Conséquence de calendrier : le seed test se fait dans **une seule
+ville**.*
+
+---
+
+## Grille de décision
+
+*Remplace le 2026-09-11 l'ancienne grille (« présence physique OU valeur d'une
+relation existante »), qui rejetait la moitié de la vision affinée — une sortie
+photo avec des gens qu'on n'a pas encore rencontrés n'y entrait pas.*
+
+**Une fonctionnalité passe si elle fait au moins l'une de ces quatre choses :**
+
+1. **faire sortir** — elle mène à une activité ou une rencontre réelle ;
+2. **rapporter** — elle transforme une expérience vécue en contenu partagé ;
+3. **faire circuler par un geste humain** — partage vers un cercle, ajout au
+   feed d'un ami ;
+4. **augmenter la valeur d'une relation existante.**
+
+**Elle échoue** si elle produit du contenu que personne n'a eu besoin de sortir
+de chez lui pour faire, et qu'une machine ordonne pour retenir.
+
+> ⚠️ **Le test, en une phrase : « ce contenu a-t-il obligé quelqu'un à sortir de
+> chez lui ? »**
+
+En cas de doute, trancher en faveur de l'authenticité de la relation et du
+passage au réel, même si c'est moins pratique à développer.
+
+La vision complète (le raisonnement, les mécaniques fondatrices, ce qui reste à
+construire, les points de vigilance) est dans **`docs/vision-produit.md`** — à
+relire en début de session avec `RAPPELS.md` et les derniers rapports.
 
 ---
 
@@ -368,7 +522,7 @@ natif, pour ne rien découvrir au dernier moment lors du portage iOS.
 
 ## Décisions verrouillées — ne pas remettre en question sans validation explicite de Jay
 
-- **Connexions** : formées uniquement via proximité BLE ou recommandation tierce (plafond 10/mois, chaîne A→B→C). Pas de découverte par recherche/annuaire.
+- **Connexions** : formées uniquement via proximité BLE ou recommandation tierce (plafond 10/mois, chaîne A→B→C). Pas de découverte par recherche/annuaire. ✅ **Reconfirmé par Jay le 2026-09-11**, malgré la vision affinée : *« la base pour devenir ami c'est soit de se connecter en étant physiquement/géographiquement proche, soit une recommandation/lien par un ami en commun »*. ⚠️ **Les activités des commerçants partenaires n'y contreviennent PAS** : on y découvre des activités à vivre, jamais des personnes à ajouter. Deux objets distincts, deux chemins distincts.
 - **Architecture éphémère** : upload en fichier temporaire, transmission côté serveur, vue unique, suppression après TTL 24h. Le replay nécessite un consentement explicite de l'émetteur, routé par le serveur. Le streaming zéro-écriture a été évalué et rejeté (trop coûteux en ressources pour le MVP) — ne pas le proposer à nouveau sans nouvelle contrainte business.
 - **Vibes** (nom public depuis le 2026-08-10 ; le code et la base gardent `card`) : **3 types**, après la refonte du 2026-08-10. **Standard** — une ou deux faces, le verso est facultatif (bouton « Passer ») ; **Oneshot** — avant et arrière capturés d'un seul déclenché, caméra pure sans outils, et **sinon régi comme une standard** ; **BeReal** — capture contrainte, sans post-production, déclenché par notification. Le **One of One** n'est plus un type sélectionnable : il s'applique automatiquement à l'envoi (un destinataire, aucune publication), sauf en bibliothèque partagée. **Mono et Hot sont supprimées.** ⚠️ La « vue unique puis destruction » du Oneshot **n'existe plus** — elle avait en réalité disparu dès le 2026-07-11 (migration `cards_v2_mechanics`, fonction `destroy_oneshot` supprimée) ; ce fichier l'a affirmée à tort jusqu'au 2026-08-10.
 - **La sauvegarde est le CINQUIÈME contexte de diffusion** (acté par Jay le 2026-08-14). Une sauvegarde n'est pas une Vibe avec ses limites éteintes : c'est un objet distinct — octets **en clair sur l'appareil**, aucune clé, aucune règle de visionnage, aucune ligne serveur, permanent. **Ne jamais la refusionner avec la Card** ; en particulier, ne pas créer la Card au clic sur « Enregistrer pour moi ». Les quatre raisons et le seul lien admis (`SavedStore.rekey`) sont dans `docs/stockage-et-acces.md`.
@@ -377,8 +531,8 @@ natif, pour ne rien découvrir au dernier moment lors du portage iOS.
 
 ## Explicitement hors scope MVP — ne pas implémenter sans demande explicite
 
-- **Feed algorithmique global type TikTok** (contredit la thèse du produit). ⚠️ **À ne pas confondre avec le feed LOCAL, lui décidé par Jay le 2026-07-26** : contenu publié par les gens de ta ville / région / pays, plus comptes créateurs à visibilité internationale. Périmètre et points de vigilance dans `docs/vision-produit.md`.
-- Détection d'événements publics à grande échelle par clustering géographique (reporté — nécessite d'abord l'infrastructure de confiance)
+- **Feed algorithmique global type TikTok** (contredit la thèse du produit). ⚠️ **À ne pas confondre avec le feed LOCAL, lui décidé par Jay le 2026-07-26** : contenu publié par les gens de ta ville / région / pays, plus comptes créateurs à visibilité internationale. **Deuxième source ajoutée le 2026-09-11** : ce que tes cercles ont **ajouté à ton feed** à la main. Le feed a donc exactement deux sources, toutes deux humaines — la géographie et tes amis. Et il **n'est pas infini** : le scroll se durcit (voir Positionnement). Périmètre et points de vigilance dans `docs/vision-produit.md`.
+- Détection d'événements publics à grande échelle par clustering géographique (reporté — nécessite d'abord l'infrastructure de confiance). ⚠️ **À ne pas confondre avec les activités des commerçants partenaires** (2026-09-11), qui sont **déclarées** par le commerçant et non devinées par un algorithme — elles, sont dans le périmètre
 - Modération IA complexe, systèmes lourds en général : privilégier des heuristiques simples validables tôt
 
 ---

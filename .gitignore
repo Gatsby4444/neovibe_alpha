@@ -46,3 +46,6 @@ __pycache__/
 # autorisations locales) : designe hors depot des le transfert, mais rien
 # ne le protegeait — un `git add -A` suffisait a l'y faire entrer.
 .claude/settings.local.json
+
+# Fichiers de verrou temporaires de Word (~$Document.docx)
+~$*
