@@ -88,6 +88,12 @@ class LibraryVibe {
   /// descend d'en haut.
   bool revealedAt(DateTime now) => now.isAfter(revealAt);
 
+  /// La bibliothèque d'un groupe d'événement est **retardée** : tant que
+  /// l'événement est ouvert, le serveur date le reveal à `private.jamais()`
+  /// (l'an 9999). Le reveal se date à la fermeture. Un écran qui verrait ce
+  /// jour-là comme un album ordinaire afficherait « l'an 9999 » (2026-09-12).
+  bool get revealAwaitsEvent => revealAt.year >= 9999;
+
   /// L'instantané, **réservé aux callbacks** — un geste se juge au moment où il
   /// est fait, et il n'y a alors rien à réafficher.
   ///

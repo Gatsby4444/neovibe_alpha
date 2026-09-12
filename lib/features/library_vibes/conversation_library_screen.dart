@@ -111,7 +111,11 @@ class _Album extends ConsumerWidget {
             children: [
               Expanded(
                 child: Text(
-                  albumDayLabel(day),
+                  // Un groupe d'événement encore ouvert : pas de jour, le
+                  // reveal viendra avec la fermeture (2026-09-12).
+                  vibes.first.revealAwaitsEvent
+                      ? 'Après l\'événement'
+                      : albumDayLabel(day),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
@@ -127,7 +131,11 @@ class _Album extends ConsumerWidget {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      '18h30',
+                      // L'heure réelle du reveal : 18h30 pour une conversation,
+                      // la fermeture + le délai pour un événement.
+                      vibes.first.revealAwaitsEvent
+                          ? 'à la fermeture'
+                          : shortTime(vibes.first.revealAt),
                       style: Theme.of(
                         context,
                       ).textTheme.bodySmall?.copyWith(color: context.faint),

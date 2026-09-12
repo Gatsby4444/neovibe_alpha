@@ -281,6 +281,15 @@ mes amis », il lit `device_keys` et prend ce que la politique RLS lui rend. Fai
 reconnaître les participants d'une soirée = élargir une règle serveur, **sans
 toucher au Dart ni au Kotlin du ping**.
 
+✅ **Construit le 2026-09-12** (v0.9.175) — `docs/evenements.md` est la
+description de ce qui existe : `private.relation_kind` + vue `key_book` (le
+carnet porte `friend` / `event`), tables `events`, `event_group_members`,
+`event_presences`, `event_positions`, `event_sightings`, `event_crossings`,
+`venues`, paramètres dans `event_rules` et `crossing_windows`, balai
+`neovibe_events`. Côté app : `lib/features/events/`. **Pas construit** : la
+plateforme web des commerçants (contrat dans `docs/plateforme-etablissements.md`),
+la position en arrière-plan, les jeux. `RAPPELS.md` #129.
+
 ### Les paliers d'amitié : discrets, d'arrière-plan
 
 Consigne de Jay (2026-09-12) : comme sur Snap — ça vit dans un coin du profil,

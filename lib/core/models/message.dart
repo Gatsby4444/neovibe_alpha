@@ -144,10 +144,22 @@ class Message {
 enum ConversationType {
   direct,
   group,
-  proximity;
+  proximity,
+
+  /// Le **groupe d'événement** (2026-09-12) : éphémère, construit pour un
+  /// seul événement, tenu hors du Cercle. Il vit 5 jours après la fermeture
+  /// de l'événement, puis le serveur le purge avec lui. Jamais un groupe
+  /// existant — consigne de Jay : *« on distingue bien les deux »*.
+  event;
 
   static ConversationType fromDb(String value) =>
       ConversationType.values.byName(value);
+
+  /// Plusieurs personnes autour d'un titre : un groupe, ou un groupe
+  /// d'événement. C'est ce que les écrans veulent savoir quand ils demandent
+  /// « est-ce un groupe ? » — pas le type exact.
+  bool get isCollective =>
+      this == ConversationType.group || this == ConversationType.event;
 }
 
 class Conversation {
@@ -192,6 +204,7 @@ class Conversation {
   /// Nom affiché : titre du groupe, ou nom de l'autre membre en 1-à-1
   /// (tag name en priorité — consigne Jay —, sinon username).
   String displayName(String me) {
+    if (type == ConversationType.event) return title ?? 'Événement';
     if (type == ConversationType.group) return title ?? 'Groupe';
     final other = members.where((m) => m.id != me).firstOrNull;
     return other?.chatName ?? 'Conversation';

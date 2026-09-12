@@ -143,11 +143,16 @@ class PingPeerSnapshot {
     required this.username,
     this.tagName,
     this.verified = false,
+    this.relation = KeyRelation.friend,
   });
 
   final String userId;
   final String username;
   final String? tagName;
+
+  /// Pourquoi cette personne est reconnue : ami·e, ou co-participant·e d'un
+  /// événement. Vient du carnet, donc du serveur (2026-09-12).
+  final KeyRelation relation;
 
   /// Identité vérifiée côté serveur (sinon « profil non vérifié » : hors
   /// ligne, rien n'empêche techniquement d'usurper un username — signalé à
@@ -162,6 +167,7 @@ class PingPeerSnapshot {
     'username': username,
     'tagName': tagName,
     'verified': verified,
+    'relation': relation.name,
   };
 
   factory PingPeerSnapshot.fromJson(Map<String, dynamic> json) =>
@@ -170,6 +176,7 @@ class PingPeerSnapshot {
         username: json['username'] as String,
         tagName: json['tagName'] as String?,
         verified: json['verified'] as bool? ?? false,
+        relation: KeyRelation.fromDb(json['relation'] as String?),
       );
 }
 

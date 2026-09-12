@@ -525,10 +525,11 @@ class ProximityController extends AsyncNotifier<void> {
       final userId = session.userId;
       if (userId == null) continue;
       if (!session.isFresh(now) || !session.isStable(now)) continue;
-      // ⚠️ **Le serveur refuserait un constat entre non-amis** —
-      // `report_sightings` exige `connections.status = 'full'` (vérifié en base
-      // le 2026-08-27). Autant ne pas l'envoyer.
-      if (!await _isFriend(userId)) continue;
+      // ⚠️ **Le serveur route par relation** (2026-09-12) : entre amis, le
+      // constat nourrit les paliers ; entre co-participants d'un événement,
+      // il prouve la présence (`event_sightings`) et rien d'autre. Ce qui
+      // est envoyé, c'est ce que le carnet reconnaît — les deux.
+      if (!await _isRecognized(userId)) continue;
       _sightings.observe(userId, now, band: session.toPresence().band);
     }
 
@@ -608,8 +609,20 @@ class ProximityController extends AsyncNotifier<void> {
   // Waves
   // ------------------------------------------------------------------
 
-  /// Suis-je ami avec cette personne ? **Une seule source, le carnet.**
+  /// Suis-je ami avec cette personne ? **Une seule source, le carnet — et
+  /// son libellé.**
+  ///
+  /// ⚠️ **« Être au carnet » n'est plus « être ami » depuis le 2026-09-12** :
+  /// le serveur y met aussi les co-participants d'un événement, avec la
+  /// relation `event`. C'est le piège que `RAPPELS.md` #99 annonçait — tout
+  /// ce qui entre au carnet était présenté comme un ami. Ici, seul un
+  /// `friend` en est un : un inconnu de soirée ne déclenche ni « presque »,
+  /// ni « tout près », ni palier.
   Future<bool> _isFriend(String userId) async =>
+      (await _keyBook.all())[userId]?.isFriend ?? false;
+
+  /// Est-ce quelqu'un que je reconnais, ami ou co-participant ?
+  Future<bool> _isRecognized(String userId) async =>
       (await _keyBook.all()).containsKey(userId);
 
   /// Les « tout près » actuellement AFFICHÉS, par ami.

@@ -167,8 +167,12 @@ class ProximitySync {
   /// rompue restait vraie sur l'appareil pour toujours : on continuait de
   /// reconnaître la personne à son ID rotatif et de la présenter comme une amie.
   Future<void> _pullFriendKeys(dynamic client, String me) async {
-    final rows =
-        await client.from('device_keys').select().neq('user_id', me) as List;
+    // ⚠️ **`key_book`, et plus `device_keys` en direct** (2026-09-12). C'est
+    // la même politique de lecture (la vue est `security_invoker`), avec en
+    // plus le LIBELLÉ du lien calculé par le serveur — `friend` ou `event`.
+    // Depuis que les co-participants d'un événement entrent au carnet, une
+    // ligne sans libellé serait un inconnu présenté comme un ami (#99).
+    final rows = await client.from('key_book').select() as List;
 
     if (rows.isEmpty) {
       // Le serveur dit « aucun ami ». C'est une réponse, pas une absence de
@@ -244,6 +248,7 @@ class ProximitySync {
           // nouvelle clé arrive ici, le secret de la paire suit tout seul, et il
           // n'y a rien à invalider ni à penser à mettre à jour.
           x25519PublicKey: Uint8List.fromList(base64Decode(x25519)),
+          relation: KeyRelation.fromDb(row['relation'] as String?),
         ),
       );
     }

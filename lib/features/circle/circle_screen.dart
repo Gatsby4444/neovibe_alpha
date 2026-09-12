@@ -10,6 +10,8 @@ import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
 import '../conversations/create_group_screen.dart';
 import 'constellation_screen.dart';
+import '../events/event_banner.dart';
+import '../events/events_screen.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
 import 'categories_repository.dart';
@@ -51,6 +53,16 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
           // le conflit de gestes : elle se déplace au doigt, l'accueil change
           // de section au glissement. Dans un onglet, les deux se
           // disputeraient. Voir `constellation_screen.dart`.
+          // 🚪 **La porte des événements** (Jay, 2026-09-12) : c'est depuis le
+          // Cercle qu'on rejoint un événement et qu'on active le mode
+          // événement. L'onglet lui-même ne change pas.
+          IconButton(
+            icon: const Icon(Icons.celebration_outlined),
+            tooltip: 'Événements',
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const EventsScreen())),
+          ),
           IconButton(
             icon: const Icon(Icons.blur_on),
             tooltip: 'Constellation',
@@ -73,6 +85,9 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
       // vivre dans un bouton flottant secondaire.
       body: Column(
         children: [
+          // Le mode événement n'apparaît QUE si j'ai rejoint un événement :
+          // ce bandeau est vide le reste du temps (2026-09-12).
+          const EventBanner(),
           // Emplacement réservé depuis le 2026-07-12, occupé le 2026-08-02 :
           // les stories de mes amis, en haut du hub.
           StoriesBar(
@@ -155,9 +170,15 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
                 ),
                 data: (list) {
                   // Cercle = connexions uniquement ; les conversations ping
-                  // (proximité) vivent dans le module Ping.
+                  // (proximité) vivent dans le module Ping, et les groupes
+                  // d'événement dans le mode événement (2026-09-12) — ils
+                  // sont éphémères et ne sont pas des groupes.
                   var visible = list
-                      .where((c) => c.type != ConversationType.proximity)
+                      .where(
+                        (c) =>
+                            c.type != ConversationType.proximity &&
+                            c.type != ConversationType.event,
+                      )
                       .toList();
                   visible = switch (_builtin) {
                     _ when _customCategoryId != null =>

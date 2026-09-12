@@ -13,6 +13,7 @@ import 'core/theme.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/home/home_shell.dart';
+import 'features/events/event_presence_reporter.dart';
 import 'features/proximity/net/friend_book_watcher.dart';
 import 'features/proximity/net/ping_beacon_service.dart';
 import 'features/proximity/net/proximity_controller.dart';
@@ -184,6 +185,10 @@ class _RootGateState extends ConsumerState<RootGate> {
     ref.watch(proximitySupervisorProvider);
     ref.watch(proximityControllerProvider);
     ref.watch(pingBeaconProvider);
+    // La position pendant un événement (2026-09-12) : même règle, elle
+    // dépose parce que je suis dans un événement, pas parce qu'un écran
+    // l'observe.
+    ref.watch(eventPresenceReporterProvider);
 
     // 🔴 **À QUI APPARTIENT CE QUI EST SUR CET APPAREIL — 2026-08-31.**
     //

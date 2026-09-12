@@ -151,7 +151,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           libraryTarget: LibraryTarget(
             conversationId: conversation.id,
             label: conversation.displayName(me),
-            isGroup: conversation.type == ConversationType.group,
+            isGroup: conversation.type.isCollective,
           ),
         ),
       ),
@@ -205,7 +205,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final conversation = detail.value;
     final isProximity = conversation?.type == ConversationType.proximity;
-    final isGroup = conversation?.type == ConversationType.group;
+    final isGroup = conversation?.type.isCollective ?? false;
     final peer = conversation?.otherMember(me);
 
     // ⚠️ **Ce commentaire affirmait le contraire jusqu'au 2026-08-27** : « les

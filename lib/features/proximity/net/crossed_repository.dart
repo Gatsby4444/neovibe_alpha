@@ -16,6 +16,8 @@ class CrossedPerson {
     required this.alreadyRequested,
     this.tagName,
     this.avatarUrl,
+    this.origin = CrossingOrigin.ping,
+    this.eventTitle,
   });
 
   final String userId;
@@ -31,6 +33,23 @@ class CrossedPerson {
   /// Refuser laisserait l'utilisateur devant un mur sans issue.
   final bool alreadyRequested;
 
+  /// D'où vient ce croisement (2026-09-12). **La fenêtre pendant laquelle il
+  /// nourrit les suggestions dépend de l'origine** — 3 jours par ping, à
+  /// choisir pour un événement — et c'est le serveur qui filtre.
+  final CrossingOrigin origin;
+
+  /// Le nom de l'événement, si c'est là qu'on s'est croisés : « au Temple ».
+  final String? eventTitle;
+
+  /// Comment on se connaît, en français de tous les jours.
+  String get provenance => switch (origin) {
+    CrossingOrigin.event =>
+      eventTitle == null
+          ? 'Croisé(e) à un événement'
+          : 'Croisé(e) à $eventTitle',
+    CrossingOrigin.ping => 'Croisé(e)',
+  };
+
   factory CrossedPerson.fromJson(Map<String, dynamic> json) => CrossedPerson(
     userId: json['user_id'] as String,
     displayName: json['display_name'] as String? ?? 'Quelqu\'un',
@@ -38,6 +57,8 @@ class CrossedPerson {
     avatarUrl: json['avatar_url'] as String?,
     crossedAt: DateTime.parse(json['crossed_at'] as String).toLocal(),
     alreadyRequested: json['already_requested'] as bool? ?? false,
+    origin: CrossingOrigin.fromDb(json['origin'] as String?),
+    eventTitle: json['event_title'] as String?,
   );
 
   /// ⚠️ **L'égalité de valeur est obligatoire** pour toute vue dérivée
@@ -52,7 +73,9 @@ class CrossedPerson {
       other.tagName == tagName &&
       other.avatarUrl == avatarUrl &&
       other.crossedAt == crossedAt &&
-      other.alreadyRequested == alreadyRequested;
+      other.alreadyRequested == alreadyRequested &&
+      other.origin == origin &&
+      other.eventTitle == eventTitle;
 
   @override
   int get hashCode => Object.hash(
@@ -62,7 +85,24 @@ class CrossedPerson {
     avatarUrl,
     crossedAt,
     alreadyRequested,
+    origin,
+    eventTitle,
   );
+}
+
+/// L'origine d'un croisement — la clé de sa fenêtre (Jay, 2026-09-12 :
+/// *« d'abord les bases, ensuite on choisit les règles précises »*).
+enum CrossingOrigin {
+  /// Le bus, la rue : on s'est entendus en BLE, tous les deux.
+  ping,
+
+  /// On était présents au même événement.
+  event;
+
+  static CrossingOrigin fromDb(String? value) => switch (value) {
+    'event' => CrossingOrigin.event,
+    _ => CrossingOrigin.ping,
+  };
 }
 
 /// **L'ACQUISITION** : qui ai-je croisé aujourd'hui ?

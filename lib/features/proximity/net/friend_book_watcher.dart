@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../cards/cards_repository.dart';
 import '../../connections/connections_repository.dart';
+import '../../events/events_providers.dart';
 import 'proximity_sync.dart';
 
 /// **La règle unique : quand le graphe d'amis change, tout ce qui en dépend
@@ -91,7 +92,15 @@ class FriendBookWatcher extends Notifier<Set<String>> {
     // ⚠️ `friendIdsProvider` est un `DerivedSet` : il ne réveille ses lecteurs
     // que si l'ENSEMBLE change réellement. Un ami qui change d'avatar ne
     // déclenche donc aucune synchronisation.
-    final amis = ref.watch(friendIdsProvider);
+    // ⚠️ **Deux sources, un seul carnet** (2026-09-12). Le serveur décide de
+    // qui je reconnais (`key_book`) ; ici on ne fait que RELIRE quand l'une
+    // des deux raisons de reconnaître quelqu'un a bougé : mes amis, ou les
+    // gens de mes événements. L'union est ce qu'on surveille, pas ce qu'on
+    // croit : le carnet rendu peut différer, et c'est lui qui compte.
+    final amis = {
+      ...ref.watch(friendIdsProvider),
+      ...ref.watch(eventPeerIdsProvider),
+    };
 
     ref.onDispose(() {
       _minuteur?.cancel();

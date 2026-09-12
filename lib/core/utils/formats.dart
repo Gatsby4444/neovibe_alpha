@@ -61,6 +61,26 @@ String albumDayLabel(DateTime day) {
   return day.year == now.year ? titre : '$titre ${day.year}';
 }
 
+/// Un moment, passé ou à venir, en français de tous les jours : « aujourd'hui
+/// à 21:30 », « demain à 21:30 », « mardi 15 septembre à 21:30 ». Sert aux
+/// événements (2026-09-12), dont les dates sont réelles et pas floues.
+String dayAndTime(DateTime when) {
+  final local = when.toLocal();
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final day = DateTime(local.year, local.month, local.day);
+  final diff = day.difference(today).inDays;
+  final heure = shortTime(local);
+  if (diff == 0) return "aujourd'hui à $heure";
+  if (diff == 1) return 'demain à $heure';
+  if (diff == -1) return 'hier à $heure';
+  final jour = _joursFr[local.weekday - 1];
+  final base = '$jour ${local.day} ${_moisFr[local.month - 1]}';
+  return local.year == now.year
+      ? '$base à $heure'
+      : '$base ${local.year} à $heure';
+}
+
 /// Temps restant avant expiration (messages éphémères, liens partiels).
 String remaining(DateTime until) {
   final diff = until.difference(DateTime.now());

@@ -96,7 +96,8 @@ class PeerView {
       other.distanceLabel == distanceLabel &&
       other.snapshot?.userId == snapshot?.userId &&
       other.snapshot?.displayName == snapshot?.displayName &&
-      other.snapshot?.verified == snapshot?.verified;
+      other.snapshot?.verified == snapshot?.verified &&
+      other.snapshot?.relation == snapshot?.relation;
 
   @override
   int get hashCode => Object.hash(
@@ -108,6 +109,7 @@ class PeerView {
     snapshot?.userId,
     snapshot?.displayName,
     snapshot?.verified,
+    snapshot?.relation,
   );
 }
 

@@ -660,6 +660,9 @@ porte nouvelle.
 
 #### 8.4.2 Précisions du 2026-09-12 (suite) — la présence, la fermeture, et le groupe d'événement
 
+> ✅ **Construit l'après-midi même** — `docs/evenements.md` décrit ce qui existe
+> en base et dans l'app, et ce qui reste à faire.
+
 *Réponses de Jay aux trois questions posées après le vocabulaire.*
 
 **① La présence se prouve par un système mixte : ping ET localisation.** Ni

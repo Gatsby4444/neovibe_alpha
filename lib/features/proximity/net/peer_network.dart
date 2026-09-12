@@ -271,6 +271,7 @@ class PeerNetwork {
           username: friend.username,
           tagName: friend.tagName,
           verified: true,
+          relation: friend.relation,
         ),
       );
       _emit(PeerIdentified(session.address, session.snapshot!));

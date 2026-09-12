@@ -793,7 +793,7 @@ class _Conversations extends ConsumerWidget {
                 switch (filtre) {
                   _Filtre.tout => true,
                   _Filtre.gens => c.type == ConversationType.direct,
-                  _Filtre.groupes => c.type == ConversationType.group,
+                  _Filtre.groupes => c.type.isCollective,
                 })
               c,
         ];
@@ -842,7 +842,7 @@ class _LigneConversation extends ConsumerWidget {
     final choisie = plan.conversations
         .where((c) => c.conversationId == conversation.id)
         .firstOrNull;
-    final estGroupe = conversation.type == ConversationType.group;
+    final estGroupe = conversation.type.isCollective;
     final autre = conversation.otherMember(me);
 
     // 🔥 **LA SÉRIE — c'est le FOMO, et c'est ici qu'il a le plus de sens.**
@@ -1005,10 +1005,10 @@ class _Croises extends ConsumerWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const _TitreSection(
-              'Croisé(e)s aujourd\'hui',
+              'Croisé(e)s récemment',
               aide:
-                  'Vous vous êtes croisés pour de vrai. Ta Vibe part avec '
-                  'une demande de connexion.',
+                  'Vous vous êtes croisés pour de vrai — dans la rue, ou à un '
+                  'événement. Ta Vibe part avec une demande de connexion.',
             ),
             for (final g in visibles)
               _LigneCochable(
@@ -1020,7 +1020,9 @@ class _Croises extends ConsumerWidget {
                 titre: g.displayName,
                 sousTitre: g.alreadyRequested
                     ? 'Demande déjà envoyée — ta Vibe s\'y ajoutera'
-                    : (g.tagName == null ? 'Croisé(e)' : '@${g.tagName}'),
+                    : (g.tagName == null
+                          ? g.provenance
+                          : '@${g.tagName} · ${g.provenance}'),
                 coche: plan.crossed.any((c) => c.userId == g.userId),
                 onCoche: (v) {
                   final reste = [

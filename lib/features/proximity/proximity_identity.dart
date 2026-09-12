@@ -486,6 +486,27 @@ class _BookNotifier extends ChangeNotifier {
   void ping() => notifyListeners();
 }
 
+/// **Pourquoi je reconnais cette personne** — le libellé du lien que
+/// `RAPPELS.md` #99 exigeait avant tout mode événement (2026-09-12).
+///
+/// Tout ce qui entrait au carnet était présenté comme un ami. Depuis que le
+/// serveur y met aussi les co-participants d'un événement (`key_book`,
+/// `private.relation_kind`), chaque entrée dit d'où elle vient — et c'est le
+/// serveur qui le dit, pas l'app qui le devine.
+enum KeyRelation {
+  friend,
+
+  /// Présent·e dans le même événement que moi, ou invité·e au même événement
+  /// privé. Reconnu·e par la radio le temps de l'événement, jamais ami·e pour
+  /// autant : pas de palier, pas de « presque », pas de conversation directe.
+  event;
+
+  static KeyRelation fromDb(String? value) => switch (value) {
+    'event' => KeyRelation.event,
+    _ => KeyRelation.friend,
+  };
+}
+
 class FriendKeys {
   const FriendKeys({
     required this.userId,
@@ -493,12 +514,18 @@ class FriendKeys {
     this.tagName,
     this.avatarUrl,
     required this.x25519PublicKey,
+    this.relation = KeyRelation.friend,
   });
 
   final String userId;
   final String username;
   final String? tagName;
   final String? avatarUrl;
+
+  /// D'où vient cette entrée. ⚠️ Un carnet écrit avant le 2026-09-12 n'a pas
+  /// ce champ : il ne contenait que des amis, `friend` est donc le repli.
+  final KeyRelation relation;
+  bool get isFriend => relation == KeyRelation.friend;
 
   /// Sa clé PUBLIQUE X25519 : avec ma privée, elle donne le secret de la paire.
   ///
@@ -515,6 +542,7 @@ class FriendKeys {
     'tagName': tagName,
     'avatarUrl': avatarUrl,
     'x25519Pub': base64Encode(x25519PublicKey),
+    'relation': relation.name,
   };
 
   factory FriendKeys.fromJson(Map<String, dynamic> json) => FriendKeys(
@@ -523,6 +551,7 @@ class FriendKeys {
     tagName: json['tagName'] as String?,
     avatarUrl: json['avatarUrl'] as String?,
     x25519PublicKey: base64Decode(json['x25519Pub'] as String),
+    relation: KeyRelation.fromDb(json['relation'] as String?),
   );
 
   /// Même contenu ? Sert à `replace` pour ne pas annoncer un changement qui
@@ -532,6 +561,7 @@ class FriendKeys {
       username == other.username &&
       tagName == other.tagName &&
       avatarUrl == other.avatarUrl &&
+      relation == other.relation &&
       _sameBytes(x25519PublicKey, other.x25519PublicKey);
 
   static bool _sameBytes(Uint8List? a, Uint8List? b) {

@@ -25,6 +25,7 @@ import 'net/proximity_supervisor.dart';
 import 'net/radio_status.dart';
 import 'ping_store.dart';
 import 'presence_feed.dart';
+import 'proximity_identity.dart';
 
 /// Le Ping — découverte 100 % locale, chiffrée d'appareil à appareil.
 ///
@@ -551,6 +552,32 @@ class _TuilePair extends ConsumerWidget {
     // si le réseau est absent (`feedback_local_first_own_content`).
     final profil = ref.watch(friendProfilesProvider).value?[snapshot.userId];
 
+    // 🔴 **Un co-participant d'événement n'est PAS un ami** (2026-09-12).
+    //
+    // Le commentaire ci-dessus disait « cette tuile n'affiche QUE des amis,
+    // et c'est vrai par construction ». C'était vrai tant que le carnet ne
+    // contenait que des amis. Depuis que le serveur y met les gens de mon
+    // événement (`key_book`, relation `event`), la tuile lit le LIBELLÉ : pas
+    // d'anneau de palier (il affirmerait une relation qui n'existe pas), pas
+    // de conversation directe (elle n'existe pas entre non-amis), juste la
+    // photo, le nom, et d'où on se connaît.
+    if (snapshot.relation == KeyRelation.event) {
+      return _CadreTuile(
+        // Le profil, et rien d'autre : pas de repli vers une conversation
+        // directe, elle n'existe pas entre non-amis.
+        onTap: () => _ouvrirProfilSeul(context, ref, snapshot.userId),
+        avatar: Avatar(
+          stored: null,
+          radius: _CadreTuile._photo / 2,
+          fallback: Text(snapshot.displayName.characters.first.toUpperCase()),
+        ),
+        nom: snapshot.displayName,
+        situation: 'À l\'événement · à portée',
+        mention: null,
+        actions: const [],
+      );
+    }
+
     // ⚠️ **LA DISTANCE N'EST PLUS AFFICHÉE — décision de Jay, 2026-08-30** :
     // *« pour les amis on n'a plus besoin de la distance, c'était pour les
     // tests ; on peut la garder mais sans l'afficher »*.
@@ -617,6 +644,24 @@ Future<void> _ouvrirProfil(
   }
   if (context.mounted) {
     await _ouvrirConversation(context, ref, snapshot.userId);
+  }
+}
+
+/// Le profil d'un co-participant d'événement — sans repli.
+Future<void> _ouvrirProfilSeul(
+  BuildContext context,
+  WidgetRef ref,
+  String userId,
+) async {
+  try {
+    final profile = await ref.read(profileByIdProvider(userId).future);
+    if (profile != null && context.mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => UserLibraryScreen(profile: profile)),
+      );
+    }
+  } catch (_) {
+    // Hors ligne : pas de profil serveur, et rien d'autre à ouvrir.
   }
 }
 
