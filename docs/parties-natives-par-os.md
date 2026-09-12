@@ -1058,3 +1058,24 @@ la distribution de test passe par TestFlight. Rien à porter.
 **Statut** : la logique de notifications existe côté Dart (`notification_service.
 dart`). **À auditer** : le transport push (FCM ?) et sa config par OS (APNs pour
 iOS) au moment du portage. Compléter cette entrée quand le mécanisme est confirmé.
+
+---
+
+## 9. Les tests JVM du natif Android — l'inventaire
+
+*Relevé le 2026-09-13 en fin de session : l'inventaire « fichiers `.kt` réels
+↔ fichiers cités ici » laissait quatre tests sans mention. Ils sont listés pour
+que le contrôle de fin de session compte juste.*
+
+`android/app/src/test/kotlin/com/neovibe/neovibe/` — onze tests, exécutés sur
+la JVM par `./gradlew test`, sans appareil :
+
+| Fichier | Ce qu'il tient |
+|---|---|
+| `AdvertOnAirTest.kt`, `AdvertScheduleTest.kt` | le plan d'émission BLE et ses créneaux |
+| `PlanPersistenceTest.kt`, `PlanStoreTest.kt` | le plan survit à la mort du processus |
+| `PresenceLogTest.kt`, `SightingBookTest.kt`, `SlotAlarmTest.kt` | présences, constats, réveil par créneau |
+| `RecognitionVectorsTest.kt` | les vecteurs de reconnaissance partagés avec le Dart |
+| `SealedChunkReaderTest.kt`, `Mp4FastStartTest.kt`, `PartialStreamingTest.kt` | le lecteur de médias scellés (§7) |
+
+**iOS** : à réécrire en XCTest sur les mêmes vecteurs, au moment du portage.
