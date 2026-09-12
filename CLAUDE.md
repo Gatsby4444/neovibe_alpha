@@ -195,31 +195,75 @@ maillon fabrique la matière première du suivant :
 Et ça reboucle sur la boucle du Positionnement. **C'est « l'esprit NeoVibe »
 selon Jay.**
 
-### 🔴 Le geocircle — deux modes
+### 🔴 L'événement et le mode événement — vocabulaire tranché le 2026-09-12
 
 On passe devant un bar, on le **rejoint physiquement ET dans NeoVibe** : pour la
 soirée, on est connecté à tous ceux qui y sont, avec des jeux, des défis et des
 fonctionnalités réservés aux présents. Vaut aussi pour les **soirées privées**.
 
+**Trois choses s'appelaient « cercle » ; Jay a tranché le 2026-09-12** — ces
+mots finiront dans des noms de tables, ne pas les mélanger :
+
+| Mot | Ce que c'est |
+|---|---|
+| **Cercle** | l'onglet d'accueil, mes amis — **inchangé** pour l'instant ; c'est aussi **la porte** par laquelle on rejoint un événement |
+| **Événement** | ce qu'on appelait « le cercle d'un lieu » ; **deux origines** ci-dessous |
+| **Mode événement** | la seconde face de l'app ; **n'apparaît que si on a rejoint un événement**, pour ne pas polluer l'app ; **un seul événement à la fois** |
+| **Groupe** | l'objet existant ; les « cercles par passion » **sont des groupes**, on y entre parce qu'un ami vous y ajoute, la suggestion en est la découverte |
+
 | Mode | Ce que c'est |
 |---|---|
 | **social classique** | l'app telle qu'elle est |
-| **événement / soirée** | ouvre aux participants du cercle du lieu : jeux, mini-jeux sociaux, défis → qui produisent du contenu à poster |
+| **événement** | ouvre aux présents : jeux, mini-jeux sociaux, défis → qui produisent du contenu à poster |
 
-✅ **Ça n'ouvre AUCUNE porte nouvelle** : on rejoint le lieu **en étant sur
-place**. Le cercle de soirée n'est pas un contournement de la barrière, **c'est
-la barrière rendue utile**. Les deux portes d'entrée restent intactes.
+**Un événement a deux origines, avec deux règles d'accès différentes :**
+
+| | Événement **privé** | Événement **d'établissement** |
+|---|---|---|
+| créé par | son organisateur, qui construit un **groupe d'événement** éphémère (soirée, voyage, activité) — ⚠️ **jamais dans un groupe existant** | le commerçant, sur une **plateforme d'inscription dédiée** (produit web à part) |
+| qui peut être invité | **les amis, au sens strict** (amitié acceptée des deux côtés) — Jay a écarté « toute connexion, même par un groupe » : *« cela contourne un peu la base du réseau »* | tout le monde — c'est le lieu qui filtre |
+| qui invite | **tout le monde, paramétrable** : les invités sont **admin par défaut** (ajouter / retirer), le créateur peut modifier ces réglages — « comme sur WhatsApp » ; on n'ajoute que **ses propres amis** | — |
+| accès aux fonctionnalités | être **du groupe d'événement ET sur place** | être **sur place** |
+| se ferme | **automatiquement quand 80 % des participants sont partis** | par **l'hôte** (plateforme) ou à **l'horaire** paramétré |
+
+**Dans les deux cas** : la présence se prouve par un **système mixte ping ET
+localisation** ; un participant **sort automatiquement en s'éloignant de
+l'événement et de son cœur**, ou manuellement. **Le cœur = les points chauds**,
+là où les participants sont — plusieurs possibles, « comme sur Snap » : un
+festival dépasse la portée BLE, c'est pour ça que la présence est mixte. Les
+points chauds sont une **vue dérivée** des positions, jamais un fait stocké.
+**Le groupe d'événement survit 5 jours après la fermeture**, puis est purgé.
+
+✅ **Deux origines, deux filtres nets** : le privé filtre par **la relation**,
+l'établissement par **le lieu**. L'invitation privée réutilise la garde qui
+existe (`are_connected`, statut `full`) — rien à inventer. Les états de
+relation restent nécessaires **pour l'événement lui-même** (des inconnus dans
+la même soirée doivent apparaître comme « présents », jamais comme amis).
+
+⚠️ **Groupe ≠ groupe d'événement.** Le premier est durable ; le second vit le
+temps de l'événement, avec ses propres fonctionnalités et **sa propre
+bibliothèque éphémère et retardée, à d'autres paramètres**. Deux durées de vie
+= deux objets (règle 2) — le précédent est `ConversationType.proximity`.
+
+⚠️ Règle 2 de ce fichier : ce qui donne le droit d'entrer (du groupe / client du
+lieu) **ne partage pas la même règle**, sinon la plus permissive gagne.
+
+✅ **Ça n'ouvre AUCUNE porte nouvelle** — vérifié en base le 2026-09-12 : ajouter
+quelqu'un à un groupe exige d'en être membre **et** d'être ami avec lui ; les
+membres d'un groupe se voient mais **ne peuvent pas se demander en ami sans se
+croiser**. Le privé exige d'être déjà du groupe, le public d'être sur place. Les
+deux portes d'entrée restent intactes.
 
 🟢 **Et le modèle économique s'emboîte là** : le bar est le commerçant
-partenaire. Ce que NeoVibe lui vend n'est pas un encart, **c'est une soirée
-animée**.
+partenaire, et la plateforme d'inscription **est** le territoire commerçant. Ce
+que NeoVibe lui vend n'est pas un encart, **c'est une soirée animée**.
 
 ### ⚠️ Trois durées de vie, trois objets, jamais le même rangement
 
 | Objet | Durée | Nature |
 |---|---|---|
-| **la soirée** | quelques heures | temporaire, liée au **lieu**, révocable |
-| **le croisement** | **24 h** aujourd'hui (`encounters`), 3 jours voulus | de personne à personne, un **fait** |
+| **l'événement** (la soirée) | quelques heures à quelques jours | temporaire, lié au **lieu** ou au **groupe**, révocable |
+| **le croisement** | **24 h** aujourd'hui (`encounters`) ; voulu : **3 jours** s'il vient d'un ping, **d'autres règles** s'il vient d'un événement — **la fenêtre est un paramètre de l'ORIGINE, jamais une constante** (Jay, 2026-09-12 : *« d'abord les bases, ensuite les règles précises »*) | de personne à personne, un **fait**, qui porte son **origine** |
 | **l'amitié** | durable | une **intensité** qui se gagne (`friendship_tier`) |
 
 Règle 2 de ce fichier : les mélanger, c'est la règle la plus permissive qui
@@ -227,7 +271,7 @@ gagne — **en silence**.
 
 ### ⚠️ L'ordre de construction, fixé par Jay — ne pas l'inverser
 
-**Les états de relation d'abord, le mode soirée ensuite** (`RAPPELS.md` #99).
+**Les états de relation d'abord, le mode événement ensuite** (`RAPPELS.md` #99).
 Tout ce qui entre au carnet de clés est aujourd'hui **présenté comme un ami** :
 élargir la source avant d'avoir le libellé du lien ferait apparaître des
 inconnus comme des amis.

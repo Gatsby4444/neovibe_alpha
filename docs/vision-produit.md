@@ -470,26 +470,92 @@ tu as passé du temps »* de Jay.
 ✅ **Ça n'ouvre aucune nouvelle porte** : c'est la même — la proximité physique —
 rendue utilisable plus longtemps.
 
-### 8.3 Les cercles par passion
+#### 8.2.1 Précision du 2026-09-12 — la fenêtre dépend de l'ORIGINE du croisement
+
+Question posée : 3 jours (dit le 2026-09-11) ou « la semaine dernière »
+(l'exemple du 2026-09-12) ? Réponse de Jay :
+
+> *« La fenêtre pour retrouver quelqu'un, ça dépend : il y a plusieurs manières
+> de trouver le profil de quelqu'un. Soit tu l'as croisé en ping dans le bus et
+> vous avez discuté, donc là son profil apparaîtra pendant 3 jours dans tes
+> suggestions ; soit tu l'as croisé dans un événement où vous étiez tous les
+> deux, et les règles diffèrent. Mais l'objectif, c'est de construire un
+> système modulaire. D'abord les bases, ensuite on choisit les règles
+> précises. »*
+
+**Ce que ça fixe — et c'est une décision d'architecture, pas un chiffre :**
+
+| Origine du croisement | Fenêtre de suggestion |
+|---|---|
+| **par ping** (le bus, la rue — on s'est vus, on a discuté) | **3 jours** |
+| **dans un événement** (on y était tous les deux) | **d'autres règles, à choisir plus tard** |
+
+1. **Un croisement porte son origine.** Aujourd'hui `encounters` n'a que
+   `proof` (le niveau de preuve) — il lui manque **d'où il vient** : un ping
+   isolé, ou un événement (et lequel — c'est la question 14, qui devient la
+   même question).
+2. **La fenêtre est un paramètre de l'origine, jamais une constante du code.**
+   Le jour où Jay choisit « 7 jours pour un festival », ça doit être un
+   réglage à changer, pas une fonction à réécrire. Même chose pour ce que la
+   fenêtre ouvre (profil, stories — §8.2).
+3. **D'abord les bases, ensuite les règles.** Consigne explicite : construire
+   le socle (le croisement avec son origine, la suggestion qui lit une règle
+   par origine) **avant** de discuter les chiffres. Les chiffres viendront quand
+   le socle existera.
+
+### 8.3 Les cercles par passion — tranché le 2026-09-12 : ce sont des GROUPES
 
 > *« Les cercles, cela te permet de connecter avec des gens en rejoignant des
 > cercles, un peu comme des groupes avec des gens qui partagent une passion, un
 > hobby, un sport… autour de toi. Mais je ne sais pas encore comment bien
-> développer et intégrer cet axe. »*
+> développer et intégrer cet axe. »* (2026-09-11)
 
-**Non tranché, et Jay le dit.** Le point à ne pas perdre : un cercle par passion
-**qu'on rejoint librement** serait une **troisième porte d'entrée** dans le
-réseau, en contradiction avec la décision verrouillée (§5.1). Trois degrés
-possibles, du plus prudent au plus large :
+Le 2026-09-11, ce point posait un problème : un cercle par passion **qu'on
+rejoint librement** ouvrait une **troisième porte d'entrée** dans le réseau
+(§5.1). Trois degrés étaient possibles — **A** (on voit, mais devenir ami exige
+de se croiser), **B** (être dans le même cercle vaut recommandation), **C** (on
+s'ajoute librement).
 
-| | Ce que le cercle permet | La barrière |
-|---|---|---|
-| **A** | on voit le contenu et qui est là, mais **devenir ami exige de se croiser** — et le cercle sert à organiser les sorties où l'on se croise | **intacte** |
-| **B** | être dans le même cercle vaut **recommandation** : on peut demander, l'autre accepte ou non | élargie, mais filtrée |
-| **C** | on s'ajoute librement | **la barrière tombe** |
+✅ **Tranché par Jay le 2026-09-12 — et il n'y a pas d'objet neuf.** Dans ses
+mots :
 
-➡️ **A** est le plus cohérent avec le reste : le cercle devient le *prétexte à se
-rencontrer* plutôt qu'un annuaire. ❓ *À trancher par Jay.*
+> *« Les cercles par passion, ce sera finalement dans les suggestions, et c'est
+> pour pouvoir rejoindre des groupes à terme, ou dans une section dédiée.
+> L'objectif est de pouvoir dire : allez rejoindre un match de foot avec Alice,
+> que vous avez croisée la semaine dernière au bar Temple ou à l'événement Casos
+> à Ville. Une fois que Bob a participé à l'événement, s'il rencontre des gens
+> il peut rejoindre leur groupe de foot par exemple : Alice pourra l'ajouter au
+> groupe. »*
+
+Autrement dit :
+
+| Ce qu'on appelait | Ce que c'est en réalité |
+|---|---|
+| « un cercle par passion » | **un groupe** — l'objet qui existe déjà (`conversation_type = 'group'`) |
+| « rejoindre un cercle » | **être ajouté à un groupe par un ami** qui en est membre |
+| « découvrir des cercles autour de soi » | **une suggestion**, née d'un croisement : *« va jouer au foot avec Alice, croisée au Temple »* |
+
+**C'est le degré A, réalisé avec ce qui existe.** Vérifié **en base** le
+2026-09-12, sous la sécurité active :
+
+- **Ajouter quelqu'un à un groupe exige d'être membre ET d'être ami avec lui**
+  (politique `members_insert_by_member` : `is_conversation_member` **et**
+  `are_connected`). Alice ne peut ajouter Bob que si Alice et Bob sont amis.
+- **Les membres d'un même groupe voient leur profil respectif**
+  (`can_view_profile`, branche `conversation_members`) — Bob voit donc les amis
+  d'Alice qui jouent au foot…
+- **… mais il ne peut PAS leur envoyer de demande d'ami** : le client n'a plus
+  le droit d'écrire dans `connection_requests` (2026-08-31), et les deux seules
+  fonctions qui le font (`request_connection_from_proximity`,
+  `request_connection_with_vibe`) exigent un ping récent — **il faut les
+  croiser**. Le groupe est le *prétexte à se rencontrer*, jamais un annuaire.
+
+➡️ **Aucune décision verrouillée ne bouge, et rien n'est à construire côté
+groupe.** Ce qui est à construire, c'est **la suggestion** (§8.2) — et elle a
+une conséquence de données, relevée à la source : `encounters` ne porte
+**aucun lieu ni aucun événement** (colonnes : `user_low`, `user_high`,
+`first_seen_at`, `last_seen_at`, `proof`). Pour dire *« croisée au Temple »*, **le
+croisement doit se souvenir de l'événement où il a eu lieu**. ❓ Voir §12.
 
 ### 8.4 🔴 Le geocircle et les deux modes — la clé de voûte
 
@@ -538,6 +604,200 @@ fonctionnalité posée à côté du produit : **il devient le produit.**
 de clés est aujourd'hui **présenté comme un ami**. Élargir la source sans
 introduire d'abord le **libellé du lien** ferait apparaître des inconnus comme
 des amis. ➡️ **Les états de relation d'abord, le mode soirée ensuite** (#99).
+
+#### 8.4.1 Précisions du 2026-09-12 — le vocabulaire, et les deux origines d'un événement
+
+*Jay, au matin du 2026-09-12, à la question « trois choses s'appellent
+cercle ».*
+
+**Le vocabulaire est tranché.** Il finira dans des noms de tables, il ne bougera
+plus sans décision explicite :
+
+| Mot | Ce qu'il désigne | État |
+|---|---|---|
+| **Cercle** | l'onglet d'accueil — mes amis | **inchangé pour l'instant** ; *« peut-être qu'il se renommera ou se remodifiera plus tard »* |
+| **Événement** | ce qu'on appelait « le cercle d'un lieu » | à construire ; **deux origines**, ci-dessous |
+| **Mode événement** | la seconde face de l'app | n'apparaît **que si tu as rejoint un événement** ; *« toute une autre partie »* |
+| **Groupe** | l'objet existant (conversation de groupe) | les « cercles par passion » **sont des groupes** (§8.3) |
+
+**L'onglet Cercle est aussi la porte d'entrée vers un événement** : c'est de là
+qu'on rejoint un événement, ce qui active le mode événement. **On ne peut
+rejoindre qu'un événement à la fois.**
+
+**Pourquoi un mode à part** — dans ses mots : *« Je me demande si on ne devrait
+pas faire deux modes de l'app, et le mode événement qui n'apparaît que si tu
+rejoins un événement, de sorte à ne pas polluer l'app avec des choses que
+l'utilisateur n'utilise pas tout le temps. »* C'est la même idée que « l'Apple
+des réseaux sociaux » (§5.2) : épuré = ce qui ne sert pas maintenant n'est pas
+à l'écran.
+
+**Un événement a deux origines, parce que ce ne sont pas les mêmes règles :**
+
+| | **Événement privé** | **Événement d'établissement** |
+|---|---|---|
+| Qui le crée | **son organisateur**, qui construit pour l'occasion un **groupe d'événement** — éphémère, **jamais un groupe existant** (voir 8.4.2) | **le commerçant**, depuis une **plateforme d'inscription dédiée** |
+| Pour quoi | *« organiser au mieux son événement privé, d'une soirée à un voyage ou une activité »* — la fonctionnalité évoquée dès le début du projet | bars, gros événements publics |
+| Qui accède aux fonctionnalités | ceux qui sont **à la fois dans le groupe d'événement ET sur place** | ceux qui sont **sur place** (le geocircle du §8.4) |
+| Qui règle | les membres | l'établissement : *« des horaires d'ouverture aux mini-jeux, gestion des fonctionnalités et des participants »* |
+| Qui ferme | **automatique : quand 80 % des participants sont partis** | **l'hôte**, depuis la plateforme — ou **l'horaire de fermeture** paramétré |
+
+⚠️ **Deux règles d'accès différentes = pas le même chemin d'accès** (règle 2 de
+`CLAUDE.md`). Ce qui est commun (un lieu, une durée, des présents, le mode
+événement) peut être un seul objet ; **ce qui donne le droit d'entrer** (être
+du groupe / être client du lieu) ne doit pas se retrouver dans une même règle
+« la plus permissive gagne ». *Conception à faire au moment de construire, pas
+avant.*
+
+🟢 **La plateforme d'inscription des établissements EST le « territoire
+commerçant »** (§3, question 12 du §12) : c'est par elle qu'un bar entre dans
+NeoVibe, y déclare ses activités réservables et ses soirées. Un produit à part,
+sur le web, avec son propre code — cohérent avec « on sépare tout ».
+
+✅ **Ce que ça confirme** : la barrière est intacte dans les deux cas. Le
+privé exige d'avoir été **invité** dans le groupe d'événement **et** d'être sur
+place ; le public exige d'être **sur place**. Ni l'un ni l'autre n'ouvre de
+porte nouvelle.
+
+#### 8.4.2 Précisions du 2026-09-12 (suite) — la présence, la fermeture, et le groupe d'événement
+
+*Réponses de Jay aux trois questions posées après le vocabulaire.*
+
+**① La présence se prouve par un système mixte : ping ET localisation.** Ni
+l'un ni l'autre seul. Le ping (BLE, `ping_pairs` / `sightings`) prouve qu'on
+est *près de quelqu'un* ; la localisation prouve qu'on est *à l'endroit*. Vaut
+pour les deux origines d'événement.
+
+**② Un événement se ferme, et un participant en sort — quatre règles :**
+
+| | Règle |
+|---|---|
+| fermeture d'un événement **privé** | **automatique, quand 80 % des participants sont partis** |
+| fermeture d'un événement **d'établissement** | **l'hôte la ferme** depuis la plateforme de gestion, **ou l'horaire de fermeture** paramétré arrive |
+| sortie d'un participant, dans les deux cas | **automatique quand il s'éloigne de l'événement et de son cœur** |
+| sortie manuelle | **toujours possible** |
+
+➡️ Ces règles **consomment** la présence de ①, en continu : « 80 % sont
+partis » et « il s'est éloigné » ne se calculent que si la présence est
+mesurée pendant toute la soirée, pas seulement à l'entrée. C'est une couche
+d'acquisition (la présence) et une couche qui décide (fermer, sortir) — à
+séparer (règle « dissocier l'acquisition de l'usage »).
+
+**③ 🔴 Correction de Jay : un événement privé N'EST PAS créé dans un groupe
+existant.** Ma lecture de *« sur liste dans les groupes »* était fausse. Dans
+ses mots :
+
+> *« Un groupe d'événement se construit spécialement pour cet événement, il est
+> censé être éphémère. C'est un groupe avec des fonctionnalités différentes,
+> spécialement conçu pour l'événement — comme une soirée avec sa propre
+> bibliothèque de groupe éphémère et retardée — mais ce ne seront pas les mêmes
+> paramètres. Donc on distingue bien les deux. »*
+
+| | **Groupe** (existant) | **Groupe d'événement** (à construire) |
+|---|---|---|
+| durée | durable | **éphémère** — vit le temps de l'événement |
+| construit pour | une passion, une bande d'amis | **un seul événement** |
+| fonctionnalités | chat, bibliothèque éphémère de conversation | les siennes : mode événement, jeux, défis, **sa propre bibliothèque éphémère et retardée**, avec **d'autres paramètres** |
+| rangement | `conversation_type = 'group'` | **un autre objet** — règle 2 de `CLAUDE.md`, deux durées de vie = deux rangements |
+
+✅ **C'est exactement le précédent `ConversationType.proximity`** (§8.4) : une
+conversation temporaire, tenue hors du monde des amis, purgée à la fin. Le
+groupe d'événement en est la forme adulte.
+
+**④ Le cœur, ou les points chauds — « un peu comme sur Snap ».** Dans ses mots :
+
+> *« Si des gens créent un groupe d'événement et que c'est un événement où les
+> gens bougent et ne sont pas forcément toujours à portée BLE, comme un festival
+> ou autre, il faut gérer le cœur ou les points chauds. Un peu comme sur Snap. »*
+
+Ce que ça fixe :
+
+- **Le cœur n'est pas un point déclaré, c'est là où les participants SONT.**
+  Il peut y en avoir **plusieurs** (les points chauds d'un festival : la scène,
+  le camping, le bar). Comme la carte de chaleur de Snap : la densité des
+  présents dessine les zones.
+- **Le BLE ne suffit pas pour un tel événement** — c'est exactement pourquoi la
+  présence est mixte (①) : à un festival, deux participants du même groupe
+  d'événement peuvent être à 300 m l'un de l'autre, hors de portée du ping, et
+  tous deux « dans » l'événement grâce à la localisation.
+- La règle de sortie (②) se lit donc : **sorti quand on s'éloigne de tous les
+  points chauds** — pas d'un centre unique.
+
+⚠️ *Conséquence de conception, à ne pas perdre* : les points chauds sont une
+**vue dérivée** des positions des présents (elle se recalcule, elle n'est pas
+stockée comme un fait), et la sortie automatique est une **décision** prise
+sur cette vue. Trois couches : positions (acquisition) → points chauds (vue
+dérivée) → sortie / fermeture (décision).
+
+**⑤ Le groupe d'événement survit 5 jours après la fermeture** (*je lis :
+« 5 jours pour le point 3 » = la survie du groupe après fermeture — à
+confirmer si c'était autre chose*). Le temps du reveal de sa bibliothèque et de
+récupérer ce qu'on y a mis ; puis il est purgé. « Éphémère » a une durée
+écrite.
+
+**⑥ Qui peut être invité dans un groupe d'événement privé — LES AMIS, et
+seulement eux.** Jay a d'abord dit « toute personne avec qui tu as une
+connexion quelconque, y compris par un groupe », puis s'est repris dans la
+minute :
+
+> *« En fait, après réflexion, on limite cela aux amis — c'est-à-dire ceux
+> qu'on a ajoutés et qui nous ont ajoutés en retour / acceptés en ami, ou vice
+> versa. Et pour être ami on doit passer soit par la proximité, soit par une
+> recommandation intermédiaire (limitée). Car ce que j'ai dit précédemment,
+> cela contourne un peu la base du réseau. »*
+
+➡️ **Invitable = ami au sens strict** : une amitié acceptée des deux côtés,
+obtenue par l'une des deux seules portes (§5.1). Rien d'autre.
+
+**Pourquoi c'est le bon choix — et pas seulement le plus prudent :**
+
+1. **Les deux origines d'événement ont désormais chacune UN filtre, net.**
+   Le privé filtre par **la relation** (mes amis) ; l'établissement filtre par
+   **le lieu** (qui est sur place). Aucun des deux ne mélange les deux
+   critères. C'est exactement « deux objets, deux règles » (règle 2 de
+   `CLAUDE.md`).
+2. **La version large faisait entrer des gens avant la rencontre.** Un
+   co-membre de groupe, invité sans être ami, voyait les autres invités dans le
+   groupe d'événement *avant* la soirée. Ça n'ouvrait pas la porte de l'amitié
+   (la demande exige toujours un ping) — mais ça créait une visibilité que
+   personne n'avait choisie. L'instinct de Jay est juste.
+3. **C'est ce que la base sait déjà faire.** `are_connected` (statut `full`)
+   est exactement cette règle, et elle garde déjà l'ajout à un groupe
+   (`members_insert_by_member`). L'invitation à un événement privé réutilise
+   la même garde — **zéro état de relation à inventer pour ça**.
+
+⚠️ **Ce que ça ne change pas** : les états de relation restent nécessaires
+**pour l'événement lui-même** (#99). Dans un événement d'établissement, des
+inconnus partagent la même soirée ; ils doivent apparaître comme *« présents à
+la soirée »*, jamais comme des amis. L'ordre « états d'abord, mode événement
+ensuite » tient toujours — simplement, l'invitation privée n'en dépend plus.
+
+**⑦ Qui invite — tout le monde, et c'est un PARAMÈTRE.** Dans ses mots :
+
+> *« Justement, pour ne pas trop limiter, tout le monde peut inviter — mais
+> cela doit être un paramètre. En gros, d'abord le créateur du groupe ajoute
+> des gens ; ils ont tous le rôle admin par défaut et peuvent ajouter et
+> supprimer des gens. Mais le créateur peut choisir de modifier ces paramètres
+> initiaux. Comme sur WhatsApp. »*
+
+| | Règle |
+|---|---|
+| le créateur | ajoute les premiers invités ; **peut modifier les paramètres** |
+| les invités | **admin par défaut** : peuvent **ajouter** et **retirer** des gens |
+| l'ajout | reste borné par ⑥ : on n'ajoute que **ses propres amis** |
+| le paramètre | le créateur peut restreindre (par ex. : seuls certains ajoutent) |
+
+**Relevé en base le 2026-09-12** : `conversation_members` n'a **aucune notion
+de rôle** (`conversation_id, user_id, joined_at`). Aujourd'hui, dans un groupe
+durable, **tout membre peut ajouter un ami** (`members_insert_by_member`) mais
+**seul le créateur — ou soi-même — peut retirer** quelqu'un
+(`members_delete_self_or_group_creator`). Le « tous admin par défaut » de Jay
+est donc **plus large que le groupe actuel sur un point** : le retrait.
+
+➡️ **Deux choses à construire, dans l'objet groupe d'événement** (pas dans le
+groupe durable, sauf décision) : un **rôle par membre** (admin / membre) et un
+**jeu de paramètres** tenu par le créateur. *Je lis « le créateur du groupe »
+comme le créateur du groupe d'événement ; si la même règle doit valoir pour les
+groupes durables, c'est à dire — §12 #21.*
 
 ### 8.5 🔴 La chaîne — ce ne sont pas des fonctionnalités, c'est un mécanisme
 
@@ -792,48 +1052,55 @@ passage au réel, même si c'est moins pratique à développer.
 
 ## 12. ❓ Ce qui reste ouvert — les questions à reposer à Jay
 
-*Arrêté au **2026-09-12**, en fin de session, à sa demande : « tu enregistres et
-tu me reposes tes questions à la prochaine session ». **Ne rien décider seul
-ici.***
+*Arrêté au **2026-09-12** au soir, puis **mis à jour le 2026-09-12 au matin**
+après les réponses de Jay sur le vocabulaire, la présence, la fermeture et
+la fenêtre des suggestions. **Ne rien décider seul ici.***
 
-### 🔴 D'abord : le vocabulaire — trois choses s'appellent « cercle »
+### ✅ Réglé le 2026-09-12 : le vocabulaire
 
-C'est **la seule à régler avant les autres**, parce qu'elle finira dans des noms
-de tables et qu'après on ne la change plus.
+Trois choses s'appelaient « cercle ». Tranché (§8.4.1) : **Cercle** = l'onglet,
+inchangé ; **Événement** (privé ou d'établissement) + **mode événement** = ce
+qu'on appelait le cercle d'un lieu ; **Groupe** = ce qu'on appelait les cercles
+par passion. Le mot « petits univers » du document n'a pas été retenu.
 
-| Ce que ça désigne | Où ça vit aujourd'hui |
-|---|---|
-| **l'onglet Cercle** — tous mes amis, en un bloc ; c'est l'écran d'accueil par défaut | `lib/features/circle/`, `StartupTab.circle` |
-| **les cercles par passion** (foot, musique, voyage) | n'existe pas — §8.3 |
-| **le cercle d'un lieu** (le bar, ce soir) | n'existe pas — §8.4 |
+### ✅ Réglé aussi
 
-*« Groupe » est pris aussi* (`conversation_type : direct \| group \| proximity`).
-Le mot libre proposé par Jay dans son document : **« petits univers »**.
+| # | Question | Réponse de Jay |
+|---|---|---|
+| 1 | Les cercles par passion : A, B ou C ? | **A, sans objet neuf** : ce sont les groupes existants, on y entre parce qu'un ami vous y ajoute, et la suggestion en est la découverte (§8.3) |
+| 5 | Les soirées privées — qui invite, comment on entre | **l'organisateur construit un groupe d'événement éphémère** et y invite ses amis — au sens strict (17) ; on accède aux fonctionnalités si on en est **et** qu'on est sur place (§8.4.1, 8.4.2) |
+| — | Qui règle une soirée de bar | **le commerçant**, depuis une plateforme d'inscription dédiée (§8.4.1) |
+| 2 | Comment on prouve qu'on est sur place | **système mixte : ping ET localisation** (§8.4.2) |
+| 3 | Qui ferme un événement, et quand | privé : **80 % des participants partis** ; établissement : **l'hôte ou l'horaire** ; sortie **automatique en s'éloignant du cœur**, ou manuelle (§8.4.2) |
+| 18 | Le « cœur » d'un événement sans lieu fixe | **le cœur, ou les points chauds** : là où les participants sont, plusieurs possibles, « comme sur Snap » ; un festival dépasse la portée BLE, d'où la présence mixte (§8.4.2 ④) |
+| 19 | Combien de temps le groupe d'événement survit après la fermeture | **5 jours** (§8.4.2 ⑤ — lu comme la réponse au « point 3 », à confirmer) |
+| 7 | La fenêtre des suggestions — 3 jours ou une semaine ? | **ça dépend de l'origine du croisement** : 3 jours pour un croisement par ping ; d'autres règles pour un croisement en événement, à choisir plus tard. **Le socle d'abord, modulaire ; les chiffres ensuite** (§8.2.1) |
+| 17 | Qui peut être invité dans un groupe d'événement privé | **les amis au sens strict** — amitié acceptée des deux côtés, par proximité ou recommandation limitée. Jay a d'abord dit « toute connexion, même par un groupe », puis s'est repris : *« cela contourne un peu la base du réseau »* (§8.4.2 ⑥) |
+| 20 | Qui invite à un événement privé | **tout le monde, et c'est un paramètre** : les invités sont admin par défaut (ajouter / retirer), le créateur peut modifier ces réglages — « comme sur WhatsApp » (§8.4.2 ⑦) |
+| 15 | La liste des événements d'un groupe | **sans objet** — un événement privé n'est pas créé dans un groupe existant : c'est un **groupe d'événement** éphémère, construit pour lui (§8.4.2) |
 
-### Les autres questions, par sujet
+### Les questions encore ouvertes, par sujet
 
 | # | Question | Pourquoi ça bloque |
 |---|---|---|
-| 1 | **Les cercles par passion : A, B ou C ?** (§8.3) | détermine si une **troisième porte d'entrée** s'ouvre dans le réseau |
-| 2 | **Comment on rejoint un geocircle** — GPS ? balise BLE du bar ? le commerçant ouvre sa soirée ? | détermine tout le modèle de données du lieu |
-| 3 | **Qui ferme la soirée, et quand** — le commerçant ? une heure ? le vide ? | une soirée qui ne se ferme jamais est une porte permanente |
-| 4 | **Ce qu'il reste après la soirée** — *réponse proposée : exactement les croisements, donc les suggestions de 3 jours. La soirée s'efface, les rencontres restent.* | à confirmer |
-| 5 | **Les soirées privées** — qui invite, comment on entre sans commerçant | c'est l'autre moitié du §8.4 |
-| 6 | **Le seuil du croisement** — à partir de combien de temps passé ensemble une personne mérite d'apparaître dans les suggestions ? | 30 secondes dans le métro et une soirée entière produisent aujourd'hui **la même ligne** |
-| 7 | **La fenêtre à 3 jours** — on l'allonge pour les suggestions, mais elle allonge **aussi** l'accès au profil et aux stories d'un inconnu croisé (§8.2) | à décider exprès, pas à subir |
+| 4 | **Ce qu'il reste après** — *réponse proposée : exactement les croisements, donc les suggestions. L'événement s'efface, les rencontres restent.* | à confirmer |
+| 6 | **Le seuil du croisement** — combien de temps ensemble pour mériter une suggestion ? | 30 s dans le métro et une soirée entière produisent aujourd'hui **la même ligne** |
+| 🆕 14 | **Le croisement doit porter son ORIGINE** — un ping isolé, ou un événement (et lequel : *« au Temple »*, *« à Casos »*). `encounters` n'a aujourd'hui que `proof`. ➡️ *Ce n'est plus une question à Jay mais une conception à faire* : c'est la base modulaire qu'il demande (§8.2.1) | c'est ce qui rend la suggestion *dicible* **et** ce qui permet une fenêtre par origine |
+| 🆕 21 | **Le « tous admin par défaut, paramétrable par le créateur » vaut-il aussi pour les groupes DURABLES ?** Aujourd'hui, dans un groupe, tout membre ajoute mais seul le créateur retire | si oui, c'est un rôle à ajouter à `conversation_members` ; si non, ça reste dans le groupe d'événement |
+| 🆕 16 | **Le contenu du mode événement** — jeux, défis, chat de l'événement, publication vers le feed… *« toute une autre partie »* : à cadrer quand on y arrive | rien n'existe ; on ne le construit pas avant les états de relation (#99) |
 | 8 | **« Plus de choses à débloquer » avec les paliers** (§8.1) — lesquelles ? | la liste est vide |
 | 9 | **Le « cercle intime » du document** fait doublon avec le palier `inner`, qui se **gagne**. On le retire, ou les deux coexistent ? | deux façons de dire « mes plus proches », l'une méritée, l'autre déclarée — elles se contrediront |
 | 10 | **Les bornes de l'ajout anonyme** — quota, signalement, régime anonyme/nommé visible à l'expéditeur (§6.5) | anonyme + gratuit + notifiant = canal de nuisance |
 | 11 | **La lisibilité du scroll qui durcit** (§6.6) | un mur sans explication est un bug, pas une protection |
-| 12 | **Le territoire commerçant** — compte, fiche activité, calendrier, réservation, commission, annulation (§3) | le plus gros chantier neuf, rien n'existe |
+| 12 | **Le territoire commerçant** = la plateforme d'inscription des établissements — compte, fiche activité, calendrier, réservation, commission, annulation, et maintenant **la gestion d'une soirée** | le plus gros chantier neuf, rien n'existe ; un produit web à part |
 | 13 | **La deuxième idée de Jay** — il en a annoncé deux le 2026-09-11 et n'a décrit que l'ajout anonyme. *« Je l'ai oubliée, cela reviendra plus tard. »* | à lui redemander |
 
 ### ⚠️ L'ordre de construction, déjà fixé par Jay et à ne pas inverser
 
-**Les états de relation d'abord, le mode soirée ensuite** (`RAPPELS.md` #99).
-Tout ce qui entre au carnet de clés est aujourd'hui **présenté comme un ami** :
-élargir la source avant d'avoir le **libellé du lien** ferait apparaître des
-inconnus comme des amis.
+**Les états de relation d'abord, le mode événement ensuite** (`RAPPELS.md`
+#99). Tout ce qui entre au carnet de clés est aujourd'hui **présenté comme un
+ami** : élargir la source avant d'avoir le **libellé du lien** ferait apparaître
+des inconnus comme des amis.
 
 ---
 
@@ -843,7 +1110,7 @@ Estimation de Jay (2026-07-26) : *« encore quelques semaines de développement 
 pour atteindre le résultat souhaité.
 
 ⚠️ **Cette estimation est antérieure à la vision affinée** et ne couvre ni le
-territoire commerçant, ni les jeux à l'échelle d'une ville, ni les cercles. À
+territoire commerçant, ni les jeux à l'échelle d'une ville, ni les événements. À
 reposer à Jay quand ces trois chantiers seront cadrés.
 
 **Le constat qui commande la priorité** (relevé le 2026-09-10 dans le code réel,
