@@ -381,10 +381,10 @@ l'ordre du quart d'heure de scroll.)*
 > poster de sorte à recréer de l'engagement. »* *(Jay, 2026-09-11)*
 
 **C'est la réponse à une question ouverte depuis le 2026-07-26** : la
-« dynamique renouvelée en permanence » réclamée au §8.1, que les quiz seuls ne
+« dynamique renouvelée en permanence » réclamée au §9.1, que les quiz seuls ne
 fournissaient pas.
 
-**Et ça lève la réserve du §9.3.** Ce document signalait que *« les mini-jeux
+**Et ça lève la réserve du §10.3.** Ce document signalait que *« les mini-jeux
 portent le risque exact qu'on dénonce »* — du contenu vide industrialisé. Un
 loup-garou à l'échelle d'une ville ne porte pas ce risque, **parce qu'il faut
 sortir pour y jouer**. Là où un quiz entre amis passait de justesse, celui-ci
@@ -400,7 +400,176 @@ remplir un feed local, ni réserver chez les mêmes commerçants.
 
 ---
 
-## 8. Ce qui reste à construire — « meubler l'app »
+## 8. Le geocircle, le mode soirée, et la chaîne des mécaniques
+
+*Précisions de Jay des 2026-09-11 (soir) et 2026-09-12. Section entièrement
+neuve. Relevé technique fait **en base et dans le code**, pas dans les
+documents.*
+
+### 8.1 Les paliers d'amitié — discrets, d'arrière-plan
+
+> *« Sur Snap il y a une fonctionnalité qui te permet de voir ton niveau de
+> relation avec tes amis […] c'est une fonctionnalité discrète qui s'affiche
+> dans une partie de gestion de profil, et cela permet juste d'avoir tes amis
+> les plus proches en haut de la liste lorsque tu partages un snap. Je veux
+> garder cette mécanique mais ajouter plus de fonctionnalités à débloquer en
+> rapport avec la proximité. Mais cela restera une fonctionnalité discrète, de
+> background un peu… »*
+
+⚠️ **C'est un cadrage, pas une demande neuve** : les paliers **existent et
+tournent**. Trois paliers (`friend / close / inner`), calculés tout seuls à
+partir des croisements physiques sur 30 jours, recalculés chaque nuit à 3 h 11.
+*Relevé en base le 2026-09-12 : 48 connexions, dont **12 « Proche »** et
+**6 « Inséparable »**.* Règles complètes : `docs/paliers-d-amitie.md`.
+
+Ils débloquent déjà **les stories réservées à un palier** et **le délai du
+« presque »** (Inséparable tout de suite, Proche 15 min, Ami 45 min).
+
+🔴 **Ce qui n'existe PAS — et c'est justement l'usage que Jay décrit** : **le
+tri des destinataires par palier à l'envoi.** Vérifié dans
+`lib/features/cards/send/` : le palier sert à filtrer l'audience d'une story,
+**jamais** à ordonner une liste de destinataires. Peu de travail, et c'est le
+comportement Snap demandé.
+
+### 8.2 Retrouver quelqu'un croisé en soirée — les suggestions de 3 jours
+
+> *« L'app doit permettre, grâce à la détection à la fois localisation mais
+> aussi ping, de détecter les personnes que tu as croisées, avec lesquelles tu
+> as passé du temps en boîte ou soirée par exemple, et de les afficher dans tes
+> suggestions jusqu'à pendant 3 jours pour faire une demande d'ami. Pour
+> retrouver plus facilement une personne croisée en soirée… »*
+
+**La matière première existe déjà**, relevée en base le 2026-09-12 :
+
+| Table | Ce qu'elle garde | Durée de vie **réelle** |
+|---|---|---|
+| `sightings` | chaque observation radio, avec sa bande de distance | **48 h** (`purge_sightings`) |
+| `ping_pairs` | les paires qui se sont vues | **24 h** (`purge_ping`) |
+| `encounters` | le croisement **certifié** (les DEUX se sont vus) | **24 h** (dans `neovibe_purge`) |
+| `meeting_days` | le jour du croisement, pour les paliers | permanent |
+
+🟢 **La durée passée ensemble est déjà mesurable** : `encounters` porte
+`first_seen_at` **et** `last_seen_at`. « On a passé trois heures ensemble » se
+calcule aujourd'hui, sans rien ajouter — c'est exactement le *« avec lesquelles
+tu as passé du temps »* de Jay.
+
+**Ce qui manque :**
+
+1. **La fenêtre est à 24 h, Jay en veut 72.** C'est **un nombre**, dans la tâche
+   `neovibe_purge`. ⚠️ **Mais `encounters` ne sert pas qu'à ça** : c'est lui qui
+   ouvre le **profil** (`private.can_view_profile`) et les **stories**
+   (`private.can_view_stories`) d'un inconnu croisé. Passer à 3 jours allonge
+   **aussi** ces deux droits. À décider exprès, pas à subir.
+2. **Aucun écran de suggestions n'existe.** Vérifié à l'inventaire : zéro
+   occurrence dans `lib/`. Tout est à créer.
+3. **Il faut un seuil.** Croiser quelqu'un 30 secondes dans le métro et passer
+   la soirée avec lui produisent aujourd'hui **la même ligne**. La durée est
+   mesurable ; reste à dire à partir de quand ça compte. ❓ *Question ouverte,
+   posée à Jay.*
+
+✅ **Ça n'ouvre aucune nouvelle porte** : c'est la même — la proximité physique —
+rendue utilisable plus longtemps.
+
+### 8.3 Les cercles par passion
+
+> *« Les cercles, cela te permet de connecter avec des gens en rejoignant des
+> cercles, un peu comme des groupes avec des gens qui partagent une passion, un
+> hobby, un sport… autour de toi. Mais je ne sais pas encore comment bien
+> développer et intégrer cet axe. »*
+
+**Non tranché, et Jay le dit.** Le point à ne pas perdre : un cercle par passion
+**qu'on rejoint librement** serait une **troisième porte d'entrée** dans le
+réseau, en contradiction avec la décision verrouillée (§5.1). Trois degrés
+possibles, du plus prudent au plus large :
+
+| | Ce que le cercle permet | La barrière |
+|---|---|---|
+| **A** | on voit le contenu et qui est là, mais **devenir ami exige de se croiser** — et le cercle sert à organiser les sorties où l'on se croise | **intacte** |
+| **B** | être dans le même cercle vaut **recommandation** : on peut demander, l'autre accepte ou non | élargie, mais filtrée |
+| **C** | on s'ajoute librement | **la barrière tombe** |
+
+➡️ **A** est le plus cohérent avec le reste : le cercle devient le *prétexte à se
+rencontrer* plutôt qu'un annuaire. ❓ *À trancher par Jay.*
+
+### 8.4 🔴 Le geocircle et les deux modes — la clé de voûte
+
+> *« Quand tu te promènes dans la rue tu passes devant des bars etc, eh bien tu
+> peux rejoindre un bar et par la même occasion rejoindre le cercle du bar :
+> pour sa soirée tu es connecté avec tous les gens du bar et tu as accès à des
+> jeux, des fonctionnalités spéciales et autres avec tous les participants de la
+> soirée. Tu rejoins le bar **en physique ET dans NeoVibe** en plus, pour créer
+> du contenu, échanger, jouer… C'est valable aussi pour les soirées privées.*
+>
+> *Et c'est là que NeoVibe devient intéressant : il y a un **mode social
+> classique** et un **mode événement/soirée** qui ouvre pour tous les
+> participants du cercle de la soirée des jeux, mini-jeux sociaux, défis… qui
+> ensuite permettent de créer du contenu, de poster, et d'alimenter le feed et
+> le social. **C'est l'esprit NeoVibe.** »*
+
+🟢 **Ce que ça résout, et c'est majeur.** Le §8.3 posait un problème : des
+cercles qu'on rejoint pour rencontrer des gens ouvrent une troisième porte. **Le
+geocircle le dissout** — on rejoint le lieu **physiquement**. Le cercle de
+soirée n'est pas un contournement de la barrière, **c'est la barrière
+elle-même**, rendue utile. Aucune décision verrouillée n'a besoin de bouger.
+
+🟢 **Et le modèle économique s'emboîte exactement là.** Le bar est le
+**commerçant partenaire** du §3. Ce que NeoVibe lui vend n'est pas un encart :
+**c'est une soirée animée** — des gens qui poussent sa porte, et qui *restent*
+parce qu'il se passe quelque chose. Le partenariat local cesse d'être une
+fonctionnalité posée à côté du produit : **il devient le produit.**
+
+✅ **Ce n'est pas neuf, et c'est rassurant** : Jay avait énoncé le mode soirée le
+**2026-08-29** (`RAPPELS.md` #99), dans les mêmes termes. Ce qui est neuf le
+2026-09-12 : **le lieu comme unité** (un bar devant lequel on passe, pas un
+événement créé à l'avance), **les deux modes**, et le raccord au commerçant.
+
+**Deux bonnes nouvelles techniques, revérifiées le 2026-09-12 :**
+
+1. **Le joint est côté serveur.** Le ping ne demande jamais « qui sont mes
+   amis » : il lit `device_keys` et prend ce que la politique RLS lui rend.
+   Faire reconnaître les participants d'une soirée = **élargir une règle
+   serveur**, sans toucher une ligne de Dart ni de Kotlin du ping.
+2. **La forme existe déjà en petit.** `ConversationType.proximity` : une
+   conversation temporaire, liée à un croisement, **délibérément tenue hors du
+   monde des amis** (exclue du Cercle et de l'écran d'envoi, purgée si vide).
+   C'est exactement la forme dont un geocircle a besoin.
+
+⚠️ **Le piège, et l'ordre que Jay a lui-même fixé.** Tout ce qui entre au carnet
+de clés est aujourd'hui **présenté comme un ami**. Élargir la source sans
+introduire d'abord le **libellé du lien** ferait apparaître des inconnus comme
+des amis. ➡️ **Les états de relation d'abord, le mode soirée ensuite** (#99).
+
+### 8.5 🔴 La chaîne — ce ne sont pas des fonctionnalités, c'est un mécanisme
+
+Les quatre points ci-dessus s'emboîtent. Chaque maillon fabrique la matière
+première du suivant :
+
+> **le geocircle rassemble** (la soirée au bar)
+> **→ la soirée produit des croisements** (`encounters` : on était là, tous les
+> deux, longtemps)
+> **→ les croisements nourrissent les suggestions** (3 jours pour le retrouver)
+> **→ les suggestions font des amis** (par la porte physique, inchangée)
+> **→ les amitiés montent en paliers** (discrètement, en arrière-plan)
+> **→ les paliers débloquent** des choses
+> **→ et tout du long, ça produit du contenu qui alimente le feed**
+
+**Et ça reboucle sur le §2** : le feed te donne envie → tu sors → tu vis quelque
+chose → tu le publies. **C'est « l'esprit NeoVibe » rendu constructible.**
+
+⚠️ **TROIS DURÉES DE VIE, TROIS OBJETS, JAMAIS LE MÊME RANGEMENT** — règle 2 de
+`CLAUDE.md` :
+
+| Objet | Durée | Nature |
+|---|---|---|
+| **la soirée** | quelques heures | temporaire, liée au **lieu**, révocable |
+| **le croisement** | 24 h aujourd'hui, 3 jours voulus | de **personne à personne**, un fait |
+| **l'amitié** | durable | une **intensité** qui se gagne |
+
+Les mélanger, c'est la règle la plus permissive qui gagne — **en silence**.
+
+---
+
+## 9. Ce qui reste à construire — « meubler l'app »
 
 ### ⚠️ Ajout du 2026-08-14 — on n'affronte PAS Snapchat sur la caméra
 
@@ -489,7 +658,7 @@ n'est donc pas un supplément décoratif : c'est la condition de survie de la
 thèse. C'est **la moitié du produit qui manque encore**, et la clé d'une
 rétention utilisateur durable.
 
-### 8.1 Un écosystème et une dynamique renouvelée en permanence
+### 9.1 Un écosystème et une dynamique renouvelée en permanence
 
 - **Mini-jeux**
 - **Quiz**
@@ -502,7 +671,7 @@ rétention utilisateur durable.
 Exigence : **une dynamique différente en permanence**, pas une fonctionnalité
 figée qu'on épuise en une semaine.
 
-### 8.2 Un feed — local
+### 9.2 Un feed — local
 
 Un feed, **parce que c'est la norme sur tous les réseaux sociaux** ; mais un
 feed qui n'affiche que le contenu réalisé et publié par **les personnes de ta
@@ -517,13 +686,13 @@ limite**.
 
 ---
 
-## 9. Points de vigilance signalés par Claude (2026-07-26)
+## 10. Points de vigilance signalés par Claude (2026-07-26)
 
 **Arbitrés par Jay le même jour** — voir les encadrés « Réponse de Jay ». Les
 réserves sont conservées telles quelles : elles restent des points d'attention
 pour l'implémentation, pas des objections rouvertes.
 
-### 9.1 Les comptes créateurs peuvent manger la règle
+### 10.1 Les comptes créateurs peuvent manger la règle
 
 C'est le vecteur classique par lequel un feed local redevient un feed
 d'attention : le contenu professionnel est mieux produit, plus performant, il
@@ -532,7 +701,7 @@ qu'on ne croisera jamais. Si on les fait, prévoir une **borne dure dès le
 départ** (part maximale de contenu créateur dans le feed, ou surface séparée du
 feed local) plutôt qu'une modération a posteriori.
 
-### 9.2 Contenu publié ≠ contenu éphémère
+### 10.2 Contenu publié ≠ contenu éphémère
 
 Toute l'architecture actuelle est TTL 24 h + vue unique. Un feed suppose du
 contenu qui **dure** et se re-consomme : deux régimes de contenu à faire
@@ -548,7 +717,7 @@ cohabiter (stockage, quota, purge, signalement). Faisable, mais pas gratuit.
 > l'ouverture du chantier feed, comme matière de conception — pas pour
 > reposer la question.
 
-### 9.3 Les mini-jeux portent le risque exact qu'on dénonce
+### 10.3 Les mini-jeux portent le risque exact qu'on dénonce
 
 Un quiz mal cadré, c'est du contenu vide industrialisé — la chose même contre
 laquelle l'app se construit. Condition pour qu'ils tiennent la thèse : le jeu
@@ -571,7 +740,7 @@ contenu.**
 >    mécanique doit se demander comment elle ramène vers une rencontre
 >    physique (proposer une sortie, un défi à faire ensemble, un croisement…).
 
-### 9.4 Ce qui déborde dans un chantier de contenu public
+### 10.4 Ce qui déborde dans un chantier de contenu public
 
 Jamais le premier écran — toujours ce qu'un contenu public traîne derrière lui :
 modération, signalement, blocage, gestion des abus. Appliquer la consigne
@@ -579,7 +748,7 @@ modération, signalement, blocage, gestion des abus. Appliquer la consigne
 
 ---
 
-## 10. La grille de décision
+## 11. La grille de décision
 
 *Remplace le 2026-09-11 l'ancienne grille — « soit la fonctionnalité passe par
 la présence physique, soit elle augmente la valeur d'une relation existante ».*
@@ -621,21 +790,54 @@ passage au réel, même si c'est moins pratique à développer.
 
 ---
 
-## 11. Ce qui reste ouvert au 2026-09-11
+## 12. ❓ Ce qui reste ouvert — les questions à reposer à Jay
 
-*Ces points sont annoncés par Jay comme non tranchés. Ne pas décider seul.*
+*Arrêté au **2026-09-12**, en fin de session, à sa demande : « tu enregistres et
+tu me reposes tes questions à la prochaine session ». **Ne rien décider seul
+ici.***
 
-| Sujet | État |
+### 🔴 D'abord : le vocabulaire — trois choses s'appellent « cercle »
+
+C'est **la seule à régler avant les autres**, parce qu'elle finira dans des noms
+de tables et qu'après on ne la change plus.
+
+| Ce que ça désigne | Où ça vit aujourd'hui |
 |---|---|
-| **Les cercles** | *« Je n'ai pas encore réfléchi à comment intégrer cela mais on trouvera ensemble. »* ⚠️ **Deux axes à ne pas fusionner** : les **cercles** (le contexte — foot, musique, voyage) et les **paliers d'amitié** (la profondeur). Ton cercle « Football — 37 personnes » contient des gens que tu connais à peine **et** deux amis proches. Deux choses qui n'obéissent pas aux mêmes règles ne partagent ni le même stockage, ni la même table. |
-| **La deuxième idée de Jay** | Il a annoncé « deux idées » le 2026-09-11 et n'a décrit que la première (l'ajout anonyme). **À lui redemander.** |
-| **Les bornes de l'ajout anonyme** | quota, signalement, régime anonyme/nommé visible à l'expéditeur (§6.5). |
-| **La lisibilité du scroll qui durcit** | comment l'utilisateur comprend que c'est voulu (§6.6). |
-| **Le territoire commerçant** | compte, fiche activité, calendrier, réservation, commission, annulation (§3). |
+| **l'onglet Cercle** — tous mes amis, en un bloc ; c'est l'écran d'accueil par défaut | `lib/features/circle/`, `StartupTab.circle` |
+| **les cercles par passion** (foot, musique, voyage) | n'existe pas — §8.3 |
+| **le cercle d'un lieu** (le bar, ce soir) | n'existe pas — §8.4 |
+
+*« Groupe » est pris aussi* (`conversation_type : direct \| group \| proximity`).
+Le mot libre proposé par Jay dans son document : **« petits univers »**.
+
+### Les autres questions, par sujet
+
+| # | Question | Pourquoi ça bloque |
+|---|---|---|
+| 1 | **Les cercles par passion : A, B ou C ?** (§8.3) | détermine si une **troisième porte d'entrée** s'ouvre dans le réseau |
+| 2 | **Comment on rejoint un geocircle** — GPS ? balise BLE du bar ? le commerçant ouvre sa soirée ? | détermine tout le modèle de données du lieu |
+| 3 | **Qui ferme la soirée, et quand** — le commerçant ? une heure ? le vide ? | une soirée qui ne se ferme jamais est une porte permanente |
+| 4 | **Ce qu'il reste après la soirée** — *réponse proposée : exactement les croisements, donc les suggestions de 3 jours. La soirée s'efface, les rencontres restent.* | à confirmer |
+| 5 | **Les soirées privées** — qui invite, comment on entre sans commerçant | c'est l'autre moitié du §8.4 |
+| 6 | **Le seuil du croisement** — à partir de combien de temps passé ensemble une personne mérite d'apparaître dans les suggestions ? | 30 secondes dans le métro et une soirée entière produisent aujourd'hui **la même ligne** |
+| 7 | **La fenêtre à 3 jours** — on l'allonge pour les suggestions, mais elle allonge **aussi** l'accès au profil et aux stories d'un inconnu croisé (§8.2) | à décider exprès, pas à subir |
+| 8 | **« Plus de choses à débloquer » avec les paliers** (§8.1) — lesquelles ? | la liste est vide |
+| 9 | **Le « cercle intime » du document** fait doublon avec le palier `inner`, qui se **gagne**. On le retire, ou les deux coexistent ? | deux façons de dire « mes plus proches », l'une méritée, l'autre déclarée — elles se contrediront |
+| 10 | **Les bornes de l'ajout anonyme** — quota, signalement, régime anonyme/nommé visible à l'expéditeur (§6.5) | anonyme + gratuit + notifiant = canal de nuisance |
+| 11 | **La lisibilité du scroll qui durcit** (§6.6) | un mur sans explication est un bug, pas une protection |
+| 12 | **Le territoire commerçant** — compte, fiche activité, calendrier, réservation, commission, annulation (§3) | le plus gros chantier neuf, rien n'existe |
+| 13 | **La deuxième idée de Jay** — il en a annoncé deux le 2026-09-11 et n'a décrit que l'ajout anonyme. *« Je l'ai oubliée, cela reviendra plus tard. »* | à lui redemander |
+
+### ⚠️ L'ordre de construction, déjà fixé par Jay et à ne pas inverser
+
+**Les états de relation d'abord, le mode soirée ensuite** (`RAPPELS.md` #99).
+Tout ce qui entre au carnet de clés est aujourd'hui **présenté comme un ami** :
+élargir la source avant d'avoir le **libellé du lien** ferait apparaître des
+inconnus comme des amis.
 
 ---
 
-## 12. Horizon
+## 13. Horizon
 
 Estimation de Jay (2026-07-26) : *« encore quelques semaines de développement »*
 pour atteindre le résultat souhaité.

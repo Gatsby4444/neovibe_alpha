@@ -173,6 +173,78 @@ La vision complète (le raisonnement, les mécaniques fondatrices, ce qui reste 
 construire, les points de vigilance) est dans **`docs/vision-produit.md`** — à
 relire en début de session avec `RAPPELS.md` et les derniers rapports.
 
+
+---
+
+## La chaîne des mécaniques sociales
+
+*Précisions de Jay des 2026-09-11 et 2026-09-12. Détail complet et relevé
+technique : `docs/vision-produit.md` §8. Questions ouvertes : §12.*
+
+**Ce ne sont pas des fonctionnalités séparées, c'est un seul mécanisme.** Chaque
+maillon fabrique la matière première du suivant :
+
+> **le geocircle rassemble** (la soirée au bar)
+> **→ la soirée produit des croisements** (on était là, tous les deux, longtemps)
+> **→ les croisements nourrissent les suggestions** (3 jours pour le retrouver)
+> **→ les suggestions font des amis** (par la porte physique, inchangée)
+> **→ les amitiés montent en paliers** (discrètement, en arrière-plan)
+> **→ les paliers débloquent** des choses
+> **→ et tout du long, ça produit du contenu qui alimente le feed**
+
+Et ça reboucle sur la boucle du Positionnement. **C'est « l'esprit NeoVibe »
+selon Jay.**
+
+### 🔴 Le geocircle — deux modes
+
+On passe devant un bar, on le **rejoint physiquement ET dans NeoVibe** : pour la
+soirée, on est connecté à tous ceux qui y sont, avec des jeux, des défis et des
+fonctionnalités réservés aux présents. Vaut aussi pour les **soirées privées**.
+
+| Mode | Ce que c'est |
+|---|---|
+| **social classique** | l'app telle qu'elle est |
+| **événement / soirée** | ouvre aux participants du cercle du lieu : jeux, mini-jeux sociaux, défis → qui produisent du contenu à poster |
+
+✅ **Ça n'ouvre AUCUNE porte nouvelle** : on rejoint le lieu **en étant sur
+place**. Le cercle de soirée n'est pas un contournement de la barrière, **c'est
+la barrière rendue utile**. Les deux portes d'entrée restent intactes.
+
+🟢 **Et le modèle économique s'emboîte là** : le bar est le commerçant
+partenaire. Ce que NeoVibe lui vend n'est pas un encart, **c'est une soirée
+animée**.
+
+### ⚠️ Trois durées de vie, trois objets, jamais le même rangement
+
+| Objet | Durée | Nature |
+|---|---|---|
+| **la soirée** | quelques heures | temporaire, liée au **lieu**, révocable |
+| **le croisement** | **24 h** aujourd'hui (`encounters`), 3 jours voulus | de personne à personne, un **fait** |
+| **l'amitié** | durable | une **intensité** qui se gagne (`friendship_tier`) |
+
+Règle 2 de ce fichier : les mélanger, c'est la règle la plus permissive qui
+gagne — **en silence**.
+
+### ⚠️ L'ordre de construction, fixé par Jay — ne pas l'inverser
+
+**Les états de relation d'abord, le mode soirée ensuite** (`RAPPELS.md` #99).
+Tout ce qui entre au carnet de clés est aujourd'hui **présenté comme un ami** :
+élargir la source avant d'avoir le libellé du lien ferait apparaître des
+inconnus comme des amis.
+
+➡️ **Le joint technique est CÔTÉ SERVEUR** : le ping ne demande jamais « qui sont
+mes amis », il lit `device_keys` et prend ce que la politique RLS lui rend. Faire
+reconnaître les participants d'une soirée = élargir une règle serveur, **sans
+toucher au Dart ni au Kotlin du ping**.
+
+### Les paliers d'amitié : discrets, d'arrière-plan
+
+Consigne de Jay (2026-09-12) : comme sur Snap — ça vit dans un coin du profil,
+ça **remonte les plus proches en haut de la liste au partage**, et ça débloque
+des choses liées à la proximité. **Ça ne s'affiche pas partout.**
+🔴 Le tri des destinataires par palier à l'envoi **n'existe pas encore**.
+Règles complètes : `docs/paliers-d-amitie.md`.
+
 ---
 
 ## Règle impérative : UN FAIT SE VÉRIFIE À LA SOURCE, JAMAIS DANS UN DOCUMENT
