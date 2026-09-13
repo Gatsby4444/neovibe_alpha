@@ -78,7 +78,11 @@ echo "   les deux signataires sont là."
 echo "== 3/4 le versionCode progresse-t-il ? =="
 CODE="$("$AAPT" dump badging "$APK" | head -1 | grep -o "versionCode='[0-9]*'" | grep -o "[0-9]*")"
 NOM="$("$AAPT" dump badging "$APK" | head -1 | grep -o "versionName='[^']*'" | cut -d"'" -f2)"
-PRECEDENT="$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo '')"
+# ⚠️ **`--exclude-drafts`, sinon le contrôle compare à un fantôme.** Le
+# 2026-09-13, GitHub a répondu 500 à la création tout en créant un BROUILLON
+# sans fichier ; à la seconde tentative, ce brouillon était « la release
+# précédente », son APK introuvable, et le contrôle passait EN SILENCE.
+PRECEDENT="$(gh release list --limit 1 --exclude-drafts --json tagName --jq '.[0].tagName' 2>/dev/null || echo '')"
 
 if [ -n "$PRECEDENT" ]; then
   # ⚠️ On lit le versionCode de la release précédente sur SON artefact, pas sur
@@ -92,6 +96,13 @@ if [ -n "$PRECEDENT" ]; then
       rm -rf "$TMP"; exit 1
     fi
     echo "   $CODE > $AVANT ($PRECEDENT)."
+  else
+    # ⚠️ Un contrôle qui ne peut pas lire son témoin ne « passe » pas : il
+    # s'arrête. Avant le 2026-09-13, cette branche était vide, et un APK de
+    # release précédente introuvable valait « tout va bien ».
+    echo "ARRET : impossible de relire l'APK de la release précédente ($PRECEDENT)." >&2
+    echo "Sans lui, le versionCode ne peut pas être comparé — voir #60." >&2
+    rm -rf "$TMP"; exit 1
   fi
   rm -rf "$TMP"
 fi
