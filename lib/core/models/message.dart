@@ -17,7 +17,13 @@ enum MessageKind {
   /// pas une copie : le message porte un simple chemin vers la source, et
   /// l'ouvrir ouvre la source. Si celle-ci disparaît, le message reste et le
   /// dit — au lieu de s'évaporer en silence.
-  contentShare;
+  contentShare,
+
+  /// **Message vocal** (2026-09-13) : un média de message scellé, dans le
+  /// bucket `media`, dont la clé ne sort que par `open_voice_message`. Vit
+  /// 24 h avec son message. DM et groupes seulement — jamais le canal de
+  /// proximité (règle serveur), ni l'événement (choix par défaut).
+  voice;
 
   /// Le nom Dart et la valeur en base diffèrent (`libraryAdd` / `library_add`),
   /// d'où la table explicite plutôt que `byName`.
@@ -33,6 +39,7 @@ enum MessageKind {
     'card' => MessageKind.card,
     'library_add' => MessageKind.libraryAdd,
     'content_share' => MessageKind.contentShare,
+    'voice' => MessageKind.voice,
     _ => MessageKind.text,
   };
 
@@ -43,6 +50,7 @@ enum MessageKind {
     MessageKind.card => 'card',
     MessageKind.libraryAdd => 'library_add',
     MessageKind.contentShare => 'content_share',
+    MessageKind.voice => 'voice',
   };
 }
 
@@ -56,6 +64,7 @@ class Message {
     this.mediaPath,
     this.cardId,
     this.contentId,
+    this.duration,
     required this.createdAt,
     required this.expiresAt,
     this.sender,
@@ -75,6 +84,10 @@ class Message {
   /// survit à ce qu'il désignait et peut l'annoncer.
   final String? contentId;
 
+  /// Durée d'un [MessageKind.voice], portée par le message lui-même : l'écran
+  /// l'affiche avant d'avoir téléchargé un octet. Nulle pour les autres genres.
+  final Duration? duration;
+
   final DateTime createdAt;
   final DateTime expiresAt;
   final Profile? sender;
@@ -91,6 +104,9 @@ class Message {
     mediaPath: json['media_path'] as String?,
     cardId: json['card_id'] as String?,
     contentId: json['content_id'] as String?,
+    duration: json['duration_ms'] == null
+        ? null
+        : Duration(milliseconds: (json['duration_ms'] as num).toInt()),
     createdAt: DateTime.parse(json['created_at'] as String),
     expiresAt: DateTime.parse(json['expires_at'] as String),
     sender: json['sender'] == null
@@ -119,6 +135,7 @@ class Message {
       other.mediaPath == mediaPath &&
       other.cardId == cardId &&
       other.contentId == contentId &&
+      other.duration == duration &&
       other.createdAt == createdAt &&
       other.expiresAt == expiresAt &&
       other.sender == sender &&
@@ -134,6 +151,7 @@ class Message {
     mediaPath,
     cardId,
     contentId,
+    duration,
     createdAt,
     expiresAt,
     sender,

@@ -155,6 +155,9 @@ class NativePlayer(
         val url = call.argument<String>("url")
         val cachePath = call.argument<String>("cachePath")
         val path = call.argument<String>("path")
+        // Un média SANS image (message vocal, 2026-09-13) : « prêt » ne peut
+        // pas attendre une taille de vidéo qui ne viendra jamais.
+        val audio = call.argument<Boolean>("audio") ?: false
 
         // Deux façons d'ouvrir : un fichier déjà là, ou une URL dont on ne
         // téléchargera que les blocs regardés.
@@ -179,7 +182,7 @@ class NativePlayer(
             if (key == null) {
                 // Fichier déjà en clair (Enregistrement, format hérité) : rien
                 // à déchiffrer, ExoPlayer l'ouvre directement.
-                startClear(file, result)
+                startClear(file, result, audio)
                 return
             }
             source = { SealedChunkReader(file, key) }
@@ -229,7 +232,7 @@ class NativePlayer(
                     return@post
                 }
                 try {
-                    val instance = Instance(sealed = source)
+                    val instance = Instance(sealed = source, audio = audio)
                     players[instance.id] = instance
                     result.success(describe(instance.id, availability, openMs))
                 } catch (e: Exception) {
@@ -239,9 +242,9 @@ class NativePlayer(
         }
     }
 
-    private fun startClear(file: File, result: MethodChannel.Result) {
+    private fun startClear(file: File, result: MethodChannel.Result, audio: Boolean = false) {
         try {
-            val instance = Instance(clear = file)
+            val instance = Instance(clear = file, audio = audio)
             players[instance.id] = instance
             // Un fichier en clair est sur l'appareil par définition : rien à
             // aller chercher.
@@ -275,6 +278,13 @@ class NativePlayer(
     private inner class Instance(
         private val clear: File? = null,
         private val sealed: (() -> SealedChunkReader)? = null,
+        /**
+         * Vrai pour un média sans piste vidéo (message vocal). La surface est
+         * quand même créée — c'est elle qui donne l'identifiant du lecteur —
+         * mais ExoPlayer ne la reçoit pas, et « prêt » n'attend plus qu'une
+         * image arrive.
+         */
+        private val audio: Boolean = false,
     ) : TextureRegistry.SurfaceProducer.Callback {
 
         // ⚠️ **Première** propriété : en Kotlin elles s'initialisent dans
@@ -380,8 +390,10 @@ class NativePlayer(
             )
 
             producer.setCallback(this)
-            exoPlayer.setVideoSurface(producer.surface)
-            needsSurface = producer.surface == null
+            if (!audio) {
+                exoPlayer.setVideoSurface(producer.surface)
+                needsSurface = producer.surface == null
+            }
 
             exoPlayer.addListener(listener)
             exoPlayer.setMediaSource(mediaSource())
@@ -403,7 +415,7 @@ class NativePlayer(
         private fun sendInitialized() {
             val size = exoPlayer.videoSize
             val duration = exoPlayer.duration
-            if (initialized || size.width == 0 || duration == C.TIME_UNSET) return
+            if (initialized || (!audio && size.width == 0) || duration == C.TIME_UNSET) return
             initialized = true
             // Quand la texture ne redresse pas l'image elle-même, c'est à
             // l'affichage de le faire : on remonte la correction au lieu de la
@@ -471,7 +483,7 @@ class NativePlayer(
         // --- Cycle de vie de la surface ---------------------------------
 
         override fun onSurfaceAvailable() {
-            if (needsSurface) {
+            if (needsSurface && !audio) {
                 exoPlayer.setVideoSurface(producer.surface)
                 needsSurface = false
             }

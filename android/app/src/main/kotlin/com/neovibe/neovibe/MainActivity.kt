@@ -17,6 +17,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var nativeDiagnostics: NativeDiagnostics? = null
     private var nativeInstall: NativeInstall? = null
     private var locationGrant: LocationGrant? = null
+    private var voiceRecorder: NativeVoiceRecorder? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -55,6 +56,12 @@ class MainActivity : FlutterFragmentActivity() {
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
+        // Le micro des messages vocaux (2026-09-13). `applicationContext` :
+        // `MediaRecorder` n'a besoin que d'un contexte, pas de l'activite.
+        voiceRecorder = NativeVoiceRecorder(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
     }
 
     override fun onDestroy() {
@@ -71,6 +78,10 @@ class MainActivity : FlutterFragmentActivity() {
         nativeInstall = null
         locationGrant?.dispose()
         locationGrant = null
+        // Un vocal en cours d'enregistrement meurt avec l'ecran : son fichier
+        // en clair aussi.
+        voiceRecorder?.dispose()
+        voiceRecorder = null
         super.onDestroy()
     }
 }

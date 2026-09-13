@@ -38,6 +38,7 @@
 | Diagnostic appareil (dev) | `neovibe/diag` | `NativeDiagnostics` (`PackageManager` + `Build`) | `Bundle.main.infoDictionary` + `UIDevice` |
 | **Installation d'APK (dev)** | `neovibe/install` | `NativeInstall` + `FileProvider` + `MediaStore` | *sans objet — iOS n'installe que par l'App Store ou TestFlight* |
 | **Finesse de position accordée** | `neovibe/location` | `LocationGrant` (`checkSelfPermission` sur `ACCESS_FINE_LOCATION`) | `CLLocationManager.accuracyAuthorization` (`.fullAccuracy` / `.reducedAccuracy`) |
+| **Micro des messages vocaux** *(2026-09-13)* | `neovibe/voice` | `NativeVoiceRecorder` (`MediaRecorder`, AAC mono 24 kHz dans MPEG-4) | `AVAudioRecorder` (mêmes réglages, conteneur `.m4a`) |
 
 ### Natif **fourni par un paquet**, donc rien à écrire — mais à connaître
 
@@ -862,6 +863,38 @@ Outil de dev seulement — non prioritaire pour un portage.
 
 ---
 
+## 6 quater. Micro des messages vocaux
+
+**Canal** : `neovibe/voice`. Méthodes : `start {path}`, `stop` →
+`{path, durationMs}`, `cancel`, `amplitude` → entier 0..32767.
+
+**Android (fait, 2026-09-13)** : `NativeVoiceRecorder.kt` — `MediaRecorder`,
+source `MIC`, AAC mono 24 kHz 32 kbit/s dans un conteneur MPEG-4 (`.m4a`).
+Un seul enregistrement à la fois (`BUSY` sinon). `stop` sur un enregistrement
+trop court rend `TOO_SHORT` et supprime le fichier — jamais un fichier vide
+présenté comme un succès. `dispose` (mort de l'activité) supprime un
+enregistrement en cours.
+
+**Pourquoi le même conteneur que la vidéo** : une fois scellé au format
+`NVC1`, le vocal est lu par **le même lecteur natif** (§7, mode `audio`). Aucun
+décodeur, aucun format, aucun chemin de clé à ajouter — seule la clé change de
+porte (`open_voice_message` au lieu de `open_card_media`).
+
+**Ce que ce fichier ne fait pas** : il ne scelle pas, n'envoie pas, ne décide
+pas à qui. Le Dart (`ConversationsRepository.sendVoice`) scelle, dépose dans le
+bucket `media`, pose le message et sa clé en une transaction
+(`send_voice_message`), puis **supprime le clair**. Le clair ne vit que le temps
+de l'envoi, comme la capture vidéo.
+
+**Permission** : `RECORD_AUDIO`, déjà au manifeste pour la caméra ; demandée
+par l'écran (`permission_handler`) avant `start`.
+
+**iOS (à faire)** : `AVAudioRecorder` avec `AVFormatIDKey = kAudioFormatMPEG4AAC`,
+mono, 24 kHz, 32 kbit/s, fichier `.m4a` ; `averagePower(forChannel:)` pour
+l'amplitude (après `isMeteringEnabled = true`). Permission `NSMicrophoneUsageDescription`.
+
+---
+
 ## 6 ter. Finesse de position réellement accordée
 
 **Canal** : `neovibe/location`. Méthode unique : `grant` → `{fine, coarse}`,
@@ -938,7 +971,7 @@ d'objet, **et c'est le but** : la cause est supprimée, pas entourée.
 | `SealedDataSource.kt` | l'expose à ExoPlayer comme une `androidx.media3.datasource.DataSource` |
 | `SealedChunkStore.kt` | d'où viennent les octets scellés : fichier local, ou **intervalles HTTP + cache partiel** (`RemoteChunkStore`, `HttpRangeFetcher`) |
 | `Mp4FastStart.kt` | déplace l'index MP4 (`moov`) en tête, pour décoder dès les premiers octets reçus |
-| `NativePlayer.kt` | l'ExoPlayer lui-même, rendu dans un `TextureRegistry.SurfaceProducer` ; canal `neovibe/player` + `neovibe/player/events/<id>` |
+| `NativePlayer.kt` | l'ExoPlayer lui-même, rendu dans un `TextureRegistry.SurfaceProducer` ; canal `neovibe/player` + `neovibe/player/events/<id>`. **Mode `audio`** *(2026-09-13)* : `create` accepte `audio: true` pour un média sans image (message vocal) — la surface est créée (c'est elle qui donne l'identifiant) mais pas donnée à ExoPlayer, et « prêt » n'attend plus une taille de vidéo qui ne viendrait jamais. Côté Dart : `SealedVideoController.audioStreaming` |
 
 Dépendances ajoutées : `androidx.media3:media3-exoplayer`, `-datasource`,
 `-common`, en **1.9.2** — la version qu'apporte déjà `video_player_android`.

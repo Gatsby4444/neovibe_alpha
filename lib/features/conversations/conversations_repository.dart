@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/clock.dart';
+import '../../core/crypto/chunked_seal.dart';
 import '../../core/derived_list.dart';
 import '../../core/diagnostics/app_log.dart';
 import '../../core/models/message.dart';
@@ -253,6 +254,68 @@ class ConversationsRepository {
   /// URL signée pour un média de messagerie.
   Future<String> mediaUrl(String path) =>
       _client.storage.from('media').createSignedUrl(path, 3600);
+
+  // ---------------------------------------------------------------------
+  // Les messages vocaux (2026-09-13)
+  // ---------------------------------------------------------------------
+
+  /// Scelle [clear], le dépose dans le bucket `media`, et pose le message et
+  /// sa clé **dans la même transaction** (`send_voice_message`).
+  ///
+  /// ⚠️ **Le clair est supprimé ici, quoi qu'il arrive** — c'est le seul
+  /// endroit qui sache qu'il a fini de servir. Un vocal déchiffré qui survit
+  /// à son envoi contredit la promesse produit (surface DM = verrouillée).
+  ///
+  /// Le serveur refuse : un canal de proximité, un chat d'événement, une
+  /// durée hors bornes, un chemin hors du dossier de l'expéditeur.
+  Future<void> sendVoice(
+    String conversationId,
+    File clear,
+    Duration duration,
+  ) async {
+    final me = _client.auth.currentUser!.id;
+    final key = await ChunkedSeal.newKey();
+    final sealed = File('${clear.path}.nvc');
+    try {
+      await ChunkedSeal.sealFile(clear, sealed, key);
+      final path = '$me/${DateTime.now().millisecondsSinceEpoch}_voice.nvc';
+      await _client.storage
+          .from('media')
+          .upload(
+            path,
+            sealed,
+            fileOptions: const FileOptions(
+              contentType: 'application/octet-stream',
+            ),
+          );
+      await _client.rpc(
+        'send_voice_message',
+        params: {
+          'p_conversation_id': conversationId,
+          'p_media_path': path,
+          'p_duration_ms': duration.inMilliseconds,
+          'p_media_key': key,
+        },
+      );
+    } finally {
+      for (final f in [clear, sealed]) {
+        try {
+          if (await f.exists()) await f.delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// La clé d'un vocal — rendue par le serveur si on est membre de la
+  /// conversation et que le message vit encore. Obtenir la clé n'est pas une
+  /// vue : rien n'est décompté.
+  Future<String> voiceKey(String messageId) async {
+    final key = await _client.rpc(
+      'open_voice_message',
+      params: {'p_message_id': messageId},
+    );
+    return key as String;
+  }
 }
 
 final conversationsRepositoryProvider = Provider(

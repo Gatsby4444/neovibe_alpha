@@ -91,9 +91,11 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
     String? url,
     String? cachePath,
     Future<File> Function()? legacyFallback,
+    bool audio = false,
   }) : _url = url,
        _cachePath = cachePath,
        _legacyFallback = legacyFallback,
+       _audio = audio,
        super(const SealedVideoValue());
 
   /// Un média scellé qu'on **ne télécharge pas** : le lecteur natif ne réclame
@@ -120,6 +122,19 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
          cachePath: cachePath,
          legacyFallback: legacyFallback,
        );
+
+  /// Un média scellé **sans image** — un message vocal (2026-09-13) — qu'on ne
+  /// télécharge pas non plus : mêmes blocs, même cache partiel, même lecteur.
+  ///
+  /// ⚠️ Ce n'est pas un second lecteur : c'est le même, prévenu qu'aucune
+  /// taille de vidéo ne viendra. Sans ce drapeau, « prêt » attendrait une image
+  /// pour toujours (`NativePlayer.sendInitialized`). [textureId] existe mais
+  /// ne montre rien ; [value.size] reste à zéro.
+  SealedVideoController.audioStreaming({
+    required String url,
+    required String key,
+    required String cachePath,
+  }) : this._(null, key, null, url: url, cachePath: cachePath, audio: true);
 
   /// Un média scellé **entièrement présent** sur l'appareil.
   ///
@@ -151,6 +166,7 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
   final String? _url;
   final String? _cachePath;
   final Future<File> Function()? _legacyFallback;
+  final bool _audio;
 
   int? _id;
   StreamSubscription<dynamic>? _events;
@@ -204,10 +220,15 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
   /// média est au format hérité.
   Future<int?> _open() async {
     if (_url == null) {
-      return _create({'path': _path, 'key': _key});
+      return _create({'path': _path, 'key': _key, 'audio': _audio});
     }
     try {
-      return await _create({'url': _url, 'cachePath': _cachePath, 'key': _key});
+      return await _create({
+        'url': _url,
+        'cachePath': _cachePath,
+        'key': _key,
+        'audio': _audio,
+      });
     } on PlatformException catch (e) {
       final fallback = _legacyFallback;
       if (e.code != 'NOT_SEALED' || fallback == null) rethrow;

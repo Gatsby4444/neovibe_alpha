@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/motion.dart';
@@ -32,6 +33,9 @@ import '../proximity/ping_store.dart';
 import '../proximity/net/proximity_controller.dart';
 import 'conversations_repository.dart';
 import 'group_settings_screen.dart';
+import 'voice/voice_bubble.dart';
+import 'voice/voice_record_bar.dart';
+import 'voice/voice_recorder.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.conversationId});
@@ -48,6 +52,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   Timer? _typingReset;
   String? _typingName;
   DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Vrai pendant qu'on enregistre un vocal : la barre d'enregistrement
+  /// remplace le champ de saisie.
+  bool _recordingVoice = false;
 
   @override
   void initState() {
@@ -93,6 +101,48 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _input.dispose();
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// Le micro (2026-09-13) : demande la permission, démarre l'enregistrement,
+  /// et laisse la place à [VoiceRecordBar]. L'envoi lui-même est dans
+  /// [_sendVoice], une fois le fichier rendu.
+  Future<void> _startVoice() async {
+    final granted = (await Permission.microphone.request()).isGranted;
+    if (!mounted) return;
+    if (!granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Autorise le micro pour envoyer un vocal.'),
+        ),
+      );
+      return;
+    }
+    try {
+      await ref.read(voiceRecorderProvider).start();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_friendlyError(e))));
+      }
+      return;
+    }
+    if (mounted) setState(() => _recordingVoice = true);
+  }
+
+  Future<void> _sendVoice(VoiceRecording recording) async {
+    setState(() => _recordingVoice = false);
+    try {
+      await ref
+          .read(conversationsRepositoryProvider)
+          .sendVoice(widget.conversationId, recording.file, recording.duration);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(_friendlyError(e))));
+      }
+    }
   }
 
   Future<void> _sendText() async {
@@ -397,23 +447,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
             ),
-          _Composer(
-            controller: _input,
-            // ⚠️ **Lecture seule, pas disparition.** Les messages restent
-            // lisibles jusqu'à leur expiration (24 h) : fermer le canal n'est
-            // pas effacer ce qui s'y est dit.
-            enabled: !canalFerme,
-            onChanged: _notifyTyping,
-            onSend: _sendText,
-            // Le canal de proximité est limité au texte : ni Card, ni pièce
-            // jointe (règle serveur, pas un choix d'écran).
-            onCard: isProximity || conversation == null
-                ? null
-                : () => _sendCard(conversation, me),
-            onLibrary: isProximity || conversation == null
-                ? null
-                : () => _addToLibrary(conversation, me),
-          ),
+          if (_recordingVoice)
+            VoiceRecordBar(
+              recorder: ref.read(voiceRecorderProvider),
+              onCancel: () => setState(() => _recordingVoice = false),
+              onSend: _sendVoice,
+            )
+          else
+            _Composer(
+              controller: _input,
+              // ⚠️ **Lecture seule, pas disparition.** Les messages restent
+              // lisibles jusqu'à leur expiration (24 h) : fermer le canal n'est
+              // pas effacer ce qui s'y est dit.
+              enabled: !canalFerme,
+              onChanged: _notifyTyping,
+              onSend: _sendText,
+              // Le canal de proximité est limité au texte : ni Card, ni pièce
+              // jointe (règle serveur, pas un choix d'écran).
+              onCard: isProximity || conversation == null
+                  ? null
+                  : () => _sendCard(conversation, me),
+              onLibrary: isProximity || conversation == null
+                  ? null
+                  : () => _addToLibrary(conversation, me),
+              // Le vocal : DM et groupes seulement (Jay, 2026-09-13). Ni le
+              // canal de proximité, ni l'événement — le serveur le refuse
+              // aussi (`send_voice_message`), l'écran ne fait que l'annoncer.
+              onVoice:
+                  conversation == null ||
+                      canalFerme ||
+                      !(conversation.type == ConversationType.direct ||
+                          conversation.type == ConversationType.group)
+                  ? null
+                  : _startVoice,
+            ),
         ],
       ),
     );
@@ -442,6 +509,7 @@ class _Composer extends StatefulWidget {
     required this.onSend,
     required this.onCard,
     required this.onLibrary,
+    required this.onVoice,
   });
 
   final TextEditingController controller;
@@ -460,6 +528,11 @@ class _Composer extends StatefulWidget {
   /// Ajout à la **bibliothèque éphémère** de la conversation — l'action du
   /// bouton « plus », restée à définir jusqu'au 2026-08-10.
   final VoidCallback? onLibrary;
+
+  /// Le micro (2026-09-13). Null = pas de vocal ici (proximité, événement,
+  /// canal fermé). Il prend la place de la flèche d'envoi tant que le champ
+  /// est vide — comme WhatsApp : un seul bouton à droite, jamais deux.
+  final VoidCallback? onVoice;
 
   @override
   State<_Composer> createState() => _ComposerState();
@@ -576,6 +649,24 @@ class _ComposerState extends State<_Composer> {
                         child: _SendButton(onPressed: widget.onSend),
                       ),
                     ),
+                    // Le micro prend la place de la flèche quand il n'y a
+                    // rien à envoyer : la gélule n'a qu'un bouton à droite.
+                    if (widget.onVoice != null && widget.enabled && !hasText)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 1),
+                        child: IconButton(
+                          icon: const Icon(Icons.mic_none_rounded),
+                          color: iconColor,
+                          iconSize: 22,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 34,
+                            minHeight: 34,
+                          ),
+                          tooltip: 'Envoyer un vocal',
+                          onPressed: widget.onVoice,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -757,7 +848,10 @@ class _MessageBubble extends ConsumerWidget {
       );
     }
 
-    final isAttachment = message.kind != MessageKind.text;
+    // Un vocal se lit DANS la bulle, comme du texte : c'est une ligne du fil,
+    // pas une pièce jointe qui se suffit à elle-même.
+    final isAttachment =
+        message.kind != MessageKind.text && message.kind != MessageKind.voice;
     final senderProfile = isMine || !showSenderName
         ? null
         : ref.watch(profileByIdProvider(message.senderId)).value;
@@ -774,6 +868,7 @@ class _MessageBubble extends ConsumerWidget {
       MessageKind.image || MessageKind.video => _MediaPreview(message: message),
       MessageKind.card => _CardContainer(message: message),
       MessageKind.contentShare => _SharedContentTile(message: message),
+      MessageKind.voice => VoiceBubble(message: message, isMine: isMine),
       // Traité en amont par un retour anticipé — jamais atteint.
       MessageKind.libraryAdd => const SizedBox.shrink(),
     };

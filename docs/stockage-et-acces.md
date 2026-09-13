@@ -27,7 +27,19 @@ qu'elle a le droit de lire. À ne pas confondre avec les **caches locaux**
 | `stories` | **Story** | Non | `can_view_story_file` → `story_audience` | **24 h** |
 | `library` | **Publication** de bibliothèque | Non | `library_read_via_acl` | **Permanent** (décision de Jay, 2026-08-11) |
 | `library_vault` | **Bibliothèque de conversation** | Non | Membres, scellé jusqu'au reveal | Selon `ephemeral` |
-| `media` | Photos et vidéos des messages | Non | `media_read_via_message` | 24 h (message) |
+| `media` | Photos, vidéos et **vocaux** des messages | Non | `media_read_via_message` | 24 h (message) |
+
+**Les vocaux (2026-09-13)** vivent dans `media` — même règle d'accès, même
+cycle de vie que les autres médias de message — mais **scellés** (`NVC1`,
+comme une Vibe). Leur clé est dans `message_media_keys` (RLS activée, zéro
+politique, aucun droit direct) et ne sort que par `open_voice_message`, qui
+applique le même juge que la lecture du message : membre, non expiré, arrivé
+après qu'on a rejoint. Le message et la clé se posent ensemble
+(`send_voice_message`) ou pas du tout. Obtenir la clé n'est pas une vue : rien
+n'est décompté. ⚠️ **L'objet dans le bucket n'est pas supprimé à l'expiration
+du message** (dette préexistante, commune à tout `media` : le cron
+`neovibe_purge` efface les lignes, pas les fichiers) — un vocal scellé sans
+clé est du bruit, mais du bruit qui occupe de la place.
 
 Un septième bucket est **réservé mais non créé** : celui du **BeReal**. Jay a
 mis ce format de côté le 2026-08-11 et sa règle d'accès n'est pas connue —
