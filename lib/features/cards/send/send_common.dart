@@ -7,10 +7,7 @@ import '../../../core/content/saved_store.dart';
 import '../../../core/prefs.dart';
 import '../../../core/models/card.dart';
 import '../../../core/theme.dart';
-import '../../../core/widgets/avatar.dart';
-import '../../../core/widgets/rive_send_button.dart';
 import '../../../core/widgets/top_banner.dart';
-import '../../connections/connections_repository.dart';
 import 'vibe_draft.dart';
 
 /// Pièces communes aux quatre écrans de paramétrage.
@@ -133,39 +130,6 @@ class _SaveForMeButtonState extends ConsumerState<SaveForMeButton> {
   }
 }
 
-/// « Les destinataires pourront la garder. »
-///
-/// Une One of One n'est jamais enregistrable par son destinataire :
-/// l'exclusivité EST le format. L'interrupteur reste visible mais inerte, pour
-/// que la règle se lise au lieu de disparaître sans explication.
-class SaveableSwitch extends StatelessWidget {
-  const SaveableSwitch({
-    super.key,
-    required this.type,
-    required this.value,
-    required this.onChanged,
-  });
-
-  final CardType type;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return SwitchListTile(
-      title: const Text('Sauvegardable'),
-      subtitle: Text(
-        type.canBeSaveable
-            ? 'Les destinataires pourront la garder dans leurs Enregistrements'
-            : 'Impossible sur une One of One — elle n\'existe que pour son '
-                  'destinataire, le temps de sa vue',
-      ),
-      value: value && type.canBeSaveable,
-      onChanged: type.canBeSaveable ? onChanged : null,
-    );
-  }
-}
-
 // ⚠️ **`ShareableSwitch` a été SUPPRIMÉ le 2026-08-31**, avec les quatre écrans
 // de paramétrage. Le nouvel écran de partage règle « Partageable » par une puce
 // compacte, posée sur la ligne de la destination — demande de Jay :
@@ -197,64 +161,6 @@ class ScrubbableSwitch extends StatelessWidget {
       ),
       value: value,
       onChanged: onChanged,
-    );
-  }
-}
-
-/// La barre d'envoi, en bas de chaque écran de paramétrage.
-///
-/// 🎨 **Le bouton Rive de Jay** (`assets/rive/watch_reel_button.riv`) est monté
-/// ici, et **ici seulement** : le bouton d'envoi est le même geste dans les
-/// quatre destinations, il n'a aucune raison d'exister en quatre exemplaires.
-/// Seul le libellé change — et il change par la propriété `label` du ViewModel,
-/// pas par quatre fichiers.
-///
-/// Le repli est un vrai `FilledButton`, pas un espace vide : si le moteur natif
-/// ou l'asset manquent, l'app reste utilisable.
-class SendActionBar extends StatelessWidget {
-  const SendActionBar({
-    super.key,
-    required this.label,
-    required this.loading,
-    required this.onPressed,
-  });
-
-  final String label;
-  final bool loading;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final effective = loading ? null : onPressed;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        // L'envoi en cours n'est plus annoncé par-dessus le bouton : **le
-        // bouton EST le loader**. Il reste dans son état pressé — celui où il
-        // devient rond — le temps de la publication (demande de Jay,
-        // 2026-08-14). Un rond de progression posé dessus doublait le message
-        // et cachait l'animation.
-        child: RiveSendButton(
-          // Le graphique est dessiné en capitales : on lui donne ce qu'il
-          // attend plutôt que de recadrer le texte après coup.
-          label: label.toUpperCase(),
-          onPressed: effective,
-          busy: loading,
-          fallback: FilledButton(
-            onPressed: effective,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-            ),
-            child: loading
-                ? const SizedBox(
-                    height: 22,
-                    width: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(label),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -363,54 +269,6 @@ class VibeTypeChip extends StatelessWidget {
   }
 }
 
-class RecipientTile extends ConsumerWidget {
-  const RecipientTile({
-    super.key,
-    required this.peerId,
-    required this.selected,
-    required this.onChanged,
-  });
-
-  final String peerId;
-  final bool selected;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final profile = ref.watch(profileByIdProvider(peerId)).value;
-    return CheckboxListTile(
-      value: selected,
-      onChanged: (v) => onChanged(v ?? false),
-      title: Text(profile?.displayName ?? '…'),
-      secondary: Avatar(
-        stored: profile?.avatarUrl,
-        fallback: Text(
-          (profile?.displayName ?? '?').characters.first.toUpperCase(),
-        ),
-      ),
-    );
-  }
-}
-
-/// Message d'absence, mis en forme comme partout ailleurs dans l'app.
-class SendEmptyNote extends StatelessWidget {
-  const SendEmptyNote(this.text, {super.key});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Text(
-        text,
-        textAlign: TextAlign.center,
-        style: TextStyle(color: context.muted),
-      ),
-    ),
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Les règles de visionnage
 // ---------------------------------------------------------------------------
@@ -426,48 +284,14 @@ class SendEmptyNote extends StatelessWidget {
 // elle-même, et c'est pour ça qu'elle ne s'affiche que lorsqu'au moins une
 // personne est cochée.
 
-/// Le rappel des règles en vigueur, cliquable.
+/// **Les règles de visionnage, à éditer en place** — ouvertures, durée par
+/// face photo, barre de lecture des vidéos.
 ///
-/// Il existe parce que les régler est passé derrière un bouton : sans lui,
-/// « 2 ouvertures » deviendrait une règle qui s'applique sans jamais s'annoncer
-/// — exactement ce que la refonte cherchait à éviter en les sortant du chemin.
-class ViewingRulesSummary extends StatelessWidget {
-  const ViewingRulesSummary({
-    super.key,
-    required this.maxViews,
-    required this.viewDuration,
-    required this.onTap,
-  });
-
-  final int? maxViews;
-  final int? viewDuration;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final views = maxViews == null
-        ? 'ouvertures illimitées'
-        : '$maxViews ouverture${maxViews! > 1 ? 's' : ''}';
-    final duration = viewDuration == null
-        ? 'lecture illimitée'
-        : '$viewDuration s par face';
-    return ListTile(
-      dense: true,
-      leading: const Icon(Icons.tune, size: 18),
-      title: Text('$views · $duration'),
-      subtitle: Text(
-        'Retourner la Vibe ne consomme rien',
-        style: TextStyle(color: context.muted),
-      ),
-      trailing: const Icon(Icons.chevron_right, size: 18),
-      onTap: onTap,
-    );
-  }
-}
-
-/// Les règles de visionnage, derrière le bouton « réglages » de l'AppBar.
-class ViewingRulesSheet extends StatefulWidget {
-  const ViewingRulesSheet({
+/// Un seul propriétaire : le sur-écran ⚙︎ « Groupes et amis » de l'écran de
+/// partage. Ces règles ne s'appliquent qu'aux personnes : une story ou une
+/// publication n'en a pas (2026-09-14).
+class ViewingRulesEditor extends StatefulWidget {
+  const ViewingRulesEditor({
     super.key,
     required this.draft,
     required this.maxViews,
@@ -484,10 +308,10 @@ class ViewingRulesSheet extends StatefulWidget {
   onChanged;
 
   @override
-  State<ViewingRulesSheet> createState() => ViewingRulesSheetState();
+  State<ViewingRulesEditor> createState() => _ViewingRulesEditorState();
 }
 
-class ViewingRulesSheetState extends State<ViewingRulesSheet> {
+class _ViewingRulesEditorState extends State<ViewingRulesEditor> {
   /// 1-5 ouvertures ; **6 = illimité**. Le curseur porte le cran « illimité »
   /// au lieu d'un interrupteur à côté : c'est le même réglage, il n'a pas à se
   /// faire en deux gestes à deux endroits.
@@ -507,93 +331,74 @@ class ViewingRulesSheetState extends State<ViewingRulesSheet> {
   @override
   Widget build(BuildContext context) {
     final draft = widget.draft;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Règles de visionnage',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Elles ne s\'appliquent qu\'ici : une story ou une publication '
-              'n\'en a pas.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: context.muted),
-            ),
-            const SizedBox(height: 14),
-
-            Text(
-              _views == 6 ? 'Ouvertures : illimitées' : 'Ouvertures : $_views',
-              style: Theme.of(context).textTheme.titleSmall,
-            ),
-            Text(
-              'Une ouverture, pas un affichage : la Vibe se retourne autant '
-              'qu\'on veut tant qu\'elle est ouverte.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: context.muted),
-            ),
-            Slider(
-              value: _views.toDouble(),
-              min: 1,
-              max: 6,
-              divisions: 5,
-              label: _views == 6 ? '∞' : '$_views',
-              onChanged: (v) {
-                setState(() => _views = v.round());
-                _push();
-              },
-            ),
-
-            // La durée de lecture ne concerne que les faces photo : une face
-            // vidéo se lit en entier (consigne Jay 2026-07-12).
-            if (draft.hasPhoto) ...[
-              const SizedBox(height: 8),
-              Text(
-                _duration == 21
-                    ? 'Durée de lecture${draft.hasVideo ? ' (face photo)' : ''} : illimitée'
-                    : 'Durée de lecture${draft.hasVideo ? ' (face photo)' : ''} : $_duration s',
-                style: Theme.of(context).textTheme.titleSmall,
-              ),
-              Text(
-                'Par face, et le compte se met en pause quand on retourne la '
-                'Vibe.',
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: context.muted),
-              ),
-              Slider(
-                value: _duration.toDouble(),
-                min: 1,
-                max: 21,
-                divisions: 20,
-                label: _duration == 21 ? '∞' : '$_duration s',
-                onChanged: (v) {
-                  setState(() => _duration = v.round());
-                  _push();
-                },
-              ),
-            ],
-
-            if (draft.hasVideo) ...[
-              const SizedBox(height: 4),
-              ScrubbableSwitch(
-                value: _scrubbable,
-                onChanged: (v) {
-                  setState(() => _scrubbable = v);
-                  _push();
-                },
-              ),
-            ],
-          ],
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _views == 6 ? 'Ouvertures : illimitées' : 'Ouvertures : $_views',
+          style: Theme.of(context).textTheme.titleSmall,
         ),
-      ),
+        Text(
+          'Une ouverture, pas un affichage : la Vibe se retourne autant '
+          'qu\'on veut tant qu\'elle est ouverte.',
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: context.muted),
+        ),
+        Slider(
+          value: _views.toDouble(),
+          min: 1,
+          max: 6,
+          divisions: 5,
+          label: _views == 6 ? '∞' : '$_views',
+          onChanged: (v) {
+            setState(() => _views = v.round());
+            _push();
+          },
+        ),
+
+        // La durée de lecture ne concerne que les faces photo : une face
+        // vidéo se lit en entier (consigne Jay 2026-07-12).
+        if (draft.hasPhoto) ...[
+          const SizedBox(height: 8),
+          Text(
+            _duration == 21
+                ? 'Durée de lecture${draft.hasVideo ? ' (face photo)' : ''} : illimitée'
+                : 'Durée de lecture${draft.hasVideo ? ' (face photo)' : ''} : $_duration s',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          Text(
+            'Par face, et le compte se met en pause quand on retourne la '
+            'Vibe.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: context.muted),
+          ),
+          Slider(
+            value: _duration.toDouble(),
+            min: 1,
+            max: 21,
+            divisions: 20,
+            label: _duration == 21 ? '∞' : '$_duration s',
+            onChanged: (v) {
+              setState(() => _duration = v.round());
+              _push();
+            },
+          ),
+        ],
+
+        if (draft.hasVideo) ...[
+          const SizedBox(height: 4),
+          ScrubbableSwitch(
+            value: _scrubbable,
+            onChanged: (v) {
+              setState(() => _scrubbable = v);
+              _push();
+            },
+          ),
+        ],
+      ],
     );
   }
 }

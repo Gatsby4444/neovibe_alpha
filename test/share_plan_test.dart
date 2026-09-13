@@ -93,6 +93,76 @@ void main() {
       expect(plan.televersements, 1);
     });
 
+    test('📚 seule : aucune Card, une montée pour la bibliothèque', () {
+      // La ligne à deux cibles (Jay, 2026-09-14) : un groupe coché 📚 sans 💬
+      // n'envoie rien dans le chat, donc n'ouvre aucun lot. Ses membres ne
+      // sont pas des destinataires : ils découvriront la Vibe au reveal.
+      final plan = SharePlan(
+        conversations: [
+          conv('a', [
+            '1',
+            '2',
+          ]).copyWith(dansLeChat: false, aussiDansLaBibliotheque: true),
+        ],
+      );
+      expect(plan.lotsDeCercle, isEmpty);
+      expect(plan.televersements, 1);
+      expect(plan.destinataires, 0);
+      expect(plan.destinations, 1, reason: 'la ligne compte, elle');
+      expect(plan.problemes(CardType.standard, importe: false), isEmpty);
+    });
+
+    test('une ligne sans aucune cible ne peut pas partir', () {
+      final plan = SharePlan(
+        conversations: [
+          conv('a', ['1']).copyWith(dansLeChat: false),
+        ],
+      );
+      expect(plan.conversations.single.vide, isTrue);
+      expect(plan.problemes(CardType.standard, importe: false), isNotEmpty);
+    });
+
+    test('un ami SANS conversation se coche par son identifiant', () {
+      const c = ConversationShare(
+        peerId: 'u-lea',
+        memberIds: ['u-lea'],
+        label: 'Léa',
+      );
+      expect(c.key, 'peer:u-lea');
+      expect(c.cleChat, 'conv:peer:u-lea:chat');
+      expect(
+        SharePlan(conversations: const [c]).televersements,
+        1,
+        reason: "le DM s'ouvrira à l'envoi, la Card est la même",
+      );
+    });
+
+    test('🔴 Réessayer : le plan restreint à UNE clé, jamais les autres', () {
+      final plan = SharePlan(
+        story: const StoryShare(),
+        library: const LibraryShare(),
+        conversations: [
+          conv('a', ['1']).copyWith(aussiDansLaBibliotheque: true),
+          conv('b', ['2']),
+        ],
+        crossed: const [CrossedShare(userId: 'x', label: 'Sofia')],
+      );
+      final seulement = plan.restreintA({'conv:a:lib'});
+      expect(seulement.story, isNull);
+      expect(seulement.library, isNull);
+      expect(seulement.crossed, isEmpty);
+      expect(seulement.conversations, hasLength(1));
+      final a = seulement.conversations.single;
+      expect(a.conversationId, 'a');
+      expect(a.dansLeChat, isFalse, reason: 'le chat de a était déjà parti');
+      expect(a.aussiDansLaBibliotheque, isTrue);
+      expect(seulement.regles, plan.regles, reason: 'mêmes limites');
+
+      final story = plan.restreintA({SharePlan.cleStory});
+      expect(story.story, isNotNull);
+      expect(story.conversations, isEmpty);
+    });
+
     test('🔴 chaque bibliothèque de conversation coûte SA montée', () {
       // `LibraryVibesRepository.addVibe` dépose ses propres octets à chaque
       // appel : deux groupes cochés, c'est deux dépôts. Le total n'est donc

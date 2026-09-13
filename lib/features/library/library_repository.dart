@@ -164,16 +164,6 @@ class LibraryRepository {
     return key as String;
   }
 
-  /// Repartage dans une conversation : aucun octet copié, seulement des
-  /// chemins vers l'unique média.
-  Future<int> shareToConversation(String itemId, String conversationId) async {
-    final added = await _client.rpc(
-      'share_content',
-      params: {'p_content_id': itemId, 'p_conversation_id': conversationId},
-    );
-    return (added as int?) ?? 0;
-  }
-
   Future<void> removeItem(String itemId) async {
     // La ligne `contents` est emportée par la suppression : c'est elle qui
     // porte l'identité. Le graphe et les vues la suivent — une publication

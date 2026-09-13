@@ -35,6 +35,7 @@ import 'conversations_repository.dart';
 import 'group_settings_screen.dart';
 import '../events/events_providers.dart';
 import '../../core/models/event.dart';
+import '../cards/send/share_progress_banner.dart';
 import 'voice/voice_bubble.dart';
 import 'voice/voice_record_bar.dart';
 import 'voice/voice_recorder.dart';
@@ -176,19 +177,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   /// publication en bibliothèque. Seule option en plus : garder une copie dans
   /// ses Enregistrements.
   void _sendCard(Conversation conversation, String me) {
-    final recipients = conversation.members
-        .where((m) => m.id != me)
-        .map((m) => m.id)
-        .toList();
-    if (recipients.isEmpty) return;
+    if (conversation.otherMember(me) == null &&
+        !conversation.type.isCollective) {
+      return;
+    }
     Navigator.of(context).push(
       // Fondu pur : la capture est un MODE, pas une page de plus dans la
       // hiérarchie — voir `NeoFadeRoute`.
       NeoFadeRoute(
-        builder: (_) => CardCaptureScreen(
-          directRecipientIds: recipients,
-          directRecipientLabel: conversation.displayName(me),
-        ),
+        builder: (_) =>
+            CardCaptureScreen(directConversationId: conversation.id),
       ),
     );
   }
@@ -456,6 +454,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 ],
               ),
             ),
+          // L'envoi d'une Vibe partie d'ici tourne en arrière-plan : le
+          // bandeau le dit, et nomme ce qui aurait échoué.
+          const ShareProgressBanner(),
           if (_recordingVoice)
             VoiceRecordBar(
               recorder: ref.read(voiceRecorderProvider),

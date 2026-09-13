@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/content/content_repost.dart';
+import '../cards/send/recipient_picker_screen.dart';
+import '../cards/send/share_context.dart';
+import '../cards/send/share_plan.dart';
+
 import '../../core/content/content_face.dart';
 import '../../core/content/content_preloader.dart';
 import '../../core/content/content_view_reporter.dart';
@@ -18,7 +23,6 @@ import '../../core/video/video_open_trace.dart';
 import '../../core/widgets/avatar.dart';
 import '../../core/widgets/gradient.dart';
 import '../cards/flippable_card.dart';
-import '../conversations/conversations_repository.dart';
 import '../library/user_library_screen.dart';
 import 'stories_repository.dart';
 
@@ -369,74 +373,29 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
   /// gagne des chemins d'accès, elle ne se duplique pas.
   Future<void> _share() async {
     final storyId = _story.id;
-    final conversations = await showModalBottomSheet<String>(
-      context: context,
-      builder: (context) => _ConversationPicker(),
-    );
-    if (conversations == null || !mounted) return;
-    try {
-      final added = await ref
-          .read(storiesRepositoryProvider)
-          .shareToConversation(storyId, conversations);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            added == 0
-                ? 'Déjà partagée dans cette conversation.'
-                : 'Story partagée à $added personne${added > 1 ? 's' : ''}.',
-          ),
+    // Le même écran « À qui ? » que la capture, en mode repartage : amis et
+    // groupes seulement, pas de story ni de bibliothèque (2026-09-14).
+    final plan = await Navigator.of(context).push<SharePlan>(
+      MaterialPageRoute(
+        builder: (_) => RecipientPickerScreen(
+          shareContext: RepostShareContext(contentId: storyId, what: 'story'),
         ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
-    }
+      ),
+    );
+    if (plan == null || !mounted) return;
+    final resultat = await ref
+        .read(contentRepostProvider)
+        .toPlan(storyId, plan);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(resultat)));
   }
 
   void _showStats() {
     showModalBottomSheet<void>(
       context: context,
       builder: (context) => _StoryStatsSheet(storyId: _story.id),
-    );
-  }
-}
-
-/// Choix de la conversation où repartager.
-class _ConversationPicker extends ConsumerWidget {
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final me = ref.watch(currentUserIdProvider) ?? '';
-    final conversations = ref.watch(conversationsProvider);
-    return SafeArea(
-      child: conversations.when(
-        loading: () => const Padding(
-          padding: EdgeInsets.all(32),
-          child: Center(child: CircularProgressIndicator()),
-        ),
-        error: (e, _) => Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text('Erreur : $e'),
-        ),
-        data: (list) => list.isEmpty
-            ? const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('Aucune conversation où partager.'),
-              )
-            : ListView.builder(
-                shrinkWrap: true,
-                itemCount: list.length,
-                itemBuilder: (context, i) {
-                  final conv = list[i];
-                  return ListTile(
-                    title: Text(conv.displayName(me)),
-                    onTap: () => Navigator.pop(context, conv.id),
-                  );
-                },
-              ),
-      ),
     );
   }
 }

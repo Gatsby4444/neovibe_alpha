@@ -10,6 +10,38 @@ import '../../core/diagnostics/app_log.dart';
 import '../../core/models/message.dart';
 import '../../core/supabase_providers.dart';
 
+/// **Ma participation** : par conversation, la date de mon dernier message.
+///
+/// L'ACQUISITION, brute : la table `conversation_participation`, entretenue
+/// par un trigger serveur, donc connue même après la purge des messages. C'est
+/// ce qui trie les groupes dans l'écran de partage (2026-09-14).
+final myParticipationProvider = FutureProvider<Map<String, DateTime>>((
+  ref,
+) async {
+  final me = ref.watch(currentUserIdProvider);
+  if (me == null) return const {};
+  final rows =
+      await ref
+              .watch(supabaseProvider)
+              .from('conversation_participation')
+              .select('conversation_id, last_at')
+          as List;
+  return {
+    for (final row in rows)
+      (row as Map<String, dynamic>)['conversation_id'] as String:
+          DateTime.parse(row['last_at'] as String),
+  };
+});
+
+/// **J'ai écrit dans une conversation** : ce que les lecteurs de l'activité
+/// doivent relire. Appelée par les ÉCRITURES (texte, vocal, Vibe, ajout en
+/// bibliothèque), jamais par un écran — l'invalidation appartient à
+/// l'écriture (`CLAUDE.md`, 2026-08-25).
+void noteConversationActivity(Ref ref) {
+  ref.invalidate(conversationsProvider);
+  ref.invalidate(myParticipationProvider);
+}
+
 /// Liste de mes conversations avec membres et dernier message.
 final conversationsProvider = FutureProvider<List<Conversation>>((ref) async {
   final client = ref.watch(supabaseProvider);
@@ -211,6 +243,7 @@ class ConversationsRepository {
       'kind': 'text',
       'body': body,
     });
+    noteConversationActivity(ref);
   }
 
   /// Envoi d'un média éphémère (photo/vidéo) dans une conversation.
@@ -297,6 +330,7 @@ class ConversationsRepository {
           'p_media_key': key,
         },
       );
+      noteConversationActivity(ref);
     } finally {
       for (final f in [clear, sealed]) {
         try {

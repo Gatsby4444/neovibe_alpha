@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/content/content_repost.dart';
+import '../cards/send/recipient_picker_screen.dart';
+import '../cards/send/share_context.dart';
+import '../cards/send/share_plan.dart';
+
 import '../../core/content/content_face.dart';
 import '../../core/content/content_view_reporter.dart';
 import '../../core/crypto/media_open.dart';
@@ -12,7 +17,6 @@ import '../../core/widgets/content_overflow_menu.dart';
 import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../cards/flippable_card.dart';
-import '../conversations/conversations_repository.dart';
 import 'library_repository.dart';
 
 /// Lecture plein écran d'une **publication** de bibliothèque.
@@ -192,26 +196,26 @@ class _PublicationViewerScreenState
       : VibePhotoFace(bytes: m.photoBytes!, type: widget.item.cardType);
 
   Future<void> _share() async {
-    final conversationId = await showModalBottomSheet<String>(
-      context: context,
-      builder: (_) => const _ConversationPicker(),
-    );
-    if (conversationId == null || !mounted) return;
-    try {
-      final added = await ref
-          .read(libraryRepositoryProvider)
-          .shareToConversation(widget.item.id, conversationId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            added == 0
-                ? 'Déjà partagée dans cette conversation.'
-                : 'Publication partagée à $added personne'
-                      '${added > 1 ? 's' : ''}.',
+    // Le même écran « À qui ? » que la capture, en mode repartage (2026-09-14).
+    final plan = await Navigator.of(context).push<SharePlan>(
+      MaterialPageRoute(
+        builder: (_) => RecipientPickerScreen(
+          shareContext: RepostShareContext(
+            contentId: widget.item.id,
+            what: 'publication',
           ),
         ),
-      );
+      ),
+    );
+    if (plan == null || !mounted) return;
+    try {
+      final resultat = await ref
+          .read(contentRepostProvider)
+          .toPlan(widget.item.id, plan);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(resultat)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -259,41 +263,5 @@ class _PublicationViewerScreenState
       return;
     }
     navigator.pop();
-  }
-}
-
-/// Choix de la conversation où repartager.
-class _ConversationPicker extends ConsumerWidget {
-  const _ConversationPicker();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final me = ref.watch(currentUserIdProvider) ?? '';
-    final conversations = ref.watch(conversationsProvider);
-    return SafeArea(
-      child: conversations.when(
-        loading: () => const Padding(
-          padding: EdgeInsets.all(32),
-          child: Center(child: CircularProgressIndicator()),
-        ),
-        error: (e, _) => Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text('Erreur : $e'),
-        ),
-        data: (list) => list.isEmpty
-            ? const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('Aucune conversation où partager.'),
-              )
-            : ListView.builder(
-                shrinkWrap: true,
-                itemCount: list.length,
-                itemBuilder: (context, i) => ListTile(
-                  title: Text(list[i].displayName(me)),
-                  onTap: () => Navigator.pop(context, list[i].id),
-                ),
-              ),
-      ),
-    );
   }
 }

@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:video_player/video_player.dart';
 
 import '../../core/motion.dart';
 import '../../core/utils/ids.dart';
@@ -25,9 +24,11 @@ import 'face_editor_screen.dart';
 import 'camera_controls.dart';
 import 'gallery_import_screen.dart';
 import 'native_camera.dart';
-import 'send/circle_settings_screen.dart';
-import 'send/share_screen.dart';
+import 'send/recipient_picker_screen.dart';
+import 'send/share_context.dart';
+import 'send/share_progress_banner.dart';
 import 'send/vibe_draft.dart';
+import 'send/vibe_draft_header.dart';
 
 /// Flux de création d'une Card.
 /// Le TYPE se choisit AVANT la première photo, dans un sélecteur horizontal
@@ -42,8 +43,7 @@ class CardCaptureScreen extends ConsumerStatefulWidget {
   const CardCaptureScreen({
     super.key,
     this.bereal = false,
-    this.directRecipientIds,
-    this.directRecipientLabel,
+    this.directConversationId,
     this.libraryTarget,
   });
 
@@ -62,12 +62,10 @@ class CardCaptureScreen extends ConsumerStatefulWidget {
   /// notification (le déclenchement manuel a été retiré du menu).
   final bool bereal;
 
-  /// **Envoi direct depuis un chat** (consigne Jay 2026-08-01) : la capture est
-  /// ouverte depuis une conversation, le destinataire est donc déjà connu.
-  /// L'écran d'envoi se réduit alors aux réglages de la Card elle-même — pas de
-  /// choix de destinataire, pas de publication en bibliothèque.
-  final List<String>? directRecipientIds;
-  final String? directRecipientLabel;
+  /// **Capture ouverte depuis un chat** (consigne Jay 2026-08-01) : cette
+  /// conversation arrive **pré-cochée** dans l'écran « À qui ? », et reste
+  /// modifiable (2026-09-14). Après l'envoi, on revient au chat.
+  final String? directConversationId;
 
   @override
   ConsumerState<CardCaptureScreen> createState() => _CardCaptureScreenState();
@@ -1245,6 +1243,28 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     setState(() => _step = 2);
   }
 
+  /// **L'envoi est déposé** (il tourne en arrière-plan) : on rend la main
+  /// tout de suite. Depuis un chat, on y retourne ; sinon, **retour à la
+  /// caméra** (Jay, 2026-09-14), prête pour la prise suivante — le bandeau
+  /// d'envoi dit où en est la précédente.
+  void _afterSend() {
+    if (widget.directConversationId != null) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      _front = null;
+      _back = null;
+      _frontImported = false;
+      _backImported = false;
+      _frontIsVideo = false;
+      _backIsVideo = false;
+      _timerSeconds = _timerRestore;
+      _step = 0;
+    });
+    _ensureLens(back: true);
+  }
+
   /// Refaire UNE face depuis le récap, en gardant l'autre.
   ///
   /// Le Oneshot est à part, comme toujours : ses deux faces sont capturées au
@@ -1612,7 +1632,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
           backIsVideo: _backIsVideo,
         );
       }
-      return _RecapStep(
+      return _ShareStep(
         front: _front!,
         back: _back,
         // Type FIGÉ à la prise — surtout pas _type (que le sélecteur peut
@@ -1622,9 +1642,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         backImported: _backImported,
         frontIsVideo: _frontIsVideo,
         backIsVideo: _backIsVideo,
-        directRecipientIds: widget.directRecipientIds,
-        directRecipientLabel: widget.directRecipientLabel,
+        directConversationId: widget.directConversationId,
         onRetake: _retakeFromRecap,
+        onSent: _afterSend,
       );
     }
 
@@ -1835,6 +1855,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                       icon: const Icon(Icons.close, color: Colors.white),
                       onPressed: _leave,
                     ),
+                  ),
+                  // L'envoi précédent, pendant qu'on prépare le suivant : le
+                  // bandeau observe la file, et n'occupe rien s'il n'y a rien.
+                  const Positioned(
+                    key: ValueKey('share-progress'),
+                    top: 56,
+                    left: 0,
+                    right: 0,
+                    child: ShareProgressBanner(),
                   ),
                   // Reprendre la face précédente sans tout annuler (consigne Jay)
                   if (_step == 1 && !_recording)
@@ -2412,11 +2441,18 @@ class _CameraHud extends StatelessWidget {
   }
 }
 
-/// Récap : aperçu recto/verso (ou face unique en Mono), éditeur par face
-/// (désactivé pour une image importée ou une vidéo — consigne Jay : les
-/// outils d'édition ne s'appliquent qu'aux photos), type déjà fixé.
-class _RecapStep extends StatefulWidget {
-  const _RecapStep({
+/// **Étape 2 — l'écran « À qui ? », avec la Vibe en petit en haut.**
+///
+/// Avant le 2026-09-14 : un écran de récap (les deux faces, « Continuer »)
+/// PUIS l'écran de partage. Ici les deux sont un seul écran : les faces sont
+/// en haut, petites, avec leurs gestes (modifier / original / refaire), et la
+/// liste « à qui » en dessous. Un écran de moins à chaque envoi.
+///
+/// Cet état garde ce que l'écran de capture ne connaît pas : les faces
+/// **retouchées** (le dessin, le texte) et leurs originaux — et l'identité
+/// locale de la prise, tirée une seule fois (voir [VibeDraft.newLocalId]).
+class _ShareStep extends StatefulWidget {
+  const _ShareStep({
     required this.front,
     required this.back,
     required this.type,
@@ -2424,40 +2460,37 @@ class _RecapStep extends StatefulWidget {
     this.backImported = false,
     this.frontIsVideo = false,
     this.backIsVideo = false,
-    this.directRecipientIds,
-    this.directRecipientLabel,
+    this.directConversationId,
     required this.onRetake,
+    required this.onSent,
   });
   final File front;
-  final File? back; // null = Mono (face unique)
+  final File? back; // null = face unique
 
   /// Refaire une face (true = recto) sans perdre l'autre.
   final void Function(bool isFront) onRetake;
+
+  /// L'envoi est déposé dans la file : l'écran de capture reprend la main.
+  final VoidCallback onSent;
   final CardType type;
   final bool frontImported;
   final bool backImported;
   final bool frontIsVideo;
   final bool backIsVideo;
 
-  /// Destinataire imposé (capture ouverte depuis un chat) — simplement relayé
-  /// à l'écran d'envoi.
-  final List<String>? directRecipientIds;
-  final String? directRecipientLabel;
+  /// Conversation pré-cochée (capture ouverte depuis un chat).
+  final String? directConversationId;
 
   @override
-  State<_RecapStep> createState() => _RecapStepState();
+  State<_ShareStep> createState() => _ShareStepState();
 }
 
-class _RecapStepState extends State<_RecapStep> {
+class _ShareStepState extends State<_ShareStep> {
   late File _front = widget.front;
   late File? _back = widget.back;
 
-  /// Identité locale de CETTE prise, tirée une seule fois.
-  ///
-  /// Le `VibeDraft` se reconstruit à chaque appui sur « Continuer » — il le
-  /// faut, les faces ont pu être retouchées entre-temps. L'identifiant, lui,
-  /// doit survivre à ces reconstructions : c'est la clé sous laquelle
-  /// « Enregistrer pour moi » a peut-être déjà écrit une copie.
+  /// Identité locale de CETTE prise, tirée une seule fois : c'est la clé sous
+  /// laquelle « Enregistrer pour moi » a peut-être déjà écrit une copie.
   late final String _localId = VibeDraft.newLocalId();
 
   /// Originaux conservés pour « revenir à l'image initiale » (consigne Jay).
@@ -2480,130 +2513,37 @@ class _RecapStepState extends State<_RecapStep> {
 
   @override
   Widget build(BuildContext context) {
-    final type = widget.type;
-    final back = _back;
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            const Text('Ta Vibe '),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-              decoration: BoxDecoration(
-                gradient: type.gradient,
-                color: type.gradient == null
-                    ? type.color.withValues(alpha: 0.2)
-                    : null,
-                border: type.gradient == null
-                    ? Border.all(color: type.color)
-                    : null,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                type.tag,
-                style: TextStyle(
-                  color: type.gradient == null ? type.color : Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-          ],
-        ),
+    // Le brouillon se reconstruit à chaque retouche (les faces ont changé) ;
+    // l'identifiant, lui, survit à ces reconstructions.
+    final draft = VibeDraft(
+      front: _front,
+      back: _back,
+      type: widget.type,
+      imported: widget.frontImported || widget.backImported,
+      frontIsVideo: widget.frontIsVideo,
+      backIsVideo: widget.backIsVideo,
+      localId: _localId,
+    );
+    return RecipientPickerScreen(
+      shareContext: VibeShareContext(
+        draft: draft,
+        presetConversationId: widget.directConversationId,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          if (back == null)
-            // Verso passé : face unique, présentée seule et centrée
-            Row(
-              children: [
-                const Spacer(),
-                Expanded(
-                  flex: 2,
-                  child: _Shot(
-                    label: 'Face unique',
-                    file: _front,
-                    edited: _front != _originalFront,
-                    imported: widget.frontImported,
-                    isVideo: widget.frontIsVideo,
-                    onEdit: () => _editFace(true),
-                    onRestore: () => _restoreFace(true),
-                    onRetake: () => widget.onRetake(true),
-                  ),
-                ),
-                const Spacer(),
-              ],
-            )
-          else
-            Row(
-              children: [
-                Expanded(
-                  child: _Shot(
-                    label: 'Recto',
-                    file: _front,
-                    edited: _front != _originalFront,
-                    imported: widget.frontImported,
-                    isVideo: widget.frontIsVideo,
-                    onEdit: () => _editFace(true),
-                    onRestore: () => _restoreFace(true),
-                    onRetake: () => widget.onRetake(true),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _Shot(
-                    label: 'Verso',
-                    file: back,
-                    edited: back != _originalBack,
-                    imported: widget.backImported,
-                    isVideo: widget.backIsVideo,
-                    onEdit: () => _editFace(false),
-                    onRestore: () => _restoreFace(false),
-                    onRetake: () => widget.onRetake(false),
-                  ),
-                ),
-              ],
-            ),
-          const SizedBox(height: 8),
-          Text(
-            type.description,
-            textAlign: TextAlign.center,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: Colors.white54),
-          ),
-          const SizedBox(height: 16),
-          FilledButton(
-            // push (pas pushReplacement) : le retour depuis l'écran d'envoi
-            // ramène ici, dans la section Card (consigne Jay)
-            onPressed: () {
-              final draft = VibeDraft(
-                front: _front,
-                back: _back,
-                type: type,
-                imported: widget.frontImported || widget.backImported,
-                frontIsVideo: widget.frontIsVideo,
-                backIsVideo: widget.backIsVideo,
-                directRecipientIds: widget.directRecipientIds,
-                directRecipientLabel: widget.directRecipientLabel,
-                localId: _localId,
-              );
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  // Envoi depuis un chat : la destination est imposée, il n'y a
-                  // pas de format à choisir. C'est le SEUL chemin qui saute
-                  // l'étape 1 (découpage du 2026-08-14).
-                  builder: (_) => draft.direct
-                      ? CircleSettingsScreen(draft: draft)
-                      : ShareScreen(draft: draft),
-                ),
-              );
-            },
-            child: const Text('Continuer'),
-          ),
-        ],
+      header: VibeDraftHeader(
+        front: _front,
+        back: _back,
+        type: widget.type,
+        frontEdited: _front != _originalFront,
+        backEdited: _back != _originalBack,
+        frontImported: widget.frontImported,
+        backImported: widget.backImported,
+        frontIsVideo: widget.frontIsVideo,
+        backIsVideo: widget.backIsVideo,
+        onEdit: _editFace,
+        onRestore: _restoreFace,
+        onRetake: widget.onRetake,
       ),
+      onSent: widget.onSent,
     );
   }
 }
@@ -2727,143 +2667,6 @@ class _ColorButton extends StatelessWidget {
       onLongPress: onLongPress,
       underlay: DecoratedBox(
         decoration: background.decoration.copyWith(shape: BoxShape.circle),
-      ),
-    );
-  }
-}
-
-class _Shot extends StatelessWidget {
-  const _Shot({
-    required this.label,
-    required this.file,
-    required this.edited,
-    required this.imported,
-    required this.isVideo,
-    required this.onEdit,
-    required this.onRestore,
-    required this.onRetake,
-  });
-  final String label;
-  final File file;
-  final bool edited;
-
-  /// Image issue de la galerie : pas d'outils dessin/texte (consigne Jay).
-  final bool imported;
-
-  /// Face vidéo : aperçu en boucle muet, pas d'outils d'édition (photos
-  /// uniquement pour le moment — consigne Jay).
-  final bool isVideo;
-  final VoidCallback onEdit;
-  final VoidCallback onRestore;
-
-  /// Reprendre la prise de cette face, en gardant l'autre.
-  final VoidCallback onRetake;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(12),
-          child: AspectRatio(
-            aspectRatio: 9 / 16,
-            child: isVideo
-                ? _VideoThumb(file: file)
-                : Image.file(file, fit: BoxFit.cover),
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(label, style: Theme.of(context).textTheme.labelMedium),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (isVideo)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Icon(Icons.videocam, size: 16, color: Colors.white38),
-              )
-            else if (imported)
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 12),
-                child: Icon(
-                  Icons.photo_library_outlined,
-                  size: 16,
-                  color: Colors.white38,
-                ),
-              )
-            else
-              IconButton(
-                icon: const Icon(Icons.draw, size: 20),
-                tooltip: 'Modifier (dessin, texte)',
-                onPressed: onEdit,
-              ),
-            if (edited && !isVideo)
-              IconButton(
-                icon: const Icon(Icons.restore, size: 20),
-                tooltip: 'Revenir à l\'image initiale',
-                onPressed: onRestore,
-              ),
-            // Refaire CETTE face en gardant l'autre (consigne Jay 2026-07-26)
-            IconButton(
-              icon: const Icon(Icons.replay, size: 20),
-              tooltip: 'Refaire cette face',
-              onPressed: onRetake,
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-/// Aperçu vidéo du récap : lecture en boucle, muette, recadrée cover.
-class _VideoThumb extends StatefulWidget {
-  const _VideoThumb({required this.file});
-  final File file;
-
-  @override
-  State<_VideoThumb> createState() => _VideoThumbState();
-}
-
-class _VideoThumbState extends State<_VideoThumb> {
-  late final VideoPlayerController _controller = VideoPlayerController.file(
-    widget.file,
-  );
-
-  @override
-  void initState() {
-    super.initState();
-    _controller.initialize().then((_) {
-      if (!mounted) return;
-      _controller
-        ..setLooping(true)
-        ..setVolume(0)
-        ..play();
-      setState(() {});
-    });
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_controller.value.isInitialized) {
-      return const ColoredBox(
-        color: Colors.black,
-        child: Center(child: Icon(Icons.videocam, color: Colors.white38)),
-      );
-    }
-    return FittedBox(
-      fit: BoxFit.cover,
-      clipBehavior: Clip.hardEdge,
-      child: SizedBox(
-        width: _controller.value.size.width,
-        height: _controller.value.size.height,
-        child: VideoPlayer(_controller),
       ),
     );
   }

@@ -284,17 +284,6 @@ class StoriesRepository {
     return key as String;
   }
 
-  /// Repartage dans une conversation. **Aucun octet n'est copié** : on ajoute
-  /// des chemins vers l'unique média (des arêtes au graphe de propagation).
-  /// Le serveur refuse si la story n'est pas `shareable`.
-  Future<int> shareToConversation(String storyId, String conversationId) async {
-    final added = await _client.rpc(
-      'share_content',
-      params: {'p_content_id': storyId, 'p_conversation_id': conversationId},
-    );
-    return (added as int?) ?? 0;
-  }
-
   Future<void> remove(String storyId) async {
     // 🔴 **ON SUPPRIME `contents`, PAS `stories` — corrigé le 2026-08-31.**
     //

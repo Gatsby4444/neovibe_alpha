@@ -24,8 +24,6 @@ class VibeDraft {
     required this.imported,
     required this.frontIsVideo,
     required this.backIsVideo,
-    this.directRecipientIds,
-    this.directRecipientLabel,
     String? localId,
   }) : localId = localId ?? newLocalId();
 
@@ -46,15 +44,6 @@ class VibeDraft {
   final bool frontIsVideo;
   final bool backIsVideo;
 
-  /// **Envoi direct depuis un chat** (consigne Jay 2026-08-01). Quand elle est
-  /// fournie, la destination est imposée : on saute l'étape du choix de format
-  /// et on entre directement dans le paramétrage du cercle.
-  ///
-  /// Liste et non identifiant unique : dans un groupe, « le destinataire du
-  /// chat » désigne tous les autres membres.
-  final List<String>? directRecipientIds;
-  final String? directRecipientLabel;
-
   /// Identifiant **local**, tiré dès la capture.
   ///
   /// Il existe pour une raison précise : « Enregistrer pour moi » est devenu un
@@ -69,7 +58,19 @@ class VibeDraft {
   /// identifiant.
   final String localId;
 
-  bool get direct => directRecipientIds != null;
+  /// La même prise, sous un autre type — **à l'envoi seulement** : c'est
+  /// ainsi qu'une Vibe devient 1/1 (un seul destinataire, aucune publication).
+  /// Même identifiant local : la copie « Enregistrer pour moi » déjà faite
+  /// reste retrouvable.
+  VibeDraft withType(CardType type) => VibeDraft(
+    front: front,
+    back: back,
+    type: type,
+    imported: imported,
+    frontIsVideo: frontIsVideo,
+    backIsVideo: backIsVideo,
+    localId: localId,
+  );
 
   bool get hasVideo => frontIsVideo || backIsVideo;
 

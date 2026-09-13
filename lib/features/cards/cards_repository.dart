@@ -11,6 +11,7 @@ import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
+import '../conversations/conversations_repository.dart';
 import 'card_media_cache.dart';
 
 /// Cards reçues (livraisons non détruites), temps réel.
@@ -298,6 +299,7 @@ class CardsRepository {
         'message_id': message['id'],
       });
     }
+    noteConversationActivity(ref);
   }
 
   /// **Envoie une Vibe à quelqu'un qu'on a croisé** — pas encore un ami.

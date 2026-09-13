@@ -5,9 +5,10 @@
 > validerai »*), **révisé le 2026-09-14** avec sa vision plus claire (deux
 > séries de précisions).
 >
-> **Rien n'est codé.** Ce document décrit ce qui existe (relevé dans le code le
-> 2026-09-13), ce que Jay a tranché, l'architecture, l'ordre de construction,
-> et ce qui reste à trancher.
+> ✅ **Chantier A CONSTRUIT le 2026-09-14 (v0.9.179)**, en une passe, après la
+> validation de Jay (*« tu as carte blanche, on affinera après »*). Ce qui
+> s'écarte du plan est noté dans **§9**. Le chantier B (le point d'entrée
+> « publication ») reste à cadrer (§6, §7).
 
 ---
 
@@ -324,6 +325,48 @@ Card restreinte (petit, réutilise tout), puis **B2** = l'objet « post » et so
    Filtres ? Musique ? *(chaque item est un chantier)*
 6. **La caméra « restreinte aux publications »** : Card standard seulement, ou
    Oneshot aussi ? (le BeReal est déclenché, il n'entre pas ici)
+
+---
+
+## 9. Ce qui a été construit, et ce qui s'écarte du plan (2026-09-14)
+
+| Pièce | Fichier | Note |
+|---|---|---|
+| Serveur | `supabase/migrations/20260914090000_le_partage_refondu.sql` | `conversations.last_activity_at` + `conversation_participation` (trigger sur `messages`, `security definer`), `friend_share_defaults` (propriétaire seul). Rejoué sous RLS : 6 contrôles OK |
+| Cuisine | `recipients.dart` (modèles + `RecipientCatalog.build`, pur), `share_defaults.dart` (préférence + dépôt serveur + `resolveSaveable`), `share_queue.dart` (`ShareQueue`, injectable), `myParticipationProvider` + `noteConversationActivity` dans `conversations_repository.dart` | l'activité se relit **à l'écriture** (texte, vocal, Vibe, ajout bibliothèque), jamais depuis un écran |
+| Serveur (app) | `recipients_provider.dart` (`recipientsProvider`, égalité de valeur), `share_context.dart` (`VibeShareContext` / `RepostShareContext`) | — |
+| Client | `recipient_picker_screen.dart` (**le** seul écran « à qui »), `share_settings_sheets.dart` (⚙︎ Publier, ⚙︎ Groupes et amis, « Tout sélectionner », « Défauts »), `vibe_draft_header.dart` (la Vibe en petit, menu ⋯ modifier / original / refaire), `share_progress_banner.dart` (Envoi… n/N, Envoyé, Réessayer par destination), `settings/sections/share_defaults_screen.dart` (Réglages → « Défauts de partage », défauts + liste par ami) | — |
+| Supprimés | `share_screen.dart`, `circle_settings_screen.dart`, les deux `_ConversationPicker`, `_RecapStep` / `_Shot` / `_VideoThumb` de l'écran de capture, `SendActionBar` / `RecipientTile` / `SendEmptyNote` / `SaveableSwitch` / `ViewingRulesSummary` / `ViewingRulesSheet`, `shareToConversation` ×2 | relevés dans les deux sens avant de couper |
+
+**Écarts assumés :**
+
+- **`LibraryShareScreen` (le « + » du chat) est conservé tel quel.** Ce n'est
+  pas une liste « à qui » (la destination est imposée), et sa règle produit —
+  *l'auteur ne revoit pas sa prise* — contredirait l'en-tête de l'écran unique.
+  Le compte des écrans « à qui » est donc 5 → 1, pas 6 → 1.
+- **Le bouton d'envoi Rive de Jay** habille la barre du bas (repli
+  `FilledButton`) : il n'était plus utilisé après la suppression de
+  `SendActionBar`, et c'est son travail.
+- **La ligne à deux cibles 💬 / 📚** vaut pour les groupes, les DM **et**
+  l'événement (📚 par défaut pour lui) — un seul mécanisme.
+- **La bulle 1/1** est de retour : l'ancien `ShareScreen` ne la calculait
+  jamais (seul l'écran depuis un chat le faisait). Un seul destinataire, aucune
+  publication, pas de croisé, pas de 📚 → la Vibe part en 1/1.
+- **La copie « Enregistrer pour moi » prend son vrai identifiant** après
+  l'envoi (`SavedStore.rekey`) — ce que `ShareScreen` ne faisait pas non plus.
+- **Le repartage** (story, publication) passe par `ContentRepost.toPlan`
+  (`core/content/content_repost.dart`) : une seule boucle `share_content` au
+  lieu de deux copies, et le DM d'un ami s'ouvre à l'envoi.
+- **Un ami sans conversation** est une ligne comme les autres : le DM s'ouvre
+  à l'envoi (`ConversationShare.peerId`, `get_or_create_direct_conversation`).
+- **La file ne survit pas au processus** : un envoi interrompu par la mort de
+  l'app est perdu, et le bandeau ne le dira pas — limite écrite dans
+  `share_queue.dart`, à traiter si le test le fait apparaître.
+
+**Tests** : `recipients_catalog_test.dart` (7 — l'ordre façon Snap),
+`share_defaults_test.dart` (5), `share_queue_test.dart` (4 — dont « Réessayer
+ne rejoue QUE la destination en échec »), `share_plan_test.dart` (+4 : 📚
+seule, ligne vide, ami sans conversation, `restreintA`).
 
 ---
 

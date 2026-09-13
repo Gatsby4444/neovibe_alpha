@@ -43,6 +43,14 @@ du message** (dette préexistante, commune à tout `media` : le cron
 `neovibe_purge` efface les lignes, pas les fichiers) — un vocal scellé sans
 clé est du bruit, mais du bruit qui occupe de la place.
 
+**Trois tables annexes du partage (2026-09-14)**, sans bucket : `friend_share_defaults`
+(mon « Sauvegardable » par ami — propriétaire seul, RLS dans les deux sens),
+`conversation_participation` (mon dernier message par conversation — lisible par
+moi seul, écrite par un trigger) et la colonne `conversations.last_activity_at`
+(le dernier message de qui que ce soit). Les deux dernières **survivent à la
+purge des messages** : c'est ce qui trie l'écran « À qui ? » (plan
+`docs/plan-refonte-partage.md`).
+
 Un septième bucket est **réservé mais non créé** : celui du **BeReal**. Jay a
 mis ce format de côté le 2026-08-11 et sa règle d'accès n'est pas connue —
 créer le conteneur avant la règle reviendrait à inventer la règle plus tard

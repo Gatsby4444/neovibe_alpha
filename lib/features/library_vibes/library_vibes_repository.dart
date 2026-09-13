@@ -14,6 +14,7 @@ import '../../core/models/card.dart';
 import '../../core/models/library_vibe.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
+import '../conversations/conversations_repository.dart';
 import '../cards/card_media_cache.dart';
 import 'library_vault_cache.dart';
 
@@ -159,6 +160,9 @@ class LibraryVibesRepository {
         'Vibe enregistrée',
         'vibe=${vibe.id} · reveal=${vibe.revealAt.toLocal()}',
       );
+      // Le serveur a posé l'annonce « X a ajouté une vibe » dans le fil :
+      // c'est une participation, les lecteurs de l'activité relisent.
+      noteConversationActivity(ref);
       return vibe;
     } catch (e) {
       AppLog.instance.error('add_vibe_to_library a échoué', '$e');

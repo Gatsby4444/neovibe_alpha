@@ -188,6 +188,7 @@ class Conversation {
     required this.createdAt,
     this.createdBy,
     this.members = const [],
+    this.lastActivityAt,
     this.lastMessage,
   });
 
@@ -219,6 +220,13 @@ class Conversation {
   final List<Profile> members;
   final Message? lastMessage;
 
+  /// Le dernier message de qui que ce soit — entretenu par le serveur
+  /// (`conversations.last_activity_at`, trigger sur `messages`) et donc
+  /// **connu même après la purge des messages à 24 h**. C'est la date qui
+  /// trie « tout le monde » dans l'écran de partage (2026-09-14). Nulle pour
+  /// une conversation où personne n'a jamais écrit.
+  final DateTime? lastActivityAt;
+
   /// Nom affiché : titre du groupe, ou nom de l'autre membre en 1-à-1
   /// (tag name en priorité — consigne Jay —, sinon username).
   String displayName(String me) {
@@ -244,6 +252,9 @@ class Conversation {
           ),
         )
         .toList(),
+    lastActivityAt: json['last_activity_at'] == null
+        ? null
+        : DateTime.parse(json['last_activity_at'] as String),
   );
 
   Conversation copyWith({Message? lastMessage, List<Profile>? members}) =>
@@ -255,6 +266,7 @@ class Conversation {
         createdBy: createdBy,
         members: members ?? this.members,
         lastMessage: lastMessage ?? this.lastMessage,
+        lastActivityAt: lastActivityAt,
       );
 
   // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
@@ -271,6 +283,7 @@ class Conversation {
       other.createdBy == createdBy &&
       other.createdAt == createdAt &&
       other.lastMessage == lastMessage &&
+      other.lastActivityAt == lastActivityAt &&
       listEquals(other.members, members);
 
   @override
@@ -280,6 +293,7 @@ class Conversation {
     title,
     createdAt,
     lastMessage,
+    lastActivityAt,
     Object.hashAll(members),
   );
 }

@@ -109,14 +109,28 @@ class LibraryShare extends ShareDestination {
 /// [SharePlan.televersements] les compte ensemble.
 class ConversationShare extends ShareDestination {
   const ConversationShare({
-    required this.conversationId,
+    this.conversationId,
+    this.peerId,
     required this.memberIds,
     required this.label,
     this.saveable = false,
+    this.dansLeChat = true,
     this.aussiDansLaBibliotheque = false,
-  });
+  }) : assert(
+         conversationId != null || peerId != null,
+         'une conversation ou un ami, jamais ni l\'un ni l\'autre',
+       );
 
-  final String conversationId;
+  /// La conversation — **nulle pour un ami avec qui on n'a jamais discuté** :
+  /// le DM s'ouvrira à l'envoi (`get_or_create_direct_conversation`). Un ami
+  /// n'a pas à avoir déjà parlé pour recevoir (constat n° 2 du plan).
+  final String? conversationId;
+
+  /// L'ami d'en face, pour un DM (existant ou à créer). Nul pour un groupe.
+  final String? peerId;
+
+  /// Ce qui identifie la ligne, avec ou sans conversation.
+  String get key => conversationId ?? 'peer:$peerId';
 
   /// Les destinataires, sans moi. Dans un groupe, ce sont tous les autres.
   final List<String> memberIds;
@@ -124,7 +138,19 @@ class ConversationShare extends ShareDestination {
   final String label;
   final bool saveable;
 
-  /// « Publier aussi dans la bibliothèque du groupe » — le CINQUIÈME contexte.
+  /// 💬 — la Vibe part **dans le chat** : une Card, une livraison par membre.
+  ///
+  /// ## La ligne à deux cibles (Jay, 2026-09-14)
+  ///
+  /// Envoyer dans le chat (« regarde ça maintenant ») et ajouter à la
+  /// bibliothèque (« on construit une collection, révélée au reveal ») sont
+  /// deux gestes, deux objets, deux cycles de vie. Chaque ligne de groupe ou
+  /// de DM porte donc **deux cibles** côte à côte, 💬 et 📚, et une ligne
+  /// cochée en a au moins une. C'est un choix de *destination*, pas un
+  /// réglage : il se voit sur la ligne, avant de cocher.
+  final bool dansLeChat;
+
+  /// 📚 — dans la **bibliothèque** de la conversation : le CINQUIÈME contexte.
   ///
   /// ⚠️ **C'est un objet de plus, pas une option de l'envoi.** La bibliothèque
   /// de conversation a son propre cycle de vie et son propre reveal ; la
@@ -132,18 +158,42 @@ class ConversationShare extends ShareDestination {
   /// c'est-à-dire le défaut du 2026-08-11.
   final bool aussiDansLaBibliotheque;
 
+  /// Une ligne sans aucune cible n'existe pas : elle est décochée.
+  bool get vide => !dansLeChat && !aussiDansLaBibliotheque;
+
+  /// Les clés des deux cibles — ce que « Réessayer » rend au plan.
+  String get cleChat => 'conv:$key:chat';
+  String get cleLibrary => 'conv:$key:lib';
+
   @override
   String get contexte => 'cercle';
 
-  ConversationShare copyWith({bool? saveable, bool? aussiDansLaBibliotheque}) =>
-      ConversationShare(
-        conversationId: conversationId,
-        memberIds: memberIds,
-        label: label,
-        saveable: saveable ?? this.saveable,
-        aussiDansLaBibliotheque:
-            aussiDansLaBibliotheque ?? this.aussiDansLaBibliotheque,
-      );
+  ConversationShare copyWith({
+    bool? saveable,
+    bool? dansLeChat,
+    bool? aussiDansLaBibliotheque,
+  }) => ConversationShare(
+    conversationId: conversationId,
+    peerId: peerId,
+    memberIds: memberIds,
+    label: label,
+    saveable: saveable ?? this.saveable,
+    dansLeChat: dansLeChat ?? this.dansLeChat,
+    aussiDansLaBibliotheque:
+        aussiDansLaBibliotheque ?? this.aussiDansLaBibliotheque,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is ConversationShare &&
+      other.key == key &&
+      other.saveable == saveable &&
+      other.dansLeChat == dansLeChat &&
+      other.aussiDansLaBibliotheque == aussiDansLaBibliotheque;
+
+  @override
+  int get hashCode =>
+      Object.hash(key, saveable, dansLeChat, aussiDansLaBibliotheque);
 }
 
 /// **Quelqu'un qu'on a croisé** — pas encore un ami.
@@ -164,13 +214,26 @@ class CrossedShare extends ShareDestination {
   final String userId;
   final String label;
 
+  String get cle => 'crossed:$userId';
+
   @override
   String get contexte => 'cercle';
+
+  @override
+  bool operator ==(Object other) =>
+      other is CrossedShare && other.userId == userId;
+
+  @override
+  int get hashCode => userId.hashCode;
 }
 
 /// Les limites de visionnage d'une Vibe envoyée à des personnes.
 class ViewingRules {
-  const ViewingRules({this.maxViews, this.viewDurationSeconds});
+  const ViewingRules({
+    this.maxViews,
+    this.viewDurationSeconds,
+    this.scrubbable = false,
+  });
 
   /// `null` = sans limite de vues.
   final int? maxViews;
@@ -179,14 +242,33 @@ class ViewingRules {
   /// vidéo se lit en entier (consigne de Jay, 2026-07-12).
   final int? viewDurationSeconds;
 
+  /// Le destinataire peut contrôler la barre de lecture des vidéos. Défaut :
+  /// intouchable (consigne de Jay). Ne s'applique qu'aux faces vidéo.
+  final bool scrubbable;
+
   ViewingRules copyWith({
     int? maxViews,
     bool effacerMaxViews = false,
     int? viewDurationSeconds,
+    bool effacerDuree = false,
+    bool? scrubbable,
   }) => ViewingRules(
     maxViews: effacerMaxViews ? null : (maxViews ?? this.maxViews),
-    viewDurationSeconds: viewDurationSeconds ?? this.viewDurationSeconds,
+    viewDurationSeconds: effacerDuree
+        ? null
+        : (viewDurationSeconds ?? this.viewDurationSeconds),
+    scrubbable: scrubbable ?? this.scrubbable,
   );
+
+  @override
+  bool operator ==(Object other) =>
+      other is ViewingRules &&
+      other.maxViews == maxViews &&
+      other.viewDurationSeconds == viewDurationSeconds &&
+      other.scrubbable == scrubbable;
+
+  @override
+  int get hashCode => Object.hash(maxViews, viewDurationSeconds, scrubbable);
 }
 
 /// Un lot de personnes qui reçoivent **la même Card**.
@@ -223,15 +305,52 @@ class SharePlan {
   final List<ConversationShare> conversations;
   final List<CrossedShare> crossed;
 
+  static const cleStory = 'story';
+  static const cleLibrary = 'library';
+
+  /// **Le même plan, réduit aux destinations dont la clé est dans [cles].**
+  ///
+  /// C'est « Réessayer » : une destination a échoué, on ne renvoie qu'elle —
+  /// jamais celles qui sont déjà parties. Une ligne de conversation qui avait
+  /// les deux cibles ne garde que celle demandée.
+  SharePlan restreintA(Set<String> cles) => SharePlan(
+    story: cles.contains(cleStory) ? story : null,
+    library: cles.contains(cleLibrary) ? library : null,
+    conversations: [
+      for (final c in conversations)
+        if (cles.contains(c.cleChat) || cles.contains(c.cleLibrary))
+          c.copyWith(
+            dansLeChat: cles.contains(c.cleChat),
+            aussiDansLaBibliotheque: cles.contains(c.cleLibrary),
+          ),
+    ],
+    crossed: [
+      for (final c in crossed)
+        if (cles.contains(c.cle)) c,
+    ],
+    regles: regles,
+  );
+
   bool get isEmpty =>
       story == null &&
       library == null &&
       conversations.isEmpty &&
       crossed.isEmpty;
 
-  /// Combien de personnes recevront quelque chose en direct.
+  /// Combien de personnes recevront quelque chose **dans un chat**. Une
+  /// conversation cochée 📚 seulement n'envoie rien à personne : ses membres
+  /// découvriront la Vibe au reveal, ils ne sont pas des destinataires.
   int get destinataires =>
-      conversations.fold<int>(0, (n, c) => n + c.memberIds.length) +
+      conversations
+          .where((c) => c.dansLeChat)
+          .fold<int>(0, (n, c) => n + c.memberIds.length) +
+      crossed.length;
+
+  /// Le nombre de lignes cochées — ce que dit le bouton « Envoyer · N ».
+  int get destinations =>
+      (story != null ? 1 : 0) +
+      (library != null ? 1 : 0) +
+      conversations.length +
       crossed.length;
 
   /// Les limites de visionnage, **communes à tout l'envoi**.
@@ -275,7 +394,9 @@ class SharePlan {
   /// gratuitement le lot des amis non sauvegardables quand il y en a.
   List<CercleLot> get lotsDeCercle {
     final parReglage = <bool, CercleLot>{};
-    for (final c in conversations) {
+    // Une conversation cochée 📚 seulement ne demande aucune Card : la
+    // bibliothèque dépose ses propres octets (voir [televersements]).
+    for (final c in conversations.where((c) => c.dansLeChat)) {
       final lot = parReglage.putIfAbsent(
         c.saveable,
         () => CercleLot(saveable: c.saveable),
@@ -299,7 +420,7 @@ class SharePlan {
   List<String> problemes(CardType type, {required bool importe}) {
     final out = <String>[];
 
-    if (isEmpty) {
+    if (isEmpty || conversations.any((c) => c.vide)) {
       out.add('Choisis au moins une destination.');
     }
 

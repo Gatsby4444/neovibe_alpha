@@ -9,8 +9,9 @@ import 'package:neovibe/features/cards/send/share_publisher.dart';
 /// dire « échec » ferait renvoyer celles qui sont déjà parties — et une story
 /// publiée deux fois, ça se voit.
 void main() {
-  ShareOutcome ok(String l) => ShareOutcome(label: l);
-  ShareOutcome ko(String l) => ShareOutcome(label: l, erreur: StateError(l));
+  ShareOutcome ok(String l) => ShareOutcome(cle: l, label: l);
+  ShareOutcome ko(String l) =>
+      ShareOutcome(cle: l, label: l, erreur: StateError(l));
 
   test('tout est parti', () {
     final r = ShareResult([ok('Ma story'), ok('Louis')]);

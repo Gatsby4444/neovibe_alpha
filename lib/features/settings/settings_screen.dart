@@ -6,6 +6,7 @@ import 'sections/appearance_settings_screen.dart';
 import 'sections/camera_settings_screen.dart';
 import 'sections/developer_screen.dart';
 import 'sections/privacy_settings_screen.dart';
+import 'sections/share_defaults_screen.dart';
 import 'sections/sharing_settings_screen.dart';
 import 'sections/vibes_settings_screen.dart';
 import 'settings_common.dart';
@@ -59,6 +60,14 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: 'Qui voit tes stories et ta bibliothèque',
             builder: _sharing,
           ),
+          // Nouvelle entrée (Jay, 2026-09-14) : les défauts de l'écran
+          // « À qui ? » — publications, groupes et amis, et par ami.
+          const SettingsCategoryTile(
+            icon: Icons.send_outlined,
+            title: 'Défauts de partage',
+            subtitle: 'Story, bibliothèque, sauvegardable — et par ami',
+            builder: _shareDefaults,
+          ),
           const SettingsCategoryTile(
             icon: Icons.shield_outlined,
             title: 'Sécurité et confidentialité',
@@ -93,6 +102,7 @@ class SettingsScreen extends ConsumerWidget {
   static Widget _vibes(BuildContext _) => const VibesSettingsScreen();
   static Widget _camera(BuildContext _) => const CameraSettingsScreen();
   static Widget _sharing(BuildContext _) => const SharingSettingsScreen();
+  static Widget _shareDefaults(BuildContext _) => const ShareDefaultsScreen();
   static Widget _privacy(BuildContext _) => const PrivacySettingsScreen();
   static Widget _developer(BuildContext _) => const DeveloperScreen();
 }
