@@ -187,7 +187,17 @@ class ProximityService : Service(), BleEngine.Listener {
      * cadence rapide du mode cycle. Ce qui change, c'est qu'il n'est plus le
      * **seul** a pouvoir faire tourner la page — et c'etait ca, le defaut.
      */
-    private val slotAlarm by lazy { SlotAlarm(this) { emitNext() } }
+    private val slotAlarm by lazy {
+        SlotAlarm(
+            this,
+            onReveil = { retard ->
+                // ⚠️ Sur le disque, pas en memoire : c'est la mesure que le test
+                // de nuit du 2026-09-13 n'a pas pu lire, parce que le compteur
+                // etait mort avec le processus. Voir [ServiceJournal].
+                ServiceJournal.note(applicationContext, "alarme", "retard=${retard}ms")
+            },
+        ) { emitNext() }
+    }
 
     /**
      * Cadence de rotation a l'interieur d'un creneau.
@@ -447,7 +457,10 @@ class ProximityService : Service(), BleEngine.Listener {
         // rien a couvrir. C'etait une propriete, pas une garantie — et une
         // garantie qui repose sur une propriete d'ailleurs finit toujours par
         // tomber quand cet ailleurs bouge.
-        if (duDart) battementPublic()
+        if (duDart) {
+            battementPublic()
+            ServiceJournal.note(applicationContext, "plan depose par l'app")
+        }
         planSlotMillis = plan.rawSlotMillis
         schedule = plan
         persiste()
@@ -597,13 +610,43 @@ class ProximityService : Service(), BleEngine.Listener {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        // ⚠️ Premiere ligne de chaque vie du service. Deux « cree » sans
+        // « detruit » entre eux = le processus est mort sans prevenir.
+        ServiceJournal.note(applicationContext, "cree")
         engine = BleEngine(applicationContext, this)
         engine.attach()
+    }
+
+    /**
+     * L'utilisateur a balaye l'app hors des applications recentes.
+     *
+     * ⚠️ Note sur le disque, rien d'autre : sur Android ce geste ne tue pas un
+     * service de premier plan, mais sur MIUI il le tue souvent. Sans cette
+     * ligne, « Jay a ferme l'app » et « Android a tue l'app » laissent le meme
+     * carnet.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        ServiceJournal.note(applicationContext, "tache retiree par l'utilisateur")
+        super.onTaskRemoved(rootIntent)
+    }
+
+    /**
+     * Android manque de memoire et le fait savoir avant de tuer.
+     *
+     * C'est le seul avertissement qu'un processus recoit avant d'etre
+     * recupere : une ligne ici, suivie d'un « cree » sans « detruit », signe
+     * une mort par pression memoire — a distinguer d'un gestionnaire de
+     * batterie qui tue sans un mot.
+     */
+    override fun onTrimMemory(level: Int) {
+        ServiceJournal.note(applicationContext, "memoire basse", "niveau=$level")
+        super.onTrimMemory(level)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                ServiceJournal.note(applicationContext, "arret voulu")
                 // ⚠️ **L'arret voulu efface le plan persiste.** Sans ca, couper
                 // sa visibilite laisserait sur le disque de quoi recommencer a
                 // crier au prochain redemarrage du systeme — l'inverse exact de
@@ -618,6 +661,13 @@ class ProximityService : Service(), BleEngine.Listener {
             else -> {
                 val advertId = intent?.getByteArrayExtra(EXTRA_ADVERT_ID)
                 if (advertId == null) {
+                    // `flags` dit si c'est bien une relance (START_FLAG_RETRY,
+                    // START_FLAG_REDELIVERY) — a lire dans le carnet.
+                    ServiceJournal.note(
+                        applicationContext,
+                        "relance par Android",
+                        "flags=$flags intent=${if (intent == null) "absent" else "sans identifiant"}",
+                    )
                     // Android nous a relances apres nous avoir tues : l'intent
                     // d'origine est perdu, donc l'identifiant PUBLIC aussi — il
                     // derive d'une graine que seul le Dart detient, en memoire.
@@ -644,6 +694,7 @@ class ProximityService : Service(), BleEngine.Listener {
                 // persiste.** Il s'apprete a en deposer un neuf ; garder
                 // l'ancien laisserait, entre les deux, de quoi crier les jetons
                 // du compte precedent apres un changement d'utilisateur.
+                ServiceJournal.note(applicationContext, "demarre par l'app")
                 PlanStore.effacer(applicationContext)
                 reprisDuDisque = false
                 startForegroundCompat()
@@ -677,8 +728,24 @@ class ProximityService : Service(), BleEngine.Listener {
      */
     private fun repartDuDisque(): Boolean {
         val repris = PlanStore.relire(applicationContext, System.currentTimeMillis())
-            ?: return false
-        val premier = repris.plan.tokenAt(System.currentTimeMillis(), 0) ?: return false
+        if (repris == null) {
+            ServiceJournal.note(
+                applicationContext,
+                "reprise du disque : rien",
+                "pas de plan, ou un plan qui ne couvre plus l'instant",
+            )
+            return false
+        }
+        val premier = repris.plan.tokenAt(System.currentTimeMillis(), 0)
+        if (premier == null) {
+            ServiceJournal.note(
+                applicationContext,
+                "reprise du disque : rien",
+                "aucun jeton d'ami pour le creneau courant",
+            )
+            return false
+        }
+        ServiceJournal.note(applicationContext, "reprise du disque : ok")
 
         reprisDuDisque = true
         startForegroundCompat()
@@ -701,6 +768,7 @@ class ProximityService : Service(), BleEngine.Listener {
     }
 
     override fun onDestroy() {
+        ServiceJournal.note(applicationContext, "detruit")
         // Le minuteur du plan appartient a ce service : le laisser tourner apres
         // sa mort, c'est exactement le genre de noeud orphelin que ce projet
         // passe son temps a chasser.
@@ -933,6 +1001,17 @@ class ProximityService : Service(), BleEngine.Listener {
     // ------------------------------------------------------------------
 
     override fun onStatus(status: RadioStatus) {
+        // Seul le TYPE compte : `Running(advertising, scanning)` change a chaque
+        // rotation d'annonce, et noter ca noierait le carnet.
+        val avant = lastStatus.toMap()["type"]
+        val apres = status.toMap()["type"]
+        if (avant != apres) {
+            ServiceJournal.note(
+                applicationContext,
+                "radio : $apres",
+                if (status is RadioStatus.Failed) "${status.code} — ${status.message}" else null,
+            )
+        }
         lastStatus = status
         bridge?.onStatus(status)
         updateNotification(status)

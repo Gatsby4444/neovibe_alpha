@@ -59,6 +59,13 @@ import androidx.core.content.ContextCompat
  */
 class SlotAlarm(
     private val context: Context,
+    /**
+     * Appele a chaque sonnerie, avec le retard en millisecondes (0 si aucune
+     * echeance n'etait visee). C'est par la que le service ecrit la sonnerie
+     * **sur le disque** : [reveils] et [retardMaxMillis] meurent avec le
+     * processus, et c'est precisement la nuit qu'il meurt (2026-09-13).
+     */
+    private val onReveil: (Long) -> Unit = {},
     private val onSlot: () -> Unit,
 ) {
     private val manager = context.getSystemService(AlarmManager::class.java)
@@ -96,10 +103,12 @@ class SlotAlarm(
     private val recepteur = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             reveils++
+            var retard = 0L
             if (vise != 0L) {
-                val retard = System.currentTimeMillis() - vise
+                retard = System.currentTimeMillis() - vise
                 if (retard > retardMaxMillis) retardMaxMillis = retard
             }
+            onReveil(retard)
             onSlot()
             // On se repose pour le creneau suivant. Une alarme `AlarmManager`
             // ne se repete pas d'elle-meme quand elle est inexacte.

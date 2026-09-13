@@ -10,6 +10,7 @@ import '../../features/cards/native_camera.dart';
 import '../../features/library_vibes/library_vault_cache.dart';
 import 'app_log.dart';
 import 'card_rules_trace.dart';
+import 'service_journal_reading.dart';
 
 import '../../features/proximity/geo/coarse_location.dart';
 import '../../features/proximity/net/ble_radio.dart';
@@ -416,6 +417,30 @@ class DiagnosticBundle {
     return buffer.toString();
   }
 
+  /// La vie du service radio, relue depuis le disque.
+  ///
+  /// ⚠️ **C'est la seule section du paquet qui survive à la mort du
+  /// processus.** Tout ce que « PROXIMITÉ » affiche vit dans l'objet service ;
+  /// le test de nuit du 2026-09-13 l'a montré : les compteurs étaient à zéro
+  /// parce que le service avait 30 secondes, et rien ne disait quand ni
+  /// comment le précédent était mort. Ici, la lecture d'abord (morts sans
+  /// « detruit », redémarrages du téléphone), le carnet brut ensuite.
+  static Future<String> serviceJournal(BleRadio radio) async {
+    try {
+      final texte = await radio.serviceJournal();
+      final buffer = StringBuffer()
+        ..writeln('LECTURE : ${ServiceJournalReading.lecture(texte)}');
+      if (texte.trim().isNotEmpty) {
+        buffer
+          ..writeln()
+          ..write(texte.trimRight());
+      }
+      return buffer.toString();
+    } catch (e) {
+      return 'relevé impossible : $e';
+    }
+  }
+
   static String _hhmmss(DateTime d) =>
       '${d.hour.toString().padLeft(2, '0')}:'
       '${d.minute.toString().padLeft(2, '0')}:'
@@ -630,6 +655,10 @@ class DiagnosticBundle {
       buffer
         ..writeln('\n===== PROXIMITÉ — CE QUE LA RADIO A REÇU =====')
         ..writeln(await proximity(radio))
+        // ⚠️ Juste après la radio : c'est la section qui dit si le service a
+        // passé la nuit, et la seule qui survive à sa mort (2026-09-13).
+        ..writeln('\n===== SERVICE RADIO — SA VIE SUR LE DISQUE =====')
+        ..writeln(await serviceJournal(radio))
         // ⚠️ **Juste après la radio, et AVANT les journaux.** C'est la section
         // qui dit si les durées de contact se mesurent quand personne ne
         // regarde — enfouie après 40 000 caractères de journal caméra, elle ne

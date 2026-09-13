@@ -235,6 +235,18 @@ class BleRadio {
   /// confondait.
   Future<Map<String, dynamic>> stats() async =>
       await _methods.invokeMapMethod<String, dynamic>('stats') ?? const {};
+
+  /// La vie du service radio, telle qu'il l'a **écrite sur le disque** :
+  /// créé, démarré par l'app, relancé par Android, reprise du disque réussie
+  /// ou non, alarmes de créneau, mémoire basse, détruit.
+  ///
+  /// ⚠️ **Contrairement à [stats], ça survit à la mort du processus.** Le test
+  /// de nuit du 2026-09-13 a montré que tous les compteurs de [stats] meurent
+  /// avec le service — et que c'est la nuit qu'il meurt. Ce texte est la seule
+  /// trace qui dise *quand* et *comment*. Une chaîne vide = aucun carnet (le
+  /// service n'a jamais été créé depuis l'installation de cette version).
+  Future<String> serviceJournal() async =>
+      await _methods.invokeMethod<String>('serviceJournal') ?? '';
 }
 
 /// **LE** client du canal natif de proximité.

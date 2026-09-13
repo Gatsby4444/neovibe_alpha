@@ -89,6 +89,14 @@ class ProximityBridge(
                     result.success(null)
                 }
 
+                // La vie du service sur le DISQUE (2026-09-13). ⚠️ Lu depuis le
+                // fichier, jamais depuis `ProximityService.instance` : c'est
+                // justement quand l'instance est morte que ce carnet a quelque
+                // chose a dire. Voir [ServiceJournal].
+                "serviceJournal" -> {
+                    result.success(ServiceJournal.lire(context))
+                }
+
                 // 📏 **La MESURE du plafond d'annonces simultanees** (2026-09-01,
                 // `RAPPELS.md` #113). Voir [AdvertCapacityProbe] pour ce qu'elle
                 // mesure — et surtout pour ce qu'elle ne mesure pas.

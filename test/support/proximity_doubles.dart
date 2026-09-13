@@ -353,5 +353,8 @@ class RadioFactice implements BleRadio {
   @override
   Future<Map<String, dynamic>> stats() async => const {};
 
+  @override
+  Future<String> serviceJournal() async => '';
+
   Future<void> fermer() => _flux.close();
 }

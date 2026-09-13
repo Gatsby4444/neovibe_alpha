@@ -224,7 +224,7 @@ et le canal `neovibe/ble` **n'existent plus**. Architecture complète :
 
 | Canal | Sens | Contenu |
 |---|---|---|
-| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `setAdvertPlan`, `setRecognitionTable`, `takeSightings`, `publicHeartbeat`, `stats`, `openLocationSettings`. ⚠️ **`updateAdvert` supprimé le 2026-08-25** (second chemin vers l'émission, incapable de porter le TYPE du jeton) ; ⚠️ **`connect`, `disconnect` et `send` supprimés le 2026-08-27**, avec tout le transport GATT ; ⚠️ **`advertCapabilities` supprimé le 2026-08-28** — aucun appelant Dart depuis que `stats()` fusionne la map entière des capacités (2026-08-26). |
+| `neovibe/proximity` | Dart → natif | les **ordres** : `probe`, `start`, `stop`, `setAdvertPlan`, `setRecognitionTable`, `takeSightings`, `takePresences`, `publicHeartbeat`, `stats`, `advertCapacity`, `serviceJournal` *(2026-09-13)*, `openLocationSettings` — les douze ordres du `when` de `ProximityBridge.onMethodCall`, relevés le 2026-09-13. ⚠️ **`updateAdvert` supprimé le 2026-08-25** (second chemin vers l'émission, incapable de porter le TYPE du jeton) ; ⚠️ **`connect`, `disconnect` et `send` supprimés le 2026-08-27**, avec tout le transport GATT ; ⚠️ **`advertCapabilities` supprimé le 2026-08-28** — aucun appelant Dart depuis que `stats()` fusionne la map entière des capacités (2026-08-26). |
 | `neovibe/proximity/events` | natif → Dart | les **constats** : `status`, `scan`. ⚠️ **`link` et `frame` supprimés le 2026-08-27.** Le Dart ne sait plus les décoder : `RadioEvent.fromMap` les rendrait `null`. ⚠️ **`scan` porte `atMillis` depuis le 2026-08-28** — voir ci-dessous. |
 | `setAdvertPlan` | Dart → natif | *(2026-08-20)* dépose des heures de jetons d'avance — correction du point H |
 | `setRecognitionTable` | Dart → natif | *(2026-08-20)* jetons attendus → rangs, pour reconnaître sans le Dart |
@@ -446,6 +446,36 @@ au remplacement de l'interface.
   mais l'app ne choisit pas quand réécrire sa charge utile. À traiter avec
   `AdvertSchedule` et `SightingBook`, qui butent sur la même limite.
 
+- **`ServiceJournal.kt`** — *(nouveau, 2026-09-13)* **la vie du service radio,
+  écrite sur le disque au fur et à mesure.** Le test de nuit du 2026-09-13 a
+  montré que **tous** les compteurs de `stats()` (dont `slotAlarmReveils` et
+  `advertSlotDriftMax`) vivent dans l'objet service — et meurent avec lui, et
+  c'est la nuit qu'il meurt. Le rapport de 09:58 décrivait un service de
+  30 secondes, sans rien dire du précédent. Ici chaque événement du cycle de
+  vie est **ajouté à un fichier** (`proximity_service.log`) au moment où il se
+  produit : `cree`, `demarre par l'app`, `relance par Android`, `reprise du
+  disque : ok / rien`, `plan depose par l'app`, `alarme` (avec son retard),
+  `radio : <état>`, `memoire basse`, `tache retiree par l'utilisateur`, `arret
+  voulu`, `detruit`. Chaque ligne porte **deux horloges** : l'heure murale, et
+  `up=` (`elapsedRealtime`) qui **redescend si le téléphone a redémarré** — la
+  seule façon de distinguer « Android a tué l'app » de « le téléphone s'est
+  éteint ». **Aucun identifiant, aucun jeton, aucune position** n'y entre.
+  ⚠️ **Lu depuis le fichier, jamais depuis l'instance** (`ProximityBridge`
+  `serviceJournal`) : c'est quand l'instance est morte qu'il a quelque chose à
+  dire. ⚠️ **Fichier distinct de `PlanStore`** : le plan s'efface (il porte des
+  jetons), le carnet ne s'efface jamais — il se borne à 24 Ko en gardant la
+  fin. Points d'écriture dans `ProximityService` (`onCreate`, `onStartCommand`,
+  `repartDuDisque`, `setAdvertSchedule`, `onStatus`, `onTrimMemory`,
+  `onTaskRemoved`, `onDestroy`) et dans `SlotAlarm` (paramètre `onReveil`).
+  Lecture côté Dart : `ServiceJournalReading` (pure, 8 tests) écrit la phrase
+  « mort sans prévenir entre X et Y » au-dessus du carnet brut, section
+  « SERVICE RADIO — SA VIE SUR LE DISQUE » du diagnostic. 3 tests JVM dans
+  `ServiceJournalTest.kt` (forme des lignes, carnet absent, borne sur une
+  frontière de ligne).
+  🍎 **iOS : à écrire, même principe** — un fichier ajouté à chaque événement
+  du cycle de vie de l'app (`applicationDidFinishLaunching`, arrière-plan,
+  `applicationWillTerminate`, réveils `CoreBluetooth`), relu par le rapport.
+
 ### 🔴 UN SEUL MODE EN L'AIR À LA SORTIE (2026-08-29)
 
 **Fichier : `BleEngine.kt`.** Il y a **deux façons d'être en l'air** — les jeux
@@ -618,7 +648,7 @@ fantôme que rien d'autre n'expliquerait :
 | `advertSlotDrift` | **`AdvertOnAir`** → `ProximityService` | **de quand date ce qui rayonne**. `0` = le jeton du créneau courant ; toute autre valeur = on crie le passé, donc on est entendu par tous et reconnu par personne. `-1` = aucun jeu confirmé |
 | `advertDataRefus` | **`AdvertOnAir`** | la pile a **refusé** un contenu d'annonce — la seule trace qu'un refus ait existé |
 | `advertSlotDriftMax` / `...MaxAgeMillis` | **`ProximityService`** | 🔴 **la PIRE dérive depuis le démarrage, et son âge.** `advertSlotDrift` ne dit que l'instant présent — or on ne lit un diagnostic qu'après avoir réveillé l'appareil, donc après l'avoir réparé. Le 2026-08-30 il affichait `0` au terme d'une nuit entière de dérive. Une trace haute survit au réveil, donc elle peut accuser |
-| `slotAlarmReveils` / `slotAlarmRetardMaxMillis` | **`SlotAlarm`** | le réveil de veille a-t-il sonné, et avec quel retard. Sans eux, une dérive nulle ne distingue pas « c'est réparé » de « l'alarme n'a jamais été honorée » |
+| `slotAlarmReveils` / `slotAlarmRetardMaxMillis` | **`SlotAlarm`** | le réveil de veille a-t-il sonné, et avec quel retard. Sans eux, une dérive nulle ne distingue pas « c'est réparé » de « l'alarme n'a jamais été honorée ». ⚠️ **Meurent avec le processus** (constaté le 2026-09-13 : `0` après une nuit, parce que le service avait 30 s) — la trace qui survit est le carnet `ServiceJournal` |
 
 🔴 **`foreignTokenScans` a changé de maison le 2026-08-28, et c'est une leçon à
 porter sur iOS.** Il était déclaré dans `BleEngine`, publié dans `stats()`… et
@@ -1067,13 +1097,14 @@ iOS) au moment du portage. Compléter cette entrée quand le mécanisme est conf
 ↔ fichiers cités ici » laissait quatre tests sans mention. Ils sont listés pour
 que le contrôle de fin de session compte juste.*
 
-`android/app/src/test/kotlin/com/neovibe/neovibe/` — onze tests, exécutés sur
+`android/app/src/test/kotlin/com/neovibe/neovibe/` — douze tests, exécutés sur
 la JVM par `./gradlew test`, sans appareil :
 
 | Fichier | Ce qu'il tient |
 |---|---|
 | `AdvertOnAirTest.kt`, `AdvertScheduleTest.kt` | le plan d'émission BLE et ses créneaux |
 | `PlanPersistenceTest.kt`, `PlanStoreTest.kt` | le plan survit à la mort du processus |
+| `ServiceJournalTest.kt` | *(2026-09-13)* le carnet de vie du service survit à sa mort, et se borne sans couper une ligne |
 | `PresenceLogTest.kt`, `SightingBookTest.kt`, `SlotAlarmTest.kt` | présences, constats, réveil par créneau |
 | `RecognitionVectorsTest.kt` | les vecteurs de reconnaissance partagés avec le Dart |
 | `SealedChunkReaderTest.kt`, `Mp4FastStartTest.kt`, `PartialStreamingTest.kt` | le lecteur de médias scellés (§7) |
