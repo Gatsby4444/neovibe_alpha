@@ -34,7 +34,9 @@ cycle de vie que les autres médias de message — mais **scellés** (`NVC1`,
 comme une Vibe). Leur clé est dans `message_media_keys` (RLS activée, zéro
 politique, aucun droit direct) et ne sort que par `open_voice_message`, qui
 applique le même juge que la lecture du message : membre, non expiré, arrivé
-après qu'on a rejoint. Le message et la clé se posent ensemble
+après qu'on a rejoint. Autorisés dans un DM, un groupe, et le chat d'un
+**événement privé** (« c'est un groupe aussi », Jay) — pas dans celui d'un
+événement d'établissement. Le message et la clé se posent ensemble
 (`send_voice_message`) ou pas du tout. Obtenir la clé n'est pas une vue : rien
 n'est décompté. ⚠️ **L'objet dans le bucket n'est pas supprimé à l'expiration
 du message** (dette préexistante, commune à tout `media` : le cron

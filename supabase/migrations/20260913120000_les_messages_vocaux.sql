@@ -27,10 +27,9 @@
 --   · Ce n'est **pas** une Vibe : pas de compte de vues, pas de `max_views`,
 --     pas de `cards`. Obtenir la clé n'est pas « consommer une vue ».
 --   · **Pas dans un canal de proximité** : déjà refusé par
---     `enforce_message_rules` (« limité au texte »). **Pas dans un chat
---     d'événement** non plus : les présents d'une soirée ne sont pas des amis
---     (choix par défaut, à confirmer par Jay — une ligne à changer dans
---     `send_voice_message`).
+--     `enforce_message_rules` (« limité au texte »). **Le chat d'un événement
+--     PRIVÉ, oui** — « c'est un groupe aussi » (Jay, 2026-09-13) ; celui d'un
+--     événement d'établissement, non : le lieu filtre, pas la relation.
 --
 -- ---------------------------------------------------------------------------
 -- LA CLÉ — une table sans aucune politique, comme `content_media_keys`
@@ -115,10 +114,17 @@ begin
   if v_type is null then
     raise exception 'Conversation introuvable';
   end if;
-  -- ⚠️ DM et groupes seulement (Jay, 2026-09-13). L'événement est exclu par
-  -- défaut : ses membres ne sont pas des amis. Une ligne à changer si Jay
-  -- tranche autrement.
-  if v_type not in ('direct', 'group') then
+  -- DM, groupes, et le chat d'un événement PRIVÉ (Jay, 2026-09-13 : « c'est
+  -- un groupe aussi »). Le chat d'un événement d'établissement, non : ses
+  -- membres sont réunis par le lieu, pas par la relation.
+  if v_type = 'event' then
+    if not exists (
+      select 1 from public.events e
+      where e.conversation_id = p_conversation_id and e.kind = 'private'
+    ) then
+      raise exception 'Les vocaux ne s''envoient pas dans un événement d''établissement';
+    end if;
+  elsif v_type not in ('direct', 'group') then
     raise exception 'Les vocaux ne s''envoient que dans un DM ou un groupe';
   end if;
   if not private.is_conversation_member(p_conversation_id, v_me) then

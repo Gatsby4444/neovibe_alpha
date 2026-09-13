@@ -80,6 +80,26 @@ final eventByIdProvider = Provider.family<NeoEvent?, String>((ref, id) {
   );
 });
 
+/// L'événement dont [conversationId] est le chat — ou nul (pas un chat
+/// d'événement, ou un événement dont je ne suis pas). Sert au chat pour savoir
+/// s'il est celui d'un événement **privé** (vocaux autorisés, Jay 2026-09-13)
+/// ou d'établissement.
+final eventByConversationProvider = Provider.family<NeoEvent?, String>((
+  ref,
+  conversationId,
+) {
+  return ref.watch(
+    myEventsProvider.select((async) {
+      final list = async.value;
+      if (list == null) return null;
+      for (final e in list) {
+        if (e.conversationId == conversationId) return e;
+      }
+      return null;
+    }),
+  );
+});
+
 /// L'événement où je suis, avec ses détails — ou nul.
 final currentEventProvider = Provider<NeoEvent?>((ref) {
   final id = ref.watch(currentEventIdProvider);

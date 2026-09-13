@@ -33,6 +33,8 @@ import '../proximity/ping_store.dart';
 import '../proximity/net/proximity_controller.dart';
 import 'conversations_repository.dart';
 import 'group_settings_screen.dart';
+import '../events/events_providers.dart';
+import '../../core/models/event.dart';
 import 'voice/voice_bubble.dart';
 import 'voice/voice_record_bar.dart';
 import 'voice/voice_recorder.dart';
@@ -255,6 +257,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     final conversation = detail.value;
     final isProximity = conversation?.type == ConversationType.proximity;
+    final vocalAutorise = switch (conversation?.type) {
+      ConversationType.direct || ConversationType.group => true,
+      ConversationType.event =>
+        ref.watch(eventByConversationProvider(widget.conversationId))?.kind ==
+            EventKind.private,
+      _ => false,
+    };
     final isGroup = conversation?.type.isCollective ?? false;
     final peer = conversation?.otherMember(me);
 
@@ -470,14 +479,12 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onLibrary: isProximity || conversation == null
                   ? null
                   : () => _addToLibrary(conversation, me),
-              // Le vocal : DM et groupes seulement (Jay, 2026-09-13). Ni le
-              // canal de proximité, ni l'événement — le serveur le refuse
-              // aussi (`send_voice_message`), l'écran ne fait que l'annoncer.
-              onVoice:
-                  conversation == null ||
-                      canalFerme ||
-                      !(conversation.type == ConversationType.direct ||
-                          conversation.type == ConversationType.group)
+              // Le vocal : DM, groupes, et le chat d'un événement PRIVÉ —
+              // « c'est un groupe aussi » (Jay, 2026-09-13). Ni le canal de
+              // proximité, ni l'événement d'établissement — le serveur le
+              // refuse aussi (`send_voice_message`), l'écran ne fait que
+              // l'annoncer.
+              onVoice: conversation == null || canalFerme || !vocalAutorise
                   ? null
                   : _startVoice,
             ),
