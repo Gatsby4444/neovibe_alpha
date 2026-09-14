@@ -79,6 +79,12 @@ class RecipientPickerScreen extends ConsumerStatefulWidget {
 class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
   var _plan = const SharePlan();
   var _recherche = '';
+
+  /// Ce que pilote la grille des plus proches : le 💬 ou le Drop de chaque
+  /// ami. **Même grille, deux cibles** (Jay, 2026-09-14) : la case cochée
+  /// en mode Chat est le bouton 💬 de la ligne dans « Tout le monde », la
+  /// case cochée en mode Drop est son bouton Drop. Rien de plus sur les cases.
+  var _modeProches = _CibleProche.chat;
   var _preselectionFaite = false;
   final _rechercheCtrl = TextEditingController();
 
@@ -181,7 +187,8 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
     );
   }
 
-  /// La coche simple (tableau des plus proches, repartage) : 💬 seulement.
+  /// La coche simple (repartage, sans Drop) : 💬 seulement. Avec un Drop
+  /// possible, la grille passe par [_toggleCible] selon son mode.
   void _toggleSimple(Recipient r) {
     final key = _keyOf(r);
     _setShare(
@@ -463,11 +470,37 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
                             : _ouvrirReglagesDestinataires,
                       ),
                       if (visible.closest.isNotEmpty) ...[
-                        const _SousTitre('Les plus proches'),
+                        _SousTitre(
+                          'Les plus proches',
+                          // Chat · Drop, textuel et discret (Jay). Absent
+                          // quand le contexte n'a pas de Drop (repartage).
+                          trailing: _ctx.allowsConversationLibrary
+                              ? _SelecteurCible(
+                                  mode: _modeProches,
+                                  onChanged: (m) =>
+                                      setState(() => _modeProches = m),
+                                )
+                              : null,
+                        ),
                         _ClosestGrid(
                           amis: visible.closest,
-                          estCoche: (f) => _shareOf(_keyOf(f)) != null,
-                          onTap: _toggleSimple,
+                          mode: _ctx.allowsConversationLibrary
+                              ? _modeProches
+                              : _CibleProche.chat,
+                          estCoche: (f) {
+                            final s = _shareOf(_keyOf(f));
+                            if (s == null) return false;
+                            return _ctx.allowsConversationLibrary &&
+                                    _modeProches == _CibleProche.drop
+                                ? s.aussiDansLaBibliotheque
+                                : s.dansLeChat;
+                          },
+                          onTap: (f) => _ctx.allowsConversationLibrary
+                              ? _toggleCible(
+                                  f,
+                                  chat: _modeProches == _CibleProche.chat,
+                                )
+                              : _toggleSimple(f),
                         ),
                       ],
                       // L'événement en cours est déjà tout en haut : il ne
@@ -626,8 +659,11 @@ class _TitreSection extends StatelessWidget {
 }
 
 class _SousTitre extends StatelessWidget {
-  const _SousTitre(this.texte);
+  const _SousTitre(this.texte, {this.trailing});
   final String texte;
+
+  /// À droite du sous-titre, même ligne, même hauteur.
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) => Padding(
@@ -637,15 +673,101 @@ class _SousTitre extends StatelessWidget {
       NeoSpace.lg,
       NeoSpace.xs,
     ),
-    child: Text(
-      texte,
-      style: context.sectionMeta.copyWith(
-        color: context.faint,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.4,
-      ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            texte,
+            style: context.sectionMeta.copyWith(
+              color: context.faint,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.4,
+            ),
+          ),
+        ),
+        ?trailing,
+      ],
     ),
   );
+}
+
+/// Ce que la grille des plus proches pilote.
+enum _CibleProche { chat, drop }
+
+/// **Chat · Drop** — deux mots, pas d'icône, pas de fond (Jay, 2026-09-14 :
+/// « discrets, pas encombrants, collant à l'UI »). Le mot actif prend la
+/// couleur de sa cible : rose pour le chat, ambre pour le Drop — c'est le
+/// premier des signes distinctifs entre les deux modes.
+class _SelecteurCible extends StatelessWidget {
+  const _SelecteurCible({required this.mode, required this.onChanged});
+  final _CibleProche mode;
+  final ValueChanged<_CibleProche> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      _MotCible(
+        'Chat',
+        actif: mode == _CibleProche.chat,
+        accent: Theme.of(context).colorScheme.primary,
+        carre: false,
+        onTap: () => onChanged(_CibleProche.chat),
+      ),
+      const SizedBox(width: NeoSpace.xs),
+      _MotCible(
+        'Drop',
+        actif: mode == _CibleProche.drop,
+        accent: dropAccent,
+        carre: true,
+        onTap: () => onChanged(_CibleProche.drop),
+      ),
+    ],
+  );
+}
+
+class _MotCible extends StatelessWidget {
+  const _MotCible(
+    this.label, {
+    required this.actif,
+    required this.accent,
+    required this.carre,
+    required this.onTap,
+  });
+  final String label;
+  final bool actif;
+  final Color accent;
+
+  /// Le mot « Drop » a les coins carrés, comme ses cases : le sélecteur
+  /// annonce le style du mode qu'il ouvre.
+  final bool carre;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final radius = BorderRadius.circular(carre ? 0 : NeoRadius.pill);
+    return InkWell(
+      borderRadius: radius,
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        decoration: BoxDecoration(
+          color: actif ? accent.withValues(alpha: 0.14) : Colors.transparent,
+          borderRadius: radius,
+          border: Border.all(color: actif ? accent : context.palette.line),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: actif ? accent : context.muted,
+            fontWeight: actif ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Story · Bibliothèque : petits, alignés, cochables (Jay : « ils prennent
@@ -720,19 +842,23 @@ class _PublishChip extends StatelessWidget {
 
 /// La coche ronde — la même partout.
 class _Coche extends StatelessWidget {
-  const _Coche({required this.coche, this.size = 22});
+  const _Coche({required this.coche, this.size = 22, this.drop = false});
   final bool coche;
   final double size;
 
+  /// En mode Drop : carrée, ambre, et l'icône du Drop à la place de la coche
+  /// — la case dit *où* ça part sans un mot (Jay, 2026-09-14).
+  final bool drop;
+
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
+    final accent = drop ? dropAccent : Theme.of(context).colorScheme.primary;
     return AnimatedContainer(
       duration: const Duration(milliseconds: 150),
       width: size,
       height: size,
       decoration: BoxDecoration(
-        shape: BoxShape.circle,
+        shape: drop ? BoxShape.rectangle : BoxShape.circle,
         color: coche ? accent : Colors.transparent,
         border: Border.all(
           color: coche ? accent : context.palette.line,
@@ -740,29 +866,36 @@ class _Coche extends StatelessWidget {
         ),
       ),
       child: coche
-          ? Icon(Icons.check, size: size * 0.65, color: Colors.white)
+          ? Icon(
+              drop ? dropIcon : Icons.check,
+              size: size * 0.65,
+              color: Colors.white,
+            )
           : null,
     );
   }
 }
 
-/// Une cible d'une ligne : 💬 ou 📚, allumée ou non (§2.7).
+/// Une cible d'une ligne : 💬 ou Drop, allumée ou non (§2.7). Le Drop
+/// s'allume en ambre, le chat en rose : la même couleur que dans la grille.
 class _Cible extends StatelessWidget {
   const _Cible({
     required this.icone,
     required this.actif,
     required this.onTap,
     required this.tooltip,
+    this.drop = false,
   });
 
   final IconData icone;
   final bool actif;
   final VoidCallback onTap;
   final String tooltip;
+  final bool drop;
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
+    final accent = drop ? dropAccent : Theme.of(context).colorScheme.primary;
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -785,14 +918,19 @@ class _Cible extends StatelessWidget {
 }
 
 /// Le tableau des 10 plus proches, 2 colonnes, pseudo tronqué, coche.
+///
+/// Une seule grille pour deux cibles ([mode]) : ce qui change est la coche,
+/// la couleur et la forme des cases cochées — jamais leur contenu.
 class _ClosestGrid extends StatelessWidget {
   const _ClosestGrid({
     required this.amis,
+    required this.mode,
     required this.estCoche,
     required this.onTap,
   });
 
   final List<FriendRecipient> amis;
+  final _CibleProche mode;
   final bool Function(FriendRecipient) estCoche;
   final void Function(FriendRecipient) onTap;
 
@@ -808,7 +946,12 @@ class _ClosestGrid extends StatelessWidget {
       childAspectRatio: 3.1,
       children: [
         for (final f in amis)
-          _FriendCell(ami: f, coche: estCoche(f), onTap: () => onTap(f)),
+          _FriendCell(
+            ami: f,
+            coche: estCoche(f),
+            drop: mode == _CibleProche.drop,
+            onTap: () => onTap(f),
+          ),
       ],
     ),
   );
@@ -818,18 +961,27 @@ class _FriendCell extends StatelessWidget {
   const _FriendCell({
     required this.ami,
     required this.coche,
+    required this.drop,
     required this.onTap,
   });
 
   final FriendRecipient ami;
   final bool coche;
+
+  /// Mode Drop : les cases **cochées** passent en ambre, **coins carrés**,
+  /// icône du Drop. Les cases non cochées ne changent pas d'un mode à l'autre.
+  /// Les coins carrés sont **à l'essai** (Jay, 2026-09-14 : « si cela ne
+  /// convient pas on reviendra sur un style plus basique ») — un seul nombre
+  /// à changer ici.
+  final bool drop;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
+    final accent = drop ? dropAccent : Theme.of(context).colorScheme.primary;
+    final radius = BorderRadius.circular(drop && coche ? 0 : NeoRadius.md);
     return InkWell(
-      borderRadius: BorderRadius.circular(NeoRadius.md),
+      borderRadius: radius,
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
@@ -839,7 +991,7 @@ class _FriendCell extends StatelessWidget {
         ),
         decoration: BoxDecoration(
           color: coche ? accent.withValues(alpha: 0.12) : context.palette.field,
-          borderRadius: BorderRadius.circular(NeoRadius.md),
+          borderRadius: radius,
           border: Border.all(color: coche ? accent : Colors.transparent),
         ),
         child: Row(
@@ -876,7 +1028,7 @@ class _FriendCell extends StatelessWidget {
                 ],
               ),
             ),
-            _Coche(coche: coche, size: 20),
+            _Coche(coche: coche, size: 20, drop: drop),
           ],
         ),
       ),
@@ -885,7 +1037,7 @@ class _FriendCell extends StatelessWidget {
 }
 
 /// Une ligne de la liste : un ami ou un groupe, avec sa coche — ou ses deux
-/// cibles 💬 / 📚 quand la bibliothèque est permise.
+/// cibles 💬 / Drop quand le Drop est permis.
 class _RecipientRow extends StatelessWidget {
   const _RecipientRow({
     required this.recipient,
@@ -978,9 +1130,10 @@ class _RecipientRow extends StatelessWidget {
               ),
               const SizedBox(width: NeoSpace.xs),
               _Cible(
-                icone: Icons.collections_bookmark_outlined,
+                icone: dropIcon,
                 actif: lib,
-                tooltip: 'Dans la bibliothèque (révélée au reveal)',
+                drop: true,
+                tooltip: 'Dans le Drop — révélé à 18h30',
                 onTap: onLibrary,
               ),
             ] else
@@ -992,8 +1145,8 @@ class _RecipientRow extends StatelessWidget {
   }
 }
 
-/// « Nom de l'événement » — tout en haut, avant « Publier » (Jay). 📚 par
-/// défaut : la bibliothèque du groupe d'événement ; 💬 disponible.
+/// « Nom de l'événement » — tout en haut, avant « Publier » (Jay). Drop par
+/// défaut : celui du groupe d'événement ; 💬 disponible.
 class _EventRow extends StatelessWidget {
   const _EventRow({
     required this.group,
@@ -1024,7 +1177,7 @@ class _EventRow extends StatelessWidget {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(NeoRadius.md),
-        // Par défaut, la BIBLIOTHÈQUE de l'événement (Jay, 2026-09-14).
+        // Par défaut, le DROP de l'événement (Jay, 2026-09-14).
         onTap: dualTargets ? onLibrary : onChat,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
@@ -1078,9 +1231,10 @@ class _EventRow extends StatelessWidget {
                 ),
                 const SizedBox(width: NeoSpace.xs),
                 _Cible(
-                  icone: Icons.collections_bookmark_outlined,
+                  icone: dropIcon,
                   actif: lib,
-                  tooltip: 'Dans la bibliothèque de l\'événement',
+                  drop: true,
+                  tooltip: 'Dans le Drop de l\'événement',
                   onTap: onLibrary,
                 ),
               ] else

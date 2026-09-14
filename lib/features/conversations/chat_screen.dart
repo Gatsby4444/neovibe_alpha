@@ -342,7 +342,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           if (!isProximity && conversation != null)
             IconButton(
               icon: const Icon(Icons.collections_outlined),
-              tooltip: 'Bibliothèque de la conversation',
+              tooltip: 'Le Drop — révélé à 18h30',
               onPressed: () => _openLibrary(conversation, me),
             ),
           if (isGroup)
@@ -604,7 +604,7 @@ class _ComposerState extends State<_Composer> {
               IconButton(
                 icon: const Icon(Icons.add_circle_outline),
                 color: iconColor,
-                tooltip: 'Ajouter à la bibliothèque',
+                tooltip: 'Ajouter au Drop',
                 onPressed: widget.onLibrary,
               ),
             const SizedBox(width: 2),

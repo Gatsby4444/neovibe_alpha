@@ -182,13 +182,13 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
               ),
             ),
           const Divider(),
-          const _Header('Bibliothèques de conversation'),
+          const _Header('Drops'),
           ListTile(
             dense: true,
             leading: const Icon(Icons.lock_clock_outlined),
             title: Text(_vaultBytes == null ? 'Calcul…' : _fmt(_vaultBytes!)),
             subtitle: const Text(
-              'Les vibes des bibliothèques arrivent sur l\'appareil 5 minutes '
+              'Les vibes des Drops arrivent sur l\'appareil 5 minutes '
               'avant le reveal, pour qu\'elles s\'ouvrent sans attente. Elles '
               'y restent chiffrées : sans la clé, que le serveur ne rend qu\'à '
               'l\'heure dite, ce ne sont que des octets inertes.',
@@ -203,7 +203,7 @@ class _StorageScreenState extends ConsumerState<StorageScreen> {
                   await ref.read(libraryVaultCacheProvider).clear();
                   await _refresh();
                 },
-                child: const Text('Vider les bibliothèques locales'),
+                child: const Text('Vider les Drops locaux'),
               ),
             ),
           const Divider(),

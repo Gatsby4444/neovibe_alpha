@@ -172,9 +172,9 @@ class _Etat extends ConsumerWidget {
       detail = reveal == null
           ? 'Le groupe reste ouvert cinq jours.'
           : reveal.isAfter(now)
-          ? 'La bibliothèque se révèle ${dayAndTime(reveal)}. Le groupe '
+          ? 'Le Drop se révèle ${dayAndTime(reveal)}. Le groupe '
                 'reste ouvert cinq jours.'
-          : 'Bibliothèque révélée. Le groupe reste ouvert cinq jours.';
+          : 'Drop révélé. Le groupe reste ouvert cinq jours.';
     } else if (event.notStartedAt(now)) {
       titre = 'Commence ${dayAndTime(event.startsAt)}';
       detail = event.kind == EventKind.private
@@ -269,7 +269,7 @@ class _Etat extends ConsumerWidget {
       builder: (ctx) => AlertDialog(
         title: const Text('Fermer l\'événement ?'),
         content: const Text(
-          'Tout le monde en sort. Le chat et la bibliothèque restent '
+          'Tout le monde en sort. Le chat et le Drop restent '
           'ouverts cinq jours, puis disparaissent.',
         ),
         actions: [
@@ -360,7 +360,7 @@ class _Outils extends StatelessWidget {
           Expanded(
             child: _Outil(
               icon: Icons.photo_library_outlined,
-              label: 'Bibliothèque',
+              label: 'Drop',
               onTap: () => Navigator.of(context).push(
                 MaterialPageRoute(
                   builder: (_) => ConversationLibraryScreen(

@@ -231,7 +231,7 @@ class SharePublisher {
       (c) => c.aussiDansLaBibliotheque,
     )) {
       note(
-        await _tente(conv.cleLibrary, '${conv.label} · bibliothèque', () async {
+        await _tente(conv.cleLibrary, '${conv.label} · Drop', () async {
           await ref
               .read(libraryVibesRepositoryProvider)
               .addVibe(

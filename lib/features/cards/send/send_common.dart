@@ -19,6 +19,25 @@ import 'vibe_draft.dart';
 /// paramétré par des booléens jusqu'à redevenir l'écran unique qu'on vient de
 /// démonter.
 
+/// **Le Drop** — nom public de la bibliothèque de conversation (Jay,
+/// 2026-09-14).
+///
+/// Ce que c'est : les Vibes qu'on y met restent **cachées pour tout le monde,
+/// l'auteur compris, jusqu'à 18h30**, puis se révèlent d'un coup pour tous les
+/// membres (`docs/bibliotheques-ephemeres.md`). « Bibliothèque » se confondait
+/// avec la Bibliothèque de profil (permanente, publique) et ne disait rien du
+/// mécanisme. Le code et la base gardent `library` — renommage public
+/// seulement, comme « Card » → « Vibe ».
+///
+/// Sa couleur : **ambre**, distincte du rose du chat, pour qu'on voie au
+/// premier coup d'œil vers où part une Vibe. Pas le doré : c'est celui du
+/// One of One.
+const dropAccent = Color(0xFFF59E0B);
+
+/// L'icône du Drop : la même que l'annonce « a ajouté une vibe — 18h30 » du
+/// fil de chat, pour que l'objet ait un seul visage dans toute l'app.
+const dropIcon = Icons.lock_clock_outlined;
+
 /// Le bouton « Enregistrer pour moi » — un **signet dans la barre de titre**
 /// depuis le 2026-09-14.
 ///

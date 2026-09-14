@@ -97,7 +97,7 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
   Widget build(BuildContext context) {
     final target = widget.target;
     return Scaffold(
-      appBar: AppBar(title: const Text('Ajouter à la bibliothèque')),
+      appBar: AppBar(title: const Text('Ajouter au Drop')),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
         children: [
@@ -134,9 +134,7 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
             label: Text(
               // Le nom du GROUPE est porté par le bouton lui-même ; en DM il
               // passe en dessous, en petit (consigne Jay).
-              target.isGroup
-                  ? 'Ajouter à ${target.label}'
-                  : 'Ajouter à la bibliothèque',
+              target.isGroup ? 'Ajouter à ${target.label}' : 'Ajouter au Drop',
             ),
           ),
           if (!target.isGroup) ...[
@@ -181,7 +179,7 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
             subtitle: Text(
               _ephemeral
                   ? 'Elle disparaîtra 24 h après le reveal.'
-                  : 'Elle restera dans la bibliothèque souvenir.',
+                  : 'Elle restera dans le Drop, en souvenir.',
               style: TextStyle(color: context.muted),
             ),
             value: _ephemeral,

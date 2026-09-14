@@ -378,7 +378,7 @@ Captures de Jay sur la v0.9.179 :
 | « CHOISIS UNE DESTINATION » **rogné** dans le bouton d'envoi | le libellé est dessiné **dans le fichier Rive**, boîte de texte à largeur fixe ; le Dart ne peut pas le mesurer | libellé inerte court : « À QUI ? ». L'adaptation à la longueur se règle dans Rive (texte auto-fit) — outil de Jay |
 | L'encadré doré « One of One » **décale toute la page** en apparaissant | inséré en tête de liste | retiré, widget supprimé (un appelant) ; la pastille du titre suffit |
 | « Enregistrer pour moi » **tout en bas**, difficile d'accès | dernier élément de la liste | **signet dans la barre de titre**, toujours visible ; plein une fois sauvegardé |
-| Les « plus proches » ne proposent pas 💬 / 📚 | choix de conception (§2.7 : la grille est le chemin rapide) | à trancher avec Jay — options dans le rapport de session |
+| Les « plus proches » ne proposent pas 💬 / 📚 | choix de conception (§2.7 : la grille est le chemin rapide) | **tranché par Jay (v0.9.182)** : un sélecteur textuel **Chat · Drop** à droite de « Les plus proches » ; **même grille**, qui pilote le 💬 (mode Chat) ou le Drop (mode Drop) de chaque ami — indépendants. Signes du mode Drop sur les cases **cochées** : ambre, **coins carrés (à l'essai)**, icône du Drop à la place de la coche ; les cases non cochées ne changent pas. Idée écartée : faire remonter le dernier coché en tête de « Tout le monde » (une liste qui se réordonne sous le doigt, et deux règles pour un seul ordre). Et « bibliothèque de conversation » s'appelle désormais **Drop** partout dans l'interface (`docs/bibliotheques-ephemeres.md` § Vocabulaire) |
 
 ---
 

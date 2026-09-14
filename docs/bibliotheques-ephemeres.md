@@ -33,6 +33,15 @@ Jay — le nom visible n'a pas besoin d'entraîner un refactor de 40 fichiers.
 
 La section « Card » de l'app s'appelle donc **« Vibe »**.
 
+**« Bibliothèque de conversation » devient « Drop »** — tranché par Jay le
+2026-09-14. Deux raisons : le mot se confondait avec la Bibliothèque de profil
+(permanente, publique), et il ne disait rien du mécanisme (caché jusqu'à
+18h30, puis révélé). Même règle que Card → Vibe : **renommage public
+seulement**, le code (`library_vault`, `LibraryVibesRepository`,
+`aussiDansLaBibliotheque`) et la base gardent `library`. Couleur du Drop dans
+l'interface : **ambre** (`dropAccent`), icône `lock_clock` (`dropIcon`), les
+deux dans `send_common.dart`. La Bibliothèque de profil garde son nom.
+
 ---
 
 ## Parcours

@@ -443,12 +443,12 @@ class SharePlan {
     );
     if (bibliothequeDeGroupe && importe) {
       out.add(
-        'La bibliothèque de conversation n\'accepte pas les imports de la '
+        'Le Drop n\'accepte pas les imports de la '
         'galerie.',
       );
     }
     if (bibliothequeDeGroupe && type == CardType.bereal) {
-      out.add('Un BeReal ne va pas dans une bibliothèque de conversation.');
+      out.add('Un BeReal ne va pas dans un Drop.');
     }
 
     // ⚠️ **Un croisé ne reçoit pas une Vibe sauvegardable ni rejouable** : il

@@ -37,7 +37,7 @@ class ConversationLibraryScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (e, _) => _Empty(
           icon: Icons.error_outline,
-          message: 'Impossible de charger la bibliothèque.\n$e',
+          message: 'Impossible de charger le Drop.\n$e',
         ),
         data: (list) {
           if (list.isEmpty) {

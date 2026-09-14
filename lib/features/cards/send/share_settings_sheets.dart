@@ -537,7 +537,7 @@ class _RecipientSettingsSheetState
                         contentPadding: EdgeInsets.zero,
                         title: Text(c.label),
                         subtitle: c.aussiDansLaBibliotheque && !c.dansLeChat
-                            ? const Text('bibliothèque seulement')
+                            ? const Text('Drop seulement')
                             : null,
                         value: c.saveable,
                         onChanged: widget.typeAccepteSauvegarde

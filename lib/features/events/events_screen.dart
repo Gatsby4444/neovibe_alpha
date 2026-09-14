@@ -273,7 +273,7 @@ String eventStatusLabel(NeoEvent e, DateTime now) {
   if (e.isClosed) {
     final reveal = e.libraryRevealAt;
     if (reveal != null && reveal.isAfter(now)) {
-      return 'Terminé · bibliothèque révélée ${dayAndTime(reveal)}';
+      return 'Terminé · Drop révélé ${dayAndTime(reveal)}';
     }
     return 'Terminé';
   }
