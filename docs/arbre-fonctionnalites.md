@@ -162,10 +162,13 @@ qui donne sa légitimité à la barrière physique.
 
 ```
 Profil
-├── Ma bibliothèque ✅   grille + « Parcourir en deck » ✅
-│   ├── ajouter une photo ✅
+├── Ma bibliothèque ✅   grille (le « deck » a été retiré le 2026-09-15)
+│   ├── Publier ✅  (2026-09-15) → une Vibe (caméra restreinte à la
+│   │                 publication) ou Photos / vidéos (l'éditeur d'album :
+│   │                 jusqu'à 11 médias, ratio, filtres, réglages, rognage,
+│   │                 légende, visibilité, droits — `docs/plan-publications.md`)
 │   ├── retirer de la bibliothèque ✅
-│   └── « Qui peut voir cette photo ? » ✅  Selon mes règles d'accès / Publique
+│   └── visionneur Card (retourne) ou visionneur d'album (feuillette) ✅
 ├── Modifier le profil ✅  + avatar avec recadrage ✅
 ├── Demandes & rencontres ✅  (3 onglets)
 │   ├── Demandes ✅       en attente à proximité · historique

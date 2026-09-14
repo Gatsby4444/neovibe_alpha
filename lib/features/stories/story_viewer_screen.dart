@@ -109,7 +109,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     ownerId: story.ownerId,
     bucket: 'stories',
     path: front ? story.frontPath : story.backPath!,
-    front: front,
+    slot: front ? ContentSlot.front : ContentSlot.back,
     isVideo: front ? story.frontIsVideo : story.backIsVideo,
     encrypted: story.encrypted,
     batchOwner: null,

@@ -11,7 +11,6 @@ import '../connections/connections_repository.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
 import '../proximity/net/proximity_controller.dart';
-import 'library_deck_screen.dart';
 import 'library_repository.dart';
 import 'mini_card.dart';
 import 'profile_header.dart';
@@ -117,22 +116,6 @@ class UserLibraryScreen extends ConsumerWidget {
                     'Bibliothèque',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.view_carousel_outlined),
-                  tooltip: 'Parcourir en deck',
-                  onPressed: () {
-                    final list = items.value;
-                    if (list == null || list.isEmpty) return;
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => LibraryDeckScreen(
-                          items: list,
-                          title: profile.displayName,
-                        ),
-                      ),
-                    );
-                  },
                 ),
               ],
             ),

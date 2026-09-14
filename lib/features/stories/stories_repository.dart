@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/content/content_face.dart';
 import '../../core/crypto/chunked_seal.dart';
 import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
@@ -259,7 +260,11 @@ class StoriesRepository {
     final cache = ref.read(contentMediaCacheProvider);
     Future<void> keep(File sealed, {required bool isFront}) async {
       try {
-        await cache.storeOwn(storyId, sealed, front: isFront);
+        await cache.storeOwn(
+          storyId,
+          sealed,
+          slot: isFront ? ContentSlot.front : ContentSlot.back,
+        );
         await sealed.delete();
       } catch (_) {}
     }

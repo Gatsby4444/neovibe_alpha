@@ -69,7 +69,7 @@ class _PublicationViewerScreenState
     ownerId: widget.item.ownerId,
     bucket: 'library',
     path: front ? widget.item.frontPath : widget.item.backPath!,
-    front: front,
+    slot: front ? ContentSlot.front : ContentSlot.back,
     isVideo: front ? widget.item.frontIsVideo : widget.item.backIsVideo,
     encrypted: widget.item.encrypted,
     // Un contenu isolé : un appel de clé suffit, pas de lot à charger.

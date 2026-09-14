@@ -1,20 +1,17 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:image_picker/image_picker.dart';
 
 import '../../core/supabase_providers.dart';
-import '../../core/widgets/gradient.dart';
 import '../connections/friends_list_screen.dart';
 import '../connections/heart_screen.dart';
 import '../settings/settings_screen.dart';
-import 'library_deck_screen.dart';
+import 'album_editor/album_publish_banner.dart';
 import 'library_repository.dart';
 import 'mini_card.dart';
 import 'profile_edit_screen.dart';
 import 'profile_header.dart';
+import 'publish_choice_sheet.dart';
 
 /// Mon profil (consigne Jay 2026-07-12) : PP + username en haut, stats, bio,
 /// puis la bibliothèque PUBLIQUE (partagée avec les amis). La bibliothèque
@@ -66,41 +63,6 @@ class ProfileScreen extends ConsumerWidget {
           ),
         ],
       ),
-      floatingActionButton: GradientFab(
-        tooltip: 'Ajouter à ma bibliothèque',
-        icon: Icons.add_photo_alternate,
-        onPressed: () async {
-          final picked = await ImagePicker().pickImage(
-            source: ImageSource.gallery,
-            imageQuality: 85,
-            maxWidth: 1600,
-          );
-          if (picked == null || !context.mounted) return;
-          // L'option publique se règle �? la publication (consigne Jay)
-          final isPublic = await showDialog<bool>(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text('Qui peut voir cette photo ?'),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Selon mes règles d\'accès'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('Publique'),
-                ),
-              ],
-            ),
-          );
-          if (isPublic == null) return;
-          // Une photo importée est une publication à face unique : même
-          // chemin que celles issues de la caméra depuis le 2026-08-11.
-          await ref
-              .read(libraryRepositoryProvider)
-              .publish(front: File(picked.path), isPublic: isPublic);
-        },
-      ),
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(myProfileProvider);
@@ -108,6 +70,8 @@ class ProfileScreen extends ConsumerWidget {
         },
         child: ListView(
           children: [
+            // L'album en cours d'envoi, s'il y en a un : « Publication… n/N ».
+            const AlbumPublishBanner(),
             if (profile != null)
               ProfileHeader(
                 profile: profile,
@@ -129,19 +93,14 @@ class ProfileScreen extends ConsumerWidget {
                       ),
                     ),
                   ),
-                  // Bascule grille �?" deck (consigne Jay : on essaie les deux)
+                  // Publier : une Vibe (notre caméra) ou des photos / vidéos
+                  // (l'éditeur). Le bouton du « deck » vivait ici — le deck
+                  // est supprimé (Jay, 2026-09-15), et l'import direct d'une
+                  // photo qu'ouvrait le bouton flottant passe par l'éditeur.
                   IconButton(
-                    icon: const Icon(Icons.view_carousel_outlined),
-                    tooltip: 'Parcourir en deck',
-                    onPressed: () {
-                      final list = items.value;
-                      if (list == null || list.isEmpty) return;
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => LibraryDeckScreen(items: list),
-                        ),
-                      );
-                    },
+                    icon: const Icon(Icons.add_box_outlined),
+                    tooltip: 'Publier',
+                    onPressed: () => showPublishChoice(context),
                   ),
                 ],
               ),

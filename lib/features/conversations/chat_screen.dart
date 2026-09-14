@@ -1257,7 +1257,7 @@ class _SharedContentTile extends ConsumerWidget {
             ownerId: story?.ownerId ?? item!.ownerId,
             bucket: story != null ? 'stories' : 'library',
             path: story?.frontPath ?? item!.frontPath,
-            front: true,
+            slot: ContentSlot.front,
             isVideo: story?.frontIsVideo ?? item!.frontIsVideo,
             encrypted: story?.encrypted ?? item!.encrypted,
             batchOwner: null,

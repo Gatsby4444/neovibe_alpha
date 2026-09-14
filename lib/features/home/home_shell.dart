@@ -299,9 +299,10 @@ class _HomeShellState extends ConsumerState<HomeShell>
       // change de mise en page — et fausse en silence.
       //
       // Inventaire des concurrents relevé le 2026-08-15 : le bandeau de stories
-      // du Cercle (`circle_screen.dart`, liste horizontale) et le deck de
-      // mini-cards (`library_deck_screen.dart`, `PageView`) — ce dernier vit
-      // dans une route poussée, donc hors de ce détecteur de toute façon.
+      // du Cercle (`circle_screen.dart`, liste horizontale). Le deck de
+      // mini-cards qui y figurait a été supprimé le 2026-09-15 ; le visionneur
+      // d'album (`PageView`) vit dans une route poussée, donc hors de ce
+      // détecteur de toute façon.
       //
       // ⚠️ Un glissement VERTICAL n'entre pas en concurrence : un
       // `HorizontalDragGestureRecognizer` ne se déclare que si le mouvement est

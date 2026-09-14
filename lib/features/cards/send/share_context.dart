@@ -29,13 +29,27 @@ sealed class ShareContext {
 
   /// Le libellé du bouton.
   String get sendLabel;
+
+  /// **Publication seulement** (Jay, 2026-09-15) : la capture a été ouverte
+  /// depuis « Publier » sur le profil. La destination est imposée — la
+  /// bibliothèque, cochée d'office — et rien d'autre n'est proposé : ni story,
+  /// ni ami, ni groupe, ni croisé. L'écran « À qui ? » ne pose plus la
+  /// question, il ne sert qu'à régler et à confirmer.
+  bool get libraryOnly => false;
 }
 
 /// **Une Vibe neuve**, sortie de la capture. Tout est permis.
 class VibeShareContext extends ShareContext {
-  const VibeShareContext({required this.draft, this.presetConversationId});
+  const VibeShareContext({
+    required this.draft,
+    this.presetConversationId,
+    this.libraryOnly = false,
+  });
 
   final VibeDraft draft;
+
+  @override
+  final bool libraryOnly;
 
   /// Capture ouverte depuis un chat : ce chat est coché à l'arrivée, et
   /// modifiable — on peut ajouter d'autres destinataires.
@@ -46,16 +60,16 @@ class VibeShareContext extends ShareContext {
   bool get allowsPublish => true;
 
   @override
-  bool get allowsCrossed => true;
+  bool get allowsCrossed => !libraryOnly;
 
   @override
-  bool get allowsConversationLibrary => true;
+  bool get allowsConversationLibrary => !libraryOnly;
 
   @override
-  String get title => 'Partager';
+  String get title => libraryOnly ? 'Publier' : 'Partager';
 
   @override
-  String get sendLabel => 'Envoyer';
+  String get sendLabel => libraryOnly ? 'Publier' : 'Envoyer';
 }
 
 /// **Un repartage** d'une story ou d'une publication existante.

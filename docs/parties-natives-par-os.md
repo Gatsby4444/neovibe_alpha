@@ -29,7 +29,7 @@
 |---|---|---|---|
 | Caméra | `neovibe/camera` | CameraX + Camera2 + OpenGL ES | AVFoundation + Metal/CoreImage + AVAssetWriter |
 | Anti-capture | (dans `neovibe/camera` : `setSecure`) | `WindowManager.FLAG_SECURE` | Pas d'équivalent strict → détection + occultation |
-| Média (hors caméra) | `neovibe/media` | `MediaMetadataRetriever` (image de couverture d'une vidéo) | `AVAssetImageGenerator` |
+| Média (hors caméra) *(étendu le 2026-09-15)* | `neovibe/media` | `NativeMedia` (couverture d'une vidéo, sonde, JPEG) + **`MediaTranscoder`** (rognage, recadrage, matrice de couleurs, recompression H.264 par `MediaCodec` + GL) | `AVAssetImageGenerator`, `CGImageSource`, `AVAssetExportSession` + `AVVideoComposition` + `CIFilter` |
 | Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise + scan) | CoreBluetooth, **mode dégradé à concevoir** |
 | ~~Transport GATT (liens, trames)~~ | — | **SUPPRIMÉ le 2026-08-27** — le BLE ne fait plus que prouver la proximité | *sans objet* |
 | ~~Transfert média proximité~~ | — | **ABANDONNÉ le 2026-08-27** — tout le contenu passe par le serveur | *sans objet* |
@@ -841,27 +841,49 @@ combiner Wi-Fi + Bluetooth automatiquement). Interface de pont à concevoir
 
 ---
 
-## 4 bis. Média hors caméra — image de couverture d'une vidéo
+## 4 bis. Média hors caméra — couverture, sonde, JPEG, transcodage
 
-**Rôle** : produire une **image de couverture** (JPEG) à partir d'un fichier
-vidéo **local**, pour les vignettes des grilles. Une vidéo ne se décode pas
-comme une image côté Dart (« Invalid image data ») : seul le natif sait lire une
-frame. Ajouté le 2026-07-25 (consigne Jay : plus d'icône grise à la place des
-faces filmées).
+**Rôle** : ce que l'app fait aux fichiers média **hors** caméra. À l'origine
+(2026-07-25) une seule chose : produire une **image de couverture** (JPEG)
+d'une vidéo locale, pour les vignettes — une vidéo ne se décode pas comme une
+image côté Dart (« Invalid image data »). Depuis le **2026-09-15** (l'éditeur
+d'album, `docs/plan-publications.md`), quatre de plus.
 
-**Canal** : `neovibe/media`. Méthode unique :
-`videoThumbnail(source, dest, width) -> String (chemin écrit)`.
-Erreurs : `BAD_ARGS`, `THUMB_FAILED` (l'appelant retombe sur le repli visuel,
-jamais bloquant).
+**Canal** : `neovibe/media`. Méthodes :
 
-**Android (fait)** : `NativeMedia.kt` — `MediaMetadataRetriever.getFrameAtTime(
-0, OPTION_CLOSEST_SYNC)` sur un exécuteur dédié (jamais le thread principal),
-mise à l'échelle, JPEG qualité 85, écriture `.part` puis renommage.
+| Méthode | Rôle | Erreurs |
+|---|---|---|
+| `videoThumbnail(source, dest, width, atMs)` | une image JPEG de la vidéo — la première image-clé (`atMs` = 0, `OPTION_CLOSEST_SYNC`) ou l'image la plus proche d'un instant (`OPTION_CLOSEST`) | `BAD_ARGS`, `THUMB_FAILED` (jamais bloquant) |
+| `fastStart(path)` | l'index MP4 en tête (`Mp4FastStart.kt`, bloc 7) | — |
+| `probe(path)` | photo ou vidéo, dimensions **après rotation** (EXIF pour une photo, `KEY_ROTATION` pour une vidéo), durée | `PROBE_FAILED` |
+| `encodeJpeg(rgba, width, height, dest, quality)` | des pixels RGBA rendus par Flutter → un JPEG (`dart:ui` ne sait écrire que du PNG) | `JPEG_FAILED` |
+| `transcode(jobId, source, dest, startMs, endMs, crop…, outWidth, outHeight, colorMatrix[20], vignette)` | **`MediaTranscoder.kt`** : une vidéo de la galerie rognée, recadrée, corrigée, recompressée ; progression par `transcodeProgress(jobId, progress)` du natif vers Dart, au plus une fois par pour cent | `TRANSCODE_FAILED` |
+
+**Android (fait)** : `NativeMedia.kt`, tout sur un exécuteur dédié (jamais le
+thread principal), écriture `.part` puis renommage. **`MediaTranscoder.kt`**
+(nouveau, 2026-09-15) : `MediaExtractor` → décodeur `MediaCodec` sur une
+`SurfaceTexture` OES → shader GL ES 2 (recadrage par coordonnées de texture,
+rotation défaite, matrice 4×5 et vignette — **la même définition que
+`ColorGrade` / `Vignette` côté Dart**) → encodeur H.264 sur sa `Surface`
+(3,5 Mbit/s, `NativeCamera.VIDEO_BITRATE`) → `MediaMuxer` ; audio **AAC
+recopié**, rogné et entrelacé ; sans AAC, la vidéo sort sans son et le résultat
+le dit. Attentes bornées (image jamais rendue : 3 s ; fin de flux : 4 s), même
+famille de code que `Camera2Gl` et volontairement séparé du chemin caméra.
+⚠️ **Écrit sans téléphone sous la main** : le sens de la rotation défaite dans
+`cropTexCoords` et le retournement vertical de la `SurfaceTexture` sont à
+**vérifier sur appareil** (comme le miroir de la frontale, `RAPPELS.md` #9).
 
 **iOS (à faire)** : `AVAssetImageGenerator` sur un `AVURLAsset`
 (`appliesPreferredTrackTransform = true` pour respecter la rotation, comme le
-fait `MediaMetadataRetriever` sur Android), `copyCGImage(at: .zero)`, puis
-`UIImage.jpegData(compressionQuality: 0.85)`. Même contrat de canal.
+fait `MediaMetadataRetriever` sur Android), `copyCGImage(at:)`, puis
+`UIImage.jpegData(compressionQuality: 0.85)`. Même contrat de canal. Pour la
+sonde : `AVAsset` (`naturalSize` × `preferredTransform`) et `CGImageSource`
+(propriétés EXIF). Pour le JPEG : `CGImage` depuis les octets RGBA +
+`UIImage.jpegData`. Pour le transcodage : `AVAssetExportSession` avec une
+`AVMutableVideoComposition` (rognage `timeRange`, recadrage et rotation par
+`AVMutableVideoCompositionLayerInstruction`) et un `CIFilter` (`CIColorMatrix`
++ `CIVignette`) alimenté par la même matrice — même contrat de canal, même
+définition des réglages.
 
 > **Point à vérifier au portage** : Android renvoie la frame **déjà orientée**
 > selon la rotation déclarée dans le fichier. Sur iOS ce n'est vrai que si

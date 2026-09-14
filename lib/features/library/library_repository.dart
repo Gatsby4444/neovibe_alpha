@@ -27,7 +27,7 @@ final libraryItemsProvider = FutureProvider.family<List<LibraryItem>, String>((
   final rows = await ref
       .watch(supabaseProvider)
       .from('library_items')
-      .select('*, contents(shareable, saveable)')
+      .select(LibraryItem.select)
       .eq('owner_id', ownerId)
       .order('created_at', ascending: false);
   return rows.map(LibraryItem.fromJson).toList();
@@ -53,13 +53,13 @@ class LibraryRepository {
 
   static const _bucket = 'library';
 
-  /// Publie dans ma bibliothèque de profil : dépôt des faces **chiffrées**,
-  /// puis création de l'identité, du format et de la clé en une seule
-  /// transaction serveur (`publish_to_library`).
+  /// Publie une **Card** dans ma bibliothèque de profil : dépôt des faces
+  /// **chiffrées**, puis création de l'identité, du format et de la clé en une
+  /// seule transaction serveur (`publish_to_library`).
   ///
-  /// [back] null = publication à face unique — le cas d'une photo importée
-  /// comme celui d'une Vibe dont le verso a été passé à la prise. Les deux
-  /// suivent désormais exactement le même chemin : c'est la même publication.
+  /// [back] null = publication à face unique — le cas d'une Vibe dont le verso
+  /// a été passé à la prise. Une photo importée passe désormais par
+  /// [publishAlbum] (2026-09-15).
   ///
   /// [isPublic] : visible par toute personne accédant au profil par un moyen
   /// légitime. [shareable] : relayable de cercle en cercle.
@@ -73,62 +73,124 @@ class LibraryRepository {
     bool isPublic = false,
     bool shareable = false,
     bool saveable = false,
+  }) => _publish(
+    kind: LibraryKind.card,
+    cardType: type,
+    media: [
+      _Upload(front, isVideo: frontIsVideo),
+      if (back != null) _Upload(back, isVideo: backIsVideo),
+    ],
+    caption: caption,
+    isPublic: isPublic,
+    shareable: shareable,
+    saveable: saveable,
+  );
+
+  /// Publie un **album** : de 1 à 11 médias déjà préparés par l'éditeur
+  /// (photos rendues, vidéos recompressées ≤ 60 s, couvertures extraites),
+  /// tous scellés avec **la même clé**, puis la même transaction serveur.
+  ///
+  /// [onProgress] est appelé après chaque fichier déposé — un album de onze
+  /// vidéos, c'est une minute d'envoi ; l'écran doit pouvoir le dire.
+  Future<String> publishAlbum(
+    AlbumUpload album, {
+    void Function(int done, int total)? onProgress,
+  }) => _publish(
+    kind: LibraryKind.album,
+    aspect: album.aspect,
+    media: album.media,
+    caption: album.caption,
+    isPublic: album.isPublic,
+    shareable: album.shareable,
+    saveable: album.saveable,
+    onProgress: onProgress,
+  );
+
+  Future<String> _publish({
+    required LibraryKind kind,
+    required List<_Upload> media,
+    CardType cardType = CardType.standard,
+    AlbumAspect? aspect,
+    String? caption,
+    required bool isPublic,
+    required bool shareable,
+    required bool saveable,
+    void Function(int done, int total)? onProgress,
   }) async {
+    assert(media.isNotEmpty && media.length <= 11);
     final me = _client.auth.currentUser!.id;
     final itemId = newUuid();
-    final frontPath = '$me/${itemId}_front.${frontIsVideo ? 'mp4' : 'jpg'}';
-    final backPath = back == null
-        ? null
-        : '$me/${itemId}_back.${backIsVideo ? 'mp4' : 'jpg'}';
 
-    // La MÊME clé chiffre les deux faces : AES-GCM tire un nonce aléatoire à
-    // chaque appel, deux fichiers distincts restent donc sûrs.
+    // La MÊME clé chiffre tous les médias : AES-GCM tire un nonce aléatoire à
+    // chaque appel, des fichiers distincts restent donc sûrs.
     final mediaKey = await ChunkedSeal.newKey();
     const sealedType = FileOptions(contentType: 'application/octet-stream');
-
-    // Préparée pour la livraison puis scellée par blocs : voir `FaceDelivery`.
     final temp = await getTemporaryDirectory();
-    final sealedFront = File('${temp.path}/seal_${itemId}_f');
-    await FaceDelivery.seal(
-      front,
-      sealedFront,
-      mediaKey,
-      isVideo: frontIsVideo,
-    );
-    await _client.storage
-        .from(_bucket)
-        .uploadBinary(
-          frontPath,
-          await sealedFront.readAsBytes(),
-          fileOptions: sealedType,
-        );
-    File? sealedBack;
-    if (back != null) {
-      sealedBack = File('${temp.path}/seal_${itemId}_b');
-      await FaceDelivery.seal(back, sealedBack, mediaKey, isVideo: backIsVideo);
+
+    // Le nombre de fichiers à déposer : un par média, plus une couverture par
+    // vidéo d'album.
+    final total = media.length + media.where((m) => m.poster != null).length;
+    var done = 0;
+
+    Future<File> depose(
+      File source,
+      String path, {
+      required bool isVideo,
+    }) async {
+      final sealed = File('${temp.path}/seal_${itemId}_$done');
+      await FaceDelivery.seal(source, sealed, mediaKey, isVideo: isVideo);
       await _client.storage
           .from(_bucket)
           .uploadBinary(
-            backPath!,
-            await sealedBack.readAsBytes(),
+            path,
+            await sealed.readAsBytes(),
             fileOptions: sealedType,
           );
+      done += 1;
+      onProgress?.call(done, total);
+      return sealed;
+    }
+
+    final rows = <Map<String, Object?>>[];
+    final sealedFiles = <(int, File)>[];
+    for (var slot = 0; slot < media.length; slot++) {
+      final m = media[slot];
+      final path = '$me/${itemId}_$slot.${m.isVideo ? 'mp4' : 'jpg'}';
+      sealedFiles.add((slot, await depose(m.file, path, isVideo: m.isVideo)));
+      String? posterPath;
+      if (m.poster != null) {
+        posterPath = '$me/${itemId}_${slot}_poster.jpg';
+        // La couverture est rangée en cache sous sa place fictive : la
+        // vignette de MON album s'affiche depuis l'appareil, comme ses photos.
+        sealedFiles.add((
+          ContentSlot.poster(slot),
+          await depose(m.poster!, posterPath, isVideo: false),
+        ));
+      }
+      rows.add({
+        'path': path,
+        'is_video': m.isVideo,
+        'duration_ms': m.isVideo ? m.durationMs : null,
+        'poster_path': posterPath,
+        'width': m.width,
+        'height': m.height,
+      });
     }
 
     await _client.rpc(
       'publish_to_library',
       params: {
         'p_item_id': itemId,
-        'p_card_type': type.dbValue,
-        'p_front_path': frontPath,
-        'p_back_path': backPath,
-        'p_front_is_video': frontIsVideo,
-        'p_back_is_video': backIsVideo,
+        'p_kind': kind.dbValue,
+        'p_card_type': cardType.dbValue,
+        'p_media': rows,
         'p_caption': caption,
         'p_is_public': isPublic,
         'p_shareable': shareable,
-        'p_media_key': mediaKey,
         'p_saveable': saveable,
+        'p_media_key': mediaKey,
+        'p_aspect_w': aspect?.w,
+        'p_aspect_h': aspect?.h,
       },
     );
 
@@ -139,15 +201,12 @@ class LibraryRepository {
     // depuis le réseau (consigne de Jay). On y range le scellé — une seule
     // règle vaut alors partout, tout fichier en cache est chiffré.
     final cache = ref.read(contentMediaCacheProvider);
-    Future<void> keep(File sealed, {required bool isFront}) async {
+    for (final (slot, sealed) in sealedFiles) {
       try {
-        await cache.storeOwn(itemId, sealed, front: isFront);
+        await cache.storeOwn(itemId, sealed, slot: slot);
         await sealed.delete();
       } catch (_) {}
     }
-
-    await keep(sealedFront, isFront: true);
-    if (sealedBack != null) await keep(sealedBack, isFront: false);
 
     ref.invalidate(libraryItemsProvider(me));
     ref.invalidate(libraryKeysProvider(me));
@@ -215,3 +274,56 @@ class LibraryRepository {
 }
 
 final libraryRepositoryProvider = Provider((ref) => LibraryRepository(ref));
+
+/// Un fichier à déposer : le média en clair (temporaire, produit par la
+/// capture ou par l'éditeur), et pour une vidéo d'album sa couverture.
+class _Upload {
+  const _Upload(
+    this.file, {
+    required this.isVideo,
+    this.durationMs,
+    this.poster,
+    this.width,
+    this.height,
+  });
+  final File file;
+  final bool isVideo;
+  final int? durationMs;
+  final File? poster;
+  final int? width;
+  final int? height;
+}
+
+/// Un média d'album prêt à partir, tel que l'éditeur le rend.
+class AlbumMediaUpload extends _Upload {
+  const AlbumMediaUpload(
+    super.file, {
+    required super.isVideo,
+    super.durationMs,
+    super.poster,
+    super.width,
+    super.height,
+  }) : assert(
+         !isVideo || (durationMs != null && poster != null),
+         "Une vidéo d'album porte sa durée et sa couverture",
+       );
+}
+
+/// Ce que l'éditeur rend à la publication : les médias dans l'ordre, le ratio
+/// commun, la légende et les droits.
+class AlbumUpload {
+  const AlbumUpload({
+    required this.media,
+    required this.aspect,
+    this.caption,
+    this.isPublic = false,
+    this.shareable = false,
+    this.saveable = false,
+  }) : assert(media.length >= 1 && media.length <= 11);
+  final List<AlbumMediaUpload> media;
+  final AlbumAspect aspect;
+  final String? caption;
+  final bool isPublic;
+  final bool shareable;
+  final bool saveable;
+}

@@ -28,6 +28,26 @@ final libraryKeysProvider = FutureProvider.family<Map<String, String>, String>((
   };
 });
 
+/// Les places d'un contenu, et l'identifiant sous lequel chacune est
+/// rangée (cache, mesure, préchargement).
+abstract final class ContentSlot {
+  static const front = 0;
+  static const back = 1;
+
+  /// La couverture d'une vidéo d'album (place [slot]) : un fichier à part,
+  /// scellé avec la même clé, rangé sous sa propre place fictive pour que le
+  /// cache et la mesure ne la confondent jamais avec la vidéo elle-même.
+  static int poster(int slot) => 100 + slot;
+
+  /// `<contentId>_<place>`. Les places 0 et 1 gardent leurs anciens suffixes
+  /// `f` / `b` : les caches déjà posés sur les appareils restent valables.
+  static String cacheId(String contentId, int slot) => switch (slot) {
+    front => '${contentId}_f',
+    back => '${contentId}_b',
+    _ => '${contentId}_$slot',
+  };
+}
+
 /// Identifie une face à afficher, quel que soit son contexte de diffusion.
 typedef ContentFace = ({
   /// Content ID.
@@ -37,7 +57,11 @@ typedef ContentFace = ({
   /// `stories` ou `library` — le coffre de son contexte.
   String bucket,
   String path,
-  bool front,
+
+  /// La place du média dans son contenu : 0 = recto (ou couverture),
+  /// 1 = verso, puis 2 à 10 pour un album (2026-09-15). Avant, un booléen
+  /// `front` ne savait nommer que deux faces.
+  int slot,
   bool isVideo,
   bool encrypted,
 
@@ -88,7 +112,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
       ? null
       : ref.watch(libraryKeysProvider(spec.batchOwner!).future);
 
-  final cacheId = '${spec.contentId}_${spec.front ? 'f' : 'b'}';
+  final cacheId = ContentSlot.cacheId(spec.contentId, spec.slot);
   // L'origine des temps est ICI, et pas à la création du lecteur : ce que
   // l'utilisateur attend inclut le téléchargement et l'aller-retour de clé.
   // Mesurer à partir du lecteur cacherait précisément ce qu'on cherche.
@@ -100,14 +124,13 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   // lecteur. Y répondre ici — comme le faisait la v0.9.67 — c'était répondre
   // avant que `prime` n'ait fini d'amener le premier bloc, et ranger dans
   // « Partiel » un préchargement parfaitement réussi.
-  trace?.isPrimed = () =>
-      preloader.wasPrimed(spec.contentId, front: spec.front);
+  trace?.isPrimed = () => preloader.wasPrimed(spec.contentId, slot: spec.slot);
 
   // Préchargée ? Alors elle est déjà en main : une URL signée est un ticket
   // valable une heure, rien n'oblige à en redemander un. C'est le second
   // aller-retour que le préchargement retire du chemin visible.
   Future<String> signedUrl() async =>
-      preloader.urlFor(spec.contentId, front: spec.front) ??
+      preloader.urlFor(spec.contentId, slot: spec.slot) ??
       await client.storage.from(spec.bucket).createSignedUrl(spec.path, 3600);
 
   // Ordre de recherche de la clé :
@@ -135,7 +158,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
 
   File? sealed;
   if (spec.ownerId == me) {
-    sealed = await cache.tryOwn(spec.contentId, front: spec.front);
+    sealed = await cache.tryOwn(spec.contentId, slot: spec.slot);
   }
   // Le classement de la mesure (complet / partiel / froid) n'est PAS fait ici :
   // le Dart ne peut pas le connaître. Le cache par blocs donne au fichier sa
@@ -173,7 +196,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
     });
     final cachePath = await cache.streamingPath(
       spec.contentId,
-      front: spec.front,
+      slot: spec.slot,
       expiresAt: spec.expiresAt,
     );
     final (url, key) = await (urlFuture, keyFuture).wait;
@@ -192,7 +215,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
       legacyFallback: () async {
         final file = await cache.others(
           spec.contentId,
-          front: spec.front,
+          slot: spec.slot,
           signedUrl: signedUrl,
           expiresAt: spec.expiresAt,
         );
@@ -209,7 +232,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
 
   sealed ??= await cache.others(
     spec.contentId,
-    front: spec.front,
+    slot: spec.slot,
     signedUrl: signedUrl,
     expiresAt: spec.expiresAt,
   );

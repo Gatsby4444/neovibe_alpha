@@ -101,6 +101,11 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
         (_) => maybeShowVibesExplainer(context, ref),
       );
     }
+    // Publication seulement : la bibliothèque est cochée d'office, avec les
+    // réglages par défaut — c'est la destination, pas une proposition.
+    if (_ctx.libraryOnly) {
+      _plan = _plan.copyWith(library: ref.read(shareDefaultsProvider).library);
+    }
   }
 
   @override
@@ -409,13 +414,14 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
                       // Le basculement 1/1 se lit sur la pastille du titre,
                       // et nulle part ailleurs : l'encadré doré qui vivait ici
                       // décalait toute la page (Jay, 2026-09-14).
-                      _BarreDeRecherche(
-                        controller: _rechercheCtrl,
-                        onChanged: (v) => setState(() => _recherche = v),
-                      ),
+                      if (!_ctx.libraryOnly)
+                        _BarreDeRecherche(
+                          controller: _rechercheCtrl,
+                          onChanged: (v) => setState(() => _recherche = v),
+                        ),
 
                       // 2. L'événement où je suis — tout en haut.
-                      if (visible.currentEvent != null)
+                      if (visible.currentEvent != null && !_ctx.libraryOnly)
                         _EventRow(
                           group: visible.currentEvent!,
                           share: _shareOf(visible.currentEvent!.conversationId),
@@ -438,23 +444,30 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
                           ),
                           child: Row(
                             children: [
-                              Expanded(
-                                child: _PublishChip(
-                                  icone: Icons.auto_awesome,
-                                  label: 'Story',
-                                  sousTitre: _sousTitreStory(),
-                                  coche: _plan.story != null,
-                                  onTap: _toggleStory,
+                              // Publication seulement : pas de story — la
+                              // destination est la bibliothèque, et elle ne
+                              // se décoche pas.
+                              if (!_ctx.libraryOnly) ...[
+                                Expanded(
+                                  child: _PublishChip(
+                                    icone: Icons.auto_awesome,
+                                    label: 'Story',
+                                    sousTitre: _sousTitreStory(),
+                                    coche: _plan.story != null,
+                                    onTap: _toggleStory,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(width: NeoSpace.sm),
+                                const SizedBox(width: NeoSpace.sm),
+                              ],
                               Expanded(
                                 child: _PublishChip(
                                   icone: Icons.grid_view,
                                   label: 'Bibliothèque',
                                   sousTitre: 'Permanente',
                                   coche: _plan.library != null,
-                                  onTap: _toggleLibrary,
+                                  onTap: _ctx.libraryOnly
+                                      ? null
+                                      : _toggleLibrary,
                                 ),
                               ),
                             ],
@@ -462,93 +475,97 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
                         ),
                       ],
 
-                      // 4. Groupes et amis.
-                      _TitreSection(
-                        'Groupes et amis',
-                        onGear: vibe == null
-                            ? null
-                            : _ouvrirReglagesDestinataires,
-                      ),
-                      if (visible.closest.isNotEmpty) ...[
-                        _SousTitre(
-                          'Les plus proches',
-                          // Chat · Drop, textuel et discret (Jay). Absent
-                          // quand le contexte n'a pas de Drop (repartage).
-                          trailing: _ctx.allowsConversationLibrary
-                              ? _SelecteurCible(
-                                  mode: _modeProches,
-                                  onChanged: (m) =>
-                                      setState(() => _modeProches = m),
-                                )
-                              : null,
+                      // 4. Groupes et amis — absents en publication seule.
+                      if (!_ctx.libraryOnly) ...[
+                        _TitreSection(
+                          'Groupes et amis',
+                          onGear: vibe == null
+                              ? null
+                              : _ouvrirReglagesDestinataires,
                         ),
-                        _ClosestGrid(
-                          amis: visible.closest,
-                          mode: _ctx.allowsConversationLibrary
-                              ? _modeProches
-                              : _CibleProche.chat,
-                          estCoche: (f) {
-                            final s = _shareOf(_keyOf(f));
-                            if (s == null) return false;
-                            return _ctx.allowsConversationLibrary &&
-                                    _modeProches == _CibleProche.drop
-                                ? s.aussiDansLaBibliotheque
-                                : s.dansLeChat;
-                          },
-                          onTap: (f) => _ctx.allowsConversationLibrary
-                              ? _toggleCible(
-                                  f,
-                                  chat: _modeProches == _CibleProche.chat,
-                                )
-                              : _toggleSimple(f),
-                        ),
-                      ],
-                      // L'événement en cours est déjà tout en haut : il ne
-                      // figure pas une seconde fois dans les listes.
-                      if (visible.groups.any(
-                        (g) => g != visible.currentEvent,
-                      )) ...[
-                        const _SousTitre('Groupes'),
-                        for (final g in visible.groups)
-                          if (g != visible.currentEvent)
-                            _RecipientRow(
-                              recipient: g,
-                              share: _shareOf(_keyOf(g)),
-                              dualTargets: _ctx.allowsConversationLibrary,
-                              onChat: () => _toggleCible(g, chat: true),
-                              onLibrary: () => _toggleCible(g, chat: false),
-                            ),
-                      ],
-                      if (visible.everyone.isNotEmpty) ...[
-                        _SousTitre(enRecherche ? 'Résultats' : 'Tout le monde'),
-                        for (final r in visible.everyone)
-                          if (r != visible.currentEvent)
-                            _RecipientRow(
-                              recipient: r,
-                              share: _shareOf(_keyOf(r)),
-                              dualTargets: _ctx.allowsConversationLibrary,
-                              onChat: () => _toggleCible(r, chat: true),
-                              onLibrary: () => _toggleCible(r, chat: false),
-                            ),
-                      ],
-                      if (catalogue.everyone.isEmpty &&
-                          catalogue.crossed.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.all(NeoSpace.xl),
-                          child: Text(
-                            'Personne à qui envoyer pour l\'instant. Les amis '
-                            'se font en se croisant.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: context.muted),
+                        if (visible.closest.isNotEmpty) ...[
+                          _SousTitre(
+                            'Les plus proches',
+                            // Chat · Drop, textuel et discret (Jay). Absent
+                            // quand le contexte n'a pas de Drop (repartage).
+                            trailing: _ctx.allowsConversationLibrary
+                                ? _SelecteurCible(
+                                    mode: _modeProches,
+                                    onChanged: (m) =>
+                                        setState(() => _modeProches = m),
+                                  )
+                                : null,
                           ),
-                        ),
+                          _ClosestGrid(
+                            amis: visible.closest,
+                            mode: _ctx.allowsConversationLibrary
+                                ? _modeProches
+                                : _CibleProche.chat,
+                            estCoche: (f) {
+                              final s = _shareOf(_keyOf(f));
+                              if (s == null) return false;
+                              return _ctx.allowsConversationLibrary &&
+                                      _modeProches == _CibleProche.drop
+                                  ? s.aussiDansLaBibliotheque
+                                  : s.dansLeChat;
+                            },
+                            onTap: (f) => _ctx.allowsConversationLibrary
+                                ? _toggleCible(
+                                    f,
+                                    chat: _modeProches == _CibleProche.chat,
+                                  )
+                                : _toggleSimple(f),
+                          ),
+                        ],
+                        // L'événement en cours est déjà tout en haut : il ne
+                        // figure pas une seconde fois dans les listes.
+                        if (visible.groups.any(
+                          (g) => g != visible.currentEvent,
+                        )) ...[
+                          const _SousTitre('Groupes'),
+                          for (final g in visible.groups)
+                            if (g != visible.currentEvent)
+                              _RecipientRow(
+                                recipient: g,
+                                share: _shareOf(_keyOf(g)),
+                                dualTargets: _ctx.allowsConversationLibrary,
+                                onChat: () => _toggleCible(g, chat: true),
+                                onLibrary: () => _toggleCible(g, chat: false),
+                              ),
+                        ],
+                        if (visible.everyone.isNotEmpty) ...[
+                          _SousTitre(
+                            enRecherche ? 'Résultats' : 'Tout le monde',
+                          ),
+                          for (final r in visible.everyone)
+                            if (r != visible.currentEvent)
+                              _RecipientRow(
+                                recipient: r,
+                                share: _shareOf(_keyOf(r)),
+                                dualTargets: _ctx.allowsConversationLibrary,
+                                onChat: () => _toggleCible(r, chat: true),
+                                onLibrary: () => _toggleCible(r, chat: false),
+                              ),
+                        ],
+                        if (catalogue.everyone.isEmpty &&
+                            catalogue.crossed.isEmpty)
+                          Padding(
+                            padding: const EdgeInsets.all(NeoSpace.xl),
+                            child: Text(
+                              'Personne à qui envoyer pour l\'instant. Les amis '
+                              'se font en se croisant.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(color: context.muted),
+                            ),
+                          ),
 
-                      if (_ctx.allowsCrossed && visible.crossed.isNotEmpty)
-                        _Croises(
-                          gens: visible.crossed,
-                          plan: _plan,
-                          onToggle: _toggleCroise,
-                        ),
+                        if (_ctx.allowsCrossed && visible.crossed.isNotEmpty)
+                          _Croises(
+                            gens: visible.crossed,
+                            plan: _plan,
+                            onToggle: _toggleCroise,
+                          ),
+                      ],
                     ],
                   ),
           ),
@@ -785,7 +802,9 @@ class _PublishChip extends StatelessWidget {
   final String label;
   final String sousTitre;
   final bool coche;
-  final VoidCallback onTap;
+
+  /// Nul : la case est imposée (publication seule) — cochée, non cliquable.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

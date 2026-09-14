@@ -55,7 +55,7 @@ final sharedContentProvider = FutureProvider.family<SharedContent, String>((
     case 'publication':
       final row = await client
           .from('library_items')
-          .select()
+          .select('*, library_media(*)')
           .eq('id', contentId)
           .maybeSingle();
       if (row == null) return (story: null, item: null);

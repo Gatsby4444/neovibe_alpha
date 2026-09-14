@@ -45,7 +45,13 @@ class CardCaptureScreen extends ConsumerStatefulWidget {
     this.bereal = false,
     this.directConversationId,
     this.libraryTarget,
+    this.publicationOnly = false,
   });
+
+  /// **Publication seulement** (Jay, 2026-09-15) : ouverte depuis « Publier »
+  /// sur le profil. La Vibe ira dans la bibliothèque et nulle part ailleurs ;
+  /// après l'envoi on revient au profil, pas à la caméra.
+  final bool publicationOnly;
 
   /// **Bibliothèque éphémère** (chantier Jay 2026-08-10) : la capture est
   /// ouverte depuis le bouton « plus » d'un chat, pour ALIMENTER la
@@ -1248,7 +1254,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// caméra** (Jay, 2026-09-14), prête pour la prise suivante — le bandeau
   /// d'envoi dit où en est la précédente.
   void _afterSend() {
-    if (widget.directConversationId != null) {
+    if (widget.directConversationId != null || widget.publicationOnly) {
       Navigator.of(context).pop();
       return;
     }
@@ -1643,6 +1649,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         frontIsVideo: _frontIsVideo,
         backIsVideo: _backIsVideo,
         directConversationId: widget.directConversationId,
+        libraryOnly: widget.publicationOnly,
         onRetake: _retakeFromRecap,
         onSent: _afterSend,
       );
@@ -2461,6 +2468,7 @@ class _ShareStep extends StatefulWidget {
     this.frontIsVideo = false,
     this.backIsVideo = false,
     this.directConversationId,
+    this.libraryOnly = false,
     required this.onRetake,
     required this.onSent,
   });
@@ -2480,6 +2488,9 @@ class _ShareStep extends StatefulWidget {
 
   /// Conversation pré-cochée (capture ouverte depuis un chat).
   final String? directConversationId;
+
+  /// Publication seulement (ouverte depuis « Publier » sur le profil).
+  final bool libraryOnly;
 
   @override
   State<_ShareStep> createState() => _ShareStepState();
@@ -2528,6 +2539,7 @@ class _ShareStepState extends State<_ShareStep> {
       shareContext: VibeShareContext(
         draft: draft,
         presetConversationId: widget.directConversationId,
+        libraryOnly: widget.libraryOnly,
       ),
       header: VibeDraftHeader(
         front: _front,

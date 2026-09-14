@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'content_face.dart';
+
 /// Cache local des médias du **socle de contenu** (stories et publications) —
 /// séparé de celui des Cards.
 ///
@@ -60,10 +62,41 @@ class ContentMediaCache {
     return dir;
   }
 
-  File _faceFile(Directory dir, String contentId, bool front) => File(
+  /// Le fichier d'une place. Les places 0 et 1 gardent leurs anciens noms
+  /// (`front` / `back`) : les caches déjà posés sur les appareils restent
+  /// valables après le passage aux places (2026-09-15).
+  File _faceFile(Directory dir, String contentId, int slot) => File(
     '${dir.path}${Platform.pathSeparator}${contentId}_'
-    '${front ? 'front' : 'back'}.seal',
+    '${switch (slot) {
+      ContentSlot.front => 'front',
+      ContentSlot.back => 'back',
+      _ => 'slot$slot',
+    }}.seal',
   );
+
+  // ---------------------------------------------------------------------
+  // « Complet » se dit PAR PLACE (2026-09-15)
+  // ---------------------------------------------------------------------
+  //
+  // L'index portait un seul `complete` par contenu. Juste pour deux faces
+  // téléchargées d'un bloc ; faux pour un album de onze médias : la place 0
+  // arrivée aurait déclaré les dix autres complètes, et [others] aurait rendu
+  // un fichier partiel — ou absent — comme s'il était entier. Le champ est
+  // désormais la liste des places complètes ; un ancien `true` se lit comme
+  // « la place 0 » (les caches existants ne portaient qu'elle en entier).
+
+  static List<int> _completeSlots(Object? meta) {
+    if (meta is! Map) return const [];
+    final raw = meta['complete'];
+    if (raw == true) return const [ContentSlot.front];
+    if (raw is List) return raw.cast<int>();
+    return const [];
+  }
+
+  static void _markComplete(Map<String, dynamic> meta, int slot) {
+    final slots = {..._completeSlots(meta), slot}.toList()..sort();
+    meta['complete'] = slots;
+  }
 
   // ---------------------------------------------------------------------
   // Index des entrées `others/` : la date d'expiration, ou rien.
@@ -100,10 +133,10 @@ class ContentMediaCache {
   Future<void> storeOwn(
     String contentId,
     File sealed, {
-    required bool front,
+    required int slot,
   }) async {
     try {
-      await sealed.copy(_faceFile(await _dir('own'), contentId, front).path);
+      await sealed.copy(_faceFile(await _dir('own'), contentId, slot).path);
       await _enforceOwnLimit();
     } catch (_) {
       // Le cache est un confort : un échec ne doit jamais bloquer la
@@ -111,8 +144,8 @@ class ContentMediaCache {
     }
   }
 
-  Future<File?> tryOwn(String contentId, {required bool front}) async {
-    final file = _faceFile(await _dir('own'), contentId, front);
+  Future<File?> tryOwn(String contentId, {required int slot}) async {
+    final file = _faceFile(await _dir('own'), contentId, slot);
     if (!await file.exists()) return null;
     try {
       // La date d'accès, lue par [_enforceOwnLimit] : les moins récemment
@@ -164,19 +197,19 @@ class ContentMediaCache {
   /// politique de rétention et ne serait jamais purgée.
   Future<String> streamingPath(
     String contentId, {
-    required bool front,
+    required int slot,
     DateTime? expiresAt,
   }) async {
-    final file = _faceFile(await _dir('others'), contentId, front);
+    final file = _faceFile(await _dir('others'), contentId, slot);
     final index = await _loadIndex();
     if (!index.containsKey(contentId)) {
       index[contentId] = {
         if (expiresAt != null) 'expiresAt': expiresAt.toIso8601String(),
         'storedAt': DateTime.now().toIso8601String(),
-        // ⚠️ **`false` explicitement, et c'est le correctif du 2026-08-31.**
-        // Voir [others] : « le fichier existe » n'est PAS « le fichier est
-        // complet », et c'est ici que la différence naît.
-        'complete': false,
+        // ⚠️ **Aucune place complète, explicitement — c'est le correctif du
+        // 2026-08-31.** Voir [others] : « le fichier existe » n'est PAS « le
+        // fichier est complet », et c'est ici que la différence naît.
+        'complete': <int>[],
       };
       await _saveIndex();
     }
@@ -191,11 +224,11 @@ class ContentMediaCache {
   /// téléchargé puis indexé. [expiresAt] nul = contenu permanent (publication).
   Future<File> others(
     String contentId, {
-    required bool front,
+    required int slot,
     required Future<String> Function() signedUrl,
     DateTime? expiresAt,
   }) async {
-    final file = _faceFile(await _dir('others'), contentId, front);
+    final file = _faceFile(await _dir('others'), contentId, slot);
     final index = await _loadIndex();
     // 🔴 **« LE FICHIER EXISTE » N'EST PAS « LE FICHIER EST COMPLET » —
     // corrigé le 2026-08-31.**
@@ -214,14 +247,17 @@ class ContentMediaCache {
     // complet reste le bon choix (un cache partiel rempli EST le fichier
     // scellé). Ce qui manquait, c'est de savoir lequel des deux on tient.
     final connu = index[contentId];
-    final complet = connu is Map && connu['complete'] == true;
+    final complet = _completeSlots(connu).contains(slot);
     if (await file.exists() && complet) return file;
     await _download(await signedUrl(), file);
-    index[contentId] = {
-      if (expiresAt != null) 'expiresAt': expiresAt.toIso8601String(),
-      'storedAt': DateTime.now().toIso8601String(),
-      'complete': true,
-    };
+    final meta = connu is Map<String, dynamic>
+        ? connu
+        : <String, dynamic>{
+            if (expiresAt != null) 'expiresAt': expiresAt.toIso8601String(),
+            'storedAt': DateTime.now().toIso8601String(),
+          };
+    _markComplete(meta, slot);
+    index[contentId] = meta;
     await _saveIndex();
     await _enforceLimits();
     return file;

@@ -6,6 +6,7 @@ import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
 import '../cards/flippable_card.dart';
+import 'album_viewer_screen.dart';
 import 'publication_viewer_screen.dart';
 
 /// Format d'une mini-card : portrait, comme la card en grand.
@@ -73,8 +74,57 @@ class MiniCard extends ConsumerWidget {
       child: child,
     );
 
+    // Un ALBUM (2026-09-15) : même cadre, même liseré, même format — Jay :
+    // « tout dans l'affichage de la bibliothèque doit être identique ». Ce qui
+    // change : la couverture est le premier média (l'image de couverture pour
+    // une vidéo), la pastille dit combien il y en a, et le tap ouvre le
+    // visionneur qui feuillette au lieu de celui qui retourne.
+    if (item.isAlbum) {
+      final cover = item.media.first;
+      final thumb = cover.isVideo && cover.posterPath != null
+          ? _PublicationThumb(
+              item: item,
+              slot: ContentSlot.poster(cover.slot),
+              path: cover.posterPath!,
+              isVideo: false,
+              decodeWidth: decodeWidth,
+            )
+          : _PublicationThumb(
+              item: item,
+              slot: cover.slot,
+              path: cover.path,
+              isVideo: cover.isVideo,
+              decodeWidth: decodeWidth,
+            );
+      return AspectRatio(
+        aspectRatio: kMiniCardRatio,
+        child: GestureDetector(
+          onLongPress: onLongPress,
+          onTap: () => _openAlbum(context),
+          child: _MiniFrame(
+            borderColor: borderColor,
+            badgeIcon: item.media.length > 1
+                ? Icons.collections_outlined
+                : cover.isVideo
+                ? Icons.play_arrow_rounded
+                : null,
+            badge: item.media.length > 1 ? '${item.media.length}' : null,
+            badgeColor: Colors.white,
+            showPublic: item.isPublic && mine,
+            child: thumb,
+          ),
+        ),
+      );
+    }
+
     final front = face(
-      _PublicationThumb(item: item, front: true, decodeWidth: decodeWidth),
+      _PublicationThumb(
+        item: item,
+        slot: ContentSlot.front,
+        path: item.frontPath,
+        isVideo: item.frontIsVideo,
+        decodeWidth: decodeWidth,
+      ),
     );
 
     // Une mini-card ne se retourne que si elle a VRAIMENT une deuxième face
@@ -100,7 +150,9 @@ class MiniCard extends ConsumerWidget {
           back: face(
             _PublicationThumb(
               item: item,
-              front: false,
+              slot: ContentSlot.back,
+              path: item.backPath!,
+              isVideo: item.backIsVideo,
               decodeWidth: decodeWidth,
             ),
           ),
@@ -115,6 +167,10 @@ class MiniCard extends ConsumerWidget {
   void _open(BuildContext context) => Navigator.of(context).push(
     MaterialPageRoute(builder: (_) => PublicationViewerScreen(item: item)),
   );
+
+  void _openAlbum(BuildContext context) => Navigator.of(
+    context,
+  ).push(MaterialPageRoute(builder: (_) => AlbumViewerScreen(item: item)));
 }
 
 /// Vignette d'une face de publication.
@@ -125,24 +181,27 @@ class MiniCard extends ConsumerWidget {
 class _PublicationThumb extends ConsumerWidget {
   const _PublicationThumb({
     required this.item,
-    required this.front,
+    required this.slot,
+    required this.path,
+    required this.isVideo,
     required this.decodeWidth,
   });
 
   final LibraryItem item;
-  final bool front;
+  final int slot;
+  final String path;
+  final bool isVideo;
   final int decodeWidth;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final isVideo = front ? item.frontIsVideo : item.backIsVideo;
     final face = ref.watch(
       contentFaceProvider((
         contentId: item.id,
         ownerId: item.ownerId,
         bucket: 'library',
-        path: front ? item.frontPath : item.backPath!,
-        front: front,
+        path: path,
+        slot: slot,
         isVideo: isVideo,
         encrypted: item.encrypted,
         // Une grille : les clés viennent du lot, pas une par vignette.
@@ -175,8 +234,9 @@ class _PublicationThumb extends ConsumerWidget {
         child: const _ThumbPlaceholder(icon: Icons.error_outline),
       ),
       data: (media) => isVideo
-          // Une vignette de vidéo demanderait d'extraire une image du flux :
-          // c'est le chantier « vignettes vidéo » (RAPPELS #4), pas celui-ci.
+          // Une vignette de vidéo de CARD demanderait d'extraire une image du
+          // flux : c'est le chantier « vignettes vidéo » (RAPPELS #4), pas
+          // celui-ci. Une vidéo d'ALBUM a sa couverture (`posterPath`).
           ? const _ThumbPlaceholder(icon: Icons.videocam)
           // `cacheWidth` : les fichiers font 720×1280 et les vignettes
           // quelques centaines de pixels — décoder en pleine résolution
@@ -199,6 +259,7 @@ class _MiniFrame extends StatelessWidget {
     required this.child,
     required this.borderColor,
     this.badge,
+    this.badgeIcon,
     this.badgeColor,
     this.showPublic = false,
   });
@@ -206,6 +267,9 @@ class _MiniFrame extends StatelessWidget {
   final Widget child;
   final Color borderColor;
   final String? badge;
+
+  /// Album : l'icône « plusieurs » ou « vidéo » devant le compte.
+  final IconData? badgeIcon;
   final Color? badgeColor;
   final bool showPublic;
 
@@ -236,11 +300,15 @@ class _MiniFrame extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             child,
-            if (badge != null)
+            if (badge != null || badgeIcon != null)
               Positioned(
                 left: 4,
                 bottom: 4,
-                child: _Chip(text: badge!, color: badgeColor ?? Colors.white),
+                child: _Chip(
+                  text: badge,
+                  icon: badgeIcon,
+                  color: badgeColor ?? Colors.white,
+                ),
               ),
             if (showPublic)
               const Positioned(
@@ -256,8 +324,9 @@ class _MiniFrame extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.text, required this.color});
-  final String text;
+  const _Chip({this.text, this.icon, required this.color});
+  final String? text;
+  final IconData? icon;
   final Color color;
 
   @override
@@ -268,13 +337,21 @@ class _Chip extends StatelessWidget {
         color: Colors.black.withValues(alpha: .72),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: color,
-          fontSize: 9,
-          fontWeight: FontWeight.bold,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) Icon(icon, size: 11, color: color),
+          if (icon != null && text != null) const SizedBox(width: 2),
+          if (text != null)
+            Text(
+              text!,
+              style: TextStyle(
+                color: color,
+                fontSize: 9,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+        ],
       ),
     );
   }

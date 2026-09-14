@@ -65,8 +65,8 @@ class ContentPreloader {
   final _primed = <String>{};
 
   /// Le premier bloc de cette face a-t-il été amené d'avance ?
-  bool wasPrimed(String contentId, {required bool front}) =>
-      _primed.contains('${contentId}_${front ? 'f' : 'b'}');
+  bool wasPrimed(String contentId, {required int slot}) =>
+      _primed.contains(ContentSlot.cacheId(contentId, slot));
 
   /// La clé préchargée de [contentId], s'il y en a une.
   ///
@@ -80,8 +80,8 @@ class ContentPreloader {
   /// la lecture : une vidéo longue réclame ses derniers blocs bien après le
   /// premier, et un ticket périmé en cours de route donnerait une erreur
   /// incompréhensible.
-  String? urlFor(String contentId, {required bool front}) {
-    final entry = _urls['${contentId}_${front ? 'f' : 'b'}'];
+  String? urlFor(String contentId, {required int slot}) {
+    final entry = _urls[ContentSlot.cacheId(contentId, slot)];
     if (entry == null) return null;
     if (DateTime.now().isAfter(entry.usableUntil)) return null;
     return entry.url;
@@ -94,7 +94,7 @@ class ContentPreloader {
   /// normale. Lever ici casserait un écran pour une raison invisible à
   /// l'utilisateur.
   Future<void> preload(ContentFace spec) async {
-    final id = '${spec.contentId}_${spec.front ? 'f' : 'b'}';
+    final id = ContentSlot.cacheId(spec.contentId, spec.slot);
     if (!_done.add(id)) return;
     _borne(_done);
 
@@ -118,7 +118,7 @@ class ContentPreloader {
 
       final cachePath = await cache.streamingPath(
         spec.contentId,
-        front: spec.front,
+        slot: spec.slot,
         expiresAt: spec.expiresAt,
       );
       final (url, key) = await (urlFuture, keyFuture).wait;
