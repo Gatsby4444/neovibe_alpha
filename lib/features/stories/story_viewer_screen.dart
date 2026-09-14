@@ -13,6 +13,7 @@ import '../../core/crypto/media_open.dart';
 import '../../core/models/card.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/pull_down_to_close.dart';
 import '../../core/widgets/content_overflow_menu.dart';
 import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
@@ -209,127 +210,139 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     final story = _story;
     final headerBottom = MediaQuery.paddingOf(context).top + _headerHeight;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: Stack(
-        // ⚠️ TOUS les enfants sont `Positioned`. Un `Stack` se dimensionne sur
-        // ses enfants NON positionnés ; l'en-tête était le seul, et le Stack
-        // s'effondrait donc à sa hauteur (~100 px), écrasant et rognant la
-        // Card en dessous. C'était la cause du « rien n'apparaît » de la
-        // v0.9.40. Sans enfant non positionné, le Stack prend toute la place
-        // que lui laisse le Scaffold.
-        children: [
-          Positioned.fill(
-            child: Builder(
-              key: ValueKey(story.id),
-              builder: (context) {
-                final front = ref.watch(
-                  contentFaceProvider(_spec(story, true)),
-                );
-                // Demandé dès l'ouverture, affiché seulement au retournement :
-                // c'est un préchargement, et la mesure doit le savoir (voir
-                // [VideoOpenTrace.prefetched]).
-                final back = story.hasBack
-                    ? ref.watch(contentFaceProvider(_spec(story, false)))
-                    : null;
-                if (story.hasBack && story.backIsVideo) {
-                  VideoOpenTrace.markPrefetched(story.id, front: false);
-                }
-                return front.when(
-                  loading: () => const Center(
-                    child: CircularProgressIndicator(color: Colors.white24),
-                  ),
-                  error: (e, _) => const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                        "Cette story n'est plus disponible.",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white54),
+    // Tirer vers le bas ferme — le geste unique des visionneurs plein écran
+    // (Jay, 2026-09-14). Même conséquence que la croix.
+    return PullDownToClose(
+      onClose: () => Navigator.of(context).maybePop(),
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          // ⚠️ TOUS les enfants sont `Positioned`. Un `Stack` se dimensionne sur
+          // ses enfants NON positionnés ; l'en-tête était le seul, et le Stack
+          // s'effondrait donc à sa hauteur (~100 px), écrasant et rognant la
+          // Card en dessous. C'était la cause du « rien n'apparaît » de la
+          // v0.9.40. Sans enfant non positionné, le Stack prend toute la place
+          // que lui laisse le Scaffold.
+          children: [
+            Positioned.fill(
+              child: Builder(
+                key: ValueKey(story.id),
+                builder: (context) {
+                  final front = ref.watch(
+                    contentFaceProvider(_spec(story, true)),
+                  );
+                  // Demandé dès l'ouverture, affiché seulement au retournement :
+                  // c'est un préchargement, et la mesure doit le savoir (voir
+                  // [VideoOpenTrace.prefetched]).
+                  final back = story.hasBack
+                      ? ref.watch(contentFaceProvider(_spec(story, false)))
+                      : null;
+                  if (story.hasBack && story.backIsVideo) {
+                    VideoOpenTrace.markPrefetched(story.id, front: false);
+                  }
+                  return front.when(
+                    loading: () => const Center(
+                      child: CircularProgressIndicator(color: Colors.white24),
+                    ),
+                    error: (e, _) => const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          "Cette story n'est plus disponible.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.white54),
+                        ),
                       ),
                     ),
-                  ),
-                  data: (frontFile) {
-                    final frontFace = _face(
-                      frontFile,
-                      story.frontIsVideo,
-                      story.cardType,
-                      _showFront,
-                    );
-                    // ⚠️ La structure ne dépend QUE de `hasBack`, constant
-                    // pendant toute la vie de l'écran — jamais de l'arrivée du
-                    // verso. Choisir d'après `backFile == null` faisait changer
-                    // le TYPE du widget à cette position, ce qui détruisait et
-                    // reconstruisait le lecteur du recto (voir
-                    // [VibeFaceLoading]).
-                    if (!story.hasBack) {
-                      return Center(child: TiltableCard(child: frontFace));
-                    }
-                    final backFile = back?.value;
-                    return Center(
-                      child: FlippableCard(
-                        onSideChanged: (f) => setState(() => _showFront = f),
-                        front: frontFace,
-                        back: backFile == null
-                            ? VibeFaceLoading(type: story.cardType)
-                            : _face(
-                                backFile,
-                                story.backIsVideo,
-                                story.cardType,
-                                !_showFront,
-                              ),
-                      ),
-                    );
-                  },
-                );
-              },
+                    data: (frontFile) {
+                      final frontFace = _face(
+                        frontFile,
+                        story.frontIsVideo,
+                        story.cardType,
+                        _showFront,
+                      );
+                      // ⚠️ La structure ne dépend QUE de `hasBack`, constant
+                      // pendant toute la vie de l'écran — jamais de l'arrivée du
+                      // verso. Choisir d'après `backFile == null` faisait changer
+                      // le TYPE du widget à cette position, ce qui détruisait et
+                      // reconstruisait le lecteur du recto (voir
+                      // [VibeFaceLoading]).
+                      if (!story.hasBack) {
+                        return Center(
+                          child: TiltableCard(
+                            fullScreen: true,
+                            child: frontFace,
+                          ),
+                        );
+                      }
+                      final backFile = back?.value;
+                      return Center(
+                        child: FlippableCard(
+                          dragAxis: Axis.horizontal,
+                          fullScreen: true,
+                          onSideChanged: (f) => setState(() => _showFront = f),
+                          front: frontFace,
+                          back: backFile == null
+                              ? VibeFaceLoading(type: story.cardType)
+                              : _face(
+                                  backFile,
+                                  story.backIsVideo,
+                                  story.cardType,
+                                  !_showFront,
+                                ),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
             ),
-          ),
-          // Zones de navigation, sous l'en-tête pour ne pas manger ses taps.
-          Positioned(
-            top: headerBottom,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Row(
-              children: [
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: _previous,
+            // Zones de navigation, sous l'en-tête pour ne pas manger ses taps.
+            Positioned(
+              top: headerBottom,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: _previous,
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: GestureDetector(
-                    behavior: HitTestBehavior.translucent,
-                    onTap: _next,
+                  Expanded(
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: _next,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: _Header(
-              ring: _ring,
-              index: _index,
-              story: story,
-              isMine: isMine,
-              // Les faces déchiffrées, s'il y en a : le bouton Enregistrer les
-              // copie telles quelles.
-              front: ref.watch(contentFaceProvider(_spec(story, true))).value,
-              back: story.hasBack
-                  ? ref.watch(contentFaceProvider(_spec(story, false))).value
-                  : null,
-              onClose: () => Navigator.of(context).pop(),
-              onDelete: !isMine ? null : _confirmDelete,
-              onShare: story.shareable ? _share : null,
-              onStats: !isMine ? null : _showStats,
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _Header(
+                ring: _ring,
+                index: _index,
+                story: story,
+                isMine: isMine,
+                // Les faces déchiffrées, s'il y en a : le bouton Enregistrer les
+                // copie telles quelles.
+                front: ref.watch(contentFaceProvider(_spec(story, true))).value,
+                back: story.hasBack
+                    ? ref.watch(contentFaceProvider(_spec(story, false))).value
+                    : null,
+                onClose: () => Navigator.of(context).pop(),
+                onDelete: !isMine ? null : _confirmDelete,
+                onShare: story.shareable ? _share : null,
+                onStats: !isMine ? null : _showStats,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

@@ -8,6 +8,7 @@ import '../../core/clock.dart';
 import '../../core/models/library_vibe.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/vibe_face.dart';
+import '../../core/widgets/pull_down_to_close.dart';
 import '../cards/flippable_card.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
@@ -125,54 +126,61 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
     // source qu'on surveille, sinon l'écran reste sur « masqué » après 18h30.
     final revealed = vibe.revealedAt(ref.watch(expiryClockProvider));
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
+    // Tirer vers le bas ferme — le geste unique des visionneurs plein écran
+    // (Jay, 2026-09-14). Même conséquence que la croix.
+    return PullDownToClose(
+      onClose: () => Navigator.of(context).maybePop(),
+      child: Scaffold(
         backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        elevation: 0,
-        title: Text(
-          revealed ? vibe.type.tag : 'Visible à 18h30',
-          style: const TextStyle(fontSize: 15),
-        ),
-      ),
-      body: Center(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: AspectRatio(
-            aspectRatio: 9 / 16,
-            child: _error != null
-                ? Text(
-                    'Impossible d\'ouvrir cette vibe.\n$_error',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.white70),
-                  )
-                // Une vibe à face unique n'a rien à retourner : on n'installe
-                // pas un geste qui ne mènerait nulle part.
-                : vibe.hasBack
-                ? FlippableCard(
-                    onSideChanged: (f) => setState(() => _showFront = f),
-                    front: _face(front: true),
-                    back: _face(front: false),
-                  )
-                : ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: _face(front: true),
-                  ),
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          foregroundColor: Colors.white,
+          elevation: 0,
+          title: Text(
+            revealed ? vibe.type.tag : 'Visible à 18h30',
+            style: const TextStyle(fontSize: 15),
           ),
         ),
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 12, left: 24, right: 24),
-          child: Text(
-            vibe.hasBack
-                ? (revealed
-                      ? 'Swipe pour retourner'
-                      : 'Swipe pour retourner — les deux faces restent floutées')
-                : (revealed ? '' : 'Tout se découvre à 18h30'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white38, fontSize: 12),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: AspectRatio(
+              aspectRatio: 9 / 16,
+              child: _error != null
+                  ? Text(
+                      'Impossible d\'ouvrir cette vibe.\n$_error',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white70),
+                    )
+                  // Une vibe à face unique n'a rien à retourner : on n'installe
+                  // pas un geste qui ne mènerait nulle part.
+                  : vibe.hasBack
+                  ? FlippableCard(
+                      dragAxis: Axis.horizontal,
+                      fullScreen: true,
+                      onSideChanged: (f) => setState(() => _showFront = f),
+                      front: _face(front: true),
+                      back: _face(front: false),
+                    )
+                  : ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: _face(front: true),
+                    ),
+            ),
+          ),
+        ),
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 12, left: 24, right: 24),
+            child: Text(
+              vibe.hasBack
+                  ? (revealed
+                        ? 'Swipe pour retourner'
+                        : 'Swipe pour retourner — les deux faces restent floutées')
+                  : (revealed ? '' : 'Tout se découvre à 18h30'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white38, fontSize: 12),
+            ),
           ),
         ),
       ),

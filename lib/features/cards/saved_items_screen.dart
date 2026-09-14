@@ -9,6 +9,7 @@ import '../../core/theme.dart';
 import '../../core/widgets/card_type_badge.dart';
 import '../../core/crypto/media_open.dart';
 import '../../core/widgets/vibe_face.dart';
+import '../../core/widgets/pull_down_to_close.dart';
 import '../library/mini_card.dart' show kMiniCardRatio;
 import 'flippable_card.dart';
 
@@ -231,20 +232,27 @@ class _SavedViewerScreenState extends State<_SavedViewerScreen> {
 
     final front = face(item.frontPath, item.frontIsVideo, _showFront);
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
+    // Tirer vers le bas ferme — le geste unique des visionneurs plein écran
+    // (Jay, 2026-09-14). Même conséquence que la croix.
+    return PullDownToClose(
+      onClose: () => Navigator.of(context).maybePop(),
+      child: Scaffold(
         backgroundColor: Colors.black,
-        title: CardTypeBadge(type: item.cardType, fontSize: 12),
-      ),
-      body: Center(
-        child: item.hasBack
-            ? FlippableCard(
-                onSideChanged: (f) => setState(() => _showFront = f),
-                front: front,
-                back: face(item.backPath!, item.backIsVideo, !_showFront),
-              )
-            : TiltableCard(child: front),
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          title: CardTypeBadge(type: item.cardType, fontSize: 12),
+        ),
+        body: Center(
+          child: item.hasBack
+              ? FlippableCard(
+                  dragAxis: Axis.horizontal,
+                  fullScreen: true,
+                  onSideChanged: (f) => setState(() => _showFront = f),
+                  front: front,
+                  back: face(item.backPath!, item.backIsVideo, !_showFront),
+                )
+              : TiltableCard(fullScreen: true, child: front),
+        ),
       ),
     );
   }

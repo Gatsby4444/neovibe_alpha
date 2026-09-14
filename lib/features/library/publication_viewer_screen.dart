@@ -13,6 +13,7 @@ import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/video/video_open_trace.dart';
 import '../../core/widgets/card_type_badge.dart';
+import '../../core/widgets/pull_down_to_close.dart';
 import '../../core/widgets/content_overflow_menu.dart';
 import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
@@ -95,96 +96,105 @@ class _PublicationViewerScreenState
       VideoOpenTrace.markPrefetched(item.id, front: false);
     }
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
+    // Tirer vers le bas ferme — le geste unique des visionneurs plein écran
+    // (Jay, 2026-09-14). Même conséquence que la croix.
+    return PullDownToClose(
+      onClose: () => Navigator.of(context).maybePop(),
+      child: Scaffold(
         backgroundColor: Colors.black,
-        title: CardTypeBadge(type: item.cardType, fontSize: 12),
-        actions: [
-          // Enregistrer : une copie EN CLAIR sur l'appareil, à partir des
-          // fichiers déjà déchiffrés à l'écran. Aucun appel serveur.
-          SaveButton(
-            contentId: item.id,
-            cardType: item.cardType,
-            canSave: item.saveable || mine,
-            front: front.value,
-            back: back?.value,
-            frontIsVideo: item.frontIsVideo,
-            backIsVideo: item.backIsVideo,
-            mine: mine,
-          ),
-          // Le bouton n'existe que si l'auteur a autorisé le relais : sans
-          // quoi il proposerait une action que le serveur refuserait.
-          if (item.shareable)
-            IconButton(
-              icon: const Icon(Icons.reply_outlined),
-              tooltip: 'Partager dans une conversation',
-              onPressed: _share,
+        appBar: AppBar(
+          backgroundColor: Colors.black,
+          title: CardTypeBadge(type: item.cardType, fontSize: 12),
+          actions: [
+            // Enregistrer : une copie EN CLAIR sur l'appareil, à partir des
+            // fichiers déjà déchiffrés à l'écran. Aucun appel serveur.
+            SaveButton(
+              contentId: item.id,
+              cardType: item.cardType,
+              canSave: item.saveable || mine,
+              front: front.value,
+              back: back?.value,
+              frontIsVideo: item.frontIsVideo,
+              backIsVideo: item.backIsVideo,
+              mine: mine,
             ),
-          if (mine)
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              tooltip: 'Retirer de ma bibliothèque',
-              onPressed: _confirmDelete,
-            ),
-          // Signaler / bloquer : jamais sur son propre contenu.
-          if (!mine)
-            ContentOverflowMenu(contentId: item.id, authorId: item.ownerId),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: front.when(
-              loading: () => const Center(
-                child: CircularProgressIndicator(color: Colors.white24),
+            // Le bouton n'existe que si l'auteur a autorisé le relais : sans
+            // quoi il proposerait une action que le serveur refuserait.
+            if (item.shareable)
+              IconButton(
+                icon: const Icon(Icons.reply_outlined),
+                tooltip: 'Partager dans une conversation',
+                onPressed: _share,
               ),
-              error: (e, _) => const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'Cette publication n\'est plus disponible.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.white54),
+            if (mine)
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: 'Retirer de ma bibliothèque',
+                onPressed: _confirmDelete,
+              ),
+            // Signaler / bloquer : jamais sur son propre contenu.
+            if (!mine)
+              ContentOverflowMenu(contentId: item.id, authorId: item.ownerId),
+          ],
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              child: front.when(
+                loading: () => const Center(
+                  child: CircularProgressIndicator(color: Colors.white24),
+                ),
+                error: (e, _) => const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(24),
+                    child: Text(
+                      'Cette publication n\'est plus disponible.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white54),
+                    ),
                   ),
                 ),
-              ),
-              data: (frontFile) {
-                final frontFace = _face(
-                  frontFile,
-                  item.frontIsVideo,
-                  _showFront,
-                );
-                // ⚠️ La structure ne dépend QUE de `hasBack`, constant pendant
-                // toute la vie de l'écran — jamais de l'arrivée du verso.
-                // Choisir d'après `backFile == null` faisait changer le TYPE du
-                // widget à cette position, ce qui détruisait et reconstruisait
-                // le lecteur du recto (voir [VibeFaceLoading]).
-                if (!item.hasBack) {
-                  return Center(child: TiltableCard(child: frontFace));
-                }
-                final backFile = back?.value;
-                return Center(
-                  child: FlippableCard(
-                    onSideChanged: (f) => setState(() => _showFront = f),
-                    front: frontFace,
-                    back: backFile == null
-                        ? VibeFaceLoading(type: item.cardType)
-                        : _face(backFile, item.backIsVideo, !_showFront),
-                  ),
-                );
-              },
-            ),
-          ),
-          if (item.caption != null && item.caption!.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-              child: Text(
-                item.caption!,
-                style: const TextStyle(color: Colors.white70),
+                data: (frontFile) {
+                  final frontFace = _face(
+                    frontFile,
+                    item.frontIsVideo,
+                    _showFront,
+                  );
+                  // ⚠️ La structure ne dépend QUE de `hasBack`, constant pendant
+                  // toute la vie de l'écran — jamais de l'arrivée du verso.
+                  // Choisir d'après `backFile == null` faisait changer le TYPE du
+                  // widget à cette position, ce qui détruisait et reconstruisait
+                  // le lecteur du recto (voir [VibeFaceLoading]).
+                  if (!item.hasBack) {
+                    return Center(
+                      child: TiltableCard(fullScreen: true, child: frontFace),
+                    );
+                  }
+                  final backFile = back?.value;
+                  return Center(
+                    child: FlippableCard(
+                      dragAxis: Axis.horizontal,
+                      fullScreen: true,
+                      onSideChanged: (f) => setState(() => _showFront = f),
+                      front: frontFace,
+                      back: backFile == null
+                          ? VibeFaceLoading(type: item.cardType)
+                          : _face(backFile, item.backIsVideo, !_showFront),
+                    ),
+                  );
+                },
               ),
             ),
-        ],
+            if (item.caption != null && item.caption!.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
+                child: Text(
+                  item.caption!,
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

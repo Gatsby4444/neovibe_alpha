@@ -17,6 +17,7 @@ import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import 'card_media_cache.dart';
 import 'cards_repository.dart';
+import '../../core/widgets/pull_down_to_close.dart';
 import 'flippable_card.dart';
 
 /// Étapes d'affichage d'une Card.
@@ -594,91 +595,99 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
         !_faceIsVideo(_settledFront) &&
         !_faceDone(_settledFront);
 
-    return Scaffold(
-      backgroundColor: widget.chromeless ? Colors.transparent : Colors.black,
-      appBar: widget.chromeless
-          ? null
-          : AppBar(
-              backgroundColor: Colors.black,
-              title: CardTypeBadge(type: type),
-              actions: [
-                // Enregistrer : une copie EN CLAIR sur l'appareil, faite
-                // à partir des faces déjà déchiffrées à l'écran. Depuis
-                // l'étape 5, plus aucune ligne serveur — c'est ce qui rend la
-                // sauvegarde indépendante de son auteur.
-                if (_phase == _Phase.viewing)
-                  SaveButton(
-                    contentId: widget.card.id,
-                    cardType: type,
-                    canSave: canSave,
-                    front: _shownFront,
-                    back: _shownBack,
-                    frontIsVideo: widget.card.frontIsVideo,
-                    backIsVideo: widget.card.backIsVideo,
-                    mine: isOwner,
-                  ),
-              ],
-              bottom: showGauge
-                  ? PreferredSize(
-                      preferredSize: const Size.fromHeight(6),
-                      // Jauge de lecture : s'écoule de gauche à droite (consigne Jay)
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: FractionallySizedBox(
-                          widthFactor: _gauge,
-                          child: Container(height: 5, color: type.color),
+    // Tirer vers le bas ferme — comme la flèche de la barre, mêmes
+    // conséquences (l'ouverture était déjà comptée). Pas en mode embarqué.
+    return PullDownToClose(
+      enabled: !widget.chromeless,
+      onClose: () => Navigator.of(context).maybePop(),
+      child: Scaffold(
+        backgroundColor: widget.chromeless ? Colors.transparent : Colors.black,
+        appBar: widget.chromeless
+            ? null
+            : AppBar(
+                backgroundColor: Colors.black,
+                title: CardTypeBadge(type: type),
+                actions: [
+                  // Enregistrer : une copie EN CLAIR sur l'appareil, faite
+                  // à partir des faces déjà déchiffrées à l'écran. Depuis
+                  // l'étape 5, plus aucune ligne serveur — c'est ce qui rend la
+                  // sauvegarde indépendante de son auteur.
+                  if (_phase == _Phase.viewing)
+                    SaveButton(
+                      contentId: widget.card.id,
+                      cardType: type,
+                      canSave: canSave,
+                      front: _shownFront,
+                      back: _shownBack,
+                      frontIsVideo: widget.card.frontIsVideo,
+                      backIsVideo: widget.card.backIsVideo,
+                      mine: isOwner,
+                    ),
+                ],
+                bottom: showGauge
+                    ? PreferredSize(
+                        preferredSize: const Size.fromHeight(6),
+                        // Jauge de lecture : s'écoule de gauche à droite (consigne Jay)
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: FractionallySizedBox(
+                            widthFactor: _gauge,
+                            child: Container(height: 5, color: type.color),
+                          ),
                         ),
-                      ),
-                    )
-                  : null,
-            ),
-      body: switch (_phase) {
-        _Phase.loading => const _LoadingState(),
-        _Phase.error => _ErrorState(detail: _error, onRetry: _load),
-        _Phase.destroyed => _EndState(
-          icon: Icons.lock_outline,
-          color: type.color,
-          message: 'Cette Vibe a été détruite.',
-        ),
-        _Phase.exhausted => _ExhaustedState(
-          card: widget.card,
-          delivery: _delivery,
-          onReplayRequested: _requestReplay,
-        ),
-        // Face unique (verso passé) : non retournable, le jeu d'angle reste
-        _Phase.viewing when _shownBack == null => Center(
-          child: TiltableCard(child: _buildFace(true)),
-        ),
-        _Phase.viewing => Center(
-          child: FlippableCard(
-            invertDrag: ref.watch(flipDirectionInvertedProvider),
-            onSideChanged: (front) => setState(() => _showFront = front),
-            onSideSettled: _onSideSettled,
-            front: _buildFace(true),
-            back: _buildFace(false),
-          ),
-        ),
-      },
-      bottomNavigationBar: _phase == _Phase.viewing && !widget.chromeless
-          ? SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  _shownBack == null
-                      ? 'Face unique — fais glisser pour incliner la carte'
-                      : _limitsApply
-                      ? (_showFront
-                            ? 'Recto — retourner coupe court à cette face'
-                            : 'Verso — retourner coupe court à cette face')
-                      : (_showFront
-                            ? 'Recto — fais glisser pour retourner la carte'
-                            : 'Verso — fais glisser pour revenir au recto'),
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white54),
-                ),
+                      )
+                    : null,
               ),
-            )
-          : null,
+        body: switch (_phase) {
+          _Phase.loading => const _LoadingState(),
+          _Phase.error => _ErrorState(detail: _error, onRetry: _load),
+          _Phase.destroyed => _EndState(
+            icon: Icons.lock_outline,
+            color: type.color,
+            message: 'Cette Vibe a été détruite.',
+          ),
+          _Phase.exhausted => _ExhaustedState(
+            card: widget.card,
+            delivery: _delivery,
+            onReplayRequested: _requestReplay,
+          ),
+          // Face unique (verso passé) : non retournable, le jeu d'angle reste
+          _Phase.viewing when _shownBack == null => Center(
+            child: TiltableCard(fullScreen: true, child: _buildFace(true)),
+          ),
+          _Phase.viewing => Center(
+            child: FlippableCard(
+              dragAxis: Axis.horizontal,
+              fullScreen: true,
+              invertDrag: ref.watch(flipDirectionInvertedProvider),
+              onSideChanged: (front) => setState(() => _showFront = front),
+              onSideSettled: _onSideSettled,
+              front: _buildFace(true),
+              back: _buildFace(false),
+            ),
+          ),
+        },
+        bottomNavigationBar: _phase == _Phase.viewing && !widget.chromeless
+            ? SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    _shownBack == null
+                        ? 'Face unique — fais glisser pour incliner la carte'
+                        : _limitsApply
+                        ? (_showFront
+                              ? 'Recto — retourner coupe court à cette face'
+                              : 'Verso — retourner coupe court à cette face')
+                        : (_showFront
+                              ? 'Recto — fais glisser pour retourner la carte'
+                              : 'Verso — fais glisser pour revenir au recto'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white54),
+                  ),
+                ),
+              )
+            : null,
+      ),
     );
   }
 }
