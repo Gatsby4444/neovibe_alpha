@@ -442,6 +442,18 @@ au remplacement de l'interface.
   manifeste, il relancerait le service après un arrêt voulu par l'utilisateur.
   Le calcul de la frontière est **pur** et éprouvé — 3 tests dans
   `SlotAlarmTest.kt`, dont le contre-test de la marge.
+  🔴 **Une sonnerie avalée ne tue plus les suivantes (2026-09-14).** L'alarme
+  est à coup unique et ne se reposait que dans sa propre sonnerie : le carnet
+  de la nuit du 2026-09-14 montre l'alarme armée à 02:09 **jamais délivrée**
+  (pas différée : perdue, y compris une heure durant où le processus tournait
+  et les minuteurs Dart étaient à l'heure), et **26 frontières sans sonnerie**
+  jusqu'à ce qu'un dépôt de plan la réarme par hasard à 08:30 — puis 7/7, avec
+  41 s à 10,7 min de retard. `veille()` : à chaque passage du `cycleTick`, si
+  l'échéance visée est dépassée **d'un créneau entier** (`estPerdue`, pure),
+  l'alarme est reposée et la ligne `alarme perdue, reposee` va au carnet. En
+  deçà, c'est un retard, et la reconnaissance l'absorbe. 3 tests de plus dans
+  `SlotAlarmTest.kt` (en retard ≠ perdue, la frontière exacte, rien sans
+  échéance).
   🍎 **iOS : aucun équivalent, et c'est un mur connu.** Il n'y a pas d'API de
   réveil périodique en arrière-plan ; `CoreBluetooth` fait tourner l'advertising
   mais l'app ne choisit pas quand réécrire sa charge utile. À traiter avec
@@ -476,6 +488,31 @@ au remplacement de l'interface.
   🍎 **iOS : à écrire, même principe** — un fichier ajouté à chaque événement
   du cycle de vie de l'app (`applicationDidFinishLaunching`, arrière-plan,
   `applicationWillTerminate`, réveils `CoreBluetooth`), relu par le rapport.
+
+- **`EnergyWatcher.kt`** — *(nouveau, 2026-09-14)* **l'énergie du téléphone,
+  vue par le carnet.** Le carnet de la nuit du 2026-09-14 disait « Bluetooth
+  éteint à 02:31, rallumé à 07:18 », « mémoire basse quatre fois en quatre
+  secondes », « alarme jamais sonnée » — et Jay dormait ; il a dit après coup
+  que sa batterie externe s'était arrêtée en cours de nuit. **Rien de ça
+  n'était dans le carnet.** Deux pièces : `EnergyWatcher` écoute à l'exécution
+  `ACTION_POWER_CONNECTED / DISCONNECTED`, `SCREEN_ON / OFF`, `BATTERY_LOW /
+  OKAY`, `DEVICE_IDLE_MODE_CHANGED`, `POWER_SAVE_MODE_CHANGED` et, sur
+  Android 13+, `LIGHT_DEVICE_IDLE_MODE_CHANGED`, et les remet à
+  `ServiceJournal` en français (`chargeur debranche`, `ecran eteint`, `veille
+  profonde : oui`…) ; `Energie.resume()` donne l'état du moment (`batt=57%
+  chargeur=non eco=non veille=profonde ecran=eteint`, lu sur l'intent
+  collant `ACTION_BATTERY_CHANGED` et `PowerManager`), joint aux lignes `cree`,
+  `radio : …`, `alarme`, `alarme perdue, reposee` et `memoire basse`.
+  ⚠️ **Un instrument, pas une règle** : il ne coupe rien et ne change aucune
+  cadence. Le jour où une économie sera voulue, elle vivra ailleurs et lira
+  ces mêmes signaux. La table action → libellé et la mise en forme sont
+  **pures** — 2 tests dans `EnergyWatcherTest.kt` ; ces libellés sont ceux que
+  `ServiceJournalReading` compte (ligne « énergie : … » du diagnostic) : les
+  renommer d'un côté sans l'autre rend un compteur muet, sans erreur.
+  🍎 **iOS : à écrire** — `UIDevice.batteryState / batteryLevel`,
+  `ProcessInfo.isLowPowerModeEnabled`, notifications
+  `UIApplication.didEnterBackground / willEnterForeground`. Pas d'équivalent
+  du Doze exposé à l'app.
 
 ### 🔴 UN SEUL MODE EN L'AIR À LA SORTIE (2026-08-29)
 
@@ -649,7 +686,7 @@ fantôme que rien d'autre n'expliquerait :
 | `advertSlotDrift` | **`AdvertOnAir`** → `ProximityService` | **de quand date ce qui rayonne**. `0` = le jeton du créneau courant ; toute autre valeur = on crie le passé, donc on est entendu par tous et reconnu par personne. `-1` = aucun jeu confirmé |
 | `advertDataRefus` | **`AdvertOnAir`** | la pile a **refusé** un contenu d'annonce — la seule trace qu'un refus ait existé |
 | `advertSlotDriftMax` / `...MaxAgeMillis` | **`ProximityService`** | 🔴 **la PIRE dérive depuis le démarrage, et son âge.** `advertSlotDrift` ne dit que l'instant présent — or on ne lit un diagnostic qu'après avoir réveillé l'appareil, donc après l'avoir réparé. Le 2026-08-30 il affichait `0` au terme d'une nuit entière de dérive. Une trace haute survit au réveil, donc elle peut accuser |
-| `slotAlarmReveils` / `slotAlarmRetardMaxMillis` | **`SlotAlarm`** | le réveil de veille a-t-il sonné, et avec quel retard. Sans eux, une dérive nulle ne distingue pas « c'est réparé » de « l'alarme n'a jamais été honorée ». ⚠️ **Meurent avec le processus** (constaté le 2026-09-13 : `0` après une nuit, parce que le service avait 30 s) — la trace qui survit est le carnet `ServiceJournal` |
+| `slotAlarmReveils` / `slotAlarmRetardMaxMillis` | **`SlotAlarm`** | le réveil de veille a-t-il sonné, et avec quel retard. Sans eux, une dérive nulle ne distingue pas « c'est réparé » de « l'alarme n'a jamais été honorée ». ⚠️ **Meurent avec le processus** (constaté le 2026-09-13 : `0` après une nuit, parce que le service avait 30 s) — la trace qui survit est le carnet `ServiceJournal`, qui porte aussi depuis le 2026-09-14 les sonneries **perdues** puis reposées |
 
 🔴 **`foreignTokenScans` a changé de maison le 2026-08-28, et c'est une leçon à
 porter sur iOS.** Il était déclaré dans `BleEngine`, publié dans `stats()`… et
@@ -1130,7 +1167,7 @@ iOS) au moment du portage. Compléter cette entrée quand le mécanisme est conf
 ↔ fichiers cités ici » laissait quatre tests sans mention. Ils sont listés pour
 que le contrôle de fin de session compte juste.*
 
-`android/app/src/test/kotlin/com/neovibe/neovibe/` — douze tests, exécutés sur
+`android/app/src/test/kotlin/com/neovibe/neovibe/` — treize tests, exécutés sur
 la JVM par `./gradlew test`, sans appareil :
 
 | Fichier | Ce qu'il tient |
@@ -1138,6 +1175,7 @@ la JVM par `./gradlew test`, sans appareil :
 | `AdvertOnAirTest.kt`, `AdvertScheduleTest.kt` | le plan d'émission BLE et ses créneaux |
 | `PlanPersistenceTest.kt`, `PlanStoreTest.kt` | le plan survit à la mort du processus |
 | `ServiceJournalTest.kt` | *(2026-09-13)* le carnet de vie du service survit à sa mort, et se borne sans couper une ligne |
+| `EnergyWatcherTest.kt` | *(2026-09-14)* les libellés d'énergie du carnet et la ligne d'état, stables parce que la lecture Dart les compte |
 | `PresenceLogTest.kt`, `SightingBookTest.kt`, `SlotAlarmTest.kt` | présences, constats, réveil par créneau |
 | `RecognitionVectorsTest.kt` | les vecteurs de reconnaissance partagés avec le Dart |
 | `SealedChunkReaderTest.kt`, `Mp4FastStartTest.kt`, `PartialStreamingTest.kt` | le lecteur de médias scellés (§7) |

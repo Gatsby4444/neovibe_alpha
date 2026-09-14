@@ -194,7 +194,12 @@ class ProximityService : Service(), BleEngine.Listener {
                 // ⚠️ Sur le disque, pas en memoire : c'est la mesure que le test
                 // de nuit du 2026-09-13 n'a pas pu lire, parce que le compteur
                 // etait mort avec le processus. Voir [ServiceJournal].
-                ServiceJournal.note(applicationContext, "alarme", "retard=${retard}ms")
+                ServiceJournal.note(applicationContext, "alarme", "retard=${retard}ms · ${Energie.resume(applicationContext)}")
+            },
+            onPerdu = { retard ->
+                // Une sonnerie jamais delivree, reposee par [SlotAlarm.veille].
+                // Nuit du 2026-09-14 : 26 d'affilee, sans une ligne nulle part.
+                ServiceJournal.note(applicationContext, "alarme perdue, reposee", "retard=${retard}ms · ${Energie.resume(applicationContext)}")
             },
         ) { emitNext() }
     }
@@ -214,6 +219,13 @@ class ProximityService : Service(), BleEngine.Listener {
 
     private val cycleTick = object : Runnable {
         override fun run() {
+            // ⚠️ Chaque passage de cette main verifie que le reveil de veille
+            // n'a pas ete avale (voir [SlotAlarm.veille]). C'est le `Handler`
+            // qui tourne la page tant que le processeur est eveille ; c'est
+            // donc lui qui, au reveil de l'appareil, peut constater qu'une
+            // sonnerie n'est jamais venue et remonter le reveil pour la
+            // prochaine nuit de sommeil.
+            slotAlarm.veille()
             emitNext()
             cycleHandler.postDelayed(this, nextDelay())
         }
@@ -612,9 +624,19 @@ class ProximityService : Service(), BleEngine.Listener {
         instance = this
         // ⚠️ Premiere ligne de chaque vie du service. Deux « cree » sans
         // « detruit » entre eux = le processus est mort sans prevenir.
-        ServiceJournal.note(applicationContext, "cree")
+        ServiceJournal.note(applicationContext, "cree", Energie.resume(applicationContext))
         engine = BleEngine(applicationContext, this)
         engine.attach()
+        energie.attach()
+    }
+
+    /**
+     * Les signaux d'energie du telephone, remis au carnet. Voir [EnergyWatcher] :
+     * sans eux, la nuit du 2026-09-14 ne disait pas que la batterie externe
+     * s'etait arretee.
+     */
+    private val energie by lazy {
+        EnergyWatcher(this) { evenement, detail -> ServiceJournal.note(applicationContext, evenement, detail) }
     }
 
     /**
@@ -639,7 +661,7 @@ class ProximityService : Service(), BleEngine.Listener {
      * batterie qui tue sans un mot.
      */
     override fun onTrimMemory(level: Int) {
-        ServiceJournal.note(applicationContext, "memoire basse", "niveau=$level")
+        ServiceJournal.note(applicationContext, "memoire basse", "niveau=$level · ${Energie.resume(applicationContext)}")
         super.onTrimMemory(level)
     }
 
@@ -789,6 +811,7 @@ class ProximityService : Service(), BleEngine.Listener {
         // laisser derriere serait garder une trace de qui a ete croise, sans
         // personne pour la reclamer.
         presences.clear()
+        energie.detach()
         engine.detach()
         instance = null
         super.onDestroy()
@@ -1006,10 +1029,13 @@ class ProximityService : Service(), BleEngine.Listener {
         val avant = lastStatus.toMap()["type"]
         val apres = status.toMap()["type"]
         if (avant != apres) {
+            // L'etat d'energie accompagne chaque changement de radio : c'est
+            // ce qui manquait pour lire « adapterOff a 02:31 » (2026-09-14).
             ServiceJournal.note(
                 applicationContext,
                 "radio : $apres",
-                if (status is RadioStatus.Failed) "${status.code} — ${status.message}" else null,
+                if (status is RadioStatus.Failed) "${status.code} — ${status.message}"
+                else Energie.resume(applicationContext),
             )
         }
         lastStatus = status

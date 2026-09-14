@@ -41,6 +41,44 @@ void main() {
     expect(ServiceJournalReading.lecture(''), contains('Aucun carnet'));
   });
 
+  test('les signaux d\'énergie et les alarmes perdues se comptent', () {
+    // Ce que le carnet de la nuit du 2026-09-14 AURAIT dit avec la v0.9.180 :
+    // le chargeur (batterie externe) qui lâche, la veille profonde, et une
+    // sonnerie avalée reposée au réveil.
+    final lecture = ServiceJournalReading.lecture(
+      '$nuitOrdinaire'
+      '2026-09-13 03:31:00 up=52666s ecran eteint — batt=90% chargeur=oui '
+      'eco=non veille=non ecran=eteint\n'
+      '2026-09-13 04:10:00 up=55006s chargeur debranche — batt=88% '
+      'chargeur=non eco=non veille=non ecran=eteint\n'
+      '2026-09-13 04:41:00 up=56866s veille profonde : oui — batt=87% '
+      'chargeur=non eco=non veille=profonde ecran=eteint\n'
+      '2026-09-13 07:18:00 up=66286s veille profonde : non — batt=70% '
+      'chargeur=non eco=non veille=non ecran=eteint\n'
+      '2026-09-13 07:18:30 up=66316s alarme perdue, reposee — '
+      'retard=9000000ms · batt=70% chargeur=non eco=non veille=non '
+      'ecran=eteint\n',
+    );
+    expect(lecture, contains('🔴 1 alarme(s) perdue(s)'));
+    expect(
+      lecture,
+      contains(
+        'énergie : chargeur branché 0 / débranché 1 · écran allumé 0 / '
+        'éteint 1 · veille profonde entrée 1 / sortie 1',
+      ),
+    );
+    // Les alarmes « normales » ne comptent pas les perdues, et inversement.
+    expect(lecture, contains('alarmes 2'));
+    // Pas une mort : le service a vécu tout du long.
+    expect(lecture, isNot(contains('mort sans prévenir')));
+  });
+
+  test('un carnet sans signal d\'énergie n\'en parle pas', () {
+    final lecture = ServiceJournalReading.lecture(nuitOrdinaire);
+    expect(lecture, isNot(contains('énergie :')));
+    expect(lecture, isNot(contains('perdue')));
+  });
+
   test('une vie normale : ni mort, ni redémarrage', () {
     final lecture = ServiceJournalReading.lecture(nuitOrdinaire);
     expect(lecture, contains('5 lignes'));

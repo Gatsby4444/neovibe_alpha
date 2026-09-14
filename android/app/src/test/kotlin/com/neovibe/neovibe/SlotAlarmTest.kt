@@ -62,4 +62,36 @@ class SlotAlarmTest {
             )
         }
     }
+
+    // ------------------------------------------------------------------
+    // La sonnerie avalee — nuit du 2026-09-14
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `en retard n'est pas perdue - les 10 minutes de la nuit du 2026-09-14 sont absorbees`() {
+        val vise = 1_000_000L * creneau
+        // Retards releves dans le carnet : 41 s a 644 s.
+        for (retard in longArrayOf(0L, 41_502L, 255_339L, 644_333L, creneau)) {
+            assertTrue(
+                "un retard de $retard ms n'est qu'un retard",
+                !SlotAlarm.estPerdue(vise + retard, vise, creneau),
+            )
+        }
+    }
+
+    @Test
+    fun `un creneau entier apres l'echeance, elle est perdue`() {
+        val vise = 1_000_000L * creneau
+        // 🔴 **Le contre-test.** Remplacer `>` par `>=` ou retirer la
+        // comparaison fait tomber l'un des deux, jamais les deux.
+        assertTrue(!SlotAlarm.estPerdue(vise + creneau, vise, creneau))
+        assertTrue(SlotAlarm.estPerdue(vise + creneau + 1, vise, creneau))
+    }
+
+    @Test
+    fun `sans echeance visee, rien n'est jamais perdu`() {
+        // `vise == 0` = reveil desarme : `veille()` ne doit rien reposer, sinon
+        // un service qui a coupe sa radio se remettrait a sonner tout seul.
+        assertTrue(!SlotAlarm.estPerdue(Long.MAX_VALUE / 2, 0L, creneau))
+    }
 }

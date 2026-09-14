@@ -51,6 +51,22 @@ import androidx.core.content.ContextCompat
  * 9 minutes rendrait ce reveil silencieusement insuffisant — a relire ici avant
  * d'y toucher.
  *
+ * ## 🔴 Une sonnerie avalee ne doit pas tuer les suivantes — nuit du 2026-09-14
+ *
+ * L'alarme est posee **a coup unique** et ne se repose que dans sa propre
+ * sonnerie ([recepteur]). Le carnet de la nuit du 2026-09-14 (`dev_reports`
+ * `8eb6d161…`) montre ce que ca coute : l'alarme armee a 02:09 pour 02:15
+ * **n'a jamais ete delivree** — pas differee, perdue, y compris entre 07:30 et
+ * 08:30 alors que le processus tournait et que les minuteurs Dart etaient a
+ * l'heure. Vingt-six frontieres de creneau sans sonnerie, jusqu'a ce qu'un
+ * depot de plan a 08:30 la rearme par hasard ; ensuite, 7 sonneries sur 7.
+ *
+ * Qui a avale la sonnerie (Doze, MIUI) n'est pas notre affaire ; **qu'une
+ * seule sonnerie perdue suffise a arreter toutes les suivantes, sans rien
+ * signaler, l'est**. [veille] est la reponse : toute main qui passe par le
+ * service (la page qui tourne, un plan depose) verifie si l'echeance visee
+ * est depassee d'un creneau entier et, si oui, repose l'alarme et **l'ecrit**.
+ *
  * ## ⚠️ Ce que cette classe ne fait pas
  *
  * Elle ne sait pas ce qu'est un jeton, un ami ni un plan. Elle sonne aux
@@ -66,6 +82,12 @@ class SlotAlarm(
      * processus, et c'est precisement la nuit qu'il meurt (2026-09-13).
      */
     private val onReveil: (Long) -> Unit = {},
+    /**
+     * Appele quand [veille] constate une sonnerie **perdue** (echeance
+     * depassee d'un creneau entier, jamais delivree) et la repose, avec le
+     * retard constate. Meme destination que [onReveil] : le disque.
+     */
+    private val onPerdu: (Long) -> Unit = {},
     private val onSlot: () -> Unit,
 ) {
     private val manager = context.getSystemService(AlarmManager::class.java)
@@ -139,6 +161,27 @@ class SlotAlarm(
         }
     }
 
+    /**
+     * Repose l'alarme si sa sonnerie a ete avalee.
+     *
+     * A appeler a chaque passage de main dans le service (voir la note
+     * « une sonnerie avalee » en tete de fichier). Sans effet quand le reveil
+     * est desarme, quand aucune echeance n'est visee, ou quand la sonnerie
+     * est seulement **en retard** — jusqu'a 10,7 min observees le 2026-09-14,
+     * ce qui est absorbe par la fenetre de reconnaissance. Perdue = un creneau
+     * entier apres l'echeance ([estPerdue]) : a ce moment-la, la frontiere
+     * suivante est deja passee et la sonnerie n'a plus rien a tourner.
+     *
+     * ⚠️ Reposer avec le meme `PendingIntent` **remplace** l'ancienne alarme :
+     * si elle finissait par arriver, elle ne sonnerait pas en double.
+     */
+    fun veille(nowMillis: Long = System.currentTimeMillis()) {
+        if (slotMillis <= 0L || vise == 0L) return
+        if (!estPerdue(nowMillis, vise, slotMillis)) return
+        onPerdu(nowMillis - vise)
+        arm(slotMillis)
+    }
+
     /** Desarme, et rend le recepteur au systeme. */
     fun cancel() {
         runCatching { manager?.cancel(pending()) }
@@ -195,5 +238,18 @@ class SlotAlarm(
          */
         fun prochaineFrontiere(nowMillis: Long, slotMillis: Long): Long =
             ((nowMillis / slotMillis) + 1) * slotMillis + MARGE
+
+        /**
+         * Une sonnerie visee pour [viseMillis] est **perdue** quand un creneau
+         * entier s'est ecoule depuis sans qu'elle arrive. En deca, elle est
+         * seulement en retard, et un retard est normal en veille.
+         *
+         * Pure, pour la meme raison que [prochaineFrontiere] : c'est la seule
+         * ligne qui puisse se tromper en silence — trop tot, on reposerait une
+         * alarme qui allait sonner ; trop tard, on retrouve la nuit du
+         * 2026-09-14.
+         */
+        fun estPerdue(nowMillis: Long, viseMillis: Long, slotMillis: Long): Boolean =
+            viseMillis != 0L && nowMillis - viseMillis > slotMillis
     }
 }

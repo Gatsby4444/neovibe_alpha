@@ -112,6 +112,18 @@ class ServiceJournalReading {
       'tâche retirée ${comptes['tache retiree par l\'utilisateur'] ?? 0} · '
       'arrêt voulu ${comptes['arret voulu'] ?? 0}',
     );
+    // Une alarme « perdue » a été constatée jamais délivrée et reposée par
+    // `SlotAlarm.veille` (nuit du 2026-09-14 : 26 d'affilée, sans une ligne).
+    // Zéro = rien à dire ; on ne l'imprime que si ça s'est produit.
+    final perdues = comptes['alarme perdue, reposee'] ?? 0;
+    if (perdues > 0) {
+      b.writeln(
+        '🔴 $perdues alarme(s) perdue(s) puis reposée(s) : le téléphone a '
+        'avalé une sonnerie de créneau',
+      );
+    }
+    final energie = _energie(comptes);
+    if (energie != null) b.writeln(energie);
     for (final m in morts) {
       b.writeln('🔴 $m');
     }
@@ -122,6 +134,35 @@ class ServiceJournalReading {
       b.writeln('aucune mort sans « detruit », aucun redémarrage du téléphone');
     }
     return b.toString().trimRight();
+  }
+
+  /// Les signaux d'énergie (`EnergyWatcher.kt`), sur une ligne — ou `null`
+  /// si le carnet n'en porte aucun (version antérieure à la v0.9.180).
+  static String? _energie(Map<String, int> comptes) {
+    int c(String e) => comptes[e] ?? 0;
+    final total =
+        c('chargeur branche') +
+        c('chargeur debranche') +
+        c('ecran allume') +
+        c('ecran eteint') +
+        c('veille profonde : oui') +
+        c('veille profonde : non') +
+        c('veille legere : oui') +
+        c('veille legere : non') +
+        c("economie d'energie : oui") +
+        c("economie d'energie : non") +
+        c('batterie faible') +
+        c('batterie ok');
+    if (total == 0) return null;
+    return 'énergie : chargeur branché ${c('chargeur branche')} / '
+        'débranché ${c('chargeur debranche')} · écran allumé '
+        '${c('ecran allume')} / éteint ${c('ecran eteint')} · veille profonde '
+        'entrée ${c('veille profonde : oui')} / sortie '
+        '${c('veille profonde : non')} · veille légère entrée '
+        '${c('veille legere : oui')} / sortie ${c('veille legere : non')} · '
+        "économie d'énergie activée ${c("economie d'energie : oui")} / "
+        "désactivée ${c("economie d'energie : non")} · batterie faible "
+        '${c('batterie faible')}';
   }
 
   static String _hhmm(DateTime d) =>
