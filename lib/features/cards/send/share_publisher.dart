@@ -181,9 +181,10 @@ class SharePublisher {
           back: draft.back,
           type: draft.type,
           maxViews: plan.regles.maxViews,
-          // Pas de face photo = pas de limite de durée (les vidéos se lisent
-          // en entier).
-          viewDurationSeconds: draft.hasPhoto
+          // Pas de face photo, ou Oneshot = pas de limite de durée, quel que
+          // soit le défaut des Réglages. Une durée absente = illimitée pour
+          // le visionneur, rien à changer de son côté.
+          viewDurationSeconds: draft.acceptsDuration
               ? plan.regles.viewDurationSeconds
               : null,
           saveable: lot.saveable && draft.type.canBeSaveable,

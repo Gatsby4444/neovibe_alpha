@@ -330,9 +330,10 @@ class _ViewingRulesEditorState extends State<ViewingRulesEditor> {
           },
         ),
 
-        // La durée de lecture ne concerne que les faces photo : une face
-        // vidéo se lit en entier (consigne Jay 2026-07-12).
-        if (draft.hasPhoto) ...[
+        // La durée de lecture ne concerne que les faces photo d'une Vibe
+        // standard : une face vidéo se lit en entier (2026-07-12), un Oneshot
+        // n'a pas de chrono (2026-09-14). Voir [VibeDraft.acceptsDuration].
+        if (draft.acceptsDuration) ...[
           const SizedBox(height: 8),
           Text(
             _duration == 21

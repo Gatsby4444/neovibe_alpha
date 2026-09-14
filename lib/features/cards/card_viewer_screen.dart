@@ -127,10 +127,21 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
   bool _faceIsVideo(bool front) =>
       front ? widget.card.frontIsVideo : widget.card.backIsVideo;
 
-  /// Card dont les deux faces sont filmées (Oneshot vidéo) : les deux lecteurs
-  /// tournent en parallèle, seul celui de la face regardée a le son.
-  bool get _bothFacesVideo =>
-      widget.card.frontIsVideo && widget.card.backIsVideo;
+  /// **Oneshot filmé** : les deux faces sont le même instant vu de deux
+  /// côtés, donc les deux lecteurs tournent en parallèle, seul celui de la
+  /// face regardée a le son, et retourner ne fait que déplacer le son (retour
+  /// de Jay, v0.9.20).
+  ///
+  /// ⚠️ **Le type fait partie de la condition, et c'était le défaut.** Avant
+  /// le 2026-09-14, « deux faces vidéo » suffisait : une Vibe **standard**
+  /// filmée des deux côtés — deux moments différents — était synchronisée
+  /// comme un Oneshot, sans un mot. Jay veut pour elle deux lecteurs
+  /// indépendants : chaque face se met en pause quand elle est cachée,
+  /// reprend où elle en était, et a sa propre barre.
+  bool get _oneshotFilme =>
+      widget.card.type == CardType.oneshot &&
+      widget.card.frontIsVideo &&
+      widget.card.backIsVideo;
 
   /// Dernière position de lecture de la face regardée. Champ simple, JAMAIS
   /// dans un `setState` : il est mis à jour à chaque image et ne sert qu'au
@@ -549,9 +560,9 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
         // côtés. Elles tournent donc ENSEMBLE (la cachée en silence) et le
         // retournement ne fait que déplacer le son — sinon la face d'arrivée
         // repartait de zéro (retour de Jay, v0.9.20).
-        playsWhenHidden: _bothFacesVideo && _phase == _Phase.viewing,
-        syncTo: _bothFacesVideo ? _videoPosition : null,
-        onPosition: _bothFacesVideo ? (p) => _videoPosition = p : null,
+        playsWhenHidden: _oneshotFilme && _phase == _Phase.viewing,
+        syncTo: _oneshotFilme ? _videoPosition : null,
+        onPosition: _oneshotFilme ? (p) => _videoPosition = p : null,
         // Barre intouchable pour le destinataire sauf accord du créateur ;
         // toujours libre pour l'émetteur et en bibliothèque.
         allowScrub: !_limitsApply || widget.card.scrubbable,

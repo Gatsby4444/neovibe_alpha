@@ -78,6 +78,17 @@ class VibeDraft {
   /// (les faces vidéo se lisent en entier).
   bool get hasPhoto => !frontIsVideo || (back != null && !backIsVideo);
 
+  /// La durée de lecture a-t-elle un sens pour cette Vibe ?
+  ///
+  /// Une face **photo** d'une Vibe standard : oui. Un **Oneshot** : jamais
+  /// (Jay, 2026-09-14) — *un instant vu des deux côtés*, sa valeur est dans
+  /// le retournement, pas dans le chrono ; ses seules limites sont le nombre
+  /// d'ouvertures et, s'il est filmé, la barre de lecture. Les faces vidéo
+  /// n'en ont jamais eu (2026-07-12). Un seul endroit décide, pour la roue
+  /// ⚙︎ **et** pour l'envoi : deux avis divergents auraient laissé un
+  /// curseur qui ne règle rien, ou une durée envoyée sans curseur.
+  bool get acceptsDuration => type != CardType.oneshot && hasPhoto;
+
   /// Le préfixe `local-` n'est pas décoratif : il **dit** que cet identifiant
   /// ne désigne rien côté serveur, et c'est sur lui que `SavedStore` s'appuie
   /// pour ne pas aller demander au serveur si un contenu qui n'existe pas chez
