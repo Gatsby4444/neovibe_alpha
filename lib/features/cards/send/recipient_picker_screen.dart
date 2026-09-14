@@ -37,8 +37,10 @@ import 'share_settings_sheets.dart';
 /// 4. **« Groupes et amis »** ⚙︎ — les **10 plus proches** en tableau 2
 ///    colonnes, puis **les groupes** par ma participation, puis **tout le
 ///    monde** par interaction récente, puis les croisés ;
-/// 5. « Enregistrer pour moi », à part ;
-/// 6. la barre « Envoyer · N ».
+/// 5. la barre « Envoyer · N ».
+///
+/// « Enregistrer pour moi » est un **signet dans la barre de titre** (Jay,
+/// 2026-09-14 : en bas de liste, il était « difficilement accessible »).
 ///
 /// **Aucun réglage sur les lignes.** Les réglages vivent derrière les deux
 /// roues ⚙︎ (`share_settings_sheets.dart`) ; les lignes ne portent que la
@@ -376,6 +378,17 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
             if (vibe != null) VibeTypeChip(type: typeEffectif),
           ],
         ),
+        // 5. « Enregistrer pour moi » n'est PAS une destination : c'est le
+        // cinquième contexte (Jay, 2026-08-14). Il agit maintenant, d'où sa
+        // place hors du plan — et hors de la liste : un signet toujours sous
+        // le pouce, au lieu d'un bouton tout en bas (Jay, 2026-09-14).
+        actions: [
+          if (vibe != null)
+            Padding(
+              padding: const EdgeInsets.only(right: NeoSpace.sm),
+              child: SaveForMeButton(draft: vibe.draft),
+            ),
+        ],
       ),
       body: Column(
         children: [
@@ -386,10 +399,9 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
                     padding: const EdgeInsets.only(bottom: NeoSpace.xxl),
                     children: [
                       if (widget.header != null) widget.header!,
-                      // ⚠️ Le bandeau 1/1 en haut : ses règles décident de ce
-                      // qu'on a le droit de cocher.
-                      if (typeEffectif == CardType.oneOfOne)
-                        const OneOfOneBanner(),
+                      // Le basculement 1/1 se lit sur la pastille du titre,
+                      // et nulle part ailleurs : l'encadré doré qui vivait ici
+                      // décalait toute la page (Jay, 2026-09-14).
                       _BarreDeRecherche(
                         controller: _rechercheCtrl,
                         onChanged: (v) => setState(() => _recherche = v),
@@ -504,19 +516,6 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
                           plan: _plan,
                           onToggle: _toggleCroise,
                         ),
-
-                      // 5. « Enregistrer pour moi » n'est PAS une destination :
-                      // c'est le cinquième contexte (Jay, 2026-08-14). Il agit
-                      // maintenant, d'où sa place à part, hors du plan.
-                      if (vibe != null) ...[
-                        const SizedBox(height: NeoSpace.md),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: NeoSpace.lg,
-                          ),
-                          child: SaveForMeButton(draft: vibe.draft),
-                        ),
-                      ],
                     ],
                   ),
           ),
@@ -1177,6 +1176,10 @@ class _BoutonEnvoyer extends StatelessWidget {
   final SharePlan plan;
   final String label;
   final bool montreLeCout;
+
+  /// Ce que dit le bouton tant qu'aucune destination n'est cochée. Court,
+  /// parce que la boîte de texte Rive l'est (voir le `build`).
+  static const _inerte = 'À qui ?';
   final VoidCallback onEnvoyer;
 
   @override
@@ -1199,12 +1202,17 @@ class _BoutonEnvoyer extends StatelessWidget {
           ),
         // Le bouton d'envoi Rive de Jay (habillage, jamais une dépendance :
         // le `FilledButton` prend le relais si le fichier ne charge pas).
+        //
+        // ⚠️ **Le libellé est dessiné DANS le fichier Rive**, dans une boîte
+        // de texte à largeur fixe (artboard 220 × 110) : un texte plus long
+        // que la boîte est **rogné des deux côtés**, sans que le Dart puisse
+        // le mesurer. « CHOISIS UNE DESTINATION » ne tenait pas (Jay,
+        // 2026-09-14). Règle : un libellé court, de la taille de
+        // « PARTAGER · 12 » au plus. L'adaptation à la longueur du texte se
+        // règle dans Rive (texte en auto-fit), pas ici.
         RiveSendButton(
-          label:
-              (destinations == 0
-                      ? 'Choisis une destination'
-                      : '$label · $destinations')
-                  .toUpperCase(),
+          label: (destinations == 0 ? _inerte : '$label · $destinations')
+              .toUpperCase(),
           onPressed: destinations == 0 ? null : onEnvoyer,
           height: 72,
           fallback: FilledButton(
@@ -1212,11 +1220,7 @@ class _BoutonEnvoyer extends StatelessWidget {
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(48),
             ),
-            child: Text(
-              destinations == 0
-                  ? 'Choisis une destination'
-                  : '$label · $destinations',
-            ),
+            child: Text(destinations == 0 ? _inerte : '$label · $destinations'),
           ),
         ),
       ],

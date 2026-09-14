@@ -132,15 +132,26 @@ class _DefaultsButton extends StatelessWidget {
         child: Text(aide, style: TextStyle(color: context.faint, fontSize: 11)),
       ),
       const SizedBox(width: NeoSpace.md),
-      OutlinedButton.icon(
-        onPressed: () async {
-          await onPressed();
-          if (context.mounted) {
-            TopBanner.show(context, 'Défauts enregistrés');
-          }
-        },
-        icon: const Icon(Icons.push_pin_outlined, size: 16),
-        label: const Text('Défauts'),
+      // ⚠️ **Borné, et ce n'est pas décoratif.** Le thème donne aux boutons
+      // contour une largeur minimale INFINIE (`Size.fromHeight(52)`, voir
+      // `_outlinedStyle` dans `core/theme.dart`). Nu dans une `Row`, ce
+      // bouton réclamait tout, partait hors de l'écran, et le texte d'aide à
+      // sa gauche recevait 0 px : **une lettre par ligne**, sans une erreur
+      // en release. Vu par Jay le 2026-09-14 (captures). Même piège que le
+      // 2026-08-17 (`test/filled_button_row_test.dart`, qui le garde
+      // désormais aussi pour `OutlinedButton`).
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 150),
+        child: OutlinedButton.icon(
+          onPressed: () async {
+            await onPressed();
+            if (context.mounted) {
+              TopBanner.show(context, 'Défauts enregistrés');
+            }
+          },
+          icon: const Icon(Icons.push_pin_outlined, size: 16),
+          label: const Text('Défauts'),
+        ),
       ),
     ],
   );

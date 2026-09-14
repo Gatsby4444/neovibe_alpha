@@ -19,7 +19,8 @@ import 'vibe_draft.dart';
 /// paramétré par des booléens jusqu'à redevenir l'écran unique qu'on vient de
 /// démonter.
 
-/// Le bouton « Enregistrer pour moi ».
+/// Le bouton « Enregistrer pour moi » — un **signet dans la barre de titre**
+/// depuis le 2026-09-14.
 ///
 /// Refonte du 2026-08-14, demande de Jay : ce n'était **pas** une case à
 /// cocher qui promettait une copie à l'envoi, c'est un bouton qui la fait
@@ -105,27 +106,24 @@ class _SaveForMeButtonState extends ConsumerState<SaveForMeButton> {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-      child: OutlinedButton.icon(
-        onPressed: _busy ? null : _save,
-        icon: _busy
-            ? const SizedBox(
-                height: 16,
-                width: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            : Icon(
-                _saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
-              ),
-        label: Text(_saved ? 'Sauvegardée' : 'Enregistrer pour moi'),
-        style: OutlinedButton.styleFrom(
-          minimumSize: const Size.fromHeight(46),
-          foregroundColor: _saved
-              ? Theme.of(context).colorScheme.primary
-              : null,
-        ),
-      ),
+    // Un signet dans la barre de titre, pas un bouton en bas de liste
+    // (Jay, 2026-09-14 : « tout en bas, difficilement accessible »). Toujours
+    // à la même place quel que soit le défilement, et le signet plein dit
+    // « déjà fait » sans un mot.
+    final primary = Theme.of(context).colorScheme.primary;
+    return IconButton(
+      onPressed: _busy ? null : _save,
+      tooltip: _saved ? 'Sauvegardée' : 'Enregistrer pour moi',
+      icon: _busy
+          ? const SizedBox(
+              height: 18,
+              width: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(
+              _saved ? Icons.bookmark_rounded : Icons.bookmark_border_rounded,
+              color: _saved ? primary : null,
+            ),
     );
   }
 }
@@ -176,58 +174,13 @@ String friendlySendError(Object e) {
   return 'Erreur : $text';
 }
 
-/// Bandeau du basculement automatique en One of One (2026-08-10).
-///
-/// L'utilisateur n'a rien choisi : c'est la forme de son envoi qui a décidé.
-/// Le bandeau dit donc la conséquence ET la manière d'en sortir.
-class OneOfOneBanner extends StatelessWidget {
-  const OneOfOneBanner({super.key});
-
-  static const gold = Color(0xFFD4AF37);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.fromLTRB(12, 10, 12, 2),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: gold.withValues(alpha: 0.10),
-        border: Border.all(color: gold.withValues(alpha: 0.55)),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Icon(Icons.workspace_premium, color: gold, size: 20),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'One of One',
-                  style: TextStyle(
-                    color: gold,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.4,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  'Un seul destinataire et aucune publication : cette Vibe '
-                  'devient exclusive, pour elle seule et à jamais. Ajoute '
-                  'quelqu\'un pour revenir à une Vibe normale.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// ⚠️ **`OneOfOneBanner` a été SUPPRIMÉ le 2026-09-14** (demande de Jay,
+// captures du partage refondu) : inséré en tête de liste, l'encadré doré
+// **décalait toute l'interface** au moment où le nombre de destinataires
+// tombait à un — et remontait quand il repassait à deux. La pastille du titre
+// (`VibeTypeChip`, ci-dessous) annonce déjà le basculement, sans bouger la
+// page ; c'est elle seule qui reste. Un seul appelant relevé
+// (`RecipientPickerScreen`), zéro dépendant de sa constante `gold`.
 
 /// La pastille de type, dans l'AppBar des écrans de paramétrage.
 class VibeTypeChip extends StatelessWidget {

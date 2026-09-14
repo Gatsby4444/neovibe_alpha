@@ -368,6 +368,18 @@ Card restreinte (petit, réutilise tout), puis **B2** = l'objet « post » et so
 ne rejoue QUE la destination en échec »), `share_plan_test.dart` (+4 : 📚
 seule, ligne vide, ami sans conversation, `restreintA`).
 
+### 9.1 Retouches après le premier test de Jay (2026-09-14, v0.9.181)
+
+Captures de Jay sur la v0.9.179 :
+
+| Vu | Cause | Fait |
+|---|---|---|
+| Le texte d'aide de la feuille « Groupes et amis » s'affiche **une lettre par ligne** | le bouton « Défauts » (contour) hérite du thème une largeur minimale **infinie** ; nu dans une `Row`, il prend tout et le texte `Expanded` reçoit 0 px — le piège du 2026-08-17 sur `OutlinedButton` | bouton borné (`ConstrainedBox` 150) ; `filled_button_row_test.dart` garde le motif et le contrat du thème pour le contour aussi |
+| « CHOISIS UNE DESTINATION » **rogné** dans le bouton d'envoi | le libellé est dessiné **dans le fichier Rive**, boîte de texte à largeur fixe ; le Dart ne peut pas le mesurer | libellé inerte court : « À QUI ? ». L'adaptation à la longueur se règle dans Rive (texte auto-fit) — outil de Jay |
+| L'encadré doré « One of One » **décale toute la page** en apparaissant | inséré en tête de liste | retiré, widget supprimé (un appelant) ; la pastille du titre suffit |
+| « Enregistrer pour moi » **tout en bas**, difficile d'accès | dernier élément de la liste | **signet dans la barre de titre**, toujours visible ; plein une fois sauvegardé |
+| Les « plus proches » ne proposent pas 💬 / 📚 | choix de conception (§2.7 : la grille est le chemin rapide) | à trancher avec Jay — options dans le rapport de session |
+
 ---
 
 ## 8. Ce que ce plan prépare, sans le faire

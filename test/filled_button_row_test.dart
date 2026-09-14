@@ -83,6 +83,51 @@ void main() {
     }
   });
 
+  testWidgets(
+    'OutlinedButton borné à côté d\'un texte Expanded : le texte garde sa '
+    'largeur',
+    (tester) async {
+      // Le motif de la feuille « Réglages pour les groupes et amis »
+      // (2026-09-14) : une aide en `Expanded`, puis le bouton « Défauts ».
+      // Nu, le bouton contour réclame l'infini et l'aide reçoit 0 px — une
+      // lettre par ligne, ce que Jay a vu sur son téléphone. Borné, l'aide
+      // garde une largeur lisible et le bouton reste à l'écran.
+      const aide = 'Garder « Sauvegardable » comme défaut pour chaque ami';
+      await pomper(
+        tester,
+        Row(
+          children: [
+            const Expanded(child: Text(aide)),
+            const SizedBox(width: 8),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 150),
+              child: OutlinedButton.icon(
+                onPressed: () {},
+                icon: const Icon(Icons.push_pin_outlined),
+                label: const Text('Défauts'),
+              ),
+            ),
+          ],
+        ),
+      );
+      expect(tester.takeException(), isNull);
+
+      // 🔴 **Le contre-test.** Retirer le `ConstrainedBox` fait tomber ces
+      // deux lignes : l'aide passe sous 20 px et le bouton sort à droite.
+      final ecran = tester.getSize(find.byType(MaterialApp)).width;
+      expect(
+        tester.getSize(find.text(aide)).width,
+        greaterThan(100),
+        reason: 'l\'aide doit garder une largeur lisible',
+      );
+      expect(
+        tester.getRect(find.text('Défauts')).right,
+        lessThanOrEqualTo(ecran),
+        reason: 'le bouton déborde à droite',
+      );
+    },
+  );
+
   test('le thème impose bien une largeur minimale INFINIE', () {
     // ⚠️ **Le contrat, énoncé une fois.** C'est cette valeur qui rend pleine
     // largeur les ~40 gros boutons de l'app sans que personne ne l'écrive — et
@@ -108,5 +153,13 @@ void main() {
           '`_filledStyle()` dans lib/core/theme.dart.',
     );
     expect(taille?.height, 52);
+
+    // Et le bouton CONTOUR aussi : c'est lui qui a produit le texte vertical
+    // du 2026-09-14. Même contrat, même vigilance.
+    final contour = NeoTheme.of(
+      NeoIdentity.sombre,
+      Brightness.dark,
+    ).outlinedButtonTheme.style?.minimumSize?.resolve({});
+    expect(contour?.width, double.infinity);
   });
 }
