@@ -298,3 +298,18 @@ la géographie, et ce que les amis ont **ajouté** — anonyme jusqu'au like, qu
 ouvre le chat 24 h ; le scroll qui se durcit vers 60) — la cellule, le
 suivi d'activité, le carrousel, la carte et les likes sont prêts à y être
 branchés tels quels.
+
+### 9.5 Premier test de Jay sur la v0.9.189 — v0.9.190 (2026-09-15)
+
+*« Correct mais pas encore satisfaisant. »* Trois points.
+
+| # | Vu | Cause | Fait |
+|---|---|---|---|
+| 1 | en retournant une Card du fil, « un flash de la face d'une autre card » | la face **photo** prenait la hauteur de l'image *une fois décodée* — zéro avant. Le verso retourné est un widget neuf : la cellule s'écrasait à 37 px (marge + liseré) le temps d'une image, la liste remontait pour combler, la Card **suivante** passait sous le doigt, puis tout revenait | **toute face impose le portrait 9:16 dans tous ses états** (`kVibeFaceRatio` : en attente, photo, vidéo, erreur — `vibe_face.dart`). Test `vibe_face_layout_test.dart` avec contre-test (37 px sans, 398 px avec) |
+| 2 | retourner la dernière Card fait remonter la page d'une Card | même cause : tout en bas, la liste « trop courte » d'une Card ramène la position au nouveau bas, et quand la cellule regrandit la position ne revient pas | même réparation |
+| 3 | *« on avait choisi de supprimer la direction 3D avec le doigt, mais tu l'as laissée pour les Cards à simple face »* — et Jay constate que **le geste libre et le défilement cohabitent très bien** | le 2026-09-14 j'avais affirmé qu'on ne pouvait pas avoir les deux (le vertical à la fermeture) et remplacé le geste libre par une inclinaison « à l'attrape » ; la seule Card à l'avoir gardé était celle que j'avais oubliée. **Vérifié dans la source de Flutter** (`gestures/monodrag.dart`) : le reconnaisseur vertical de l'écran n'accepte que sur sa composante, à 18 px ; le geste libre de la carte accepte à 36 px de distance totale ; le premier qui accepte gagne. **Un départ vertical va à l'écran, un départ horizontal à la carte — puis tout le geste lui appartient** | **le geste libre remis partout** (fil, Vibes plein écran, chat, stories, sauvegardes, Drop) : `TiltableCard` et `FlippableCard` perdent `fullScreen` et `tiltAtGrab` ; seules les **mini-cards** de la grille gardent l'axe contraint (distance fixe, elles sont trop petites). Test `card_gesture_arena_test.dart` : dans une liste, un départ vertical défile sans toucher la carte, un départ horizontal retourne sans défiler |
+
+Défaut latent attrapé par ce test : le contrôleur d'animation de
+`TiltableCard` était un `late final` avec initialiseur — pour une carte jamais
+touchée, son premier accès était `dispose()`, qui créait un ticker sur un
+élément démonté. Créé dans `initState` désormais. Tests : **512**.

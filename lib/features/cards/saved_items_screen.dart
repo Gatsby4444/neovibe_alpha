@@ -245,13 +245,11 @@ class _SavedViewerScreenState extends State<_SavedViewerScreen> {
         body: Center(
           child: item.hasBack
               ? FlippableCard(
-                  dragAxis: Axis.horizontal,
-                  fullScreen: true,
                   onSideChanged: (f) => setState(() => _showFront = f),
                   front: front,
                   back: face(item.backPath!, item.backIsVideo, !_showFront),
                 )
-              : TiltableCard(fullScreen: true, child: front),
+              : TiltableCard(child: front),
         ),
       ),
     );

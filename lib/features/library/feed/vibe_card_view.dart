@@ -11,7 +11,8 @@ import '../../cards/flippable_card.dart';
 /// **Une Vibe publiée, telle qu'on la regarde** : la carte recto/verso,
 /// retournable au doigt, avec le cadre de son type — le format qu'on
 /// promeut. Même composant dans le fil du profil (en cellule) et en plein
-/// écran (`fullScreen`), et demain dans le feed des Vibes.
+/// écran, et demain dans le feed des Vibes. Le geste est libre partout
+/// (voir [TiltableCard] : le défilement se règle aux premiers millimètres).
 ///
 /// Les faces passent par le socle (`contentFaceProvider`) : scellé → clé →
 /// clair, la clé prise dans le lot de la bibliothèque du propriétaire.
@@ -20,7 +21,6 @@ class VibeCardView extends ConsumerStatefulWidget {
     super.key,
     required this.item,
     required this.active,
-    this.fullScreen = false,
     this.onTap,
   });
 
@@ -28,7 +28,6 @@ class VibeCardView extends ConsumerStatefulWidget {
 
   /// La carte est celle qu'on regarde : sa face visible joue (vidéo).
   final bool active;
-  final bool fullScreen;
   final VoidCallback? onTap;
 
   @override
@@ -93,15 +92,9 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
         // ⚠️ La structure ne dépend QUE de `hasBack`, constant : choisir
         // d'après l'arrivée du verso changerait le type du widget et
         // reconstruirait le lecteur du recto (voir [VibeFaceLoading]).
-        if (!item.hasBack) {
-          return widget.fullScreen
-              ? TiltableCard(fullScreen: true, child: _tappable(frontFace))
-              : _tappable(TiltableCard(child: frontFace));
-        }
+        if (!item.hasBack) return _tappable(TiltableCard(child: frontFace));
         final backFile = back?.value;
         return FlippableCard(
-          dragAxis: Axis.horizontal,
-          fullScreen: widget.fullScreen,
           onSideChanged: (f) => setState(() => _showFront = f),
           onTap: widget.onTap,
           front: frontFace,

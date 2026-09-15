@@ -7,6 +7,20 @@ import '../models/card.dart';
 import '../video/sealed_video_controller.dart';
 import '../video/sealed_video_view.dart';
 
+/// Le format d'une face de Vibe : portrait 9:16, celui de la capture
+/// (`card_capture_screen.dart`, `targetRatio`).
+///
+/// ⚠️ **Toute face l'impose, dans tous ses états** — en attente, photo,
+/// vidéo, erreur. Constaté chez Jay le 2026-09-15 (v0.9.189) : la face photo
+/// prenait la hauteur de l'image *une fois décodée*, donc zéro avant. Dans
+/// une liste, retourner une Card inflatait un verso neuf : la cellule
+/// s'écrasait une image de temps, la liste remontait pour combler, la Card
+/// suivante passait sous le doigt (« un flash d'une autre card »), et tout en
+/// bas la position ne revenait pas (« ça remonte d'une card »). Seul, centré
+/// dans un visionneur, ça ne se voyait pas. La hauteur d'une face ne dépend
+/// plus jamais de ce qui est chargé.
+const kVibeFaceRatio = 9 / 16;
+
 /// L'**apparence** d'une face de Vibe : liseré à la couleur du type (dégradé
 /// pour Oneshot et BeReal, or épais pour la One of One), coins arrondis, fond
 /// noir, halo coloré.
@@ -88,7 +102,7 @@ class VibeFaceLoading extends StatelessWidget {
   Widget build(BuildContext context) => VibeFaceFrame(
     type: type,
     child: const AspectRatio(
-      aspectRatio: 3 / 4,
+      aspectRatio: kVibeFaceRatio,
       child: Center(child: CircularProgressIndicator(color: Colors.white24)),
     ),
   );
@@ -104,12 +118,12 @@ class VibePhotoFace extends StatelessWidget {
   Widget build(BuildContext context) {
     return VibeFaceFrame(
       type: type,
-      child: Image.memory(
-        bytes,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stack) => const AspectRatio(
-          aspectRatio: 3 / 4,
-          child: Center(
+      child: AspectRatio(
+        aspectRatio: kVibeFaceRatio,
+        child: Image.memory(
+          bytes,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stack) => const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -256,7 +270,7 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
     return VibeFaceFrame(
       type: widget.type,
       child: AspectRatio(
-        aspectRatio: 9 / 16,
+        aspectRatio: kVibeFaceRatio,
         child: _error != null
             ? VideoFaceError(error: _error!)
             : !_controller.value.isInitialized

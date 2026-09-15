@@ -20,14 +20,14 @@ import '../theme.dart';
 /// - En deçà : il revient en place d'un ressort.
 /// - Vers le **haut** : rien.
 ///
-/// ## Pourquoi ça ne mange pas le retournement
+/// ## Pourquoi ça ne mange pas le geste de la carte
 ///
-/// Le retournement d'une Vibe est **horizontal** ([FlippableCard] en
-/// `dragAxis: Axis.horizontal` dans les visionneurs) ; ce composant ne pose
-/// qu'un reconnaisseur **vertical**. Flutter départage les deux à la direction
-/// des premiers millimètres. Ce que le plein écran perdait — l'inclinaison
-/// verticale pendant le geste — est rendu par `FlippableCard.fullScreen`
-/// (l'inclinaison se fixe à l'endroit où le doigt attrape la carte).
+/// Ce composant ne pose qu'un reconnaisseur **vertical** ; la carte garde son
+/// geste **libre** (retourner, incliner dans les deux sens). Flutter les
+/// départage à la direction des premiers millimètres : un départ vertical
+/// ferme, un départ horizontal attrape la carte — et la carte garde alors
+/// tout le geste. Le détail, la source et la correction du 2026-09-15 sont
+/// sur [TiltableCard] (`flippable_card.dart`).
 ///
 /// ## Ce que ce fichier ne décide pas
 ///

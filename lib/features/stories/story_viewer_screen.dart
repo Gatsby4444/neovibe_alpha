@@ -268,18 +268,11 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
                       // reconstruisait le lecteur du recto (voir
                       // [VibeFaceLoading]).
                       if (!story.hasBack) {
-                        return Center(
-                          child: TiltableCard(
-                            fullScreen: true,
-                            child: frontFace,
-                          ),
-                        );
+                        return Center(child: TiltableCard(child: frontFace));
                       }
                       final backFile = back?.value;
                       return Center(
                         child: FlippableCard(
-                          dragAxis: Axis.horizontal,
-                          fullScreen: true,
                           onSideChanged: (f) => setState(() => _showFront = f),
                           front: frontFace,
                           back: backFile == null

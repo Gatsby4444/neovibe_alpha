@@ -653,12 +653,10 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
           ),
           // Face unique (verso passé) : non retournable, le jeu d'angle reste
           _Phase.viewing when _shownBack == null => Center(
-            child: TiltableCard(fullScreen: true, child: _buildFace(true)),
+            child: TiltableCard(child: _buildFace(true)),
           ),
           _Phase.viewing => Center(
             child: FlippableCard(
-              dragAxis: Axis.horizontal,
-              fullScreen: true,
               invertDrag: ref.watch(flipDirectionInvertedProvider),
               onSideChanged: (front) => setState(() => _showFront = front),
               onSideSettled: _onSideSettled,

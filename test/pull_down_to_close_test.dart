@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/palette.dart';
 import 'package:neovibe/core/theme.dart';
 import 'package:neovibe/core/widgets/pull_down_to_close.dart';
-import 'package:neovibe/features/cards/flippable_card.dart';
 
 /// Ce que ces tests défendent : **le geste de fermeture des visionneurs**
 /// (Jay, 2026-09-14). Un seuil trop bas ferme l'écran sous un doigt qui
@@ -56,15 +55,6 @@ void main() {
         PullDownToClose.scaleFor(drag: 2000, height: h),
         closeTo(0.85, 1e-9),
       );
-    });
-
-    test('l\'inclinaison à l\'attrape : haut vers soi, centre à plat', () {
-      expect(tiltAtGrab(0, 400, 0.22), closeTo(0.22, 1e-9));
-      expect(tiltAtGrab(200, 400, 0.22), closeTo(0, 1e-9));
-      expect(tiltAtGrab(400, 400, 0.22), closeTo(-0.22, 1e-9));
-      // Hors de la carte : borné, jamais au-delà.
-      expect(tiltAtGrab(-50, 400, 0.22), closeTo(0.22, 1e-9));
-      expect(tiltAtGrab(10, 0, 0.22), 0);
     });
   });
 

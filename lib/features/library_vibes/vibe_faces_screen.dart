@@ -156,8 +156,6 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
                   // pas un geste qui ne mènerait nulle part.
                   : vibe.hasBack
                   ? FlippableCard(
-                      dragAxis: Axis.horizontal,
-                      fullScreen: true,
                       onSideChanged: (f) => setState(() => _showFront = f),
                       front: _face(front: true),
                       back: _face(front: false),

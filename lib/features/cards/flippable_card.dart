@@ -5,21 +5,41 @@ import 'package:flutter/material.dart';
 
 import '../../core/motion.dart';
 
-/// Carte Mono : face unique, PAS de retournement, mais le jeu d'angle reste
+/// **Le geste d'une carte, et comment il cohabite avec l'écran qui la porte.**
+///
+/// Une carte se manipule au doigt dans toutes les directions (« comme une
+/// vraie carte dans l'espace », Jay, 2026-07-11) — et l'écran autour d'elle
+/// a lui aussi un geste vertical : défiler (le fil, la grille), passer à la
+/// suivante (les Vibes plein écran), fermer (`PullDownToClose`). Les deux ne
+/// se battent pas : **Flutter les départage sur les premiers millimètres**.
+///
+/// Constaté dans la source du framework (`gestures/monodrag.dart`,
+/// Flutter 3.44, le 2026-09-15) : le reconnaisseur vertical de l'écran ne
+/// compte que la composante verticale du déplacement et accepte dès
+/// `kTouchSlop` (18 px) ; le reconnaisseur libre de la carte compte la
+/// distance totale et accepte à `kPanSlop` (36 px). Le premier qui accepte
+/// gagne, l'autre est écarté. Donc : **un départ vertical va à l'écran, un
+/// départ horizontal va à la carte** — et une fois la carte attrapée, tout le
+/// geste lui appartient, y compris ce qui suit en vertical. Un départ en
+/// diagonale penche vers l'écran (son seuil est plus court) ; Jay l'a jugé
+/// acceptable à l'usage sur les Cards à face unique du fil.
+///
+/// ⚠️ Le 2026-09-14 j'avais affirmé le contraire — « le vertical appartient à
+/// la fermeture, on ne peut pas avoir les deux » — et retiré le geste libre
+/// des visionneurs plein écran au profit d'une inclinaison « à l'attrape ».
+/// C'était une déduction, pas une lecture de la source. Jay a constaté que le
+/// geste libre et le défilement cohabitaient très bien là où je l'avais
+/// oublié (les Cards à face unique du fil, v0.9.189) : le geste libre est
+/// remis partout le 2026-09-15 (v0.9.190).
+///
+/// Carte à face unique : PAS de retournement, mais le jeu d'angle reste
 /// (consigne Jay 2026-07-12) — le doigt incline la carte dans l'espace
 /// (rotations X/Y bornées), elle revient à plat au relâchement. Le tap ne
 /// fait rien : il n'y a pas de deuxième face.
 class TiltableCard extends StatefulWidget {
-  const TiltableCard({super.key, required this.child, this.fullScreen = false});
+  const TiltableCard({super.key, required this.child});
 
   final Widget child;
-
-  /// Plein écran (visionneurs) : le geste **vertical appartient à la
-  /// fermeture** (`PullDownToClose`, 2026-09-14). On n'écoute donc que
-  /// l'horizontal, et l'inclinaison verticale se fixe **à l'endroit où le
-  /// doigt attrape la carte** — le haut attrapé penche vers soi, comme un
-  /// vrai objet — au lieu de suivre un geste vertical qui n'est plus à nous.
-  final bool fullScreen;
 
   @override
   State<TiltableCard> createState() => _TiltableCardState();
@@ -27,10 +47,11 @@ class TiltableCard extends StatefulWidget {
 
 class _TiltableCardState extends State<TiltableCard>
     with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: NeoMotion.ample,
-  )..addListener(_onTick);
+  /// Créé dans `initState`, PAS en `late final` avec initialiseur : un
+  /// `late` s'évalue au premier ACCÈS, et pour une carte jamais touchée le
+  /// premier accès était `dispose()` — un ticker créé sur un élément déjà
+  /// démonté (attrapé par `card_gesture_arena_test.dart`, 2026-09-15).
+  late final AnimationController _controller;
 
   /// Inclinaisons courantes (radians), bornées pour rester subtiles.
   double _tiltX = 0;
@@ -39,6 +60,13 @@ class _TiltableCardState extends State<TiltableCard>
   double _startTiltY = 0;
 
   static const _maxTilt = 0.32;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: NeoMotion.ample)
+      ..addListener(_onTick);
+  }
 
   void _onTick() {
     final t = NeoMotion.enter.transform(_controller.value);
@@ -50,16 +78,6 @@ class _TiltableCardState extends State<TiltableCard>
 
   void _onPanStart(DragStartDetails details) {
     _controller.stop();
-    if (widget.fullScreen) {
-      final size = context.size ?? const Size(300, 400);
-      setState(
-        () => _tiltX = tiltAtGrab(
-          details.localPosition.dy,
-          size.height,
-          _maxTilt,
-        ),
-      );
-    }
   }
 
   void _onPanUpdate(DragUpdateDetails details) {
@@ -69,12 +87,10 @@ class _TiltableCardState extends State<TiltableCard>
         -_maxTilt,
         _maxTilt,
       );
-      if (!widget.fullScreen) {
-        _tiltX = (_tiltX - details.delta.dy / size.height * 1.4).clamp(
-          -_maxTilt,
-          _maxTilt,
-        );
-      }
+      _tiltX = (_tiltX - details.delta.dy / size.height * 1.4).clamp(
+        -_maxTilt,
+        _maxTilt,
+      );
     });
   }
 
@@ -97,36 +113,17 @@ class _TiltableCardState extends State<TiltableCard>
       ..rotateX(_tiltX)
       ..rotateY(_tiltY);
 
-    final card = Transform(
-      alignment: Alignment.center,
-      transform: matrix,
-      child: widget.child,
+    return GestureDetector(
+      onPanStart: _onPanStart,
+      onPanUpdate: _onPanUpdate,
+      onPanEnd: _onPanEnd,
+      child: Transform(
+        alignment: Alignment.center,
+        transform: matrix,
+        child: widget.child,
+      ),
     );
-    return widget.fullScreen
-        ? GestureDetector(
-            onHorizontalDragStart: _onPanStart,
-            onHorizontalDragUpdate: _onPanUpdate,
-            onHorizontalDragEnd: _onPanEnd,
-            child: card,
-          )
-        : GestureDetector(
-            onPanStart: _onPanStart,
-            onPanUpdate: _onPanUpdate,
-            onPanEnd: _onPanEnd,
-            child: card,
-          );
   }
-}
-
-/// L'inclinaison verticale **fixée à l'attrape** (plein écran, 2026-09-14) :
-/// le doigt posé en haut de la carte ([dy] petit) la penche d'un côté, en
-/// bas de l'autre, au centre pas du tout. Pure, parce que c'est le seul
-/// calcul du geste plein écran qui puisse se tromper sans bruit — une carte
-/// qui penche du mauvais côté ne lève rien.
-double tiltAtGrab(double dy, double height, double maxTilt) {
-  if (height <= 0) return 0;
-  final t = (dy / height).clamp(0.0, 1.0);
-  return ((0.5 - t) * 2 * maxTilt).clamp(-maxTilt, maxTilt);
 }
 
 /// Carte retournable "comme une vraie carte dans l'espace" (consigne Jay) :
@@ -144,18 +141,21 @@ class FlippableCard extends StatefulWidget {
     this.invertDrag = false,
     this.dragAxis,
     this.onTap,
-    this.fullScreen = false,
   });
 
   final Widget front;
   final Widget back;
 
   /// Axe du geste de retournement.
-  /// - `null` (défaut) : geste libre (pan), comportement du viewer plein écran.
-  /// - `Axis.horizontal` / `Axis.vertical` : le geste est contraint à cet axe,
-  ///   et la carte tourne autour de l'axe correspondant. Indispensable dans une
-  ///   liste défilante : un `pan` capterait le défilement (mini-cards de la
-  ///   bibliothèque, consigne Jay 2026-07-25).
+  /// - `null` (défaut) : geste libre — l'horizontal retourne, le vertical
+  ///   incline ; le demi-tour se rapporte à la largeur de la carte. C'est le
+  ///   geste des visionneurs et des fils (voir [TiltableCard] pour la
+  ///   cohabitation avec le défilement : elle se règle aux premiers
+  ///   millimètres, pas en contraignant la carte).
+  /// - `Axis.horizontal` / `Axis.vertical` : le geste est contraint à cet axe
+  ///   et le demi-tour se rapporte à une distance FIXE ([_flipDistance]) —
+  ///   pour les **mini-cards** de la grille, trop petites pour qu'un demi-tour
+  ///   par largeur soit tenable (retour de Jay du 2026-07-26).
   final Axis? dragAxis;
 
   /// Si fourni, le tap déclenche CECI au lieu de retourner la carte — le
@@ -174,15 +174,6 @@ class FlippableCard extends StatefulWidget {
 
   /// Inverse le sens de rotation entraîné par le doigt (préférence utilisateur).
   final bool invertDrag;
-
-  /// Plein écran (visionneurs), **avec `dragAxis: Axis.horizontal`** : le
-  /// geste vertical appartient à la fermeture (`PullDownToClose`,
-  /// 2026-09-14). Deux différences avec une vignette sur axe contraint :
-  /// la référence du demi-tour reste la **largeur de la carte** (pas la
-  /// distance fixe des mini-cartes), et l'inclinaison X — que le geste
-  /// vertical donnait — se fixe **à l'endroit où le doigt attrape la carte**
-  /// ([tiltAtGrab]), puis revient à plat au relâchement comme avant.
-  final bool fullScreen;
 
   @override
   State<FlippableCard> createState() => _FlippableCardState();
@@ -237,12 +228,6 @@ class _FlippableCardState extends State<FlippableCard>
   void _onPanStart(DragStartDetails details) {
     _controller.stop();
     _gestureStartAngle = _angle;
-    if (widget.fullScreen && !_vertical) {
-      final size = context.size ?? const Size(300, 400);
-      setState(
-        () => _tilt = tiltAtGrab(details.localPosition.dy, size.height, 0.22),
-      );
-    }
   }
 
   double get _dragSign => widget.invertDrag ? -1.0 : 1.0;
@@ -260,12 +245,8 @@ class _FlippableCardState extends State<FlippableCard>
   /// une vignette de grille et sur une card de deck.
   static const _flipDistance = 260.0;
 
-  double _reference(Size size) {
-    if (widget.dragAxis == null || widget.fullScreen) {
-      return _vertical ? size.height : size.width;
-    }
-    return _flipDistance;
-  }
+  double _reference(Size size) =>
+      widget.dragAxis == null ? size.width : _flipDistance;
 
   void _onPanUpdate(DragUpdateDetails details) {
     final size = context.size ?? const Size(300, 400);

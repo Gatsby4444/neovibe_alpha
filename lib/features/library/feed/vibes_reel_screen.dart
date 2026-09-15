@@ -19,10 +19,11 @@ import 'publication_actions.dart';
 import 'vibe_card_view.dart';
 
 /// **Les Vibes en plein écran, à la suite** — façon Reels : une Vibe par
-/// écran, fond noir, on glisse vers le haut pour la suivante. La carte se
-/// retourne au doigt (horizontal) ; le geste vertical appartient au
-/// défilement. Par-dessus : l'auteur et la légende en bas à gauche, les
-/// actions en colonne à droite, la croix en haut.
+/// écran, fond noir, on glisse vers le haut pour la suivante. La carte garde
+/// son geste libre (retourner, incliner) : un départ vertical va au
+/// défilement, un départ horizontal à la carte (voir [TiltableCard]).
+/// Par-dessus : l'auteur et la légende en bas à gauche, les actions en
+/// colonne à droite, la croix en haut.
 ///
 /// Fermer : la croix, ou **tirer vers le bas depuis la première Vibe** —
 /// le même geste que les autres visionneurs (Jay, 2026-09-14), lu ici dans
@@ -182,7 +183,7 @@ class _ReelPage extends ConsumerWidget {
         Padding(
           padding: const EdgeInsets.only(bottom: 56),
           child: Center(
-            child: VibeCardView(item: item, active: active, fullScreen: true),
+            child: VibeCardView(item: item, active: active),
           ),
         ),
         // Le voile du bas : lisibilité du texte, sans cacher la carte.
