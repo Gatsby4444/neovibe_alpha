@@ -36,14 +36,17 @@ class CropSpec {
     this.cy = 0.5,
     this.angle = 0,
     this.turns = 0,
-  }) : assert(zoom >= 1),
+  }) : assert(zoom > 0),
        assert(angle >= -maxAngle && angle <= maxAngle),
        assert(turns >= 0 && turns < 4);
 
   static const none = CropSpec();
 
-  /// ≥ 1. À 1, le cadre est le plus grand rectangle du ratio qui tient dans
-  /// le rectangle inscrit (« couvrir », comme `BoxFit.cover`).
+  /// À 1, le cadre est le plus grand rectangle du ratio qui tient dans le
+  /// rectangle inscrit (« remplir », comme `BoxFit.cover`). **En dessous de
+  /// 1** (jusqu'à [fitZoom]), le cadre dépasse l'image : elle est vue
+  /// entière, avec des bandes noires (« adapter », comme `BoxFit.contain`) —
+  /// le bouton Adapter / Remplir d'Instagram.
   final double zoom;
 
   /// Le centre du cadre, en fraction du rectangle inscrit (0,5 = au milieu).
@@ -82,35 +85,43 @@ class CropSpec {
   /// zéro : un cadrage pensé dans un sens n'a pas de sens dans l'autre.
   CropSpec turned() => CropSpec(turns: (turns + 1) % 4);
 
+  /// Le plus grand rectangle du ratio [aspect] dans [wr]×[hr] (« remplir »).
+  static (double, double) coverBox(double wr, double hr, double aspect) {
+    if (wr / hr > aspect) return (hr * aspect, hr);
+    return (wr, wr / aspect);
+  }
+
+  /// Le zoom auquel l'image entière tient dans le cadre (« adapter ») :
+  /// toujours ≤ 1, = 1 quand l'image a exactement le ratio.
+  static double fitZoom(double wr, double hr, double aspect) {
+    final (w0, h0) = coverBox(wr, hr, aspect);
+    return math.min(w0 / wr, h0 / hr).clamp(0.05, 1.0);
+  }
+
   /// Le rectangle du cadre **dans un rectangle inscrit de [wr]×[hr]**
   /// (origine en haut à gauche de ce rectangle), pour un ratio [aspect].
-  /// Toujours entièrement dedans : le centre est borné.
+  /// Quand le cadre tient dans l'image, il y reste entièrement (le centre
+  /// est borné) ; quand il la dépasse (zoom < 1), il est centré sur elle.
   Rect rectWithin(double wr, double hr, double aspect) {
-    double w, h;
-    if (wr / hr > aspect) {
-      h = hr;
-      w = h * aspect;
-    } else {
-      w = wr;
-      h = w / aspect;
-    }
-    w /= zoom;
-    h /= zoom;
-    final x = (cx * wr - w / 2).clamp(0.0, wr - w);
-    final y = (cy * hr - h / 2).clamp(0.0, hr - h);
+    final (w0, h0) = coverBox(wr, hr, aspect);
+    final w = w0 / zoom;
+    final h = h0 / zoom;
+    final x = w >= wr ? (wr - w) / 2 : (cx * wr - w / 2).clamp(0.0, wr - w);
+    final y = h >= hr ? (hr - h) / 2 : (cy * hr - h / 2).clamp(0.0, hr - h);
     return Rect.fromLTWH(x, y, w, h);
   }
 
   /// Le centre ramené dans la zone où le cadre reste entièrement dans le
   /// rectangle inscrit — ainsi `cx`/`cy` décrivent toujours ce qu'on voit, et
-  /// un zoom arrière ne « saute » pas.
+  /// un zoom arrière ne « saute » pas. Un axe où le cadre dépasse l'image
+  /// revient au milieu.
   CropSpec clampedWithin(double wr, double hr, double aspect) {
     final r = copyWith(cx: 0.5, cy: 0.5).rectWithin(wr, hr, aspect);
     final halfW = r.width / 2 / wr;
     final halfH = r.height / 2 / hr;
     return copyWith(
-      cx: cx.clamp(halfW, 1 - halfW),
-      cy: cy.clamp(halfH, 1 - halfH),
+      cx: halfW >= 0.5 ? 0.5 : cx.clamp(halfW, 1 - halfW),
+      cy: halfH >= 0.5 ? 0.5 : cy.clamp(halfH, 1 - halfH),
     );
   }
 

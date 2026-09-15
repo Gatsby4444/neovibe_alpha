@@ -42,8 +42,12 @@ class NativeGallery(
 
     private val channel = MethodChannel(messenger, "neovibe/gallery")
 
-    // Plusieurs vignettes en parallèle : une grille en demande vingt d'un coup.
-    private val thumbs = Executors.newFixedThreadPool(3)
+    // Plusieurs vignettes en parallèle : une grille en demande vingt d'un
+    // coup, et décoder une vignette est du calcul pur — autant de fils que de
+    // cœurs, six au plus (le Dart n'en envoie jamais plus de six à la fois).
+    private val thumbs = Executors.newFixedThreadPool(
+        Runtime.getRuntime().availableProcessors().coerceIn(2, 6),
+    )
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
@@ -164,11 +168,64 @@ class NativeGallery(
     private fun thumbnail(uri: Uri, size: Int): ByteArray {
         // `loadThumbnail` rend l'image déjà orientée, et met en cache côté
         // système : la deuxième demande de la même vignette est immédiate.
-        val bitmap = context.contentResolver.loadThumbnail(uri, Size(size, size), null)
+        // ⚠️ Il refuse certains fichiers (formats exotiques, entrées
+        // orphelines du MediaStore) : on décode alors nous-mêmes, réduit, au
+        // lieu de laisser une case vide — « beaucoup sont noires » (Jay).
+        val bitmap = try {
+            context.contentResolver.loadThumbnail(uri, Size(size, size), null)
+        } catch (e: Exception) {
+            fallbackThumbnail(uri, size) ?: throw e
+        }
         val out = ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, 82, out)
         bitmap.recycle()
         return out.toByteArray()
+    }
+
+    /** Une image : décodée réduite (`inSampleSize`) ; une vidéo : sa première image. */
+    private fun fallbackThumbnail(uri: Uri, size: Int): Bitmap? {
+        val isVideo = uri.toString().contains("/video/")
+        if (isVideo) {
+            val r = android.media.MediaMetadataRetriever()
+            return try {
+                r.setDataSource(context, uri)
+                r.getFrameAtTime(0, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+            } catch (_: Exception) {
+                null
+            } finally {
+                runCatching { r.release() }
+            }
+        }
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use {
+            android.graphics.BitmapFactory.decodeStream(it, null, bounds)
+        }
+        if (bounds.outWidth <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= size && bounds.outHeight / (sample * 2) >= size) sample *= 2
+        val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+        val raw = context.contentResolver.openInputStream(uri)?.use {
+            android.graphics.BitmapFactory.decodeStream(it, null, opts)
+        } ?: return null
+        // L'orientation EXIF, que `loadThumbnail` appliquait pour nous.
+        val rotation = runCatching {
+            context.contentResolver.openInputStream(uri)?.use { s ->
+                when (androidx.exifinterface.media.ExifInterface(s).getAttributeInt(
+                    androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL,
+                )) {
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 -> 90f
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 -> 180f
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 -> 270f
+                    else -> 0f
+                }
+            } ?: 0f
+        }.getOrDefault(0f)
+        if (rotation == 0f) return raw
+        val m = android.graphics.Matrix().apply { postRotate(rotation) }
+        val turned = Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true)
+        if (turned !== raw) raw.recycle()
+        return turned
     }
 
     private fun copy(uri: Uri, dest: File) {

@@ -58,6 +58,11 @@ vec3 graded(vec3 c) {
 void main() {
     vec2 p = (FlutterFragCoord().xy - uOrigin) / uSize;
     vec2 uv = sourceUv(p);
+    // Hors de l'image (cadre « adapté », bandes) : du noir, pas un bord étiré.
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        fragColor = vec4(0.0, 0.0, 0.0, 1.0);
+        return;
+    }
     vec3 c = texture(uImage, uv).rgb;
     vec3 rgb = graded(c);
 

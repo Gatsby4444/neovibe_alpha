@@ -128,14 +128,43 @@ abstract final class CropGeometry {
         .clampedWithin(wr, hr, aspect);
   }
 
+  /// Le zoom « adapter » de ce média : l'image entière dans le cadre.
+  static double fitZoom(AlbumDraftMedia m, double aspect) {
+    final (wr, hr) = inscribed(
+      m.srcWidth.toDouble(),
+      m.srcHeight.toDouble(),
+      m.crop.radians,
+    );
+    return CropSpec.fitZoom(wr, hr, aspect);
+  }
+
+  /// L'image est-elle vue entière (« adaptée ») ?
+  static bool isFitted(AlbumDraftMedia m, double aspect) =>
+      m.crop.zoom <= fitZoom(m, aspect) + 1e-6;
+
+  /// Adapter ↔ Remplir : l'image entière avec des bandes, ou le cadre plein.
+  static CropSpec toggleFit(AlbumDraftMedia m, double aspect) {
+    final (wr, hr) = inscribed(
+      m.srcWidth.toDouble(),
+      m.srcHeight.toDouble(),
+      m.crop.radians,
+    );
+    final fit = CropSpec.fitZoom(wr, hr, aspect);
+    final target = isFitted(m, aspect) ? 1.0 : fit;
+    return m.crop
+        .copyWith(zoom: target, cx: 0.5, cy: 0.5)
+        .clampedWithin(wr, hr, aspect);
+  }
+
   static CropSpec zoomed(AlbumDraftMedia m, double aspect, double factor) {
     final (wr, hr) = inscribed(
       m.srcWidth.toDouble(),
       m.srcHeight.toDouble(),
       m.crop.radians,
     );
+    final min = CropSpec.fitZoom(wr, hr, aspect);
     return m.crop
-        .copyWith(zoom: (m.crop.zoom * factor).clamp(1.0, CropSpec.maxZoom))
+        .copyWith(zoom: (m.crop.zoom * factor).clamp(min, CropSpec.maxZoom))
         .clampedWithin(wr, hr, aspect);
   }
 }

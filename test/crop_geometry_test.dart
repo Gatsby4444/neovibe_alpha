@@ -127,6 +127,37 @@ void main() {
     });
   });
 
+  group('Adapter / Remplir', () {
+    test("un paysage 4000×3000 en 3:4 : adapté, l'image entière tient", () {
+      final m = photo(w: 4000, h: 3000);
+      final fit = CropGeometry.fitZoom(m, 3 / 4);
+      // Remplir : le cadre couvre 2250×3000 ; adapter : 4000×5333 → zoom 0,5625.
+      expect(fit, closeTo(2250 / 4000, 1e-9));
+      final fitted = m.copyWith(crop: CropGeometry.toggleFit(m, 3 / 4));
+      expect(CropGeometry.isFitted(fitted, 3 / 4), isTrue);
+      final c = CropGeometry.corners(fitted, 3 / 4);
+      // Les coins dépassent l'image en hauteur (les bandes), pas en largeur.
+      expect(c[0].dx, closeTo(0, 1e-9));
+      expect(c[1].dx, closeTo(1, 1e-9));
+      expect(c[0].dy, lessThan(0));
+      expect(c[2].dy, greaterThan(1));
+      // Et on revient à remplir.
+      final back = fitted.copyWith(crop: CropGeometry.toggleFit(fitted, 3 / 4));
+      expect(back.crop.zoom, 1);
+    });
+
+    test('pincer ne descend pas sous « adapter »', () {
+      final m = photo(w: 4000, h: 3000);
+      final z = CropGeometry.zoomed(m, 3 / 4, 0.01);
+      expect(z.zoom, closeTo(CropGeometry.fitZoom(m, 3 / 4), 1e-9));
+      expect(z.cy, 0.5);
+    });
+
+    test('une image au bon ratio : adapter = remplir', () {
+      expect(CropGeometry.fitZoom(photo(), 3 / 4), closeTo(1, 1e-9));
+    });
+  });
+
   group('gestes', () {
     test('glisser vers la droite montre plus à gauche', () {
       final m = photo(crop: const CropSpec(zoom: 2));

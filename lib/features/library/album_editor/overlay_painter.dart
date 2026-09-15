@@ -49,22 +49,26 @@ class OverlayPainter {
 
   // ── Texte ───────────────────────────────────────────────────────────
 
+  /// Le style d'un texte à une taille donnée — **le même** pour le peintre
+  /// (aperçu, export) et pour le champ de saisie posé sur l'image.
+  static TextStyle textStyle(TextOverlay o, double fontSize) => TextStyle(
+    fontFamily: o.font.family,
+    fontFamilyFallback: const ['Figtree', 'Roboto', 'sans-serif'],
+    fontWeight: FontWeight.values[(o.font.weight ~/ 100 - 1).clamp(0, 8)],
+    fontSize: fontSize,
+    height: 1.15,
+    color: o.color,
+    shadows: o.font.effect == 'neon'
+        ? [
+            Shadow(color: o.color, blurRadius: fontSize * 0.35),
+            Shadow(color: o.color, blurRadius: fontSize * 0.7),
+          ]
+        : null,
+  );
+
   TextPainter _textPainter(Size size, TextOverlay o) {
     final fontSize = TextOverlay.baseSizeRatio * size.width * o.scale;
-    final style = TextStyle(
-      fontFamily: o.font.family,
-      fontFamilyFallback: const ['Figtree', 'Roboto', 'sans-serif'],
-      fontWeight: FontWeight.values[(o.font.weight ~/ 100 - 1).clamp(0, 8)],
-      fontSize: fontSize,
-      height: 1.15,
-      color: o.color,
-      shadows: o.font.effect == 'neon'
-          ? [
-              Shadow(color: o.color, blurRadius: fontSize * 0.35),
-              Shadow(color: o.color, blurRadius: fontSize * 0.7),
-            ]
-          : null,
-    );
+    final style = textStyle(o, fontSize);
     return TextPainter(
       text: TextSpan(text: o.text, style: style),
       textAlign: switch (o.alignment) {

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../core/typography.dart';
 import '../../../core/utils/ids.dart';
-import 'editor_theme.dart';
 import 'gallery/gallery_import.dart';
 import 'gallery/gallery_screen.dart';
 import 'overlay_model.dart';
@@ -14,8 +13,7 @@ Future<StickerOverlay?> pickSticker(BuildContext context) async {
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (context) =>
-        Theme(data: editorTheme(context), child: const _StickerSheet()),
+    builder: (context) => const _StickerSheet(),
   );
   if (choice == null || !context.mounted) return null;
   if (choice is String) {

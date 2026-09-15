@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/typography.dart';
+import '../../../core/utils/ids.dart';
 import '../../cards/native_media.dart';
 import 'album_caption_screen.dart';
 import 'album_draft.dart';
@@ -18,18 +19,19 @@ import 'grade_shader.dart';
 import 'media_preview.dart';
 import 'overlay_model.dart';
 import 'sticker_picker.dart';
-import 'text_editor_screen.dart';
 
 /// **L'éditeur d'album** — « digne d'Instagram », sans les musiques (Jay,
-/// 2026-09-15), sombre et épuré.
+/// 2026-09-15), dans le thème de l'app (clair, sable ou sombre : la DA prime,
+/// retour de Jay du même jour).
 ///
-/// En haut, l'aperçu du média courant dans le cadre 3:4 : on le cadre au
-/// doigt, on le zoome à deux doigts ; les textes et autocollants se posent
-/// dessus. En dessous, la bande des médias (appui long pour réordonner, « + »
-/// pour en ajouter). En bas, **cinq outils** façon Instagram : Texte ·
-/// Superposition · Filtre · Modifier · Rogner (vidéo). Un outil ouvert
-/// devient un panneau avec **Annuler / Terminé** : Annuler rend le média tel
-/// qu'il était à l'ouverture du panneau.
+/// En haut, l'aperçu du média courant et son cadre 3:4 (`MediaPreview`) : on
+/// le cadre au doigt, on le zoome à deux doigts ; les textes et autocollants
+/// se posent dessus, et **un texte se tape directement sur l'image**. En
+/// dessous, la bande des médias (appui long pour réordonner, « + » pour en
+/// ajouter). En bas, **cinq outils** façon Instagram : Texte · Superposition ·
+/// Filtre · Modifier · Rogner (vidéo). Un outil ouvert devient un panneau avec
+/// **Annuler / Terminé** : Annuler rend le média tel qu'il était à
+/// l'ouverture du panneau.
 ///
 /// L'écran ne calcule rien : il lit et modifie un [AlbumDraft] (pur). Le
 /// shader de l'aperçu et le peintre des calques sont ceux de l'export.
@@ -55,6 +57,10 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   AlbumDraftMedia? _snapshot;
   String? _selectedOverlay;
 
+  /// Le texte en cours d'écriture, tapé sur l'image ; nul sinon.
+  TextOverlay? _editingText;
+  final _textCtrl = TextEditingController();
+
   final _images = EditorImages();
 
   AlbumDraftMedia get _media => _draft.media[_current];
@@ -71,6 +77,7 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   @override
   void dispose() {
     _images.dispose();
+    _textCtrl.dispose();
     super.dispose();
   }
 
@@ -82,16 +89,7 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   Future<void> _open(_Tool tool) async {
     switch (tool) {
       case _Tool.texte:
-        final t = await Navigator.of(context).push<TextOverlay>(
-          PageRouteBuilder(
-            opaque: false,
-            pageBuilder: (_, _, _) => const TextEditorScreen(),
-          ),
-        );
-        if (t != null && mounted) {
-          _update((m) => m.withOverlay(t));
-          setState(() => _selectedOverlay = t.id);
-        }
+        _startText(null);
       case _Tool.sticker:
         final s = await pickSticker(context);
         if (s != null && mounted) {
@@ -127,21 +125,41 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
 
   // ── Les calques ─────────────────────────────────────────────────────
 
-  Future<void> _onOverlayTapped(OverlayObject o) async {
-    if (o is! TextOverlay) return;
-    final t = await Navigator.of(context).push<TextOverlay>(
-      PageRouteBuilder(
-        opaque: false,
-        pageBuilder: (_, _, _) => TextEditorScreen(initial: o),
-      ),
-    );
-    if (!mounted) return;
-    if (t == null) {
-      // Texte vidé : le calque s'en va.
-      _update((m) => m.withoutOverlay(o.id));
-    } else {
-      _update((m) => m.withOverlay(t));
-    }
+  void _onOverlayTapped(OverlayObject o) {
+    if (o is TextOverlay) _startText(o);
+  }
+
+  /// Écrire un texte, nouveau ou existant, **sur l'image** : le champ est
+  /// dans l'aperçu, le clavier s'ouvre, la barre du bas devient les outils de
+  /// texte (police · couleur · alignement · fond).
+  void _startText(TextOverlay? existing) {
+    final t = existing ?? TextOverlay(id: newUuid(), text: '');
+    _textCtrl.text = t.text;
+    _textCtrl.selection = TextSelection.collapsed(offset: t.text.length);
+    setState(() {
+      _editingText = t;
+      _selectedOverlay = t.id;
+      _tool = null;
+    });
+  }
+
+  void _doneText() {
+    final t = _editingText;
+    if (t == null) return;
+    final text = _textCtrl.text.trim();
+    setState(() {
+      if (text.isEmpty) {
+        // Texte vidé : le calque s'en va (ou ne naît pas).
+        _draft = _draft.update(_media.id, (m) => m.withoutOverlay(t.id));
+        _selectedOverlay = null;
+      } else {
+        _draft = _draft.update(
+          _media.id,
+          (m) => m.withOverlay(t.copyWith(text: text)),
+        );
+      }
+      _editingText = null;
+    });
   }
 
   // ── La bande ────────────────────────────────────────────────────────
@@ -185,22 +203,19 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   Future<void> _close() async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (context) => Theme(
-        data: editorTheme(context),
-        child: AlertDialog(
-          title: const Text('Abandonner cette publication ?'),
-          content: const Text('Les retouches seront perdues.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Continuer'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Abandonner'),
-            ),
-          ],
-        ),
+      builder: (context) => AlertDialog(
+        title: const Text('Abandonner cette publication ?'),
+        content: const Text('Les retouches seront perdues.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Continuer'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Abandonner'),
+          ),
+        ],
       ),
     );
     if (ok == true && mounted) Navigator.of(context).pop();
@@ -241,110 +256,312 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   Widget build(BuildContext context) {
     final media = _media;
     final tool = _tool;
-    return Theme(
-      data: editorTheme(context),
-      child: PopScope(
-        canPop: false,
-        onPopInvokedWithResult: (didPop, _) {
-          if (didPop) return;
-          if (_tool != null) {
-            _cancelPanel();
-          } else {
-            _close();
-          }
-        },
-        child: Scaffold(
-          appBar: AppBar(
-            leading: IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: 'Abandonner',
-              onPressed: _close,
-            ),
-            title: const Text('Modifier'),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.delete_outline),
-                tooltip: 'Retirer ce média',
-                onPressed: _remove,
+    final editing = _editingText;
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        if (_editingText != null) {
+          _doneText();
+        } else if (_tool != null) {
+          _cancelPanel();
+        } else {
+          _close();
+        }
+      },
+      child: Scaffold(
+        resizeToAvoidBottomInset: true,
+        appBar: editing != null
+            // En écriture : rien d'autre que « Terminé ».
+            ? AppBar(
+                automaticallyImplyLeading: false,
+                actions: [
+                  EditorPrimaryButton(label: 'Terminé', onPressed: _doneText),
+                ],
+              )
+            : AppBar(
+                leading: IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Abandonner',
+                  onPressed: _close,
+                ),
+                title: const Text('Modifier'),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline),
+                    tooltip: 'Retirer ce média',
+                    onPressed: _remove,
+                  ),
+                  EditorPrimaryButton(label: 'Suivant', onPressed: _next),
+                ],
               ),
-              EditorPrimaryButton(label: 'Suivant', onPressed: _next),
-            ],
+        body: Column(
+          children: [
+            Expanded(
+              child: MediaPreview(
+                // Une clé par média : changer de média reconstruit
+                // l'aperçu (et son lecteur vidéo) au lieu de le recycler.
+                key: ValueKey(media.id),
+                media: media,
+                aspect: _draft.aspect.ratio,
+                images: _images,
+                selectedOverlayId: _selectedOverlay,
+                editingText: editing,
+                textController: _textCtrl,
+                interactive: editing == null,
+                onCrop: (c) => _update((m) => m.copyWith(crop: c)),
+                onOverlayChanged: (o) => _update((m) => m.withOverlay(o)),
+                onOverlaySelected: (id) =>
+                    setState(() => _selectedOverlay = id),
+                onOverlayTapped: _onOverlayTapped,
+                onOverlayRemoved: (id) {
+                  _update((m) => m.withoutOverlay(id));
+                  setState(() => _selectedOverlay = null);
+                },
+              ),
+            ),
+            if (editing != null)
+              _TextToolsPanel(
+                overlay: editing,
+                onChanged: (t) => setState(() => _editingText = t),
+              )
+            else if (tool == null) ...[
+              _Strip(
+                draft: _draft,
+                current: _current,
+                thumbOf: _thumbFile,
+                onSelect: (i) => setState(() {
+                  _current = i;
+                  _selectedOverlay = null;
+                }),
+                onReorder: (from, to) => setState(() {
+                  final id = _media.id;
+                  _draft = _draft.reorder(from, to);
+                  _current = _draft.media.indexWhere((m) => m.id == id);
+                }),
+                onAdd: _draft.isFull ? null : _add,
+              ),
+              _Toolbar(video: media.isVideo, onTool: _open),
+            ] else
+              _Panel(
+                title: switch (tool) {
+                  _Tool.filtre => 'Filtre',
+                  _Tool.modifier => 'Modifier',
+                  _Tool.rogner => 'Rogner',
+                  _ => '',
+                },
+                onCancel: _cancelPanel,
+                onDone: _donePanel,
+                child: switch (tool) {
+                  _Tool.filtre => _FilterPanel(
+                    media: media,
+                    images: _images,
+                    onChanged: (f, strength) => _update(
+                      (m) => m.copyWith(filter: f, filterStrength: strength),
+                    ),
+                  ),
+                  _Tool.modifier => _AdjustPanel(
+                    media: media,
+                    onAdjust: (a) => _update((m) => m.copyWith(adjust: a)),
+                    onCrop: (c) => _update((m) => m.copyWith(crop: c)),
+                  ),
+                  _Tool.rogner => _TrimPanel(
+                    media: media,
+                    onTrim: (t) => _update((m) => m.copyWith(trim: t)),
+                  ),
+                  _ => const SizedBox.shrink(),
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Les outils de texte, pendant l'écriture sur l'image
+// ---------------------------------------------------------------------------
+
+enum _TextRow { fonts, colors }
+
+/// Police · couleur · alignement · fond — la rangée des polices ou des
+/// couleurs au-dessus, comme sur Instagram. Ce que l'utilisateur change ici
+/// se voit tout de suite dans le champ posé sur l'image.
+class _TextToolsPanel extends StatefulWidget {
+  const _TextToolsPanel({required this.overlay, required this.onChanged});
+
+  final TextOverlay overlay;
+  final ValueChanged<TextOverlay> onChanged;
+
+  @override
+  State<_TextToolsPanel> createState() => _TextToolsPanelState();
+}
+
+class _TextToolsPanelState extends State<_TextToolsPanel> {
+  var _row = _TextRow.fonts;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = EditorColors.of(context);
+    final o = widget.overlay;
+    return SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            height: 56,
+            child: switch (_row) {
+              _TextRow.fonts => ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: NeoSpace.md,
+                  vertical: NeoSpace.sm,
+                ),
+                children: [
+                  for (final f in OverlayFont.values)
+                    Padding(
+                      padding: const EdgeInsets.only(right: NeoSpace.sm),
+                      child: ChoiceChip(
+                        label: Text(
+                          f.label,
+                          style: TextStyle(
+                            fontFamily: f.family,
+                            fontWeight: FontWeight
+                                .values[(f.weight ~/ 100 - 1).clamp(0, 8)],
+                          ),
+                        ),
+                        selected: f == o.font,
+                        showCheckmark: false,
+                        onSelected: (_) =>
+                            widget.onChanged(o.copyWith(font: f)),
+                      ),
+                    ),
+                ],
+              ),
+              _TextRow.colors => ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: NeoSpace.md,
+                  vertical: NeoSpace.sm,
+                ),
+                children: [
+                  for (final col in OverlayColors.swatches)
+                    GestureDetector(
+                      onTap: () => widget.onChanged(o.copyWith(color: col)),
+                      child: Container(
+                        width: 36,
+                        height: 36,
+                        margin: const EdgeInsets.only(right: NeoSpace.sm),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: col,
+                          border: Border.all(
+                            color: col == o.color ? c.accent : c.line,
+                            width: col == o.color ? 3 : 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            },
           ),
-          body: Column(
-            children: [
-              Expanded(
-                child: Center(
-                  child: AspectRatio(
-                    aspectRatio: _draft.aspect.ratio,
-                    child: MediaPreview(
-                      // Une clé par média : changer de média reconstruit
-                      // l'aperçu (et son lecteur vidéo) au lieu de le recycler.
-                      key: ValueKey(media.id),
-                      media: media,
-                      aspect: _draft.aspect.ratio,
-                      images: _images,
-                      selectedOverlayId: _selectedOverlay,
-                      onCrop: (c) => _update((m) => m.copyWith(crop: c)),
-                      onOverlayChanged: (o) => _update((m) => m.withOverlay(o)),
-                      onOverlaySelected: (id) =>
-                          setState(() => _selectedOverlay = id),
-                      onOverlayTapped: _onOverlayTapped,
-                      onOverlayRemoved: (id) {
-                        _update((m) => m.withoutOverlay(id));
-                        setState(() => _selectedOverlay = null);
-                      },
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              NeoSpace.md,
+              NeoSpace.xs,
+              NeoSpace.md,
+              NeoSpace.md,
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                _TextToolButton(
+                  icon: Icons.text_fields,
+                  active: _row == _TextRow.fonts,
+                  tooltip: 'Police',
+                  onTap: () => setState(() => _row = _TextRow.fonts),
+                ),
+                _TextToolButton(
+                  icon: Icons.palette_outlined,
+                  active: _row == _TextRow.colors,
+                  tooltip: 'Couleur',
+                  onTap: () => setState(() => _row = _TextRow.colors),
+                ),
+                _TextToolButton(
+                  icon: switch (o.alignment) {
+                    TextAlignment.left => Icons.format_align_left,
+                    TextAlignment.center => Icons.format_align_center,
+                    TextAlignment.right => Icons.format_align_right,
+                  },
+                  tooltip: 'Alignement',
+                  onTap: () => widget.onChanged(
+                    o.copyWith(
+                      alignment:
+                          TextAlignment.values[(o.alignment.index + 1) %
+                              TextAlignment.values.length],
                     ),
                   ),
                 ),
-              ),
-              if (tool == null) ...[
-                _Strip(
-                  draft: _draft,
-                  current: _current,
-                  thumbOf: _thumbFile,
-                  onSelect: (i) => setState(() {
-                    _current = i;
-                    _selectedOverlay = null;
-                  }),
-                  onReorder: (from, to) => setState(() {
-                    final id = _media.id;
-                    _draft = _draft.reorder(from, to);
-                    _current = _draft.media.indexWhere((m) => m.id == id);
-                  }),
-                  onAdd: _draft.isFull ? null : _add,
-                ),
-                _Toolbar(video: media.isVideo, onTool: _open),
-              ] else
-                _Panel(
-                  title: switch (tool) {
-                    _Tool.filtre => 'Filtre',
-                    _Tool.modifier => 'Modifier',
-                    _Tool.rogner => 'Rogner',
-                    _ => '',
+                _TextToolButton(
+                  icon: switch (o.backdrop) {
+                    TextBackdrop.none => Icons.font_download_outlined,
+                    TextBackdrop.solid => Icons.font_download,
+                    TextBackdrop.translucent =>
+                      Icons.font_download_off_outlined,
                   },
-                  onCancel: _cancelPanel,
-                  onDone: _donePanel,
-                  child: switch (tool) {
-                    _Tool.filtre => _FilterPanel(
-                      media: media,
-                      images: _images,
-                      onChanged: (f, strength) => _update(
-                        (m) => m.copyWith(filter: f, filterStrength: strength),
-                      ),
+                  active: o.backdrop != TextBackdrop.none,
+                  tooltip: 'Fond',
+                  onTap: () => widget.onChanged(
+                    o.copyWith(
+                      backdrop:
+                          TextBackdrop.values[(o.backdrop.index + 1) %
+                              TextBackdrop.values.length],
                     ),
-                    _Tool.modifier => _AdjustPanel(
-                      media: media,
-                      onAdjust: (a) => _update((m) => m.copyWith(adjust: a)),
-                      onCrop: (c) => _update((m) => m.copyWith(crop: c)),
-                    ),
-                    _Tool.rogner => _TrimPanel(
-                      media: media,
-                      onTrim: (t) => _update((m) => m.copyWith(trim: t)),
-                    ),
-                    _ => const SizedBox.shrink(),
-                  },
+                  ),
                 ),
-            ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TextToolButton extends StatelessWidget {
+  const _TextToolButton({
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+    this.active = false,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final String tooltip;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = EditorColors.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: NeoSpace.sm),
+      child: Material(
+        color: active ? c.accent : c.raised,
+        shape: const CircleBorder(),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Tooltip(
+            message: tooltip,
+            child: SizedBox(
+              width: 44,
+              height: 44,
+              child: Icon(icon, color: active ? c.onAccent : c.ink),
+            ),
           ),
         ),
       ),
@@ -375,7 +592,8 @@ class _Strip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = EditorColors.accent(context);
+    final c = EditorColors.of(context);
+    final accent = c.accent;
     return SizedBox(
       height: 76,
       child: Row(
@@ -407,7 +625,7 @@ class _Strip extends StatelessWidget {
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(NeoRadius.sm),
                         border: Border.all(
-                          color: i == current ? accent : EditorColors.line,
+                          color: i == current ? accent : c.line,
                           width: i == current ? 2 : 1,
                         ),
                       ),
@@ -448,13 +666,13 @@ class _Strip extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(right: NeoSpace.md),
               child: IconButton.outlined(
-                icon: const Icon(Icons.add),
+                icon: Icon(Icons.add),
                 tooltip:
                     'Ajouter (${draft.freeSlots} place'
                     '${draft.freeSlots > 1 ? 's' : ''})',
                 style: IconButton.styleFrom(
-                  foregroundColor: EditorColors.ink,
-                  side: const BorderSide(color: EditorColors.line),
+                  foregroundColor: c.ink,
+                  side: BorderSide(color: c.line),
                 ),
                 onPressed: onAdd,
               ),
@@ -471,11 +689,12 @@ class _FileThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = EditorColors.of(context);
     return FutureBuilder<File?>(
       future: thumb,
       builder: (context, snap) {
         final file = snap.data;
-        if (file == null) return const ColoredBox(color: EditorColors.raised);
+        if (file == null) return ColoredBox(color: c.raised);
         return Image.file(
           file,
           fit: BoxFit.cover,
@@ -499,6 +718,7 @@ class _Toolbar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = EditorColors.of(context);
     final tools = [
       (_Tool.texte, Icons.text_fields, 'Texte'),
       (_Tool.sticker, Icons.emoji_emotions_outlined, 'Superposition'),
@@ -521,7 +741,7 @@ class _Toolbar extends StatelessWidget {
               if (i > 0) const SizedBox(width: NeoSpace.sm),
               Expanded(
                 child: Material(
-                  color: EditorColors.raised,
+                  color: c.raised,
                   borderRadius: BorderRadius.circular(NeoRadius.md),
                   clipBehavior: Clip.antiAlias,
                   child: InkWell(
@@ -533,16 +753,13 @@ class _Toolbar extends StatelessWidget {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(tools[i].$2, size: 22, color: EditorColors.ink),
+                          Icon(tools[i].$2, size: 22, color: c.ink),
                           const SizedBox(height: 4),
                           Text(
                             tools[i].$3,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: EditorColors.ink,
-                            ),
+                            style: TextStyle(fontSize: 11, color: c.ink),
                           ),
                         ],
                       ),
@@ -575,6 +792,7 @@ class _Panel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = EditorColors.of(context);
     return SafeArea(
       top: false,
       child: Column(
@@ -594,11 +812,11 @@ class _Panel extends StatelessWidget {
                 child: Text(
                   title,
                   textAlign: TextAlign.center,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: NeoType.display,
                     fontWeight: FontWeight.w600,
                     fontSize: 16,
-                    color: EditorColors.ink,
+                    color: c.ink,
                   ),
                 ),
               ),
@@ -654,7 +872,8 @@ class _FilterPanelState extends State<_FilterPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = EditorColors.accent(context);
+    final c = EditorColors.of(context);
+    final accent = c.accent;
     final m = widget.media;
     return Column(
       children: [
@@ -675,10 +894,7 @@ class _FilterPanelState extends State<_FilterPanel> {
                       child: Text(
                         '${(m.filterStrength * 100).round()}',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: EditorColors.inkMuted,
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: c.inkMuted, fontSize: 12),
                       ),
                     ),
                     const SizedBox(width: NeoSpace.sm),
@@ -689,10 +905,7 @@ class _FilterPanelState extends State<_FilterPanel> {
                     m.filter == AlbumFilter.normal
                         ? 'Choisis un filtre'
                         : 'Appuie à nouveau pour ajuster',
-                    style: const TextStyle(
-                      color: EditorColors.inkFaint,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: c.inkFaint, fontSize: 12),
                   ),
                 ),
         ),
@@ -731,7 +944,7 @@ class _FilterPanelState extends State<_FilterPanel> {
                         // Chaque puce montre CE média à travers CE filtre, par
                         // le même shader que l'aperçu et que l'export.
                         child: _small == null
-                            ? const ColoredBox(color: EditorColors.raised)
+                            ? ColoredBox(color: c.raised)
                             : CustomPaint(
                                 painter: GradedThumbPainter(
                                   image: _small!,
@@ -746,7 +959,7 @@ class _FilterPanelState extends State<_FilterPanel> {
                         f.label,
                         style: TextStyle(
                           fontSize: 11,
-                          color: selected ? accent : EditorColors.inkMuted,
+                          color: selected ? accent : c.inkMuted,
                           fontWeight: selected
                               ? FontWeight.w700
                               : FontWeight.w500,
@@ -851,7 +1064,8 @@ class _AdjustPanelState extends State<_AdjustPanel> {
 
   @override
   Widget build(BuildContext context) {
-    final accent = EditorColors.accent(context);
+    final c = EditorColors.of(context);
+    final accent = c.accent;
     final m = widget.media;
     final k = _knob;
     return Column(
@@ -859,13 +1073,10 @@ class _AdjustPanelState extends State<_AdjustPanel> {
         SizedBox(
           height: 52,
           child: k == null
-              ? const Center(
+              ? Center(
                   child: Text(
                     'Touche un réglage',
-                    style: TextStyle(
-                      color: EditorColors.inkFaint,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: c.inkFaint, fontSize: 12),
                   ),
                 )
               : Row(
@@ -873,7 +1084,7 @@ class _AdjustPanelState extends State<_AdjustPanel> {
                     const SizedBox(width: NeoSpace.md),
                     if (k == _Knob.straighten)
                       IconButton(
-                        icon: const Icon(Icons.rotate_90_degrees_cw_outlined),
+                        icon: Icon(Icons.rotate_90_degrees_cw_outlined),
                         tooltip: 'Tourner d\'un quart de tour',
                         onPressed: () => widget.onCrop(m.crop.turned()),
                       ),
@@ -890,10 +1101,7 @@ class _AdjustPanelState extends State<_AdjustPanel> {
                       child: Text(
                         k.display(k.of(m)),
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: EditorColors.inkMuted,
-                          fontSize: 12,
-                        ),
+                        style: TextStyle(color: c.inkMuted, fontSize: 12),
                       ),
                     ),
                     IconButton(
@@ -926,16 +1134,14 @@ class _AdjustPanelState extends State<_AdjustPanel> {
                           shape: BoxShape.circle,
                           color: active ? Colors.white : Colors.transparent,
                           border: Border.all(
-                            color: active
-                                ? Colors.white
-                                : EditorColors.inkMuted,
+                            color: active ? Colors.white : c.inkMuted,
                             width: 1.5,
                           ),
                         ),
                         child: Icon(
                           knob.icon,
                           size: 26,
-                          color: active ? Colors.black : EditorColors.ink,
+                          color: active ? Colors.black : c.ink,
                         ),
                       ),
                       const SizedBox(height: 6),
@@ -943,9 +1149,7 @@ class _AdjustPanelState extends State<_AdjustPanel> {
                         knob.label,
                         style: TextStyle(
                           fontSize: 11,
-                          color: active
-                              ? EditorColors.ink
-                              : EditorColors.inkMuted,
+                          color: active ? c.ink : c.inkMuted,
                         ),
                       ),
                       // Un point sous les réglages touchés, pour les retrouver.
@@ -1025,10 +1229,11 @@ class _TrimPanelState extends State<_TrimPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final c = EditorColors.of(context);
     final m = widget.media;
     final duration = m.durationMs!.toDouble();
     final t = m.effectiveTrim;
-    const label = TextStyle(color: EditorColors.inkMuted, fontSize: 12);
+    final label = TextStyle(color: c.inkMuted, fontSize: 12);
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -1070,7 +1275,7 @@ class _TrimPanelState extends State<_TrimPanel> {
               height: 36,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(NeoRadius.sm),
-                border: Border.all(color: EditorColors.line),
+                border: Border.all(color: c.line),
               ),
               clipBehavior: Clip.antiAlias,
               child: _cover == null
@@ -1078,7 +1283,7 @@ class _TrimPanelState extends State<_TrimPanel> {
                   : _FileThumb(thumb: _cover!),
             ),
             const SizedBox(width: NeoSpace.sm),
-            const Text('Couverture', style: label),
+            Text('Couverture', style: label),
             Expanded(
               child: Slider(
                 value: t.coverMs.toDouble().clamp(

@@ -42,20 +42,42 @@ sealed class OverlayObject {
     double? rotation,
   });
 
-  /// Le centre ramené de sorte qu'au moins un quart du calque reste dans le
-  /// cadre — un calque perdu hors écran est un calque qu'on ne peut plus
-  /// rattraper.
-  OverlayObject clamped() =>
-      moved(cx: cx.clamp(0.05, 0.95), cy: cy.clamp(0.05, 0.95));
+  /// Le centre ramené de sorte que la boîte du calque — [halfW]×[halfH]
+  /// autour du centre, tournée de [rotation] — reste **entièrement dans le
+  /// cadre** de [frameW]×[frameH]. Jay (2026-09-15) : *« le texte ne peut pas
+  /// passer au-delà des limites du cadre, il est juste bloqué dans le
+  /// déplacement mais pas reformaté »*. Un calque plus large que le cadre est
+  /// centré sur cet axe.
+  OverlayObject clampedTo({
+    required double frameW,
+    required double frameH,
+    required double halfW,
+    required double halfH,
+  }) {
+    // La boîte tournée : son enveloppe aux axes de l'écran.
+    final c = math.cos(rotation).abs();
+    final s = math.sin(rotation).abs();
+    final hw = halfW * c + halfH * s;
+    final hh = halfW * s + halfH * c;
+    final minX = hw / frameW;
+    final minY = hh / frameH;
+    return moved(
+      cx: minX >= 0.5 ? 0.5 : cx.clamp(minX, 1 - minX),
+      cy: minY >= 0.5 ? 0.5 : cy.clamp(minY, 1 - minY),
+    );
+  }
 
   Offset center(double frameW, double frameH) =>
       Offset(cx * frameW, cy * frameH);
 
   /// L'application d'un geste : déplacement en pixels d'écran sur un cadre de
-  /// [frameW]×[frameH], facteur de zoom, rotation ajoutée.
+  /// [frameW]×[frameH], facteur de zoom, rotation ajoutée — puis la boîte
+  /// ([halfW]×[halfH], APRÈS zoom) ramenée dans le cadre.
   OverlayObject gestured({
     required double frameW,
     required double frameH,
+    required double halfW,
+    required double halfH,
     Offset delta = Offset.zero,
     double scaleFactor = 1,
     double rotationDelta = 0,
@@ -64,7 +86,7 @@ sealed class OverlayObject {
     cy: cy + delta.dy / frameH,
     scale: (scale * scaleFactor).clamp(minScale, maxScale),
     rotation: rotation + rotationDelta,
-  ).clamped();
+  ).clampedTo(frameW: frameW, frameH: frameH, halfW: halfW, halfH: halfH);
 
   /// Un point d'écran est-il sur ce calque, dont la boîte non tournée est
   /// [halfW]×[halfH] autour du centre ? On ramène le point dans le repère du

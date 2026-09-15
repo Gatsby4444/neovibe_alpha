@@ -241,3 +241,19 @@ Filtre, réglages linéaires, vignette, cadrage et calques se voient.
 **Exclu, dit à Jay** : les musiques (sa décision), le direct, les modes
 Story / Reel de la caméra Instagram (hors chantier), Tilt Shift et « Couleur »
 (second temps).
+
+### 9.3 Retours de Jay sur la v0.9.187 — v0.9.188 (2026-09-15)
+
+*« Cela ne convient pas encore. Il y a plusieurs problèmes. »* Six points ;
+le 4 (le visionneur de la bibliothèque) est mis de côté — *« on va le
+reconstruire de A à Z »*.
+
+| # | Vu | Cause | Fait |
+|---|---|---|---|
+| 1 | galerie : beaucoup de cases noires, très lente | chaque vignette demandée au système à l'affichage, dans l'ordre d'arrivée, sur 3 fils : les cases visibles attendaient derrière celles déjà sorties de l'écran ; une vignette refusée par le système restait grise, indiscernable d'une attente | `GalleryFeed` : **file LIFO** (la dernière demandée part la première), six en vol, une case qui disparaît **retire** sa demande (`forget`) ; `NativeGallery.kt` : autant de fils que de cœurs (≤ 6), **repli** quand `loadThumbnail` refuse (décodage réduit + EXIF, ou première image d'une vidéo) ; trois états distincts à l'écran (attente, image, refusée) ; vignettes de 256 px, aperçu de 720 |
+| 2 | la grille à peine visible (deux lignes) | l'aperçu prenait un 3:4 plein largeur | la grille est un **panneau qu'on tire** (`DraggableScrollableSheet`, de 42 % à **80 %** de l'écran, avec crans) par-dessus l'aperçu |
+| 3 | thème clair / sable : interface en noir, textes et boutons illisibles | l'éditeur forçait un thème sombre « comme Instagram » | **la DA prime** : `EditorColors.of(context)` lit la palette de l'identité ; plus aucun `Theme` forcé (éditeur, galerie, légende, autocollants, appareil photo). Seul le fond derrière l'image reste un gris neutre, et ce qui se pose sur l'image reste blanc sur voile sombre |
+| 5 | le cadrage « pas pro » : on ne voit pas bien l'image, on ne sait pas ce qui sera publié | le cadre 3:4 était tout l'aperçu | `MediaPreview` refait : **l'image entière est visible, assombrie hors du cadre** ; le cadre est délimité ; **grille des tiers** pendant le geste ; bouton **Adapter / Remplir** (`CropSpec.fitZoom`, zoom < 1 = l'image entière avec bandes noires ; les deux shaders peignent noir hors de l'image) ; ce qui est clair est exactement l'export |
+| 6 | l'éditeur de texte : un encadré avec fond et « Écris… », qui perd l'utilisateur | l'écran de texte à part, avec le champ du thème (fond sable) et une invite | **le texte se tape sur l'image** (`_InlineTextField` dans l'aperçu) : ni fond, ni bordure, ni invite, le curseur seul ; même police, même taille, même largeur maximale que le peintre (`OverlayPainter.textStyle`) ; centré, il grandit des deux côtés et passe à la ligne au bord ; en écriture, la barre du bas devient police · couleur · alignement · fond et « Terminé » ; **après, le déplacement est bloqué au bord du cadre** (`OverlayObject.clampedTo`, boîte tournée comprise), jamais reformaté |
+
+Tests : +5 (`clampedTo`, Adapter / Remplir) — **509**.

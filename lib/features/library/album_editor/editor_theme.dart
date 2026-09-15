@@ -1,86 +1,53 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/palette.dart';
 import '../../../core/theme.dart';
 import '../../../core/typography.dart';
 
-/// **L'habillage de l'éditeur d'album** — sombre, quel que soit le thème de
-/// l'app, comme la caméra et les visionneuses : on regarde des images, le
-/// cadre ne doit pas les teinter. Épuré : trois gris, du blanc, et l'accent de
-/// l'identité en vigueur pour ce qui est actif.
-abstract final class EditorColors {
-  static const bg = Color(0xFF000000);
-  static const surface = Color(0xFF141416);
-  static const raised = Color(0xFF1F1F22);
-  static const line = Color(0xFF2C2C30);
-  static const ink = Color(0xFFFFFFFF);
-  static const inkMuted = Color(0x99FFFFFF);
-  static const inkFaint = Color(0x5CFFFFFF);
+/// **Les couleurs de l'éditeur d'album** — celles du thème en vigueur, pas un
+/// noir imposé.
+///
+/// Le premier jet (v0.9.187) forçait l'éditeur en sombre « comme
+/// Instagram ». Retour de Jay : *« Le thème clair affiche l'interface en
+/// noir, même le thème sable, le texte est illisible […] Le thème n'est pas
+/// respecté. »* La DA prime : l'éditeur, la galerie et l'écran de légende
+/// reprennent la palette de l'identité (clair, sable, sombre). Seule l'image
+/// reste l'image, et ce qui se pose SUR l'image (calques, boutons du
+/// cadrage) reste blanc sur un voile sombre, lisible quel que soit le thème.
+class EditorColors {
+  const EditorColors._(this.palette, this.scheme);
 
-  /// L'accent lisible sur du noir (la palette de NUIT de l'identité).
-  static Color accent(BuildContext context) => context.darkPalette.action;
-}
+  final NeoPalette palette;
+  final ColorScheme scheme;
 
-/// Le thème Material posé sur les écrans de l'éditeur : fonds sombres,
-/// textes blancs, l'accent de l'identité — le reste hérite de l'app.
-ThemeData editorTheme(BuildContext context) {
-  final base = Theme.of(context);
-  final accent = EditorColors.accent(context);
-  final scheme = ColorScheme.dark(
-    primary: accent,
-    onPrimary: Colors.white,
-    surface: EditorColors.surface,
-    onSurface: EditorColors.ink,
-    surfaceContainerHighest: EditorColors.raised,
-    outline: EditorColors.line,
-  );
-  return base.copyWith(
-    brightness: Brightness.dark,
-    colorScheme: scheme,
-    scaffoldBackgroundColor: EditorColors.bg,
-    canvasColor: EditorColors.bg,
-    appBarTheme: const AppBarTheme(
-      backgroundColor: EditorColors.bg,
-      foregroundColor: EditorColors.ink,
-      elevation: 0,
-      scrolledUnderElevation: 0,
-      centerTitle: true,
-      titleTextStyle: TextStyle(
-        fontFamily: NeoType.display,
-        fontWeight: FontWeight.w600,
-        fontSize: 20,
-        color: EditorColors.ink,
-      ),
-    ),
-    bottomSheetTheme: const BottomSheetThemeData(
-      backgroundColor: EditorColors.surface,
-      dragHandleColor: EditorColors.inkFaint,
-    ),
-    dialogTheme: const DialogThemeData(backgroundColor: EditorColors.raised),
-    textTheme: base.textTheme.apply(
-      bodyColor: EditorColors.ink,
-      displayColor: EditorColors.ink,
-    ),
-    iconTheme: const IconThemeData(color: EditorColors.ink),
-    sliderTheme: SliderThemeData(
-      activeTrackColor: accent,
-      thumbColor: accent,
-      inactiveTrackColor: EditorColors.line,
-      overlayColor: accent.withValues(alpha: 0.15),
-      trackHeight: 3,
-    ),
-    textButtonTheme: TextButtonThemeData(
-      style: TextButton.styleFrom(
-        foregroundColor: EditorColors.ink,
-        minimumSize: const Size(0, 44),
-      ),
-    ),
-    dividerColor: EditorColors.line,
-    snackBarTheme: SnackBarThemeData(
-      backgroundColor: EditorColors.raised,
-      contentTextStyle: const TextStyle(color: EditorColors.ink),
-      actionTextColor: accent,
-    ),
-  );
+  static EditorColors of(BuildContext context) =>
+      EditorColors._(context.palette, Theme.of(context).colorScheme);
+
+  /// Le fond des écrans.
+  Color get bg => palette.ground;
+
+  /// Une surface posée sur le fond (panneaux, feuilles).
+  Color get surface => palette.surface;
+
+  /// Une surface plus marquée (cases, puces, boutons neutres).
+  Color get raised => palette.field;
+
+  Color get line => palette.line;
+  Color get ink => palette.ink;
+  Color get inkMuted => palette.inkMuted;
+  Color get inkFaint => palette.ink.withValues(alpha: 0.42);
+
+  /// L'accent de l'identité.
+  Color get accent => palette.action;
+  Color get onAccent => palette.onAction;
+
+  /// Le fond derrière l'image, là où elle ne couvre pas : neutre et sombre
+  /// dans tous les thèmes, pour ne pas teinter la photo.
+  Color get canvas => const Color(0xFF101012);
+
+  /// Ce qui se pose SUR l'image : toujours blanc, sur un voile sombre.
+  Color get onImage => Colors.white;
+  Color get scrim => Colors.black.withValues(alpha: 0.55);
 }
 
 /// Le bouton « Suivant » / « Publier » de l'éditeur : une pastille pleine
@@ -97,22 +64,65 @@ class EditorPrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = EditorColors.accent(context);
+    final c = EditorColors.of(context);
     return Padding(
       padding: const EdgeInsets.only(right: NeoSpace.sm),
       child: FilledButton(
         onPressed: onPressed,
         style: FilledButton.styleFrom(
-          backgroundColor: accent,
-          disabledBackgroundColor: EditorColors.raised,
-          foregroundColor: Colors.white,
-          disabledForegroundColor: EditorColors.inkFaint,
+          backgroundColor: c.accent,
+          disabledBackgroundColor: c.raised,
+          foregroundColor: c.onAccent,
+          disabledForegroundColor: c.inkFaint,
           minimumSize: const Size(0, 36),
           padding: const EdgeInsets.symmetric(horizontal: NeoSpace.lg),
           shape: const StadiumBorder(),
           textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
         ),
         child: Text(label),
+      ),
+    );
+  }
+}
+
+/// Un bouton rond posé SUR l'image (cadrage, outils de texte) : blanc sur
+/// voile sombre, ou plein blanc quand il est actif.
+class OnImageButton extends StatelessWidget {
+  const OnImageButton({
+    super.key,
+    required this.icon,
+    required this.onTap,
+    required this.tooltip,
+    this.active = false,
+    this.size = 40,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final String tooltip;
+  final bool active;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: active ? Colors.white : Colors.black.withValues(alpha: 0.45),
+      shape: const CircleBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Tooltip(
+          message: tooltip,
+          child: SizedBox(
+            width: size,
+            height: size,
+            child: Icon(
+              icon,
+              size: size * 0.5,
+              color: active ? Colors.black : Colors.white,
+            ),
+          ),
+        ),
       ),
     );
   }

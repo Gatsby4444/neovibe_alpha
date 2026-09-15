@@ -191,6 +191,8 @@ void main() {
       final g = t.gestured(
         frameW: 300,
         frameH: 400,
+        halfW: 10,
+        halfH: 10,
         delta: const Offset(30, -40),
         scaleFactor: 10,
         rotationDelta: 0.5,
@@ -201,15 +203,39 @@ void main() {
       expect(g.rotation, 0.5);
     });
 
-    test('un calque ne peut pas sortir entièrement du cadre', () {
+    test('un calque est bloqué au bord du cadre, jamais au-delà (Jay)', () {
       const t = TextOverlay(id: 't', text: 'x');
+      // Boîte 100×20 : le centre ne peut pas approcher le bord gauche à
+      // moins de 50 px, ni le haut à moins de 10 px.
       final g = t.gestured(
         frameW: 300,
         frameH: 400,
+        halfW: 50,
+        halfH: 10,
         delta: const Offset(-900, 900),
       );
-      expect(g.cx, 0.05);
-      expect(g.cy, 0.95);
+      expect(g.cx, closeTo(50 / 300, 1e-9));
+      expect(g.cy, closeTo(1 - 10 / 400, 1e-9));
+    });
+
+    test("tourné d'un quart, c'est la boîte tournée qui compte", () {
+      const t = TextOverlay(id: 't', text: 'x', rotation: math.pi / 2);
+      final g = t.gestured(
+        frameW: 300,
+        frameH: 400,
+        halfW: 50,
+        halfH: 10,
+        delta: const Offset(-900, -900),
+      );
+      // À 90°, la boîte fait 20 de large et 100 de haut.
+      expect(g.cx, closeTo(10 / 300, 1e-6));
+      expect(g.cy, closeTo(50 / 400, 1e-6));
+    });
+
+    test('un calque plus large que le cadre est centré', () {
+      const t = TextOverlay(id: 't', text: 'x', cx: 0.1);
+      final g = t.gestured(frameW: 300, frameH: 400, halfW: 200, halfH: 10);
+      expect(g.cx, 0.5);
     });
 
     test('hits : un point sur le calque tourné', () {

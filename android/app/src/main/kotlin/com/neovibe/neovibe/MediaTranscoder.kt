@@ -591,10 +591,12 @@ object MediaTranscoder {
                 attribute vec2 aTexCoord;
                 uniform mat4 uStMatrix;
                 varying vec2 vTexCoord;
+                varying vec2 vRaw;
                 varying vec2 vOut;
                 void main() {
                     gl_Position = aPosition;
                     vTexCoord = (uStMatrix * vec4(aTexCoord, 0.0, 1.0)).xy;
+                    vRaw = aTexCoord;
                     vOut = aPosition.xy * 0.5 + 0.5;
                 }
             """
@@ -619,6 +621,7 @@ object MediaTranscoder {
                 uniform float uVignette;
                 uniform vec2 uTexel;
                 varying vec2 vTexCoord;
+                varying vec2 vRaw;
                 varying vec2 vOut;
                 const vec3 kLuma = vec3(0.2126, 0.7152, 0.0722);
                 vec3 graded(vec3 c) {
@@ -632,6 +635,18 @@ object MediaTranscoder {
                     return clamp(rgb, 0.0, 1.0);
                 }
                 void main() {
+                    vec2 screen = vec2(vOut.x, 1.0 - vOut.y);
+                    // Hors de l'image (cadre « adapté », bandes) : du noir — puis
+                    // le calque, qui peut déborder sur les bandes.
+                    if (vRaw.x < 0.0 || vRaw.x > 1.0 || vRaw.y < 0.0 || vRaw.y > 1.0) {
+                        vec3 bande = vec3(0.0);
+                        if (uHasOverlay == 1) {
+                            vec4 o = texture2D(uOverlay, screen);
+                            bande = bande * (1.0 - o.a) + o.rgb;
+                        }
+                        gl_FragColor = vec4(bande, 1.0);
+                        return;
+                    }
                     vec3 rgb = graded(texture2D(sTexture, vTexCoord).rgb);
                     if (uSharpen > 0.0) {
                         vec3 n = graded(texture2D(sTexture, vTexCoord + vec2(uTexel.x, 0.0)).rgb)
@@ -640,7 +655,6 @@ object MediaTranscoder {
                                + graded(texture2D(sTexture, vTexCoord - vec2(0.0, uTexel.y)).rgb);
                         rgb = clamp(rgb + uSharpen * 0.8 * (rgb - n * 0.25), 0.0, 1.0);
                     }
-                    vec2 screen = vec2(vOut.x, 1.0 - vOut.y);
                     float d = length(screen - vec2(0.5)) / 0.70710678;
                     float t = clamp((d - 0.45) / 0.55, 0.0, 1.0);
                     float s = t * t * (3.0 - 2.0 * t);

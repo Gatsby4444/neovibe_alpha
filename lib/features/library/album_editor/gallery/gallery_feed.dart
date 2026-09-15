@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import 'native_gallery.dart';
@@ -6,9 +8,17 @@ import 'native_gallery.dart';
 /// rien savoir de l'écran qui les montre.
 ///
 /// - [entries] publie la liste connue (une page de plus à chaque [loadMore]) ;
-/// - [thumbnail] rend une vignette, depuis un cache borné en mémoire — la
-///   grille en redemande sans cesse en défilant, le natif ne doit pas être
-///   rappelé pour la même image.
+/// - [thumbnail] rend une vignette, depuis un cache borné en mémoire.
+///
+/// ### Les visibles d'abord — corrigé le 2026-09-15
+///
+/// Le premier jet envoyait chaque demande au natif dans l'ordre d'arrivée,
+/// sur trois fils. En défilant, les cases **visibles** attendaient derrière
+/// des dizaines de cases déjà sorties de l'écran : « ça met énormément de
+/// temps à charger » (Jay). Ici, les demandes passent par une **file LIFO** :
+/// la dernière demandée — celle qu'on regarde — part la première ; une case
+/// qui disparaît **retire** sa demande de la file ([forget]) ; six demandes
+/// au plus en cours côté natif.
 class GalleryFeed extends ChangeNotifier {
   GalleryFeed({this.pageSize = 80});
 
@@ -44,34 +54,92 @@ class GalleryFeed extends ChangeNotifier {
     }
   }
 
-  // ── Vignettes : un cache LRU en mémoire ────────────────────────────
+  // ── Vignettes : cache LRU, file LIFO, six en vol ─────────────────────
 
-  /// ~300 vignettes de 300 px en JPEG ≈ 6 Mo : de quoi couvrir plusieurs
+  /// ~300 vignettes de 256 px en JPEG ≈ 5 Mo : de quoi couvrir plusieurs
   /// écrans de grille sans rappeler le natif.
   static const _maxThumbs = 300;
+  static const _concurrency = 6;
+
   final _thumbs = <String, Uint8List>{};
-  final _pending = <String, Future<Uint8List>>{};
+  final _pending = <String, _Request>{};
+  final _queue = <_Request>[];
+  var _inFlight = 0;
 
-  Uint8List? cachedThumbnail(String uri, int size) => _thumbs['$uri@$size'];
+  static String _key(String uri, int size) => '$uri@$size';
 
-  Future<Uint8List> thumbnail(String uri, {int size = 300}) {
-    final key = '$uri@$size';
+  Uint8List? cachedThumbnail(String uri, int size) => _thumbs[_key(uri, size)];
+
+  /// La vignette de [uri] en [size] pixels. [priority] : devant tout le monde
+  /// (le grand aperçu).
+  Future<Uint8List> thumbnail(
+    String uri, {
+    int size = 256,
+    bool priority = false,
+  }) {
+    final key = _key(uri, size);
     final hit = _thumbs.remove(key);
     if (hit != null) {
       _thumbs[key] = hit; // le plus récent en dernier
       return Future.value(hit);
     }
-    return _pending.putIfAbsent(key, () async {
-      try {
-        final bytes = await NativeGallery.thumbnail(uri, size: size);
-        _thumbs[key] = bytes;
-        while (_thumbs.length > _maxThumbs) {
-          _thumbs.remove(_thumbs.keys.first);
-        }
-        return bytes;
-      } finally {
-        _pending.remove(key);
-      }
-    });
+    final pending = _pending[key];
+    if (pending != null) {
+      // Redemandée : elle repasse devant.
+      if (_queue.remove(pending)) _queue.insert(0, pending);
+      return pending.completer.future;
+    }
+    final req = _Request(key, uri, size);
+    _pending[key] = req;
+    // LIFO : la dernière demandée part la première. Le grand aperçu aussi.
+    _queue.insert(0, req);
+    _pump();
+    return req.completer.future;
   }
+
+  /// Plus personne ne regarde cette vignette : si elle n'est pas partie, elle
+  /// ne partira pas.
+  void forget(String uri, {int size = 256}) {
+    final key = _key(uri, size);
+    final req = _pending[key];
+    if (req == null || req.started) return;
+    _queue.remove(req);
+    _pending.remove(key);
+    // Personne n'écoute plus : l'erreur ne doit pas remonter comme non gérée.
+    req.completer.future.ignore();
+    req.completer.completeError(StateError('vignette abandonnée'));
+  }
+
+  void _pump() {
+    while (_inFlight < _concurrency && _queue.isNotEmpty) {
+      final req = _queue.removeAt(0);
+      req.started = true;
+      _inFlight += 1;
+      NativeGallery.thumbnail(req.uri, size: req.size)
+          .then((bytes) {
+            _thumbs[req.key] = bytes;
+            while (_thumbs.length > _maxThumbs) {
+              _thumbs.remove(_thumbs.keys.first);
+            }
+            req.completer.complete(bytes);
+          })
+          .catchError((Object e) {
+            req.completer.completeError(e);
+          })
+          .whenComplete(() {
+            _pending.remove(req.key);
+            _inFlight -= 1;
+            _pump();
+          });
+    }
+  }
+}
+
+class _Request {
+  _Request(this.key, this.uri, this.size);
+  final String key;
+  final String uri;
+  final int size;
+  final completer = Completer<Uint8List>();
+  var started = false;
 }
