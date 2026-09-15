@@ -8,6 +8,7 @@ import '../connections/heart_screen.dart';
 import '../settings/settings_screen.dart';
 import 'album_editor/album_publish_banner.dart';
 import 'library_repository.dart';
+import 'feed/publications_feed_screen.dart';
 import 'mini_card.dart';
 import 'profile_edit_screen.dart';
 import 'profile_header.dart';
@@ -139,6 +140,11 @@ class ProfileScreen extends ConsumerWidget {
                       itemCount: list.length,
                       itemBuilder: (context, index) => MiniCard(
                         item: list[index],
+                        onTap: () => openPublications(
+                          context,
+                          items: list,
+                          initialIndex: index,
+                        ),
                         onLongPress: () async {
                           final delete = await showDialog<bool>(
                             context: context,

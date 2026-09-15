@@ -1,0 +1,274 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../core/content/content_face.dart';
+import '../../../core/content/content_view_reporter.dart';
+import '../../../core/models/library_item.dart';
+import '../../../core/models/profile.dart';
+import '../../../core/supabase_providers.dart';
+import '../../../core/theme.dart';
+import '../../../core/typography.dart';
+import '../../../core/utils/formats.dart';
+import '../../../core/widgets/avatar.dart';
+import '../../../core/widgets/card_type_badge.dart';
+import '../../connections/connections_repository.dart';
+import '../user_library_screen.dart';
+import 'album_carousel.dart';
+import 'publication_actions.dart';
+import 'vibe_card_view.dart';
+
+/// **Une publication dans un fil** — l'en-tête (qui, quand), le média, la
+/// légende, les actions. C'est LA cellule : le fil du profil aujourd'hui, le
+/// feed local demain, même widget.
+///
+/// Deux formats, deux médias : un **album** est un carrousel à son ratio ;
+/// une **Vibe** est la carte recto/verso, retournable sur place, dans un
+/// cadre haut — un tap l'ouvre en plein écran (`onOpenVibe`).
+///
+/// [active] : la cellule est celle qu'on regarde (`ActiveItemTracker`) — ses
+/// vidéos jouent, et la vue se compte après 3 s d'affichage réel.
+class PublicationCell extends ConsumerStatefulWidget {
+  const PublicationCell({
+    super.key,
+    required this.item,
+    required this.active,
+    required this.onOpenVibe,
+    this.onDeleted,
+  });
+
+  final LibraryItem item;
+  final bool active;
+  final VoidCallback onOpenVibe;
+  final VoidCallback? onDeleted;
+
+  @override
+  ConsumerState<PublicationCell> createState() => _PublicationCellState();
+}
+
+class _PublicationCellState extends ConsumerState<PublicationCell> {
+  var _page = 0;
+  ContentViewReporter? _reporter;
+
+  @override
+  void initState() {
+    super.initState();
+    _reporter = ref.read(contentViewReporterProvider);
+    _syncView();
+  }
+
+  @override
+  void didUpdateWidget(covariant PublicationCell old) {
+    super.didUpdateWidget(old);
+    if (old.active != widget.active) _syncView();
+  }
+
+  /// La vue ne part qu'après 3 s d'affichage réel (consigne de Jay du
+  /// 2026-08-13) : une cellule qui défile sous le doigt n'est pas regardée.
+  void _syncView() {
+    if (widget.active) {
+      _reporter?.watching(widget.item.id);
+    } else {
+      _reporter?.stopped(widget.item.id);
+    }
+  }
+
+  @override
+  void dispose() {
+    _reporter?.stopped(widget.item.id);
+    super.dispose();
+  }
+
+  ContentFace _spec(LibraryMedia m) => (
+    contentId: widget.item.id,
+    ownerId: widget.item.ownerId,
+    bucket: 'library',
+    path: m.path,
+    slot: m.slot,
+    isVideo: m.isVideo,
+    encrypted: widget.item.encrypted,
+    batchOwner: widget.item.ownerId,
+    expiresAt: null,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    final me = ref.watch(currentUserIdProvider);
+    final mine = item.ownerId == me;
+    final owner = ref.watch(profileByIdProvider(item.ownerId)).value;
+
+    // Ce que « Enregistrer » copie : l'album → le média affiché ; la Card →
+    // ses faces. Lu ici, dans le même provider que l'affichage.
+    final String saveId;
+    final saveFront = item.isAlbum
+        ? ref.watch(contentFaceProvider(_spec(item.media[_page]))).value
+        : ref.watch(contentFaceProvider(_spec(item.front))).value;
+    final saveBack = !item.isAlbum && item.hasBack
+        ? ref.watch(contentFaceProvider(_spec(item.back!))).value
+        : null;
+    saveId = item.isAlbum ? '${item.id}#${item.media[_page].slot}' : item.id;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _Header(item: item, owner: owner, mine: mine),
+        if (item.isAlbum)
+          AlbumCarousel(
+            item: item,
+            active: widget.active,
+            onPageChanged: (i) => setState(() => _page = i),
+          )
+        else
+          _VibeFrame(
+            child: VibeCardView(
+              item: item,
+              active: widget.active,
+              onTap: widget.onOpenVibe,
+            ),
+          ),
+        PublicationActions(
+          item: item,
+          mine: mine,
+          saveId: saveId,
+          saveFront: saveFront,
+          saveBack: saveBack,
+          saveFrontIsVideo: item.isAlbum
+              ? item.media[_page].isVideo
+              : item.frontIsVideo,
+          saveBackIsVideo: !item.isAlbum && item.backIsVideo,
+          onDeleted: widget.onDeleted,
+        ),
+        if (item.caption != null && item.caption!.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              NeoSpace.lg,
+              0,
+              NeoSpace.lg,
+              NeoSpace.sm,
+            ),
+            child: _Caption(author: owner?.displayName, text: item.caption!),
+          ),
+        const SizedBox(height: NeoSpace.md),
+      ],
+    );
+  }
+}
+
+/// L'en-tête : avatar, nom, âge — et le type de Card, en pastille.
+class _Header extends StatelessWidget {
+  const _Header({required this.item, required this.owner, required this.mine});
+
+  final LibraryItem item;
+  final Profile? owner;
+  final bool mine;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = owner?.displayName ?? '';
+    return InkWell(
+      onTap: owner == null || mine
+          ? null
+          : () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => UserLibraryScreen(profile: owner!),
+              ),
+            ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          NeoSpace.md,
+          NeoSpace.sm,
+          NeoSpace.md,
+          NeoSpace.sm,
+        ),
+        child: Row(
+          children: [
+            Avatar(
+              stored: owner?.avatarUrl,
+              radius: 17,
+              fallback: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
+            ),
+            const SizedBox(width: NeoSpace.sm + 2),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 14,
+                    ),
+                  ),
+                  Text(
+                    timeAgo(item.createdAt),
+                    style: TextStyle(color: context.muted, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            if (!item.isAlbum) CardTypeBadge(type: item.cardType, fontSize: 11),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// La légende : le nom en gras, puis le texte ; longue, elle se déplie.
+class _Caption extends StatefulWidget {
+  const _Caption({required this.author, required this.text});
+  final String? author;
+  final String text;
+
+  @override
+  State<_Caption> createState() => _CaptionState();
+}
+
+class _CaptionState extends State<_Caption> {
+  var _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => setState(() => _expanded = !_expanded),
+      child: RichText(
+        maxLines: _expanded ? null : 3,
+        overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+        text: TextSpan(
+          style: DefaultTextStyle.of(context).style.copyWith(fontSize: 14),
+          children: [
+            if (widget.author != null && widget.author!.isNotEmpty)
+              TextSpan(
+                text: '${widget.author} ',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            TextSpan(text: widget.text),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Le cadre d'une Vibe dans un fil : la carte au format 9:16, centrée, pas
+/// plus haute que les trois quarts de l'écran — assez pour la regarder,
+/// pas au point de perdre le fil.
+class _VibeFrame extends StatelessWidget {
+  const _VibeFrame({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final maxH = size.height * 0.72;
+    final width = (maxH * 9 / 16).clamp(0.0, size.width - 2 * NeoSpace.lg);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: NeoSpace.xs),
+        child: SizedBox(width: width, child: child),
+      ),
+    );
+  }
+}

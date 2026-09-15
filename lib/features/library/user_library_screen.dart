@@ -12,6 +12,7 @@ import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
 import '../proximity/net/proximity_controller.dart';
 import 'library_repository.dart';
+import 'feed/publications_feed_screen.dart';
 import 'mini_card.dart';
 import 'profile_header.dart';
 
@@ -150,8 +151,15 @@ class UserLibraryScreen extends ConsumerWidget {
                           childAspectRatio: kMiniCardRatio,
                         ),
                     itemCount: list.length,
-                    itemBuilder: (context, index) =>
-                        MiniCard(item: list[index]),
+                    itemBuilder: (context, index) => MiniCard(
+                      item: list[index],
+                      onTap: () => openPublications(
+                        context,
+                        items: list,
+                        initialIndex: index,
+                        title: profile.displayName,
+                      ),
+                    ),
                   ),
           ),
           const SizedBox(height: 24),

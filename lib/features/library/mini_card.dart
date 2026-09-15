@@ -6,8 +6,7 @@ import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
 import '../cards/flippable_card.dart';
-import 'album_viewer_screen.dart';
-import 'publication_viewer_screen.dart';
+import 'feed/publications_feed_screen.dart';
 
 /// Format d'une mini-card : portrait, comme la card en grand.
 const kMiniCardRatio = 9 / 16;
@@ -35,22 +34,21 @@ class _ThumbPlaceholder extends StatelessWidget {
 /// Gestes, dans les mots de Jay : « le geste qui swipe c'est le swipe, et le
 /// geste qui ouvre c'est le clic ».
 /// - **swipe** (horizontal par défaut) → retourne la mini-card sur place ;
-/// - **clic** → ouvre en grand (viewer de card, photo ou vidéo).
-///
-/// [flipAxis] passe en vertical dans le deck, où l'horizontale est déjà prise
-/// par le défilement d'une card à l'autre.
+/// - **clic** → [onTap] ; la grille qui nous contient décide où ça mène
+///   (le fil du profil, posé sur cette publication — 2026-09-15). Sans
+///   [onTap], la publication s'ouvre seule dans ce même fil.
 class MiniCard extends ConsumerWidget {
   const MiniCard({
     super.key,
     required this.item,
+    this.onTap,
     this.onLongPress,
-    this.flipAxis = Axis.horizontal,
     this.decodeWidth = 400,
   });
 
   final LibraryItem item;
+  final VoidCallback? onTap;
   final VoidCallback? onLongPress;
-  final Axis flipAxis;
   final int decodeWidth;
 
   @override
@@ -77,8 +75,7 @@ class MiniCard extends ConsumerWidget {
     // Un ALBUM (2026-09-15) : même cadre, même liseré, même format — Jay :
     // « tout dans l'affichage de la bibliothèque doit être identique ». Ce qui
     // change : la couverture est le premier média (l'image de couverture pour
-    // une vidéo), la pastille dit combien il y en a, et le tap ouvre le
-    // visionneur qui feuillette au lieu de celui qui retourne.
+    // une vidéo) et la pastille dit combien il y en a.
     if (item.isAlbum) {
       final cover = item.media.first;
       final thumb = cover.isVideo && cover.posterPath != null
@@ -100,7 +97,7 @@ class MiniCard extends ConsumerWidget {
         aspectRatio: kMiniCardRatio,
         child: GestureDetector(
           onLongPress: onLongPress,
-          onTap: () => _openAlbum(context),
+          onTap: () => _open(context),
           child: _MiniFrame(
             borderColor: borderColor,
             badgeIcon: item.media.length > 1
@@ -156,7 +153,7 @@ class MiniCard extends ConsumerWidget {
               decodeWidth: decodeWidth,
             ),
           ),
-          dragAxis: flipAxis,
+          dragAxis: Axis.horizontal,
           // Le tap n'appartient plus au retournement : il ouvre en grand.
           onTap: () => _open(context),
         ),
@@ -164,13 +161,13 @@ class MiniCard extends ConsumerWidget {
     );
   }
 
-  void _open(BuildContext context) => Navigator.of(context).push(
-    MaterialPageRoute(builder: (_) => PublicationViewerScreen(item: item)),
-  );
-
-  void _openAlbum(BuildContext context) => Navigator.of(
-    context,
-  ).push(MaterialPageRoute(builder: (_) => AlbumViewerScreen(item: item)));
+  void _open(BuildContext context) {
+    if (onTap != null) {
+      onTap!();
+      return;
+    }
+    openPublications(context, items: [item], initialIndex: 0);
+  }
 }
 
 /// Vignette d'une face de publication.
@@ -206,7 +203,7 @@ class _PublicationThumb extends ConsumerWidget {
         encrypted: item.encrypted,
         // Une grille : les clés viennent du lot, pas une par vignette.
         batchOwner: item.ownerId,
-        // Permanente : voir `publication_viewer_screen.dart`.
+        // Permanente (décision de Jay, 2026-08-11) : rien à faire expirer.
         expiresAt: null,
       )),
     );

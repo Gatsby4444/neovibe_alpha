@@ -168,7 +168,11 @@ Profil
 │   │                 jusqu'à 11 médias, ratio, filtres, réglages, rognage,
 │   │                 légende, visibilité, droits — `docs/plan-publications.md`)
 │   ├── retirer de la bibliothèque ✅
-│   └── visionneur Card (retourne) ou visionneur d'album (feuillette) ✅
+│   └── toucher une case → le fil des publications du profil ✅ (2026-09-15)
+│       ├── posé sur la publication touchée, on défile les autres
+│       ├── album : carrousel au ratio · Vibe : carte qui se retourne
+│       ├── aimer ✅ (cœur, compte, « qui a aimé ») · enregistrer · partager
+│       └── toucher une Vibe → plein écran façon Reels ✅ (glisser = suivante)
 ├── Modifier le profil ✅  + avatar avec recadrage ✅
 ├── Demandes & rencontres ✅  (3 onglets)
 │   ├── Demandes ✅       en attente à proximité · historique

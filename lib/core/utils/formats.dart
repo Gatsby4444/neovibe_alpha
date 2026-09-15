@@ -89,3 +89,19 @@ String remaining(DateTime until) {
   if (diff.inHours >= 1) return '${diff.inHours} h';
   return '${diff.inMinutes} min';
 }
+
+/// L'âge d'une publication, en français court : « à l'instant », « il y a
+/// 5 min », « il y a 3 h », « hier », « il y a 3 j », puis la date.
+String timeAgo(DateTime when, {DateTime? now}) {
+  final ref = now ?? DateTime.now();
+  final diff = ref.difference(when);
+  if (diff.inSeconds < 60) return 'à l\'instant';
+  if (diff.inMinutes < 60) return 'il y a ${diff.inMinutes} min';
+  if (diff.inHours < 24) return 'il y a ${diff.inHours} h';
+  if (diff.inDays == 1) return 'hier';
+  if (diff.inDays < 7) return 'il y a ${diff.inDays} j';
+  final local = when.toLocal();
+  final mois = _moisFr[local.month - 1];
+  if (local.year == ref.year) return '${local.day} $mois';
+  return '${local.day} $mois ${local.year}';
+}

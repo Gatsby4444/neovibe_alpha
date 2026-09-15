@@ -114,7 +114,7 @@ bloqué ; fichier d'un média de place 7 ; poster d'une vidéo.
 | Grille | `library/mini_card.dart` | `kind == album` : couverture = place 0 (poster si vidéo), **même cadre 9:16, même liseré**, pastille « ▣ N » à la place du tag de type ; pas de retournement ; tap → visionneur d'album |
 | Profil | `library/profile_screen.dart`, `user_library_screen.dart` | le deck **supprimé** (`library_deck_screen.dart`, un seul lecteur de son import) ; le bouton « Parcourir en deck » devient « Publier » ; le `FloatingActionButton` d'import direct **retiré** (le nouveau chemin le remplace) |
 | Choix | `library/publish_choice_sheet.dart` | « Une Vibe » → caméra Card restreinte à la publication (`VibeShareContext` restreint) ; « Photos ou vidéos » → l'éditeur |
-| Visionneur | `library/album_viewer_screen.dart` | `PageView` horizontal, points, légende, mêmes actions que la Card (enregistrer le média courant, repartager, retirer, signaler), `PullDownToClose`, préchargement des voisins |
+| Visionneur | ~~`library/album_viewer_screen.dart`~~ → **`library/feed/`** depuis la v0.9.189 (§9.4) | le fil du profil (`PublicationsFeedScreen`) et le plein écran des Vibes (`VibesReelScreen`) |
 
 ---
 
@@ -257,3 +257,44 @@ reconstruire de A à Z »*.
 | 6 | l'éditeur de texte : un encadré avec fond et « Écris… », qui perd l'utilisateur | l'écran de texte à part, avec le champ du thème (fond sable) et une invite | **le texte se tape sur l'image** (`_InlineTextField` dans l'aperçu) : ni fond, ni bordure, ni invite, le curseur seul ; même police, même taille, même largeur maximale que le peintre (`OverlayPainter.textStyle`) ; centré, il grandit des deux côtés et passe à la ligne au bord ; en écriture, la barre du bas devient police · couleur · alignement · fond et « Terminé » ; **après, le déplacement est bloqué au bord du cadre** (`OverlayObject.clampedTo`, boîte tournée comprise), jamais reformaté |
 
 Tests : +5 (`clampedTo`, Adapter / Remplir) — **509**.
+
+### 9.4 « Voir les publications » — v0.9.189 (2026-09-15)
+
+*« C'est beaucoup mieux, maintenant on a une très bonne base. »* Jay a
+tranché la suite : **deux fils, deux types de contenus** — les Vibes se
+regardent comme des Reels, les albums comme un feed de publications ; et le
+profil, comme Instagram, mène aux deux. Trois réponses : **oui aux likes**,
+**oui au plein écran des Vibes tout de suite**, **oui à la même page pour le
+profil d'un autre**.
+
+**Ce qui change pour l'utilisateur.** Toucher une case de la grille n'ouvre
+plus une publication seule : on arrive sur **la page des publications de ce
+profil**, posée sur celle qu'on a touchée, et on **fait défiler** les autres
+(Cards et albums mêlés, dans l'ordre du profil). Chaque publication a son
+en-tête (qui, quand), son média, ses actions (aimer · enregistrer · partager
+· retirer / signaler), sa légende. Une Vibe s'y **retourne sur place** ; la
+toucher l'ouvre **en plein écran façon Reels** : une Vibe par écran, on
+glisse vers le haut pour la suivante, les actions à droite, l'auteur et la
+légende en bas ; tirer vers le bas depuis la première ferme. Le cœur compte
+les likes ; toucher le compte dit **qui a aimé**.
+
+| Pièce | Fichier | Rôle |
+|---|---|---|
+| **Les likes, serveur** | `20260915210000_les_likes.sql` | `content_likes (content_id, user_id)` sur **`contents`** — un like porte sur le contenu, quel que soit son format ; lecture et pose gardées par `private.content_audience` (on n'aime que ce qu'on peut voir) ; `content_likes_summary(uuid[])` (compte + « moi ») pour tout un fil en un appel, `toggle_like`, `content_likers` (qui, quand ; 200 max, `security definer` pour lire les profils) |
+| **Les likes, client** | `core/content/likes.dart` | `LikesStore` : un état par contenu, `load` en lot, `toggle` **optimiste** (le cœur répond au doigt, le serveur confirme, sinon retour) |
+| **La cellule** | `feed/publication_cell.dart` | **LA** cellule d'un fil, réutilisée demain par le feed local : en-tête (`timeAgo`, type de Vibe en pastille, tap → le profil), média, actions, légende dépliable ; la vue se compte quand la cellule est **active** |
+| **Qui est actif** | `feed/active_item_tracker.dart` | la cellule visible à plus de la moitié dont le centre est le plus près du centre de l'écran ; c'est elle qui joue ses vidéos et compte sa vue — jamais deux à la fois |
+| **L'album** | `feed/album_carousel.dart` | `PageView` horizontal au ratio, « n/N », points, vidéo en boucle muette (tap = son), média suivant demandé d'avance |
+| **La Vibe** | `feed/vibe_card_view.dart` | la carte recto/verso retournable (`FlippableCard`, axe horizontal), même composant en cellule et en plein écran |
+| **Les actions** | `feed/publication_actions.dart` | à plat ou en colonne ; `LikeButton`, `SaveButton`, repartage (`RecipientPickerScreen` en mode repost), retirer / `ContentOverflowMenu` ; `showLikers` |
+| **Le fil du profil** | `feed/publications_feed_screen.dart` | la liste, posée sur la publication touchée (`ensureVisible`, ou estimation puis réalignement) ; `openPublications(context, items, index)` |
+| **Les Vibes plein écran** | `feed/vibes_reel_screen.dart` | `PageView` vertical, une Vibe par page ; fermeture par **sur-défilement** depuis la première (la liste tient le geste vertical, on lit ce qu'elle rapporte — même décision et même animation que `PullDownToClose`) |
+| **Les grilles** | `mini_card.dart` (`onTap`), `profile_screen.dart`, `user_library_screen.dart` | la grille décide où mène le tap : le fil de **ce** profil, avec **sa** liste |
+| **Le chat** | `chat_screen.dart` | une publication repartagée s'ouvre dans le même fil, seule |
+| **Supprimés** | `publication_viewer_screen.dart`, `album_viewer_screen.dart` | les deux visionneurs à un contenu ; leurs appelants (grille, chat) et ce qu'ils appelaient (relevés : tout reste utilisé ailleurs) |
+
+**Ce qui reste à faire ensuite** : le **feed** lui-même (les deux sources :
+la géographie, et ce que les amis ont **ajouté** — anonyme jusqu'au like, qui
+ouvre le chat 24 h ; le scroll qui se durcit vers 60) — la cellule, le
+suivi d'activité, le carrousel, la carte et les likes sont prêts à y être
+branchés tels quels.
