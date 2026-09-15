@@ -177,6 +177,7 @@ abstract final class AlbumExport {
       outHeight: outH,
       colorMatrix: m.grade.toMatrix(),
       vignette: m.grade.vignette,
+      rotation: m.rotation,
       onProgress: onProgress,
     );
     // La couverture, tirée du fichier PRODUIT : déjà recadrée et corrigée.

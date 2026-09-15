@@ -177,12 +177,18 @@ class PublicationSettingsSheet extends ConsumerStatefulWidget {
     required this.library,
     required this.typeAccepteSauvegarde,
     required this.onChanged,
+    this.libraryOnly = false,
   });
 
   final StoryShare story;
   final LibraryShare library;
   final bool typeAccepteSauvegarde;
   final ValueChanged<PublicationSettings> onChanged;
+
+  /// Publication seulement (« Publier » depuis le profil, 2026-09-15) : la
+  /// story n'est pas proposée sur l'écran, ses réglages ne le sont pas non
+  /// plus (retour de Jay du 2026-09-15).
+  final bool libraryOnly;
 
   @override
   ConsumerState<PublicationSettingsSheet> createState() =>
@@ -217,71 +223,72 @@ class _PublicationSettingsSheetState
                   'Ils valent pour cet envoi. « Défauts » les garde pour les '
                   'prochains.',
             ),
-            _Bloc(
-              'Ma story · 24 h',
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Visible par',
-                    style: TextStyle(color: context.muted, fontSize: 11),
-                  ),
-                  const SizedBox(height: NeoSpace.xs),
-                  // 🔴 **LE PALIER — ce que Snapchat ne sait pas faire.**
-                  Wrap(
-                    spacing: NeoSpace.sm,
-                    runSpacing: NeoSpace.xs,
-                    children: [
-                      for (final t in FriendshipTier.values)
+            if (!widget.libraryOnly)
+              _Bloc(
+                'Ma story · 24 h',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Visible par',
+                      style: TextStyle(color: context.muted, fontSize: 11),
+                    ),
+                    const SizedBox(height: NeoSpace.xs),
+                    // 🔴 **LE PALIER — ce que Snapchat ne sait pas faire.**
+                    Wrap(
+                      spacing: NeoSpace.sm,
+                      runSpacing: NeoSpace.xs,
+                      children: [
+                        for (final t in FriendshipTier.values)
+                          SettingChip(
+                            label: switch (t) {
+                              FriendshipTier.friend => 'Tous mes amis',
+                              FriendshipTier.close => 'Mes proches',
+                              FriendshipTier.inner => 'Mes inséparables',
+                            },
+                            actif: _story.tier == t,
+                            onTap: () {
+                              setState(() => _story = _story.copyWith(tier: t));
+                              _push();
+                            },
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: NeoSpace.sm),
+                    Wrap(
+                      spacing: NeoSpace.sm,
+                      runSpacing: NeoSpace.xs,
+                      children: [
                         SettingChip(
-                          label: switch (t) {
-                            FriendshipTier.friend => 'Tous mes amis',
-                            FriendshipTier.close => 'Mes proches',
-                            FriendshipTier.inner => 'Mes inséparables',
-                          },
-                          actif: _story.tier == t,
+                          label: 'Partageable',
+                          actif: _story.shareable,
                           onTap: () {
-                            setState(() => _story = _story.copyWith(tier: t));
+                            setState(
+                              () => _story = _story.copyWith(
+                                shareable: !_story.shareable,
+                              ),
+                            );
                             _push();
                           },
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: NeoSpace.sm),
-                  Wrap(
-                    spacing: NeoSpace.sm,
-                    runSpacing: NeoSpace.xs,
-                    children: [
-                      SettingChip(
-                        label: 'Partageable',
-                        actif: _story.shareable,
-                        onTap: () {
-                          setState(
-                            () => _story = _story.copyWith(
-                              shareable: !_story.shareable,
-                            ),
-                          );
-                          _push();
-                        },
-                      ),
-                      SettingChip(
-                        label: 'Sauvegardable',
-                        actif: _story.saveable,
-                        desactivee: !widget.typeAccepteSauvegarde,
-                        onTap: () {
-                          setState(
-                            () => _story = _story.copyWith(
-                              saveable: !_story.saveable,
-                            ),
-                          );
-                          _push();
-                        },
-                      ),
-                    ],
-                  ),
-                ],
+                        SettingChip(
+                          label: 'Sauvegardable',
+                          actif: _story.saveable,
+                          desactivee: !widget.typeAccepteSauvegarde,
+                          onTap: () {
+                            setState(
+                              () => _story = _story.copyWith(
+                                saveable: !_story.saveable,
+                              ),
+                            );
+                            _push();
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
             _Bloc(
               'Ma bibliothèque · permanente',
               child: Wrap(

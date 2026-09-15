@@ -75,8 +75,9 @@ abstract final class NativeMedia {
 
   /// Recompresse une vidéo pour un album : rognée de [startMs] à [endMs],
   /// recadrée (cadre en fractions de l'image affichée), passée par la matrice
-  /// de couleurs et la vignette, ramenée à [outWidth]×[outHeight]. Voir
-  /// `MediaTranscoder.kt`. Lève sur échec.
+  /// de couleurs et la vignette, ramenée à [outWidth]×[outHeight].
+  /// [rotation] est celle que la sonde a lue (0, 90, 180, 270) : c'est le
+  /// transcodeur qui la défait. Voir `MediaTranscoder.kt`. Lève sur échec.
   static Future<TranscodeResult> transcode({
     required String source,
     required String dest,
@@ -90,6 +91,7 @@ abstract final class NativeMedia {
     required int outHeight,
     required List<double> colorMatrix,
     required double vignette,
+    required int rotation,
     void Function(double progress)? onProgress,
   }) async {
     if (!_listening) {
@@ -120,6 +122,7 @@ abstract final class NativeMedia {
         'outHeight': outHeight,
         'colorMatrix': colorMatrix,
         'vignette': vignette,
+        'rotation': rotation,
       });
       return TranscodeResult(
         durationMs: map!['durationMs'] as int,

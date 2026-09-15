@@ -139,7 +139,7 @@ class _AlbumViewerScreenState extends ConsumerState<AlbumViewerScreen> {
             Expanded(
               child: Center(
                 child: AspectRatio(
-                  aspectRatio: (item.aspect ?? AlbumAspect.portrait).ratio,
+                  aspectRatio: (item.aspect ?? AlbumAspect.tall).ratio,
                   child: PageView.builder(
                     controller: _pages,
                     itemCount: media.length,

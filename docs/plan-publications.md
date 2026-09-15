@@ -15,7 +15,7 @@
 | Sujet | Décision |
 |---|---|
 | Contenu d'une publication | **jusqu'à 11 médias** (photos et vidéos mêlées), **feuilletés à l'horizontale**, une **légende** |
-| Format | **comme Instagram** : un seul ratio pour toute la publication (1:1 · 4:5 · 1.91:1), images comme Instagram |
+| Format | **comme Instagram** : un seul ratio pour toute la publication, images comme Instagram. ⚠️ **Précisé après le test de la v0.9.185** : *« on avait dit vertical comme sur Instagram »* → **3:4 uniquement**, plus de choix (les 1:1 · 4:5 · 1.91:1 du premier jet sont retirés de l'éditeur ; un album déjà publié garde son ratio) |
 | Sources | **galerie ou caméra** (l'appareil photo du téléphone) |
 | Vidéo | **pas de 4K** ; **1 min max par média** ; une vidéo plus longue → **proposer de la découper** et répartir automatiquement sur plusieurs médias du carrousel, dans la limite des 11 |
 | Éditeur | **digne d'Instagram**, sans les musiques ; « pour le reste tu pousses tout au max » |
@@ -206,3 +206,11 @@ l'aperçu d'une photo couchée ; le temps de rendu d'une vidéo de 60 s.
 **Limites écrites** : un seul album à la fois ; l'envoi ne survit pas à la mort
 de l'app ; une vidéo sans piste AAC sort sans son ; les vidéos de Card n'ont
 toujours pas de vignette (`RAPPELS.md` #4).
+
+### 9.1 Retouches après le premier test de Jay (2026-09-15, v0.9.186)
+
+| Vu par Jay | Cause | Fait |
+|---|---|---|
+| « Le format n'est pas bon, on avait dit vertical comme sur Instagram » | le premier jet offrait les trois ratios d'Instagram (1:1 · 4:5 · 1.91:1), défaut 4:5 ; Jay avait cadré en 1:1 | **3:4 uniquement** (tranché par Jay) : `AlbumAspect.tall`, `AlbumDraft.aspect` fixe, le sélecteur de ratio retiré de « Cadrer » (reste le geste + « Réinitialiser le cadrage »), `withAspect` supprimé ; migration `20260915180000_les_albums_en_3_4.sql` ajoute 3:4 aux ratios admis — l'album de test en 1:1 reste lisible à son ratio |
+| dans la caméra restreinte, la feuille ⚙︎ montre les réglages de story | la feuille ne savait pas qu'elle servait une publication seule | `PublicationSettingsSheet.libraryOnly` : le bloc « Ma story » n'est pas dessiné |
+| la vidéo sort couchée | **la rotation valait 0** : elle était lue sur le format de la piste (`MediaExtractor`), qui ne la portait pas sur le Xiaomi — la vidéo sortait telle que stockée (une prise portrait est rangée couchée, avec une étiquette de rotation). La vignette, elle, venait de `MediaMetadataRetriever`, qui la lit — d'où une vignette droite et une vidéo couchée | la rotation vient de la **sonde** (`probe`, déjà portée par `AlbumDraftMedia.rotation`) et passe à `transcode(rotation:)` ; `KEY_ROTATION` est mis à 0 sur le format donné au décodeur pour qu'aucun décodeur ne tourne de son côté (sinon deux fois). ⚠️ Le sens du redressement reste **à confirmer** au test suivant |

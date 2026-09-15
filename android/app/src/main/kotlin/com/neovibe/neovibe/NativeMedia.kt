@@ -168,6 +168,7 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
             outHeight = i("outHeight"),
             colorMatrix = FloatArray(20) { matrix[it].toFloat() },
             vignette = f("vignette"),
+            rotation = i("rotation"),
         )
     }
 

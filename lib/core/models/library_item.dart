@@ -22,8 +22,14 @@ enum LibraryKind {
   String get dbValue => name;
 }
 
-/// Le ratio d'un album, commun à tous ses médias — les trois d'Instagram.
+/// Le ratio d'un album, commun à tous ses médias.
+///
+/// **Un seul est proposé : [tall], 3:4** — « vertical comme sur Instagram »,
+/// tranché par Jay le 2026-09-15 après le test de la v0.9.185. Les trois
+/// autres restent lisibles pour les albums publiés avant (le visionneur
+/// affiche chaque album à SON ratio), mais l'éditeur ne les offre plus.
 enum AlbumAspect {
+  tall(3, 4, '3:4'),
   square(1, 1, '1:1'),
   portrait(4, 5, '4:5'),
   landscape(191, 100, '1.91:1');

@@ -195,9 +195,7 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
               height: 128,
               child: switch (_tool) {
                 _Tool.cadrer => _CropPanel(
-                  aspect: _draft.aspect,
-                  onAspect: (a) =>
-                      setState(() => _draft = _draft.withAspect(a)),
+                  crop: media.crop,
                   onReset: () =>
                       _update((m) => m.copyWith(crop: CropSpec.none)),
                 ),
@@ -579,15 +577,12 @@ class _ToolBar extends StatelessWidget {
   }
 }
 
+/// Cadrer : un seul format (3:4, Jay 2026-09-15), donc pas de choix ici —
+/// le geste (glisser, pincer) et un retour au cadrage de départ.
 class _CropPanel extends StatelessWidget {
-  const _CropPanel({
-    required this.aspect,
-    required this.onAspect,
-    required this.onReset,
-  });
+  const _CropPanel({required this.crop, required this.onReset});
 
-  final AlbumAspect aspect;
-  final ValueChanged<AlbumAspect> onAspect;
+  final CropSpec crop;
   final VoidCallback onReset;
 
   @override
@@ -595,25 +590,18 @@ class _CropPanel extends StatelessWidget {
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        SegmentedButton<AlbumAspect>(
-          segments: [
-            for (final a in AlbumAspect.values)
-              ButtonSegment(value: a, label: Text(a.label)),
-          ],
-          selected: {aspect},
-          onSelectionChanged: (s) => onAspect(s.first),
-          showSelectedIcon: false,
+        Text(
+          'Glisse pour cadrer · pince pour zoomer',
+          style: TextStyle(color: context.muted, fontSize: 13),
         ),
-        const SizedBox(height: NeoSpace.sm),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'Glisse pour cadrer · pince pour zoomer',
-              style: TextStyle(color: context.muted, fontSize: 12),
-            ),
-            TextButton(onPressed: onReset, child: const Text('Réinitialiser')),
-          ],
+        const SizedBox(height: NeoSpace.xs),
+        Text(
+          'Zoom ×${crop.zoom.toStringAsFixed(1)}',
+          style: TextStyle(color: context.faint, fontSize: 12),
+        ),
+        TextButton(
+          onPressed: crop == CropSpec.none ? null : onReset,
+          child: const Text('Réinitialiser le cadrage'),
         ),
       ],
     );

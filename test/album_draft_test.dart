@@ -40,15 +40,10 @@ void main() {
       expect(d.reorder(1, 1), d);
     });
 
-    test('changer de ratio remet les recadrages à zéro', () {
-      final d = const AlbumDraft()
-          .add([photo('a')])
-          .update('a', (m) => m.copyWith(crop: const CropSpec(zoom: 2)));
-      expect(d.media.first.crop.zoom, 2);
-      final s = d.withAspect(AlbumAspect.square);
-      expect(s.media.first.crop, CropSpec.none);
-      // Le même ratio ne touche à rien.
-      expect(d.withAspect(AlbumAspect.portrait), same(d));
+    test('un seul format : 3:4, vertical (Jay, 2026-09-15)', () {
+      expect(const AlbumDraft().aspect, AlbumAspect.tall);
+      expect(AlbumAspect.tall.ratio, 0.75);
+      expect(AlbumAspect.fromDb(3, 4), AlbumAspect.tall);
     });
   });
 

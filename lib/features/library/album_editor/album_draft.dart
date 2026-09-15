@@ -291,7 +291,7 @@ class AlbumDraftMedia {
 class AlbumDraft {
   const AlbumDraft({
     this.media = const [],
-    this.aspect = AlbumAspect.portrait,
+    this.aspect = AlbumAspect.tall,
     this.caption = '',
     this.isPublic = false,
     this.shareable = false,
@@ -299,6 +299,10 @@ class AlbumDraft {
   });
 
   final List<AlbumDraftMedia> media;
+
+  /// Toujours [AlbumAspect.tall] depuis le 2026-09-15 : un seul format,
+  /// pas de choix. Le champ reste pour que l'export et le visionneur lisent
+  /// la même chose que la base.
   final AlbumAspect aspect;
   final String caption;
   final bool isPublic;
@@ -344,16 +348,6 @@ class AlbumDraft {
 
   AlbumDraft update(String id, AlbumDraftMedia Function(AlbumDraftMedia) f) =>
       copyWith(media: [for (final m in media) m.id == id ? f(m) : m]);
-
-  /// Changer le ratio remet les recadrages à zéro : un cadre 4:5 posé sur une
-  /// source n'a pas de sens en 1:1, et un recadrage « au plus large » est le
-  /// seul choix qui ne surprend pas.
-  AlbumDraft withAspect(AlbumAspect a) => a == aspect
-      ? this
-      : copyWith(
-          aspect: a,
-          media: [for (final m in media) m.copyWith(crop: CropSpec.none)],
-        );
 
   /// La **découpe** d'une vidéo trop longue (Jay : *« si une vidéo est trop
   /// longue on peut proposer à l'utilisateur de la découper et répartir

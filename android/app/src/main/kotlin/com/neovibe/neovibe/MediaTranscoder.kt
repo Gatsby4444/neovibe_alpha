@@ -66,6 +66,17 @@ object MediaTranscoder {
         val colorMatrix: FloatArray,
         /** 0..1, la même valeur que `Vignette` côté Dart. */
         val vignette: Float,
+        /**
+         * La rotation déclarée par le fichier (0, 90, 180, 270), lue par la
+         * SONDE (`MediaMetadataRetriever`) et passée par Dart.
+         *
+         * 🔴 **Elle n'est plus lue ici, sur le format de la piste — corrigé le
+         * 2026-09-15 après le test de Jay.** `MediaExtractor.getTrackFormat`
+         * ne portait pas `KEY_ROTATION` sur son Xiaomi : la rotation valait 0,
+         * rien n'était défait, et une vidéo filmée en portrait sortait couchée
+         * — exactement l'allure du fichier tel qu'il est stocké.
+         */
+        val rotation: Int,
     )
 
     class Result(val ok: Boolean, val message: String, val durationMs: Int, val hasAudio: Boolean)
@@ -90,9 +101,12 @@ object MediaTranscoder {
             val videoTrack = findTrack(extractor, "video/")
             if (videoTrack < 0) return Result(false, "aucune piste vidéo", 0, false)
             val inFormat = extractor.getTrackFormat(videoTrack)
-            val rotation = if (inFormat.containsKey(MediaFormat.KEY_ROTATION)) {
-                inFormat.getInteger(MediaFormat.KEY_ROTATION)
-            } else 0
+            val rotation = p.rotation
+            // ⚠️ La rotation est défaite par NOTRE shader. Certains décodeurs
+            // l'appliquent eux-mêmes quand ils rendent sur une Surface si le
+            // format la porte : on la retire du format pour qu'aucun ne le
+            // fasse, sinon elle serait appliquée deux fois.
+            inFormat.setInteger(MediaFormat.KEY_ROTATION, 0)
             val fps = if (inFormat.containsKey(MediaFormat.KEY_FRAME_RATE)) {
                 inFormat.getInteger(MediaFormat.KEY_FRAME_RATE).coerceIn(15, 60)
             } else 30
