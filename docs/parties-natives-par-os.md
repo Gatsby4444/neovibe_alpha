@@ -29,6 +29,7 @@
 |---|---|---|---|
 | Caméra | `neovibe/camera` | CameraX + Camera2 + OpenGL ES | AVFoundation + Metal/CoreImage + AVAssetWriter |
 | Anti-capture | (dans `neovibe/camera` : `setSecure`) | `WindowManager.FLAG_SECURE` | Pas d'équivalent strict → détection + occultation |
+| **Galerie du téléphone** *(2026-09-15)* | `neovibe/gallery` | `NativeGallery` (`MediaStore` paginé par `Bundle`, `loadThumbnail`, copie dans le cache) | `PHPhotoLibrary` / `PHImageManager` (`requestImage`, `requestExportSession`) |
 | Média (hors caméra) *(étendu le 2026-09-15)* | `neovibe/media` | `NativeMedia` (couverture d'une vidéo, sonde, JPEG) + **`MediaTranscoder`** (rognage, recadrage, matrice de couleurs, recompression H.264 par `MediaCodec` + GL) | `AVAssetImageGenerator`, `CGImageSource`, `AVAssetExportSession` + `AVVideoComposition` + `CIFilter` |
 | Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise + scan) | CoreBluetooth, **mode dégradé à concevoir** |
 | ~~Transport GATT (liens, trames)~~ | — | **SUPPRIMÉ le 2026-08-27** — le BLE ne fait plus que prouver la proximité | *sans objet* |
@@ -857,21 +858,39 @@ d'album, `docs/plan-publications.md`), quatre de plus.
 | `fastStart(path)` | l'index MP4 en tête (`Mp4FastStart.kt`, bloc 7) | — |
 | `probe(path)` | photo ou vidéo, dimensions **après rotation** (EXIF pour une photo, `KEY_ROTATION` pour une vidéo), durée | `PROBE_FAILED` |
 | `encodeJpeg(rgba, width, height, dest, quality)` | des pixels RGBA rendus par Flutter → un JPEG (`dart:ui` ne sait écrire que du PNG) | `JPEG_FAILED` |
-| `transcode(jobId, source, dest, startMs, endMs, crop…, outWidth, outHeight, colorMatrix[20], vignette)` | **`MediaTranscoder.kt`** : une vidéo de la galerie rognée, recadrée, corrigée, recompressée ; progression par `transcodeProgress(jobId, progress)` du natif vers Dart, au plus une fois par pour cent | `TRANSCODE_FAILED` |
+| `transcode(jobId, source, dest, startMs, endMs, corners[8], outWidth, outHeight, uniforms[24], rotation, overlayPath?)` | **`MediaTranscoder.kt`** : une vidéo de la galerie rognée, cadrée / tournée / redressée (les coins de `CropGeometry`), corrigée (le contrat `ColorGrade.toUniforms`), avec le calque des textes et autocollants (un PNG) brûlé dessus, recompressée ; progression par `transcodeProgress(jobId, progress)` du natif vers Dart, au plus une fois par pour cent | `TRANSCODE_FAILED` |
 
 **Android (fait)** : `NativeMedia.kt`, tout sur un exécuteur dédié (jamais le
 thread principal), écriture `.part` puis renommage. **`MediaTranscoder.kt`**
-(nouveau, 2026-09-15) : `MediaExtractor` → décodeur `MediaCodec` sur une
-`SurfaceTexture` OES → shader GL ES 2 (recadrage par coordonnées de texture,
-rotation défaite, matrice 4×5 et vignette — **la même définition que
-`ColorGrade` / `Vignette` côté Dart**) → encodeur H.264 sur sa `Surface`
+(2026-09-15) : `MediaExtractor` → décodeur `MediaCodec` sur une
+`SurfaceTexture` OES (`KEY_ROTATION` forcé à 0 : c'est notre shader qui
+redresse, avec la rotation lue par la sonde) → shader GL ES 2 — **la même
+formule que `shaders/album_grade.frag`** côté Flutter : coins de cadrage en
+coordonnées de texture, matrice 4×4 + offsets, ombres et hautes lumières
+pondérées par la luminance, netteté par masque flou, vignette, puis le calque
+PNG (alpha prémultiplié) mélangé par-dessus → encodeur H.264 sur sa `Surface`
 (3,5 Mbit/s, `NativeCamera.VIDEO_BITRATE`) → `MediaMuxer` ; audio **AAC
 recopié**, rogné et entrelacé ; sans AAC, la vidéo sort sans son et le résultat
 le dit. Attentes bornées (image jamais rendue : 3 s ; fin de flux : 4 s), même
 famille de code que `Camera2Gl` et volontairement séparé du chemin caméra.
-⚠️ **Écrit sans téléphone sous la main** : le sens de la rotation défaite dans
-`cropTexCoords` et le retournement vertical de la `SurfaceTexture` sont à
-**vérifier sur appareil** (comme le miroir de la frontale, `RAPPELS.md` #9).
+⚠️ Le sens du redressement dans `cropTexCoords` et le retournement vertical de
+la `SurfaceTexture` sont à **vérifier sur appareil** (comme le miroir de la
+frontale, `RAPPELS.md` #9).
+
+**`NativeGallery.kt`** (nouveau, 2026-09-15, canal `neovibe/gallery`) : la
+galerie **dans l'app** (« Nouvelle publication »). `list(offset, limit)` =
+`MediaStore.Files` (images + vidéos) triés par date, **paginés par `Bundle`**
+(`QUERY_ARG_LIMIT` / `OFFSET` — `LIMIT` dans l'ordre de tri est refusé depuis
+Android 11) ; `thumbnail(uri, size)` = `ContentResolver.loadThumbnail` (API 29,
+déjà orientée, mise en cache par le système), JPEG 82 ; `copy(uri, dest)` =
+`openInputStream` → notre cache. Trois fils pour les vignettes, un pour le
+reste. Permissions au manifeste : `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`,
+`READ_MEDIA_VISUAL_USER_SELECTED` (14+, accès partiel), `READ_EXTERNAL_STORAGE`
+(≤ 32) ; demandées côté Dart par `permission_handler` (`photos`, `videos`).
+Lecture seule. **iOS** : `PHPhotoLibrary.requestAuthorization(.readWrite ou
+.addOnly)`, `PHAsset.fetchAssets` paginé, `PHImageManager.requestImage` pour
+les vignettes, `requestExportSession` / `requestImageDataAndOrientation` pour la
+copie.
 
 **iOS (à faire)** : `AVAssetImageGenerator` sur un `AVURLAsset`
 (`appliesPreferredTrackTransform = true` pour respecter la rotation, comme le

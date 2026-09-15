@@ -49,6 +49,15 @@
     <!-- Cards : capture recto/verso (photo + vidéo avec son) -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- La galerie DANS l'app (« Nouvelle publication », 2026-09-15) : lecture
+         seule des photos et vidéos du MediaStore (`NativeGallery.kt`). Android 13+
+         demande les deux permissions par type ; Android 14+ peut n'accorder qu'une
+         sélection (VISUAL_USER_SELECTED) ; avant 13 c'est le stockage externe. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
 
     <!-- Notifications FOMO / Waves -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

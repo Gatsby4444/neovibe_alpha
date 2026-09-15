@@ -3,15 +3,21 @@ import 'dart:math' as math;
 /// Les réglages de couleur d'un média, et leur traduction en **une matrice
 /// 4×5** — celle de `ColorFilter.matrix`.
 ///
-/// ### Pourquoi une matrice
+/// ### Pourquoi une matrice, et un shader
 ///
-/// L'aperçu (Flutter, `ColorFiltered`), l'export d'une photo (`Canvas` +
-/// `Paint.colorFilter`) et l'export d'une vidéo (le shader du transcodeur
-/// natif) appliquent **la même matrice**. Ce qu'on voit est ce qu'on publie,
-/// et il n'y a qu'une seule définition de « +20 % de contraste » dans l'app.
+/// Une partie des réglages est **linéaire** (luminosité, contraste,
+/// saturation, chaleur, teinte, fondu) : c'est une matrice 4×5, la même pour
+/// tout le monde. L'autre partie ne l'est pas (ombres, hautes lumières,
+/// netteté, vignette) : elle vit dans **un shader**, écrit deux fois avec la
+/// même formule — `shaders/album_grade.frag` pour Flutter (aperçu et export
+/// photo) et `MediaTranscoder.kt` pour la vidéo. [toUniforms] est le contrat
+/// entre les deux : la liste des nombres, dans un ordre fixé ici.
+///
+/// Ce qu'on voit est ce qu'on publie, et il n'y a qu'une seule définition de
+/// « +20 % de contraste » dans l'app.
 ///
 /// Tout est **pur** : pas de widget, pas de fichier, pas de natif. Les tests
-/// vérifient la matrice, pas des pixels.
+/// vérifient la matrice et les nombres, pas des pixels.
 class ColorGrade {
   const ColorGrade({
     this.brightness = 0,
@@ -21,6 +27,10 @@ class ColorGrade {
     this.tint = 0,
     this.fade = 0,
     this.vignette = 0,
+    this.shadows = 0,
+    this.highlights = 0,
+    this.sharpen = 0,
+    this.lux = 0,
   });
 
   static const none = ColorGrade();
@@ -43,9 +53,23 @@ class ColorGrade {
   /// 0 … 1 : les noirs remontent vers le gris (l'effet « pellicule »).
   final double fade;
 
-  /// 0 … 1 : les bords s'assombrissent. Pas une matrice — un voile radial
-  /// dessiné par-dessus, avec la même valeur à l'aperçu et à l'export.
+  /// 0 … 1 : les bords s'assombrissent (un voile radial, dans le shader).
   final double vignette;
+
+  /// −1 … +1 : les zones sombres remontent (+) ou s'enfoncent (−).
+  final double shadows;
+
+  /// −1 … +1 : les zones claires s'éclairent (+) ou se retiennent (−).
+  final double highlights;
+
+  /// 0 … 1 : netteté (un masque flou soustrait, dans le shader).
+  final double sharpen;
+
+  /// 0 … 1 : « Lux », le coup de peps automatique d'Instagram — chez nous un
+  /// mélange fixe de contraste, d'ombres relevées et d'un peu de saturation,
+  /// **replié dans les autres réglages** par [resolved]. Il n'atteint jamais
+  /// le shader tel quel.
+  final double lux;
 
   ColorGrade copyWith({
     double? brightness,
@@ -55,6 +79,10 @@ class ColorGrade {
     double? tint,
     double? fade,
     double? vignette,
+    double? shadows,
+    double? highlights,
+    double? sharpen,
+    double? lux,
   }) => ColorGrade(
     brightness: brightness ?? this.brightness,
     contrast: contrast ?? this.contrast,
@@ -63,6 +91,10 @@ class ColorGrade {
     tint: tint ?? this.tint,
     fade: fade ?? this.fade,
     vignette: vignette ?? this.vignette,
+    shadows: shadows ?? this.shadows,
+    highlights: highlights ?? this.highlights,
+    sharpen: sharpen ?? this.sharpen,
+    lux: lux ?? this.lux,
   );
 
   /// Ce réglage posé PAR-DESSUS [base] (un filtre) : les valeurs s'ajoutent,
@@ -75,7 +107,47 @@ class ColorGrade {
     tint: _c1(base.tint + tint),
     fade: _c01(base.fade + fade),
     vignette: _c01(base.vignette + vignette),
+    shadows: _c1(base.shadows + shadows),
+    highlights: _c1(base.highlights + highlights),
+    sharpen: _c01(base.sharpen + sharpen),
+    lux: _c01(base.lux + lux),
   );
+
+  /// Ce réglage à [k] de son intensité (0 = rien, 1 = entier) : l'intensité
+  /// d'un filtre, comme sur Instagram.
+  ColorGrade scaled(double k) {
+    final f = k.clamp(0.0, 1.0);
+    return ColorGrade(
+      brightness: brightness * f,
+      contrast: contrast * f,
+      saturation: saturation * f,
+      warmth: warmth * f,
+      tint: tint * f,
+      fade: fade * f,
+      vignette: vignette * f,
+      shadows: shadows * f,
+      highlights: highlights * f,
+      sharpen: sharpen * f,
+      lux: lux * f,
+    );
+  }
+
+  /// Le réglage avec « Lux » replié dans les autres : c'est celui que la
+  /// matrice et le shader lisent.
+  ColorGrade get resolved => lux == 0
+      ? this
+      : ColorGrade(
+          brightness: brightness,
+          contrast: _c1(contrast + 0.25 * lux),
+          saturation: _c1(saturation + 0.1 * lux),
+          warmth: warmth,
+          tint: tint,
+          fade: fade,
+          vignette: vignette,
+          shadows: _c1(shadows + 0.2 * lux),
+          highlights: _c1(highlights - 0.1 * lux),
+          sharpen: _c01(sharpen + 0.15 * lux),
+        );
 
   bool get isIdentity =>
       brightness == 0 &&
@@ -84,7 +156,32 @@ class ColorGrade {
       warmth == 0 &&
       tint == 0 &&
       fade == 0 &&
-      vignette == 0;
+      vignette == 0 &&
+      shadows == 0 &&
+      highlights == 0 &&
+      sharpen == 0 &&
+      lux == 0;
+
+  /// **Le contrat des shaders** : les nombres que le shader Flutter et le
+  /// shader GL reçoivent, dans cet ordre — la matrice 4×4 (colonnes), les
+  /// quatre offsets en 0..1, puis ombres, hautes lumières, netteté, vignette.
+  /// 24 valeurs. Changer cet ordre, c'est changer les deux shaders.
+  List<double> toUniforms() {
+    final r = resolved;
+    final m = r.toMatrix();
+    return [
+      // mat4, colonne par colonne : la colonne j porte les coefficients du
+      // canal d'entrée j pour les quatre canaux de sortie.
+      m[0], m[5], m[10], m[15], //
+      m[1], m[6], m[11], m[16], //
+      m[2], m[7], m[12], m[17], //
+      m[3], m[8], m[13], m[18], //
+      m[4] / 255, m[9] / 255, m[14] / 255, m[19] / 255, //
+      r.shadows, r.highlights, r.sharpen, r.vignette,
+    ];
+  }
+
+  static const uniformCount = 24;
 
   /// La matrice 4×5, ligne par ligne, telle que `ColorFilter.matrix` la lit :
   /// `R' = a·R + b·G + c·B + d·A + e`, avec `e` en unités de 0 à 255.
@@ -94,13 +191,14 @@ class ColorGrade {
   /// pour des réglages modestes, mais il est **fixé** : le shader natif suit
   /// exactement le même.
   List<double> toMatrix() {
+    final g = resolved;
     var m = _identity();
-    m = _mul(_saturationMatrix(1 + saturation), m);
+    m = _mul(_saturationMatrix(1 + g.saturation), m);
     // Contraste : autour du gris moyen. s ∈ [0,2 ; 1,8].
-    final s = 1 + contrast * 0.8;
+    final s = 1 + g.contrast * 0.8;
     m = _mul(_scaleOffset(s, 128 * (1 - s)), m);
     // Luminosité : un décalage, ±40 % de la plage au maximum.
-    m = _mul(_scaleOffset(1, brightness * 102), m);
+    m = _mul(_scaleOffset(1, g.brightness * 102), m);
     // Chaleur : rouge et bleu en sens inverse. Teinte : vert contre magenta.
     m = _mul(
       _offsets(
@@ -207,7 +305,11 @@ class ColorGrade {
       other.warmth == warmth &&
       other.tint == tint &&
       other.fade == fade &&
-      other.vignette == vignette;
+      other.vignette == vignette &&
+      other.shadows == shadows &&
+      other.highlights == highlights &&
+      other.sharpen == sharpen &&
+      other.lux == lux;
 
   @override
   int get hashCode => Object.hash(
@@ -218,12 +320,17 @@ class ColorGrade {
     tint,
     fade,
     vignette,
+    shadows,
+    highlights,
+    sharpen,
+    lux,
   );
 
   @override
   String toString() =>
       'ColorGrade(b=$brightness c=$contrast s=$saturation w=$warmth '
-      't=$tint f=$fade v=$vignette)';
+      't=$tint f=$fade v=$vignette sh=$shadows hl=$highlights n=$sharpen '
+      'lux=$lux)';
 }
 
 /// Les filtres nommés — des réglages tout faits, dans l'esprit de ceux

@@ -151,23 +151,21 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
     }
 
     private fun transcodeParams(call: MethodCall): MediaTranscoder.Params {
-        fun f(key: String) = (call.argument<Number>(key) ?: throw IllegalArgumentException(key)).toFloat()
         fun i(key: String) = call.argument<Int>(key) ?: throw IllegalArgumentException(key)
-        val matrix = call.argument<List<Number>>("colorMatrix") ?: throw IllegalArgumentException("colorMatrix")
-        if (matrix.size != 20) throw IllegalArgumentException("colorMatrix : 20 valeurs attendues")
+        val uniforms = call.argument<List<Number>>("uniforms") ?: throw IllegalArgumentException("uniforms")
+        if (uniforms.size != 24) throw IllegalArgumentException("uniforms : 24 valeurs attendues")
+        val corners = call.argument<List<Number>>("corners") ?: throw IllegalArgumentException("corners")
+        if (corners.size != 8) throw IllegalArgumentException("corners : 8 valeurs attendues")
         return MediaTranscoder.Params(
             source = File(call.argument<String>("source") ?: throw IllegalArgumentException("source")),
             dest = File(call.argument<String>("dest") ?: throw IllegalArgumentException("dest")),
             startMs = i("startMs"),
             endMs = i("endMs"),
-            cropLeft = f("cropLeft"),
-            cropTop = f("cropTop"),
-            cropWidth = f("cropWidth"),
-            cropHeight = f("cropHeight"),
+            corners = FloatArray(8) { corners[it].toFloat() },
             outWidth = i("outWidth"),
             outHeight = i("outHeight"),
-            colorMatrix = FloatArray(20) { matrix[it].toFloat() },
-            vignette = f("vignette"),
+            uniforms = FloatArray(24) { uniforms[it].toFloat() },
+            overlayPath = call.argument<String>("overlayPath"),
             rotation = i("rotation"),
         )
     }

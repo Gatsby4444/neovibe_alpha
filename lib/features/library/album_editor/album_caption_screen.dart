@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme.dart';
 import '../../../core/typography.dart';
 import 'album_draft.dart';
+import 'editor_theme.dart';
 
 /// La dernière étape avant de publier : la **légende**, la **visibilité** et
 /// les **droits** — les mêmes que ceux d'une Card publiée (publique / selon
@@ -47,124 +48,140 @@ class _AlbumCaptionScreenState extends State<AlbumCaptionScreen> {
   @override
   Widget build(BuildContext context) {
     final n = _draft.media.length;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Publier')),
-      body: ListView(
-        padding: const EdgeInsets.all(NeoSpace.lg),
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 72,
-                height: 72 / _draft.aspect.ratio.clamp(0.8, 1.25),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(NeoRadius.sm),
-                  border: Border.all(color: context.palette.line),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: FutureBuilder<File?>(
-                  future: widget.coverThumb,
-                  builder: (context, snap) => snap.data == null
-                      ? ColoredBox(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHighest,
-                        )
-                      : Image.file(
-                          snap.data!,
-                          fit: BoxFit.cover,
-                          cacheWidth: 200,
-                        ),
-                ),
-              ),
-              const SizedBox(width: NeoSpace.md),
-              Expanded(
-                child: TextField(
-                  controller: _caption,
-                  maxLines: 6,
-                  minLines: 3,
-                  maxLength: _maxCaption,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: const InputDecoration(
-                    hintText: 'Écris une légende…',
-                    border: InputBorder.none,
-                    counterText: '',
-                  ),
-                ),
-              ),
-            ],
-          ),
-          Padding(
-            padding: const EdgeInsets.only(top: NeoSpace.xs),
-            child: Text(
-              '$n média${n > 1 ? 's' : ''} · ${_draft.aspect.label}',
-              style: TextStyle(color: context.muted, fontSize: 12),
-            ),
-          ),
-          const SizedBox(height: NeoSpace.xl),
-          Text('Qui peut voir', style: Theme.of(context).textTheme.titleSmall),
-          RadioGroup<bool>(
-            groupValue: _draft.isPublic,
-            onChanged: (v) =>
-                setState(() => _draft = _draft.copyWith(isPublic: v ?? false)),
-            child: Column(
+    return Theme(
+      data: editorTheme(context),
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Publier')),
+        body: ListView(
+          padding: const EdgeInsets.all(NeoSpace.lg),
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                RadioListTile<bool>(
-                  value: false,
-                  title: const Text("Selon mes règles d'accès"),
-                  subtitle: Text(
-                    "Mes amis, ou la liste que j'ai choisie dans les réglages",
-                    style: TextStyle(color: context.muted),
+                Container(
+                  width: 72,
+                  height: 72 / _draft.aspect.ratio.clamp(0.8, 1.25),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(NeoRadius.sm),
+                    border: Border.all(color: context.palette.line),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: FutureBuilder<File?>(
+                    future: widget.coverThumb,
+                    builder: (context, snap) => snap.data == null
+                        ? ColoredBox(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.surfaceContainerHighest,
+                          )
+                        : Image.file(
+                            snap.data!,
+                            fit: BoxFit.cover,
+                            cacheWidth: 200,
+                          ),
                   ),
                 ),
-                RadioListTile<bool>(
-                  value: true,
-                  title: const Text('Publique'),
-                  subtitle: Text(
-                    'Toute personne qui accède à mon profil — et le feed, '
-                    'plus tard',
-                    style: TextStyle(color: context.muted),
+                const SizedBox(width: NeoSpace.md),
+                Expanded(
+                  child: TextField(
+                    controller: _caption,
+                    maxLines: 6,
+                    minLines: 3,
+                    maxLength: _maxCaption,
+                    textCapitalization: TextCapitalization.sentences,
+                    style: const TextStyle(color: EditorColors.ink),
+                    decoration: const InputDecoration(
+                      hintText: 'Écris une légende…',
+                      hintStyle: TextStyle(color: EditorColors.inkFaint),
+                      border: InputBorder.none,
+                      filled: false,
+                      counterText: '',
+                    ),
                   ),
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: NeoSpace.md),
-          SwitchListTile(
-            value: _draft.shareable,
-            title: const Text('Partageable'),
-            subtitle: Text(
-              'Les autres peuvent la repartager dans leurs conversations',
-              style: TextStyle(color: context.muted),
+            Padding(
+              padding: const EdgeInsets.only(top: NeoSpace.xs),
+              child: Text(
+                '$n média${n > 1 ? 's' : ''} · ${_draft.aspect.label}',
+                style: TextStyle(color: context.muted, fontSize: 12),
+              ),
             ),
-            onChanged: (v) =>
-                setState(() => _draft = _draft.copyWith(shareable: v)),
-          ),
-          SwitchListTile(
-            value: _draft.saveable,
-            title: const Text('Sauvegardable'),
-            subtitle: Text(
-              'Les autres peuvent l\'enregistrer sur leur appareil',
-              style: TextStyle(color: context.muted),
+            const SizedBox(height: NeoSpace.xl),
+            Text(
+              'Qui peut voir',
+              style: Theme.of(context).textTheme.titleSmall,
             ),
-            onChanged: (v) =>
-                setState(() => _draft = _draft.copyWith(saveable: v)),
-          ),
-          const SizedBox(height: NeoSpace.xl),
-          FilledButton.icon(
-            onPressed: _publish,
-            icon: const Icon(Icons.upload_outlined),
-            label: const Text('Publier'),
-          ),
-          const SizedBox(height: NeoSpace.sm),
-          Text(
-            'La publication part en arrière-plan : tu peux continuer à '
-            'utiliser l\'app, le profil dira quand c\'est fait.',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: context.muted, fontSize: 12),
-          ),
-        ],
+            RadioGroup<bool>(
+              groupValue: _draft.isPublic,
+              onChanged: (v) => setState(
+                () => _draft = _draft.copyWith(isPublic: v ?? false),
+              ),
+              child: Column(
+                children: [
+                  RadioListTile<bool>(
+                    value: false,
+                    title: const Text("Selon mes règles d'accès"),
+                    subtitle: Text(
+                      "Mes amis, ou la liste que j'ai choisie dans les réglages",
+                      style: TextStyle(color: context.muted),
+                    ),
+                  ),
+                  RadioListTile<bool>(
+                    value: true,
+                    title: const Text('Publique'),
+                    subtitle: Text(
+                      'Toute personne qui accède à mon profil — et le feed, '
+                      'plus tard',
+                      style: TextStyle(color: context.muted),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: NeoSpace.md),
+            SwitchListTile(
+              value: _draft.shareable,
+              title: const Text('Partageable'),
+              subtitle: Text(
+                'Les autres peuvent la repartager dans leurs conversations',
+                style: TextStyle(color: context.muted),
+              ),
+              onChanged: (v) =>
+                  setState(() => _draft = _draft.copyWith(shareable: v)),
+            ),
+            SwitchListTile(
+              value: _draft.saveable,
+              title: const Text('Sauvegardable'),
+              subtitle: Text(
+                'Les autres peuvent l\'enregistrer sur leur appareil',
+                style: TextStyle(color: context.muted),
+              ),
+              onChanged: (v) =>
+                  setState(() => _draft = _draft.copyWith(saveable: v)),
+            ),
+            const SizedBox(height: NeoSpace.xl),
+            FilledButton.icon(
+              onPressed: _publish,
+              style: FilledButton.styleFrom(
+                backgroundColor: EditorColors.accent(context),
+                foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(52),
+                shape: const StadiumBorder(),
+              ),
+              icon: const Icon(Icons.upload_outlined),
+              label: const Text('Publier'),
+            ),
+            const SizedBox(height: NeoSpace.sm),
+            Text(
+              'La publication part en arrière-plan : tu peux continuer à '
+              'utiliser l\'app, le profil dira quand c\'est fait.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: context.muted, fontSize: 12),
+            ),
+          ],
+        ),
       ),
     );
   }

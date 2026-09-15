@@ -22,10 +22,12 @@ import java.nio.FloatBuffer
 
 /**
  * Recompresse une vidéo de la galerie pour un **album** (Jay, 2026-09-15) :
- * rognée entre deux instants, recadrée au ratio de la publication, passée par
- * la même matrice de couleurs et la même vignette que l'aperçu Flutter, et
- * ramenée à ≤ 1080 px de large et 3,5 Mbit/s — le plafond des Cards
- * (`NativeCamera.VIDEO_BITRATE`, limite d'upload 50 Mo, `RAPPELS.md` #7).
+ * rognée entre deux instants, recadrée / tournée / redressée au ratio de la
+ * publication (les coins de `CropGeometry`), passée par **la même formule de
+ * couleurs** que l'aperçu et l'export photo (`shaders/album_grade.frag`), avec
+ * le calque des textes et autocollants brûlé dessus, et ramenée à ≤ 1080 px de
+ * large et 3,5 Mbit/s — le plafond des Cards (`NativeCamera.VIDEO_BITRATE`,
+ * limite d'upload 50 Mo, `RAPPELS.md` #7).
  *
  * ### Le chemin
  *
@@ -55,17 +57,24 @@ object MediaTranscoder {
         val dest: File,
         val startMs: Int,
         val endMs: Int,
-        /** Le cadre, en fractions de l'image AFFICHÉE (rotation appliquée). */
-        val cropLeft: Float,
-        val cropTop: Float,
-        val cropWidth: Float,
-        val cropHeight: Float,
+        /**
+         * Les quatre coins du cadre — haut-gauche, haut-droit, bas-gauche,
+         * bas-droit, soit 8 nombres — en fractions de l'image AFFICHÉE
+         * (rotation appliquée). Calculés par `CropGeometry.corners` côté Dart :
+         * ils portent le recadrage, le zoom, les quarts de tour et le
+         * redressement d'un seul tenant.
+         */
+        val corners: FloatArray,
         val outWidth: Int,
         val outHeight: Int,
-        /** La matrice 4×5 de `ColorFilter.matrix`, ligne par ligne, offsets en 0..255. */
-        val colorMatrix: FloatArray,
-        /** 0..1, la même valeur que `Vignette` côté Dart. */
-        val vignette: Float,
+        /**
+         * Le contrat `ColorGrade.toUniforms()` : 24 nombres — la matrice 4×4
+         * (colonnes), quatre offsets en 0..1, puis ombres, hautes lumières,
+         * netteté, vignette.
+         */
+        val uniforms: FloatArray,
+        /** Le calque des textes et autocollants, un PNG à la taille de sortie ; nul si aucun. */
+        val overlayPath: String?,
         /**
          * La rotation déclarée par le fichier (0, 90, 180, 270), lue par la
          * SONDE (`MediaMetadataRetriever`) et passée par Dart.
@@ -146,7 +155,9 @@ object MediaTranscoder {
 
             // 2. EGL sur la surface de l'encodeur, puis la texture OES qui reçoit
             //    les images décodées.
-            gl.init(encoderSurface, p, rotation)
+            val srcW = inFormat.getInteger(MediaFormat.KEY_WIDTH)
+            val srcH = inFormat.getInteger(MediaFormat.KEY_HEIGHT)
+            gl.init(encoderSurface, p, rotation, srcW, srcH)
             surfaceTexture = SurfaceTexture(gl.oesTexId)
             val frames = FrameGate()
             surfaceTexture.setOnFrameAvailableListener { frames.signal() }
@@ -366,16 +377,23 @@ object MediaTranscoder {
         private var uStMatrix = 0
         private var uColor = 0
         private var uOffset = 0
+        private var uShadows = 0
+        private var uHighlights = 0
+        private var uSharpen = 0
         private var uVignette = 0
+        private var uTexel = 0
+        private var uOverlay = 0
+        private var uHasOverlay = 0
+        private var overlayTexId = 0
         private lateinit var vertices: FloatBuffer
         private lateinit var texCoords: FloatBuffer
-        private lateinit var colorMatrix: FloatArray
-        private lateinit var colorOffset: FloatArray
-        private var vignette = 0f
+        private lateinit var uniforms: FloatArray
+        private var texelW = 0f
+        private var texelH = 0f
         private var outW = 0
         private var outH = 0
 
-        fun init(window: Surface, p: Params, rotation: Int) {
+        fun init(window: Surface, p: Params, rotation: Int, srcWidth: Int, srcHeight: Int) {
             display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
             val version = IntArray(2)
             if (!EGL14.eglInitialize(display, version, 0, version, 1)) throw RuntimeException("eglInitialize a échoué")
@@ -403,7 +421,13 @@ object MediaTranscoder {
             uStMatrix = GLES20.glGetUniformLocation(program, "uStMatrix")
             uColor = GLES20.glGetUniformLocation(program, "uColor")
             uOffset = GLES20.glGetUniformLocation(program, "uOffset")
+            uShadows = GLES20.glGetUniformLocation(program, "uShadows")
+            uHighlights = GLES20.glGetUniformLocation(program, "uHighlights")
+            uSharpen = GLES20.glGetUniformLocation(program, "uSharpen")
             uVignette = GLES20.glGetUniformLocation(program, "uVignette")
+            uTexel = GLES20.glGetUniformLocation(program, "uTexel")
+            uOverlay = GLES20.glGetUniformLocation(program, "uOverlay")
+            uHasOverlay = GLES20.glGetUniformLocation(program, "uHasOverlay")
 
             val tex = IntArray(1)
             GLES20.glGenTextures(1, tex, 0)
@@ -419,42 +443,51 @@ object MediaTranscoder {
             vertices = floatBuffer(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f))
             texCoords = floatBuffer(cropTexCoords(p, rotation))
 
-            // La matrice 4×5 de Flutter → une 4×4 (colonnes) + un vecteur d'offsets en 0..1.
-            val m = p.colorMatrix
-            colorMatrix = floatArrayOf(
-                m[0], m[5], m[10], m[15],
-                m[1], m[6], m[11], m[16],
-                m[2], m[7], m[12], m[17],
-                m[3], m[8], m[13], m[18],
-            )
-            colorOffset = floatArrayOf(m[4] / 255f, m[9] / 255f, m[14] / 255f, m[19] / 255f)
-            vignette = p.vignette.coerceIn(0f, 1f)
+            if (p.uniforms.size != 24) throw IllegalArgumentException("uniforms : 24 valeurs attendues")
+            uniforms = p.uniforms
+            // Un texel de la source STOCKÉE, pour la netteté (les voisins sont
+            // pris dans le repère de la texture).
+            texelW = 1f / srcWidth.coerceAtLeast(1)
+            texelH = 1f / srcHeight.coerceAtLeast(1)
+
+            // Le calque des textes et autocollants : une texture 2D, chargée
+            // une fois, mélangée par-dessus chaque image.
+            val overlay = p.overlayPath?.let { android.graphics.BitmapFactory.decodeFile(it) }
+            if (overlay != null) {
+                val t = IntArray(1)
+                GLES20.glGenTextures(1, t, 0)
+                overlayTexId = t[0]
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, overlayTexId)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+                // `texImage2D` envoie le bitmap tel qu'il est en mémoire Android :
+                // alpha PRÉMULTIPLIÉ. Le shader mélange donc en `dst*(1-a) + src`.
+                android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, overlay, 0)
+                overlay.recycle()
+            }
         }
 
         /**
          * Les coordonnées de texture des quatre coins de sortie, dans l'image
-         * STOCKÉE. Le cadre est donné dans l'image AFFICHÉE : on revient à
-         * l'image stockée en défaisant la rotation déclarée par le fichier.
+         * STOCKÉE. Les coins arrivent dans l'image AFFICHÉE (`CropGeometry`) :
+         * on revient à l'image stockée en défaisant la rotation déclarée par
+         * le fichier (lue par la sonde, passée par Dart).
          *
-         * ⚠️ Le sens de la rotation (et le retournement vertical que la
+         * ⚠️ Le sens de ce redressement (et le retournement vertical que la
          * SurfaceTexture applique via `uStMatrix`) est à VÉRIFIER SUR APPAREIL,
-         * comme le miroir de la frontale l'a été (`RAPPELS.md` #9) : ce fichier
-         * a été écrit sans téléphone sous la main le 2026-09-15.
+         * comme le miroir de la frontale l'a été (`RAPPELS.md` #9).
          */
         private fun cropTexCoords(p: Params, rotation: Int): FloatArray {
-            // Sommets dans l'ordre de `vertices` : bas-gauche, bas-droit, haut-gauche, haut-droit.
-            // En coordonnées d'AFFICHAGE (0,0 en haut à gauche), le bas de la sortie
-            // est y = 1.
-            val corners = arrayOf(
-                floatArrayOf(0f, 1f), floatArrayOf(1f, 1f), floatArrayOf(0f, 0f), floatArrayOf(1f, 0f),
-            )
+            // Sommets dans l'ordre de `vertices` : bas-gauche, bas-droit,
+            // haut-gauche, haut-droit. Les coins de Dart : haut-gauche,
+            // haut-droit, bas-gauche, bas-droit.
+            val order = intArrayOf(2, 3, 0, 1)
             val out = FloatArray(8)
-            for (i in corners.indices) {
-                val u = corners[i][0]
-                val v = corners[i][1]
-                // Dans l'image affichée, recadrée.
-                val dx = p.cropLeft + u * p.cropWidth
-                val dy = p.cropTop + v * p.cropHeight
+            for (i in 0 until 4) {
+                val dx = p.corners[order[i] * 2]
+                val dy = p.corners[order[i] * 2 + 1]
                 // Retour à l'image stockée : l'inverse d'une rotation horaire.
                 val (sx, sy) = when (rotation) {
                     90 -> Pair(dy, 1f - dx)
@@ -478,9 +511,20 @@ object MediaTranscoder {
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oesTexId)
             GLES20.glUniformMatrix4fv(uStMatrix, 1, false, stMatrix, 0)
-            GLES20.glUniformMatrix4fv(uColor, 1, false, colorMatrix, 0)
-            GLES20.glUniform4fv(uOffset, 1, colorOffset, 0)
-            GLES20.glUniform1f(uVignette, vignette)
+            GLES20.glUniformMatrix4fv(uColor, 1, false, uniforms, 0)
+            GLES20.glUniform4fv(uOffset, 1, uniforms, 16)
+            GLES20.glUniform1f(uShadows, uniforms[20])
+            GLES20.glUniform1f(uHighlights, uniforms[21])
+            GLES20.glUniform1f(uSharpen, uniforms[22])
+            GLES20.glUniform1f(uVignette, uniforms[23])
+            GLES20.glUniform2f(uTexel, texelW, texelH)
+            GLES20.glUniform1i(uHasOverlay, if (overlayTexId != 0) 1 else 0)
+            if (overlayTexId != 0) {
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, overlayTexId)
+                GLES20.glUniform1i(uOverlay, 1)
+                GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+            }
             vertices.position(0)
             GLES20.glVertexAttribPointer(aPosition, 2, GLES20.GL_FLOAT, false, 0, vertices)
             GLES20.glEnableVertexAttribArray(aPosition)
@@ -495,6 +539,7 @@ object MediaTranscoder {
         fun release() {
             if (display == EGL14.EGL_NO_DISPLAY) return
             runCatching {
+                if (overlayTexId != 0) GLES20.glDeleteTextures(1, intArrayOf(overlayTexId), 0)
                 EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
                 if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
                 if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context)
@@ -554,27 +599,58 @@ object MediaTranscoder {
                 }
             """
 
-            // La même définition que `ColorGrade.toMatrix` et `Vignette.alphaAt`
-            // côté Dart : matrice puis offsets, vignette en smoothstep de 0,45 à 1
-            // sur la distance normalisée au centre (1 au coin), 70 % au maximum.
+            // LA MÊME FORMULE que `shaders/album_grade.frag` (Flutter) : matrice
+            // puis offsets, ombres et hautes lumières pondérées par la
+            // luminance, netteté par masque flou sur quatre voisins, vignette
+            // en smoothstep de 0,45 à 1 (70 % max), puis le calque par-dessus.
+            // `vOut` a l'origine en bas (GL) ; le calque et la vignette se lisent
+            // avec y inversé pour retrouver l'orientation de l'écran.
             private const val FRAGMENT = """
                 #extension GL_OES_EGL_image_external : require
                 precision mediump float;
                 uniform samplerExternalOES sTexture;
+                uniform sampler2D uOverlay;
+                uniform int uHasOverlay;
                 uniform mat4 uColor;
                 uniform vec4 uOffset;
+                uniform float uShadows;
+                uniform float uHighlights;
+                uniform float uSharpen;
                 uniform float uVignette;
+                uniform vec2 uTexel;
                 varying vec2 vTexCoord;
                 varying vec2 vOut;
+                const vec3 kLuma = vec3(0.2126, 0.7152, 0.0722);
+                vec3 graded(vec3 c) {
+                    vec4 g = uColor * vec4(c, 1.0) + uOffset;
+                    vec3 rgb = clamp(g.rgb, 0.0, 1.0);
+                    float luma = dot(rgb, kLuma);
+                    float ws = (1.0 - luma) * (1.0 - luma);
+                    rgb += uShadows * 0.25 * ws;
+                    float wh = luma * luma;
+                    rgb += uHighlights * 0.25 * wh;
+                    return clamp(rgb, 0.0, 1.0);
+                }
                 void main() {
-                    vec4 c = texture2D(sTexture, vTexCoord);
-                    vec4 g = uColor * c + uOffset;
-                    g = clamp(g, 0.0, 1.0);
-                    float d = length(vOut - vec2(0.5)) / 0.70710678;
+                    vec3 rgb = graded(texture2D(sTexture, vTexCoord).rgb);
+                    if (uSharpen > 0.0) {
+                        vec3 n = graded(texture2D(sTexture, vTexCoord + vec2(uTexel.x, 0.0)).rgb)
+                               + graded(texture2D(sTexture, vTexCoord - vec2(uTexel.x, 0.0)).rgb)
+                               + graded(texture2D(sTexture, vTexCoord + vec2(0.0, uTexel.y)).rgb)
+                               + graded(texture2D(sTexture, vTexCoord - vec2(0.0, uTexel.y)).rgb);
+                        rgb = clamp(rgb + uSharpen * 0.8 * (rgb - n * 0.25), 0.0, 1.0);
+                    }
+                    vec2 screen = vec2(vOut.x, 1.0 - vOut.y);
+                    float d = length(screen - vec2(0.5)) / 0.70710678;
                     float t = clamp((d - 0.45) / 0.55, 0.0, 1.0);
                     float s = t * t * (3.0 - 2.0 * t);
                     float a = min(uVignette * 0.7, 0.7) * s;
-                    gl_FragColor = vec4(mix(g.rgb, vec3(0.0), a), 1.0);
+                    rgb = mix(rgb, vec3(0.0), a);
+                    if (uHasOverlay == 1) {
+                        vec4 o = texture2D(uOverlay, screen);
+                        rgb = rgb * (1.0 - o.a) + o.rgb;
+                    }
+                    gl_FragColor = vec4(rgb, 1.0);
                 }
             """
         }

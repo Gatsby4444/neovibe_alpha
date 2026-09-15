@@ -18,6 +18,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var nativeInstall: NativeInstall? = null
     private var locationGrant: LocationGrant? = null
     private var voiceRecorder: NativeVoiceRecorder? = null
+    private var nativeGallery: NativeGallery? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -62,6 +63,12 @@ class MainActivity : FlutterFragmentActivity() {
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
+        // La galerie du téléphone, lue par nous (2026-09-15) : un
+        // `ContentResolver` suffit, l'activite n'a rien a y faire.
+        nativeGallery = NativeGallery(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
     }
 
     override fun onDestroy() {
@@ -71,6 +78,8 @@ class MainActivity : FlutterFragmentActivity() {
         nativePlayer = null
         nativeDiagnostics?.dispose()
         nativeDiagnostics = null
+        nativeGallery?.dispose()
+        nativeGallery = null
         // Le pont s'en va, le service reste : c'est tout l'intérêt.
         proximity?.dispose()
         proximity = null

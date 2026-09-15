@@ -4,6 +4,7 @@ import 'dart:ui' show Rect;
 
 import '../../../core/models/library_item.dart';
 import 'color_grade.dart';
+import 'overlay_model.dart';
 
 /// Ce que l'éditeur d'album manipule — **pur** : pas de widget, pas de
 /// réseau, pas de natif. L'éditeur affiche ce modèle, l'export le lit.
@@ -20,109 +21,96 @@ const kAlbumMaxMedia = 11;
 /// Le plafond de Jay : « vidéo de max 1 min par contenu ».
 const kAlbumMaxVideoMs = 60000;
 
-/// Le recadrage d'un média dans le cadre du ratio commun : un zoom et un
-/// point de visée, tous deux **relatifs à la source** — le même recadrage vaut
-/// donc pour l'aperçu (petit) et pour l'export (grand).
+/// Le cadrage d'un média dans le cadre du ratio commun : un **zoom**, un
+/// **point de visée**, des **quarts de tour** et un **redressement** fin.
+///
+/// Zoom et visée sont relatifs au **rectangle inscrit** dans l'image tournée
+/// (voir `CropGeometry.inscribed`) : le même cadrage vaut pour l'aperçu
+/// (petit) et l'export (grand), et un coin vide est impossible par
+/// construction. La géométrie elle-même vit dans `crop_geometry.dart` ; ici,
+/// seulement les paramètres et leurs bornes.
 class CropSpec {
-  const CropSpec({this.zoom = 1, this.cx = 0.5, this.cy = 0.5})
-    : assert(zoom >= 1);
+  const CropSpec({
+    this.zoom = 1,
+    this.cx = 0.5,
+    this.cy = 0.5,
+    this.angle = 0,
+    this.turns = 0,
+  }) : assert(zoom >= 1),
+       assert(angle >= -maxAngle && angle <= maxAngle),
+       assert(turns >= 0 && turns < 4);
 
   static const none = CropSpec();
 
   /// ≥ 1. À 1, le cadre est le plus grand rectangle du ratio qui tient dans
-  /// la source (« couvrir », comme `BoxFit.cover`).
+  /// le rectangle inscrit (« couvrir », comme `BoxFit.cover`).
   final double zoom;
 
-  /// Le centre du cadre, en fraction de la source (0,5 = au milieu).
+  /// Le centre du cadre, en fraction du rectangle inscrit (0,5 = au milieu).
   final double cx;
   final double cy;
 
+  /// Le redressement, en degrés, −45 … +45 (l'outil « Redresser »).
+  final double angle;
+
+  /// Les quarts de tour, 0 … 3 (le bouton « Tourner »).
+  final int turns;
+
   static const maxZoom = 3.0;
+  static const maxAngle = 45.0;
 
-  CropSpec copyWith({double? zoom, double? cx, double? cy}) =>
-      CropSpec(zoom: zoom ?? this.zoom, cx: cx ?? this.cx, cy: cy ?? this.cy);
+  /// La rotation totale de l'image, en radians (sens horaire à l'écran).
+  double get radians => (turns * 90 + angle) * math.pi / 180;
 
-  /// Le rectangle **source** (en pixels de la source) que le cadre montre,
-  /// pour une source de [srcW]×[srcH] et un ratio [aspect]. Toujours
-  /// entièrement dans la source : le centre est borné, jamais le cadre ne
-  /// déborde sur du vide.
-  Rect sourceRect(int srcW, int srcH, double aspect) {
-    // Le plus grand rectangle du ratio qui tient dans la source.
+  bool get isUpright => angle == 0 && turns == 0;
+
+  CropSpec copyWith({
+    double? zoom,
+    double? cx,
+    double? cy,
+    double? angle,
+    int? turns,
+  }) => CropSpec(
+    zoom: zoom ?? this.zoom,
+    cx: cx ?? this.cx,
+    cy: cy ?? this.cy,
+    angle: angle ?? this.angle,
+    turns: turns ?? this.turns,
+  );
+
+  /// Un quart de tour de plus. Le redressement fin et la visée repartent de
+  /// zéro : un cadrage pensé dans un sens n'a pas de sens dans l'autre.
+  CropSpec turned() => CropSpec(turns: (turns + 1) % 4);
+
+  /// Le rectangle du cadre **dans un rectangle inscrit de [wr]×[hr]**
+  /// (origine en haut à gauche de ce rectangle), pour un ratio [aspect].
+  /// Toujours entièrement dedans : le centre est borné.
+  Rect rectWithin(double wr, double hr, double aspect) {
     double w, h;
-    if (srcW / srcH > aspect) {
-      h = srcH.toDouble();
+    if (wr / hr > aspect) {
+      h = hr;
       w = h * aspect;
     } else {
-      w = srcW.toDouble();
+      w = wr;
       h = w / aspect;
     }
     w /= zoom;
     h /= zoom;
-    final x = (cx * srcW - w / 2).clamp(0.0, srcW - w);
-    final y = (cy * srcH - h / 2).clamp(0.0, srcH - h);
+    final x = (cx * wr - w / 2).clamp(0.0, wr - w);
+    final y = (cy * hr - h / 2).clamp(0.0, hr - h);
     return Rect.fromLTWH(x, y, w, h);
   }
 
-  /// Le même rectangle, en fractions de la source (0..1) : ce que le shader
-  /// vidéo reçoit comme coordonnées de texture.
-  Rect normalizedRect(int srcW, int srcH, double aspect) {
-    final r = sourceRect(srcW, srcH, aspect);
-    return Rect.fromLTWH(
-      r.left / srcW,
-      r.top / srcH,
-      r.width / srcW,
-      r.height / srcH,
-    );
-  }
-
-  /// Un déplacement du doigt de ([dx], [dy]) pixels d'écran, sur un cadre
-  /// affiché en [frameW]×[frameH] pixels : le nouveau centre. Le cadre montre
-  /// `sourceRect` étiré sur `frameW` — un pixel d'écran vaut donc
-  /// `rect.width / frameW` pixels de source.
-  CropSpec panned(
-    double dx,
-    double dy, {
-    required int srcW,
-    required int srcH,
-    required double aspect,
-    required double frameW,
-    required double frameH,
-  }) {
-    final r = sourceRect(srcW, srcH, aspect);
-    final ncx = cx - dx * (r.width / frameW) / srcW;
-    final ncy = cy - dy * (r.height / frameH) / srcH;
-    return _clamped(ncx, ncy, srcW, srcH, aspect);
-  }
-
-  CropSpec zoomed(
-    double factor, {
-    required int srcW,
-    required int srcH,
-    required double aspect,
-  }) {
-    final z = (zoom * factor).clamp(1.0, maxZoom);
-    return CropSpec(
-      zoom: z,
-      cx: cx,
-      cy: cy,
-    )._clamped(cx, cy, srcW, srcH, aspect);
-  }
-
-  /// Le centre ramené dans la zone où le cadre reste entièrement dans la
-  /// source — ainsi `cx`/`cy` décrivent toujours ce qu'on voit, et un zoom
-  /// arrière ne « saute » pas.
-  CropSpec _clamped(double ncx, double ncy, int srcW, int srcH, double aspect) {
-    final r = CropSpec(
-      zoom: zoom,
-      cx: 0.5,
-      cy: 0.5,
-    ).sourceRect(srcW, srcH, aspect);
-    final halfW = r.width / 2 / srcW;
-    final halfH = r.height / 2 / srcH;
-    return CropSpec(
-      zoom: zoom,
-      cx: ncx.clamp(halfW, 1 - halfW),
-      cy: ncy.clamp(halfH, 1 - halfH),
+  /// Le centre ramené dans la zone où le cadre reste entièrement dans le
+  /// rectangle inscrit — ainsi `cx`/`cy` décrivent toujours ce qu'on voit, et
+  /// un zoom arrière ne « saute » pas.
+  CropSpec clampedWithin(double wr, double hr, double aspect) {
+    final r = copyWith(cx: 0.5, cy: 0.5).rectWithin(wr, hr, aspect);
+    final halfW = r.width / 2 / wr;
+    final halfH = r.height / 2 / hr;
+    return copyWith(
+      cx: cx.clamp(halfW, 1 - halfW),
+      cy: cy.clamp(halfH, 1 - halfH),
     );
   }
 
@@ -131,10 +119,12 @@ class CropSpec {
       other is CropSpec &&
       other.zoom == zoom &&
       other.cx == cx &&
-      other.cy == cy;
+      other.cy == cy &&
+      other.angle == angle &&
+      other.turns == turns;
 
   @override
-  int get hashCode => Object.hash(zoom, cx, cy);
+  int get hashCode => Object.hash(zoom, cx, cy, angle, turns);
 }
 
 /// Le rognage d'une vidéo : de [startMs] à [endMs] dans la source, et
@@ -197,9 +187,12 @@ class AlbumDraftMedia {
     this.durationMs,
     this.crop = CropSpec.none,
     this.filter = AlbumFilter.normal,
+    this.filterStrength = 1,
     this.adjust = ColorGrade.none,
+    this.overlays = const [],
     this.trim,
-  }) : assert(!isVideo || durationMs != null);
+  }) : assert(!isVideo || durationMs != null),
+       assert(filterStrength >= 0 && filterStrength <= 1);
 
   /// Identité locale, stable pendant l'édition (l'ordre change, pas l'id).
   final String id;
@@ -225,14 +218,22 @@ class AlbumDraftMedia {
   final CropSpec crop;
   final AlbumFilter filter;
 
+  /// L'intensité du filtre, 0 … 1 (Instagram : « appuyez à nouveau pour
+  /// ajuster »). À 1 le filtre est entier, à 0 il ne fait rien.
+  final double filterStrength;
+
   /// Les retouches posées PAR-DESSUS le filtre.
   final ColorGrade adjust;
+
+  /// Les calques posés sur l'image — textes et autocollants — dans l'ordre
+  /// de dessin (le dernier est au-dessus).
+  final List<OverlayObject> overlays;
 
   /// Vidéo : le rognage ; nul = toute la source (si elle tient en 60 s).
   final VideoTrim? trim;
 
-  /// Le réglage final : le filtre, puis les retouches.
-  ColorGrade get grade => adjust.over(filter.grade);
+  /// Le réglage final : le filtre à son intensité, puis les retouches.
+  ColorGrade get grade => adjust.over(filter.grade.scaled(filterStrength));
 
   /// Le rognage effectif d'une vidéo, dans les règles.
   VideoTrim get effectiveTrim =>
@@ -242,7 +243,9 @@ class AlbumDraftMedia {
   AlbumDraftMedia copyWith({
     CropSpec? crop,
     AlbumFilter? filter,
+    double? filterStrength,
     ColorGrade? adjust,
+    List<OverlayObject>? overlays,
     VideoTrim? trim,
   }) => AlbumDraftMedia(
     id: id,
@@ -254,9 +257,26 @@ class AlbumDraftMedia {
     durationMs: durationMs,
     crop: crop ?? this.crop,
     filter: filter ?? this.filter,
+    filterStrength: filterStrength ?? this.filterStrength,
     adjust: adjust ?? this.adjust,
+    overlays: overlays ?? this.overlays,
     trim: trim ?? this.trim,
   );
+
+  /// Remplace le calque de même identifiant ; l'ajoute s'il est nouveau.
+  AlbumDraftMedia withOverlay(OverlayObject o) {
+    final i = overlays.indexWhere((x) => x.id == o.id);
+    final list = [...overlays];
+    if (i < 0) {
+      list.add(o);
+    } else {
+      list[i] = o;
+    }
+    return copyWith(overlays: list);
+  }
+
+  AlbumDraftMedia withoutOverlay(String id) =>
+      copyWith(overlays: overlays.where((o) => o.id != id).toList());
 
   @override
   bool operator ==(Object other) =>
@@ -269,8 +289,18 @@ class AlbumDraftMedia {
       other.durationMs == durationMs &&
       other.crop == crop &&
       other.filter == filter &&
+      other.filterStrength == filterStrength &&
       other.adjust == adjust &&
+      _sameOverlays(other.overlays, overlays) &&
       other.trim == trim;
+
+  static bool _sameOverlays(List<OverlayObject> a, List<OverlayObject> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
 
   @override
   int get hashCode => Object.hash(
@@ -282,7 +312,9 @@ class AlbumDraftMedia {
     durationMs,
     crop,
     filter,
+    filterStrength,
     adjust,
+    Object.hashAll(overlays),
     trim,
   );
 }

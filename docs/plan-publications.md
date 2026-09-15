@@ -214,3 +214,30 @@ toujours pas de vignette (`RAPPELS.md` #4).
 | « Le format n'est pas bon, on avait dit vertical comme sur Instagram » | le premier jet offrait les trois ratios d'Instagram (1:1 · 4:5 · 1.91:1), défaut 4:5 ; Jay avait cadré en 1:1 | **3:4 uniquement** (tranché par Jay) : `AlbumAspect.tall`, `AlbumDraft.aspect` fixe, le sélecteur de ratio retiré de « Cadrer » (reste le geste + « Réinitialiser le cadrage »), `withAspect` supprimé ; migration `20260915180000_les_albums_en_3_4.sql` ajoute 3:4 aux ratios admis — l'album de test en 1:1 reste lisible à son ratio |
 | dans la caméra restreinte, la feuille ⚙︎ montre les réglages de story | la feuille ne savait pas qu'elle servait une publication seule | `PublicationSettingsSheet.libraryOnly` : le bloc « Ma story » n'est pas dessiné |
 | la vidéo sort couchée | **la rotation valait 0** : elle était lue sur le format de la piste (`MediaExtractor`), qui ne la portait pas sur le Xiaomi — la vidéo sortait telle que stockée (une prise portrait est rangée couchée, avec une étiquette de rotation). La vignette, elle, venait de `MediaMetadataRetriever`, qui la lit — d'où une vignette droite et une vidéo couchée | la rotation vient de la **sonde** (`probe`, déjà portée par `AlbumDraftMedia.rotation`) et passe à `transcode(rotation:)` ; `KEY_ROTATION` est mis à 0 sur le format donné au décodeur pour qu'aucun décodeur ne tourne de son côté (sinon deux fois). ⚠️ Le sens du redressement reste **à confirmer** au test suivant |
+
+### 9.2 « Tout au max, comme Instagram » — v0.9.187 (2026-09-15)
+
+Jay, captures d'Instagram à l'appui : *« c'est encore trop moyen […] tu
+pousses tout au max, tu as carte blanche mais tu dois faire un rendu pro et
+ergonomique, épuré comme le veut notre DA »*. Le principe tenu : **chaque
+effet est défini une fois**, en pur Dart, et consommé par trois moteurs —
+l'aperçu, l'export photo (un shader Flutter), le transcodeur vidéo (le même
+shader en GL).
+
+| Pièce | Fichier | Ce que c'est |
+|---|---|---|
+| **La galerie dans l'app** | `gallery/native_gallery.dart` (pont), `gallery_feed.dart` (pages + vignettes en cache LRU, cuisine), `gallery_screen.dart` (« Nouvelle publication » : grand aperçu 3:4, grille 4 colonnes, sélection **numérotée**, appareil photo en première case, permission expliquée), `gallery_import.dart` (copie, sonde, découpe des vidéos longues, appareil photo) | `NativeGallery.kt` ; l'ancien `album_picker.dart` (sélecteur système) supprimé |
+| **La géométrie** | `crop_geometry.dart` (pur, 10 tests) | rectangle **inscrit** dans l'image tournée (jamais de coin vide), coins du cadre en coordonnées source, matrice équivalente, gestes ; `CropSpec` gagne `angle` (redresser ±45°) et `turns` (quarts de tour) |
+| **Les couleurs** | `color_grade.dart` : + `shadows`, `highlights`, `sharpen`, `lux` (replié dans les autres par `resolved`), `scaled` (intensité), **`toUniforms()` = le contrat des shaders** (24 nombres) | 5 tests de plus |
+| **Le shader** | `shaders/album_grade.frag` (Flutter) et le `FRAGMENT` de `MediaTranscoder.kt` (GL) — **la même formule** ; `grade_shader.dart` (`GradeShader.paint`, `GradePainter`, `GradedThumbPainter`) | l'aperçu photo et l'export photo passent par le même dessin |
+| **Les calques** | `overlay_model.dart` (pur : `TextOverlay` — 6 polices, 14 couleurs, fond plein / translucide, alignement ; `StickerOverlay` — émoji ou image ; gestes bornés, `hits`), `overlay_painter.dart` (**le seul dessin**, aperçu et export), `text_editor_screen.dart`, `sticker_picker.dart` | pour une vidéo, le calque est rendu en PNG à la taille de sortie et brûlé par le transcodeur |
+| **L'éditeur** | `editor_theme.dart` (sombre, épuré, l'accent de l'identité), `editor_images.dart` (images décodées, bornées, libérées), `media_preview.dart` (photo par le shader, vidéo par `CropGeometry.matrix`, calques, gestes, corbeille), `album_editor_screen.dart` (5 outils façon Instagram, panneaux **Annuler / Terminé** avec instantané, Filtre à **intensité au second tap**, Modifier en ronds : Redresser · Lux · Luminosité · Contraste · Chaleur · Saturation · Teinte · Hautes lumières · Ombres · Fondu · Vignette · Netteté, Rogner) | `album_caption_screen.dart` et la galerie dans le même thème |
+| **L'export** | `album_export.dart` : photo = `GradeShader.paint` + `OverlayPainter` sur un canvas 1080×1440 → JPEG natif ; vidéo = coins + uniformes + PNG des calques → transcodeur | `EditorImages.decodeBounded` (`ImageDescriptor`, sans double décodage) |
+
+**Ce que l'aperçu vidéo ne montre pas** : ombres, hautes lumières et netteté
+(le lecteur ne passe pas par notre shader) — ils s'appliquent au rendu final.
+Filtre, réglages linéaires, vignette, cadrage et calques se voient.
+
+**Exclu, dit à Jay** : les musiques (sa décision), le direct, les modes
+Story / Reel de la caméra Instagram (hors chantier), Tilt Shift et « Couleur »
+(second temps).

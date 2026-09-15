@@ -1,32 +1,38 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:video_player/video_player.dart';
 
-import '../../../core/models/library_item.dart';
-import '../../../core/theme.dart';
 import '../../../core/typography.dart';
 import '../../cards/native_media.dart';
 import 'album_caption_screen.dart';
 import 'album_draft.dart';
-import 'album_export.dart';
-import 'album_picker.dart';
 import 'color_grade.dart';
+import 'editor_images.dart';
+import 'editor_theme.dart';
+import 'gallery/gallery_import.dart';
+import 'gallery/gallery_screen.dart';
+import 'grade_shader.dart';
+import 'media_preview.dart';
+import 'overlay_model.dart';
+import 'sticker_picker.dart';
+import 'text_editor_screen.dart';
 
 /// **L'éditeur d'album** — « digne d'Instagram », sans les musiques (Jay,
-/// 2026-09-15).
+/// 2026-09-15), sombre et épuré.
 ///
-/// En haut, l'aperçu du média courant dans le cadre du ratio commun : on le
-/// déplace au doigt et on le zoome à deux doigts. En bas, la bande des
-/// médias, réordonnable (appui long), avec « + ». Entre les deux, les outils :
-/// **Cadrer** (le ratio), **Filtres** (les presets), **Réglages** (les
-/// curseurs), et pour une vidéo **Rogner** (début, fin, couverture).
+/// En haut, l'aperçu du média courant dans le cadre 3:4 : on le cadre au
+/// doigt, on le zoome à deux doigts ; les textes et autocollants se posent
+/// dessus. En dessous, la bande des médias (appui long pour réordonner, « + »
+/// pour en ajouter). En bas, **cinq outils** façon Instagram : Texte ·
+/// Superposition · Filtre · Modifier · Rogner (vidéo). Un outil ouvert
+/// devient un panneau avec **Annuler / Terminé** : Annuler rend le média tel
+/// qu'il était à l'ouverture du panneau.
 ///
-/// L'écran ne calcule rien : il lit et modifie un [AlbumDraft] (pur), et
-/// l'aperçu applique la même matrice et le même voile que l'export
-/// (`ColorGrade`, `AlbumExport.vignettePaint`). Ce qu'on voit est ce qui sort.
+/// L'écran ne calcule rien : il lit et modifie un [AlbumDraft] (pur). Le
+/// shader de l'aperçu et le peintre des calques sont ceux de l'export.
 ///
 /// Rend le brouillon prêt à publier, ou `null` si l'utilisateur renonce.
 class AlbumEditorScreen extends StatefulWidget {
@@ -38,21 +44,187 @@ class AlbumEditorScreen extends StatefulWidget {
   State<AlbumEditorScreen> createState() => _AlbumEditorScreenState();
 }
 
-enum _Tool { cadrer, filtres, reglages, rogner }
+enum _Tool { texte, sticker, filtre, modifier, rogner }
 
 class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   late AlbumDraft _draft = widget.draft;
   var _current = 0;
-  var _tool = _Tool.cadrer;
+  _Tool? _tool;
 
-  /// Les vignettes des vidéos (une image extraite), par identifiant.
-  final _videoThumbs = <String, Future<File?>>{};
+  /// Le média tel qu'il était à l'ouverture du panneau : « Annuler » le rend.
+  AlbumDraftMedia? _snapshot;
+  String? _selectedOverlay;
+
+  final _images = EditorImages();
 
   AlbumDraftMedia get _media => _draft.media[_current];
 
-  Future<File?> _thumbOf(AlbumDraftMedia m) {
+  @override
+  void initState() {
+    super.initState();
+    // Le shader est attendu ici : l'aperçu peint dès la première image.
+    GradeShader.load().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _images.dispose();
+    super.dispose();
+  }
+
+  void _update(AlbumDraftMedia Function(AlbumDraftMedia) f) =>
+      setState(() => _draft = _draft.update(_media.id, f));
+
+  // ── Les panneaux ────────────────────────────────────────────────────
+
+  Future<void> _open(_Tool tool) async {
+    switch (tool) {
+      case _Tool.texte:
+        final t = await Navigator.of(context).push<TextOverlay>(
+          PageRouteBuilder(
+            opaque: false,
+            pageBuilder: (_, _, _) => const TextEditorScreen(),
+          ),
+        );
+        if (t != null && mounted) {
+          _update((m) => m.withOverlay(t));
+          setState(() => _selectedOverlay = t.id);
+        }
+      case _Tool.sticker:
+        final s = await pickSticker(context);
+        if (s != null && mounted) {
+          if (!s.isEmoji) await _images.sticker(s.imagePath!);
+          if (!mounted) return;
+          _update((m) => m.withOverlay(s));
+          setState(() => _selectedOverlay = s.id);
+        }
+      case _Tool.filtre || _Tool.modifier || _Tool.rogner:
+        setState(() {
+          _snapshot = _media;
+          _tool = tool;
+          _selectedOverlay = null;
+        });
+    }
+  }
+
+  void _cancelPanel() {
+    final snap = _snapshot;
+    setState(() {
+      if (snap != null) _draft = _draft.update(snap.id, (_) => snap);
+      if (snap != null && snap.isVideo) _images.invalidate(snap);
+      _snapshot = null;
+      _tool = null;
+    });
+  }
+
+  void _donePanel() => setState(() {
+    if (_media.isVideo) _images.invalidate(_media);
+    _snapshot = null;
+    _tool = null;
+  });
+
+  // ── Les calques ─────────────────────────────────────────────────────
+
+  Future<void> _onOverlayTapped(OverlayObject o) async {
+    if (o is! TextOverlay) return;
+    final t = await Navigator.of(context).push<TextOverlay>(
+      PageRouteBuilder(
+        opaque: false,
+        pageBuilder: (_, _, _) => TextEditorScreen(initial: o),
+      ),
+    );
+    if (!mounted) return;
+    if (t == null) {
+      // Texte vidé : le calque s'en va.
+      _update((m) => m.withoutOverlay(o.id));
+    } else {
+      _update((m) => m.withOverlay(t));
+    }
+  }
+
+  // ── La bande ────────────────────────────────────────────────────────
+
+  Future<void> _add() async {
+    final pick = await Navigator.of(context).push<GalleryPick>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => GalleryScreen(max: _draft.freeSlots),
+      ),
+    );
+    if (pick == null || !mounted) return;
+    final more = pick.file != null
+        ? await GalleryImport.fromFiles(context, [
+            pick.file!,
+          ], freeSlots: _draft.freeSlots)
+        : await GalleryImport.toDraftMedia(
+            context,
+            pick.entries,
+            freeSlots: _draft.freeSlots,
+          );
+    if (more.isEmpty || !mounted) return;
+    setState(() {
+      _draft = _draft.add(more);
+      _current = _draft.media.length - 1;
+    });
+  }
+
+  void _remove() {
+    if (_draft.media.length == 1) {
+      _close();
+      return;
+    }
+    setState(() {
+      _draft = _draft.remove(_media.id);
+      _current = _current.clamp(0, _draft.media.length - 1);
+      _selectedOverlay = null;
+    });
+  }
+
+  Future<void> _close() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => Theme(
+        data: editorTheme(context),
+        child: AlertDialog(
+          title: const Text('Abandonner cette publication ?'),
+          content: const Text('Les retouches seront perdues.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Continuer'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Abandonner'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok == true && mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _next() async {
+    final result = await Navigator.of(context).push<AlbumDraft>(
+      MaterialPageRoute(
+        builder: (_) => AlbumCaptionScreen(
+          draft: _draft,
+          coverThumb: _thumbFile(_draft.media.first),
+        ),
+      ),
+    );
+    if (result != null && mounted) Navigator.of(context).pop(result);
+  }
+
+  final _thumbFiles = <String, Future<File?>>{};
+
+  /// La vignette-fichier d'un média (la source pour une photo, une image
+  /// extraite pour une vidéo) — la bande et l'écran de légende.
+  Future<File?> _thumbFile(AlbumDraftMedia m) {
     if (!m.isVideo) return Future.value(m.source);
-    return _videoThumbs.putIfAbsent(m.id, () async {
+    return _thumbFiles.putIfAbsent(m.id, () async {
       final temp = await getTemporaryDirectory();
       final dest = File('${temp.path}/album_thumb_${m.id}.jpg');
       final ok = await NativeMedia.videoThumbnail(
@@ -65,341 +237,118 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
     });
   }
 
-  void _update(AlbumDraftMedia Function(AlbumDraftMedia) f) =>
-      setState(() => _draft = _draft.update(_media.id, f));
-
-  Future<void> _add() async {
-    final more = await AlbumPicker.pick(context, freeSlots: _draft.freeSlots);
-    if (more.isEmpty || !mounted) return;
-    setState(() {
-      _draft = _draft.add(more);
-      _current = _draft.media.length - 1;
-    });
-  }
-
-  void _remove() {
-    if (_draft.media.length == 1) {
-      // Retirer le dernier média, c'est renoncer.
-      _close();
-      return;
-    }
-    setState(() {
-      _draft = _draft.remove(_media.id);
-      _current = _current.clamp(0, _draft.media.length - 1);
-    });
-  }
-
-  Future<void> _close() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Abandonner cette publication ?'),
-        content: const Text('Les retouches seront perdues.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Continuer'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Abandonner'),
-          ),
-        ],
-      ),
-    );
-    if (ok == true && mounted) Navigator.of(context).pop();
-  }
-
-  Future<void> _next() async {
-    final result = await Navigator.of(context).push<AlbumDraft>(
-      MaterialPageRoute(
-        builder: (_) => AlbumCaptionScreen(
-          draft: _draft,
-          coverThumb: _thumbOf(_draft.media.first),
-        ),
-      ),
-    );
-    if (result != null && mounted) Navigator.of(context).pop(result);
-  }
-
   @override
   Widget build(BuildContext context) {
     final media = _media;
-    final tools = [
-      _Tool.cadrer,
-      _Tool.filtres,
-      _Tool.reglages,
-      if (media.isVideo) _Tool.rogner,
-    ];
-    if (!tools.contains(_tool)) _tool = _Tool.cadrer;
-
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _close();
-      },
-      child: Scaffold(
-        appBar: AppBar(
-          leading: IconButton(
-            icon: const Icon(Icons.close),
-            tooltip: 'Abandonner',
-            onPressed: _close,
-          ),
-          title: const Text('Modifier'),
-          actions: [
-            IconButton(
-              icon: const Icon(Icons.delete_outline),
-              tooltip: 'Retirer ce média',
-              onPressed: _remove,
+    final tool = _tool;
+    return Theme(
+      data: editorTheme(context),
+      child: PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) return;
+          if (_tool != null) {
+            _cancelPanel();
+          } else {
+            _close();
+          }
+        },
+        child: Scaffold(
+          appBar: AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: 'Abandonner',
+              onPressed: _close,
             ),
-            TextButton(onPressed: _next, child: const Text('Suivant')),
-          ],
-        ),
-        body: Column(
-          children: [
-            Expanded(
-              child: Container(
-                color: Colors.black,
-                alignment: Alignment.center,
-                child: AspectRatio(
-                  aspectRatio: _draft.aspect.ratio,
-                  child: _Preview(
-                    // Une clé par média : changer de média reconstruit
-                    // l'aperçu (et son lecteur vidéo) au lieu de le recycler.
-                    key: ValueKey(media.id),
-                    media: media,
-                    aspect: _draft.aspect,
-                    onCrop: (c) => _update((m) => m.copyWith(crop: c)),
-                  ),
-                ),
+            title: const Text('Modifier'),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: 'Retirer ce média',
+                onPressed: _remove,
               ),
-            ),
-            _Strip(
-              draft: _draft,
-              current: _current,
-              thumbOf: _thumbOf,
-              onSelect: (i) => setState(() => _current = i),
-              onReorder: (from, to) => setState(() {
-                final id = _media.id;
-                _draft = _draft.reorder(from, to);
-                _current = _draft.media.indexWhere((m) => m.id == id);
-              }),
-              onAdd: _draft.isFull ? null : _add,
-            ),
-            _ToolBar(
-              tools: tools,
-              current: _tool,
-              onChanged: (t) => setState(() => _tool = t),
-            ),
-            SizedBox(
-              height: 128,
-              child: switch (_tool) {
-                _Tool.cadrer => _CropPanel(
-                  crop: media.crop,
-                  onReset: () =>
-                      _update((m) => m.copyWith(crop: CropSpec.none)),
-                ),
-                _Tool.filtres => _FilterPanel(
-                  media: media,
-                  thumb: _thumbOf(media),
-                  onFilter: (f) => _update((m) => m.copyWith(filter: f)),
-                ),
-                _Tool.reglages => _AdjustPanel(
-                  adjust: media.adjust,
-                  onAdjust: (a) => _update((m) => m.copyWith(adjust: a)),
-                ),
-                _Tool.rogner => _TrimPanel(
-                  media: media,
-                  onTrim: (t) => _update((m) => m.copyWith(trim: t)),
-                ),
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// L'aperçu : le cadre, le média dedans, les gestes de recadrage
-// ---------------------------------------------------------------------------
-
-class _Preview extends StatefulWidget {
-  const _Preview({
-    super.key,
-    required this.media,
-    required this.aspect,
-    required this.onCrop,
-  });
-
-  final AlbumDraftMedia media;
-  final AlbumAspect aspect;
-  final ValueChanged<CropSpec> onCrop;
-
-  @override
-  State<_Preview> createState() => _PreviewState();
-}
-
-class _PreviewState extends State<_Preview> {
-  double _lastScale = 1;
-
-  @override
-  Widget build(BuildContext context) {
-    final m = widget.media;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final frameW = constraints.maxWidth;
-        final frameH = constraints.maxHeight;
-        final src = m.crop.sourceRect(
-          m.srcWidth,
-          m.srcHeight,
-          widget.aspect.ratio,
-        );
-        // Le cadre montre `src` étiré sur toute sa largeur : l'image entière
-        // est donc dessinée à cette échelle, décalée pour que `src` tombe
-        // sur le cadre.
-        final scale = frameW / src.width;
-        return GestureDetector(
-          onScaleStart: (_) => _lastScale = 1,
-          onScaleUpdate: (d) {
-            var crop = m.crop;
-            if (d.scale != _lastScale) {
-              crop = crop.zoomed(
-                d.scale / _lastScale,
-                srcW: m.srcWidth,
-                srcH: m.srcHeight,
-                aspect: widget.aspect.ratio,
-              );
-              _lastScale = d.scale;
-            }
-            crop = crop.panned(
-              d.focalPointDelta.dx,
-              d.focalPointDelta.dy,
-              srcW: m.srcWidth,
-              srcH: m.srcHeight,
-              aspect: widget.aspect.ratio,
-              frameW: frameW,
-              frameH: frameH,
-            );
-            widget.onCrop(crop);
-          },
-          child: ClipRect(
-            child: Stack(
-              children: [
-                Positioned(
-                  left: -src.left * scale,
-                  top: -src.top * scale,
-                  width: m.srcWidth * scale,
-                  height: m.srcHeight * scale,
-                  child: ColorFiltered(
-                    colorFilter: ColorFilter.matrix(m.grade.toMatrix()),
-                    child: m.isVideo
-                        ? _VideoPreview(media: m)
-                        : Image.file(
-                            m.source,
-                            fit: BoxFit.fill,
-                            // Assez pour l'écran, jamais les 12 Mpx d'origine.
-                            cacheWidth: 1440,
-                            gaplessPlayback: true,
-                          ),
-                  ),
-                ),
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: CustomPaint(
-                      painter: _VignettePainter(m.grade.vignette),
+              EditorPrimaryButton(label: 'Suivant', onPressed: _next),
+            ],
+          ),
+          body: Column(
+            children: [
+              Expanded(
+                child: Center(
+                  child: AspectRatio(
+                    aspectRatio: _draft.aspect.ratio,
+                    child: MediaPreview(
+                      // Une clé par média : changer de média reconstruit
+                      // l'aperçu (et son lecteur vidéo) au lieu de le recycler.
+                      key: ValueKey(media.id),
+                      media: media,
+                      aspect: _draft.aspect.ratio,
+                      images: _images,
+                      selectedOverlayId: _selectedOverlay,
+                      onCrop: (c) => _update((m) => m.copyWith(crop: c)),
+                      onOverlayChanged: (o) => _update((m) => m.withOverlay(o)),
+                      onOverlaySelected: (id) =>
+                          setState(() => _selectedOverlay = id),
+                      onOverlayTapped: _onOverlayTapped,
+                      onOverlayRemoved: (id) {
+                        _update((m) => m.withoutOverlay(id));
+                        setState(() => _selectedOverlay = null);
+                      },
                     ),
                   ),
                 ),
-              ],
-            ),
+              ),
+              if (tool == null) ...[
+                _Strip(
+                  draft: _draft,
+                  current: _current,
+                  thumbOf: _thumbFile,
+                  onSelect: (i) => setState(() {
+                    _current = i;
+                    _selectedOverlay = null;
+                  }),
+                  onReorder: (from, to) => setState(() {
+                    final id = _media.id;
+                    _draft = _draft.reorder(from, to);
+                    _current = _draft.media.indexWhere((m) => m.id == id);
+                  }),
+                  onAdd: _draft.isFull ? null : _add,
+                ),
+                _Toolbar(video: media.isVideo, onTool: _open),
+              ] else
+                _Panel(
+                  title: switch (tool) {
+                    _Tool.filtre => 'Filtre',
+                    _Tool.modifier => 'Modifier',
+                    _Tool.rogner => 'Rogner',
+                    _ => '',
+                  },
+                  onCancel: _cancelPanel,
+                  onDone: _donePanel,
+                  child: switch (tool) {
+                    _Tool.filtre => _FilterPanel(
+                      media: media,
+                      images: _images,
+                      onChanged: (f, strength) => _update(
+                        (m) => m.copyWith(filter: f, filterStrength: strength),
+                      ),
+                    ),
+                    _Tool.modifier => _AdjustPanel(
+                      media: media,
+                      onAdjust: (a) => _update((m) => m.copyWith(adjust: a)),
+                      onCrop: (c) => _update((m) => m.copyWith(crop: c)),
+                    ),
+                    _Tool.rogner => _TrimPanel(
+                      media: media,
+                      onTrim: (t) => _update((m) => m.copyWith(trim: t)),
+                    ),
+                    _ => const SizedBox.shrink(),
+                  },
+                ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
-  }
-}
-
-/// Le même voile qu'à l'export (`AlbumExport.vignettePaint`).
-class _VignettePainter extends CustomPainter {
-  const _VignettePainter(this.vignette);
-  final double vignette;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Offset.zero & size;
-    final paint = AlbumExport.vignettePaint(rect, vignette);
-    if (paint != null) canvas.drawRect(rect, paint);
-  }
-
-  @override
-  bool shouldRepaint(_VignettePainter old) => old.vignette != vignette;
-}
-
-/// La vidéo source, en boucle sur le morceau rogné. Un lecteur ordinaire
-/// (`video_player`) : le fichier est celui de l'utilisateur, en clair, avant
-/// tout scellement — rien à protéger ici.
-class _VideoPreview extends StatefulWidget {
-  const _VideoPreview({required this.media});
-  final AlbumDraftMedia media;
-
-  @override
-  State<_VideoPreview> createState() => _VideoPreviewState();
-}
-
-class _VideoPreviewState extends State<_VideoPreview> {
-  late final VideoPlayerController _controller = VideoPlayerController.file(
-    widget.media.source,
-  );
-  VideoTrim get _trim => widget.media.effectiveTrim;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller.initialize().then((_) {
-      if (!mounted) return;
-      _controller.setVolume(0);
-      _controller.addListener(_boucle);
-      _controller.seekTo(Duration(milliseconds: _trim.startMs));
-      _controller.play();
-      setState(() {});
-    });
-  }
-
-  /// Arrivé à la fin du morceau, on repart de son début.
-  void _boucle() {
-    final v = _controller.value;
-    if (!v.isInitialized) return;
-    if (v.position.inMilliseconds >= _trim.endMs ||
-        (!v.isPlaying && v.position >= v.duration)) {
-      _controller.seekTo(Duration(milliseconds: _trim.startMs));
-      _controller.play();
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _VideoPreview old) {
-    super.didUpdateWidget(old);
-    if (old.media.effectiveTrim.startMs != _trim.startMs &&
-        _controller.value.isInitialized) {
-      _controller.seekTo(Duration(milliseconds: _trim.startMs));
-    }
-  }
-
-  @override
-  void dispose() {
-    _controller.removeListener(_boucle);
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (!_controller.value.isInitialized) {
-      return const ColoredBox(color: Colors.black);
-    }
-    return VideoPlayer(_controller);
   }
 }
 
@@ -426,7 +375,7 @@ class _Strip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
+    final accent = EditorColors.accent(context);
     return SizedBox(
       height: 76,
       child: Row(
@@ -439,6 +388,10 @@ class _Strip extends StatelessWidget {
                 vertical: NeoSpace.sm,
               ),
               buildDefaultDragHandles: false,
+              proxyDecorator: (child, _, _) => Material(
+                color: Colors.transparent,
+                child: Opacity(opacity: 0.85, child: child),
+              ),
               itemCount: draft.media.length,
               onReorderItem: onReorder,
               itemBuilder: (context, i) {
@@ -454,7 +407,7 @@ class _Strip extends StatelessWidget {
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(NeoRadius.sm),
                         border: Border.all(
-                          color: i == current ? accent : context.palette.line,
+                          color: i == current ? accent : EditorColors.line,
                           width: i == current ? 2 : 1,
                         ),
                       ),
@@ -462,7 +415,7 @@ class _Strip extends StatelessWidget {
                       child: Stack(
                         fit: StackFit.expand,
                         children: [
-                          _Thumb(thumb: thumbOf(m)),
+                          _FileThumb(thumb: thumbOf(m)),
                           if (m.isVideo)
                             const Positioned(
                               right: 3,
@@ -470,6 +423,16 @@ class _Strip extends StatelessWidget {
                               child: Icon(
                                 Icons.play_arrow_rounded,
                                 size: 14,
+                                color: Colors.white,
+                              ),
+                            ),
+                          if (m.overlays.isNotEmpty)
+                            const Positioned(
+                              left: 3,
+                              bottom: 3,
+                              child: Icon(
+                                Icons.layers_outlined,
+                                size: 12,
                                 color: Colors.white,
                               ),
                             ),
@@ -489,6 +452,10 @@ class _Strip extends StatelessWidget {
                 tooltip:
                     'Ajouter (${draft.freeSlots} place'
                     '${draft.freeSlots > 1 ? 's' : ''})',
+                style: IconButton.styleFrom(
+                  foregroundColor: EditorColors.ink,
+                  side: const BorderSide(color: EditorColors.line),
+                ),
                 onPressed: onAdd,
               ),
             ),
@@ -498,10 +465,9 @@ class _Strip extends StatelessWidget {
   }
 }
 
-class _Thumb extends StatelessWidget {
-  const _Thumb({required this.thumb, this.grade});
+class _FileThumb extends StatelessWidget {
+  const _FileThumb({required this.thumb});
   final Future<File?> thumb;
-  final ColorGrade? grade;
 
   @override
   Widget build(BuildContext context) {
@@ -509,276 +475,504 @@ class _Thumb extends StatelessWidget {
       future: thumb,
       builder: (context, snap) {
         final file = snap.data;
-        if (file == null) {
-          return ColoredBox(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          );
-        }
-        final image = Image.file(
+        if (file == null) return const ColoredBox(color: EditorColors.raised);
+        return Image.file(
           file,
           fit: BoxFit.cover,
           cacheWidth: 200,
           gaplessPlayback: true,
         );
-        return grade == null
-            ? image
-            : ColorFiltered(
-                colorFilter: ColorFilter.matrix(grade!.toMatrix()),
-                child: image,
-              );
       },
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Les outils
+// La barre d'outils, et le panneau
 // ---------------------------------------------------------------------------
 
-class _ToolBar extends StatelessWidget {
-  const _ToolBar({
-    required this.tools,
-    required this.current,
+class _Toolbar extends StatelessWidget {
+  const _Toolbar({required this.video, required this.onTool});
+
+  final bool video;
+  final ValueChanged<_Tool> onTool;
+
+  @override
+  Widget build(BuildContext context) {
+    final tools = [
+      (_Tool.texte, Icons.text_fields, 'Texte'),
+      (_Tool.sticker, Icons.emoji_emotions_outlined, 'Superposition'),
+      (_Tool.filtre, Icons.auto_awesome_outlined, 'Filtre'),
+      (_Tool.modifier, Icons.tune, 'Modifier'),
+      if (video) (_Tool.rogner, Icons.content_cut, 'Rogner'),
+    ];
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(
+          NeoSpace.md,
+          NeoSpace.sm,
+          NeoSpace.md,
+          NeoSpace.md,
+        ),
+        child: Row(
+          children: [
+            for (var i = 0; i < tools.length; i++) ...[
+              if (i > 0) const SizedBox(width: NeoSpace.sm),
+              Expanded(
+                child: Material(
+                  color: EditorColors.raised,
+                  borderRadius: BorderRadius.circular(NeoRadius.md),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    onTap: () => onTool(tools[i].$1),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: NeoSpace.sm,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(tools[i].$2, size: 22, color: EditorColors.ink),
+                          const SizedBox(height: 4),
+                          Text(
+                            tools[i].$3,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: EditorColors.ink,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Un panneau d'outil : son contenu, puis **Annuler · Titre · Terminé** en
+/// bas, comme sur Instagram.
+class _Panel extends StatelessWidget {
+  const _Panel({
+    required this.title,
+    required this.onCancel,
+    required this.onDone,
+    required this.child,
+  });
+
+  final String title;
+  final VoidCallback onCancel;
+  final VoidCallback onDone;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      top: false,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(height: 168, child: child),
+          Row(
+            children: [
+              TextButton(
+                onPressed: onCancel,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: NeoSpace.lg),
+                ),
+                child: const Text('Annuler'),
+              ),
+              Expanded(
+                child: Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontFamily: NeoType.display,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                    color: EditorColors.ink,
+                  ),
+                ),
+              ),
+              TextButton(
+                onPressed: onDone,
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(horizontal: NeoSpace.lg),
+                ),
+                child: const Text(
+                  'Terminé',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: NeoSpace.xs),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Filtre — les puces, et l'intensité au second tap
+// ---------------------------------------------------------------------------
+
+class _FilterPanel extends StatefulWidget {
+  const _FilterPanel({
+    required this.media,
+    required this.images,
     required this.onChanged,
   });
 
-  final List<_Tool> tools;
-  final _Tool current;
-  final ValueChanged<_Tool> onChanged;
-
-  String _label(_Tool t) => switch (t) {
-    _Tool.cadrer => 'Cadrer',
-    _Tool.filtres => 'Filtres',
-    _Tool.reglages => 'Réglages',
-    _Tool.rogner => 'Rogner',
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: [
-        for (final t in tools)
-          TextButton(
-            onPressed: () => onChanged(t),
-            style: TextButton.styleFrom(
-              foregroundColor: t == current ? accent : context.muted,
-            ),
-            child: Text(
-              _label(t),
-              style: TextStyle(
-                fontWeight: t == current ? FontWeight.w700 : FontWeight.w500,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-/// Cadrer : un seul format (3:4, Jay 2026-09-15), donc pas de choix ici —
-/// le geste (glisser, pincer) et un retour au cadrage de départ.
-class _CropPanel extends StatelessWidget {
-  const _CropPanel({required this.crop, required this.onReset});
-
-  final CropSpec crop;
-  final VoidCallback onReset;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(
-          'Glisse pour cadrer · pince pour zoomer',
-          style: TextStyle(color: context.muted, fontSize: 13),
-        ),
-        const SizedBox(height: NeoSpace.xs),
-        Text(
-          'Zoom ×${crop.zoom.toStringAsFixed(1)}',
-          style: TextStyle(color: context.faint, fontSize: 12),
-        ),
-        TextButton(
-          onPressed: crop == CropSpec.none ? null : onReset,
-          child: const Text('Réinitialiser le cadrage'),
-        ),
-      ],
-    );
-  }
-}
-
-class _FilterPanel extends StatelessWidget {
-  const _FilterPanel({
-    required this.media,
-    required this.thumb,
-    required this.onFilter,
-  });
-
   final AlbumDraftMedia media;
-  final Future<File?> thumb;
-  final ValueChanged<AlbumFilter> onFilter;
+  final EditorImages images;
+  final void Function(AlbumFilter filter, double strength) onChanged;
+
+  @override
+  State<_FilterPanel> createState() => _FilterPanelState();
+}
+
+class _FilterPanelState extends State<_FilterPanel> {
+  ui.Image? _small;
+  var _tuning = false;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.images.small(widget.media).then((img) {
+      if (mounted) setState(() => _small = img);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    return ListView.builder(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(
-        horizontal: NeoSpace.md,
-        vertical: NeoSpace.sm,
-      ),
-      itemCount: AlbumFilter.values.length,
-      itemBuilder: (context, i) {
-        final f = AlbumFilter.values[i];
-        final selected = f == media.filter;
-        return GestureDetector(
-          onTap: () => onFilter(f),
-          child: Padding(
-            padding: const EdgeInsets.only(right: NeoSpace.md),
-            child: Column(
-              children: [
-                Container(
-                  width: 72,
-                  height: 72,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(NeoRadius.sm),
-                    border: Border.all(
-                      color: selected ? accent : context.palette.line,
-                      width: selected ? 2 : 1,
+    final accent = EditorColors.accent(context);
+    final m = widget.media;
+    return Column(
+      children: [
+        SizedBox(
+          height: 44,
+          child: _tuning && m.filter != AlbumFilter.normal
+              ? Row(
+                  children: [
+                    const SizedBox(width: NeoSpace.lg),
+                    Expanded(
+                      child: Slider(
+                        value: m.filterStrength,
+                        onChanged: (v) => widget.onChanged(m.filter, v),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 40,
+                      child: Text(
+                        '${(m.filterStrength * 100).round()}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: EditorColors.inkMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: NeoSpace.sm),
+                  ],
+                )
+              : Center(
+                  child: Text(
+                    m.filter == AlbumFilter.normal
+                        ? 'Choisis un filtre'
+                        : 'Appuie à nouveau pour ajuster',
+                    style: const TextStyle(
+                      color: EditorColors.inkFaint,
+                      fontSize: 12,
                     ),
                   ),
-                  clipBehavior: Clip.antiAlias,
-                  // Chaque puce montre CE média à travers CE filtre : c'est
-                  // la même matrice que l'aperçu et que l'export.
-                  child: _Thumb(thumb: thumb, grade: f.grade),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  f.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: selected ? accent : context.muted,
-                    fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+        ),
+        Expanded(
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: NeoSpace.md),
+            itemCount: AlbumFilter.values.length,
+            itemBuilder: (context, i) {
+              final f = AlbumFilter.values[i];
+              final selected = f == m.filter;
+              return GestureDetector(
+                onTap: () {
+                  if (selected) {
+                    setState(() => _tuning = !_tuning);
+                  } else {
+                    setState(() => _tuning = false);
+                    widget.onChanged(f, 1);
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.only(right: NeoSpace.md),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 84,
+                        height: 84,
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(NeoRadius.sm),
+                          border: Border.all(
+                            color: selected ? accent : Colors.transparent,
+                            width: 2,
+                          ),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        // Chaque puce montre CE média à travers CE filtre, par
+                        // le même shader que l'aperçu et que l'export.
+                        child: _small == null
+                            ? const ColoredBox(color: EditorColors.raised)
+                            : CustomPaint(
+                                painter: GradedThumbPainter(
+                                  image: _small!,
+                                  media: m,
+                                  aspect: 1,
+                                  grade: f.grade,
+                                ),
+                              ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        f.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: selected ? accent : EditorColors.inkMuted,
+                          fontWeight: selected
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
-            ),
+              );
+            },
           ),
-        );
-      },
+        ),
+      ],
     );
   }
 }
 
-enum _Knob {
-  brightness('Luminosité', -1, 1),
-  contrast('Contraste', -1, 1),
-  saturation('Saturation', -1, 1),
-  warmth('Chaleur', -1, 1),
-  tint('Teinte', -1, 1),
-  fade('Fondu', 0, 1),
-  vignette('Vignette', 0, 1);
+// ---------------------------------------------------------------------------
+// Modifier — les réglages en ronds, un curseur pour celui qu'on touche
+// ---------------------------------------------------------------------------
 
-  const _Knob(this.label, this.min, this.max);
+enum _Knob {
+  straighten('Redresser', Icons.crop_rotate, -45, 45),
+  lux('Lux', Icons.auto_fix_high, 0, 1),
+  brightness('Luminosité', Icons.wb_sunny_outlined, -1, 1),
+  contrast('Contraste', Icons.contrast, -1, 1),
+  warmth('Chaleur', Icons.thermostat, -1, 1),
+  saturation('Saturation', Icons.water_drop_outlined, -1, 1),
+  tint('Teinte', Icons.color_lens_outlined, -1, 1),
+  highlights('Hautes lumières', Icons.light_mode_outlined, -1, 1),
+  shadows('Ombres', Icons.dark_mode_outlined, -1, 1),
+  fade('Fondu', Icons.cloud_outlined, 0, 1),
+  vignette('Vignette', Icons.vignette_outlined, 0, 1),
+  sharpen('Netteté', Icons.change_history, 0, 1);
+
+  const _Knob(this.label, this.icon, this.min, this.max);
   final String label;
+  final IconData icon;
   final double min;
   final double max;
 
-  double of(ColorGrade g) => switch (this) {
-    brightness => g.brightness,
-    contrast => g.contrast,
-    saturation => g.saturation,
-    warmth => g.warmth,
-    tint => g.tint,
-    fade => g.fade,
-    vignette => g.vignette,
+  double of(AlbumDraftMedia m) => switch (this) {
+    straighten => m.crop.angle,
+    lux => m.adjust.lux,
+    brightness => m.adjust.brightness,
+    contrast => m.adjust.contrast,
+    warmth => m.adjust.warmth,
+    saturation => m.adjust.saturation,
+    tint => m.adjust.tint,
+    highlights => m.adjust.highlights,
+    shadows => m.adjust.shadows,
+    fade => m.adjust.fade,
+    vignette => m.adjust.vignette,
+    sharpen => m.adjust.sharpen,
   };
 
   ColorGrade set(ColorGrade g, double v) => switch (this) {
+    straighten => g,
+    lux => g.copyWith(lux: v),
     brightness => g.copyWith(brightness: v),
     contrast => g.copyWith(contrast: v),
-    saturation => g.copyWith(saturation: v),
     warmth => g.copyWith(warmth: v),
+    saturation => g.copyWith(saturation: v),
     tint => g.copyWith(tint: v),
+    highlights => g.copyWith(highlights: v),
+    shadows => g.copyWith(shadows: v),
     fade => g.copyWith(fade: v),
     vignette => g.copyWith(vignette: v),
+    sharpen => g.copyWith(sharpen: v),
   };
+
+  /// Ce que le curseur affiche : des degrés, ou un pourcentage.
+  String display(double v) =>
+      this == straighten ? '${v.round()}°' : '${(v * 100).round()}';
 }
 
 class _AdjustPanel extends StatefulWidget {
-  const _AdjustPanel({required this.adjust, required this.onAdjust});
+  const _AdjustPanel({
+    required this.media,
+    required this.onAdjust,
+    required this.onCrop,
+  });
 
-  final ColorGrade adjust;
+  final AlbumDraftMedia media;
   final ValueChanged<ColorGrade> onAdjust;
+  final ValueChanged<CropSpec> onCrop;
 
   @override
   State<_AdjustPanel> createState() => _AdjustPanelState();
 }
 
 class _AdjustPanelState extends State<_AdjustPanel> {
-  var _knob = _Knob.brightness;
+  _Knob? _knob;
+
+  void _set(_Knob k, double v) {
+    if (k == _Knob.straighten) {
+      widget.onCrop(widget.media.crop.copyWith(angle: v));
+    } else {
+      widget.onAdjust(k.set(widget.media.adjust, v));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    final value = _knob.of(widget.adjust);
+    final accent = EditorColors.accent(context);
+    final m = widget.media;
+    final k = _knob;
     return Column(
       children: [
         SizedBox(
-          height: 40,
-          child: ListView(
+          height: 52,
+          child: k == null
+              ? const Center(
+                  child: Text(
+                    'Touche un réglage',
+                    style: TextStyle(
+                      color: EditorColors.inkFaint,
+                      fontSize: 12,
+                    ),
+                  ),
+                )
+              : Row(
+                  children: [
+                    const SizedBox(width: NeoSpace.md),
+                    if (k == _Knob.straighten)
+                      IconButton(
+                        icon: const Icon(Icons.rotate_90_degrees_cw_outlined),
+                        tooltip: 'Tourner d\'un quart de tour',
+                        onPressed: () => widget.onCrop(m.crop.turned()),
+                      ),
+                    Expanded(
+                      child: Slider(
+                        value: k.of(m).clamp(k.min, k.max),
+                        min: k.min,
+                        max: k.max,
+                        onChanged: (v) => _set(k, v),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 44,
+                      child: Text(
+                        k.display(k.of(m)),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: EditorColors.inkMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.restart_alt, size: 20),
+                      tooltip: 'Remettre à zéro',
+                      onPressed: k.of(m) == 0 ? null : () => _set(k, 0),
+                    ),
+                  ],
+                ),
+        ),
+        Expanded(
+          child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: NeoSpace.md),
-            children: [
-              for (final k in _Knob.values)
-                Padding(
-                  padding: const EdgeInsets.only(right: NeoSpace.sm),
-                  child: ChoiceChip(
-                    label: Text(k.label),
-                    selected: k == _knob,
-                    // Un point sur les réglages touchés, pour les retrouver.
-                    avatar: k.of(widget.adjust) != 0 && k != _knob
-                        ? Icon(Icons.circle, size: 6, color: accent)
-                        : null,
-                    onSelected: (_) => setState(() => _knob = k),
+            itemCount: _Knob.values.length,
+            itemBuilder: (context, i) {
+              final knob = _Knob.values[i];
+              final active = knob == k;
+              final touched = knob.of(m) != 0;
+              return GestureDetector(
+                onTap: () => setState(() => _knob = knob),
+                child: Padding(
+                  padding: const EdgeInsets.only(right: NeoSpace.lg),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 62,
+                        height: 62,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: active ? Colors.white : Colors.transparent,
+                          border: Border.all(
+                            color: active
+                                ? Colors.white
+                                : EditorColors.inkMuted,
+                            width: 1.5,
+                          ),
+                        ),
+                        child: Icon(
+                          knob.icon,
+                          size: 26,
+                          color: active ? Colors.black : EditorColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        knob.label,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: active
+                              ? EditorColors.ink
+                              : EditorColors.inkMuted,
+                        ),
+                      ),
+                      // Un point sous les réglages touchés, pour les retrouver.
+                      Container(
+                        width: 5,
+                        height: 5,
+                        margin: const EdgeInsets.only(top: 3),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: touched ? accent : Colors.transparent,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-            ],
+              );
+            },
           ),
-        ),
-        Row(
-          children: [
-            const SizedBox(width: NeoSpace.md),
-            Expanded(
-              child: Slider(
-                value: value,
-                min: _knob.min,
-                max: _knob.max,
-                onChanged: (v) => widget.onAdjust(_knob.set(widget.adjust, v)),
-              ),
-            ),
-            SizedBox(
-              width: 44,
-              child: Text(
-                '${(value * 100).round()}',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: context.muted, fontSize: 12),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.restart_alt, size: 20),
-              tooltip: 'Remettre à zéro',
-              onPressed: value == 0
-                  ? null
-                  : () => widget.onAdjust(_knob.set(widget.adjust, 0)),
-            ),
-          ],
         ),
       ],
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Rogner — début, fin, couverture (vidéo)
+// ---------------------------------------------------------------------------
 
 class _TrimPanel extends StatefulWidget {
   const _TrimPanel({required this.media, required this.onTrim});
@@ -834,15 +1028,14 @@ class _TrimPanelState extends State<_TrimPanel> {
     final m = widget.media;
     final duration = m.durationMs!.toDouble();
     final t = m.effectiveTrim;
+    const label = TextStyle(color: EditorColors.inkMuted, fontSize: 12);
     return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Row(
           children: [
             const SizedBox(width: NeoSpace.md),
-            Text(
-              _mmss(t.startMs),
-              style: TextStyle(color: context.muted, fontSize: 12),
-            ),
+            Text(_mmss(t.startMs), style: label),
             Expanded(
               child: RangeSlider(
                 values: RangeValues(t.startMs.toDouble(), t.endMs.toDouble()),
@@ -859,17 +1052,13 @@ class _TrimPanelState extends State<_TrimPanel> {
                       s = e - kAlbumMaxVideoMs;
                     }
                   }
-                  final n = t
-                      .copyWith(startMs: s, endMs: e)
-                      .normalized(m.durationMs!);
-                  widget.onTrim(n);
+                  widget.onTrim(
+                    t.copyWith(startMs: s, endMs: e).normalized(m.durationMs!),
+                  );
                 },
               ),
             ),
-            Text(
-              _mmss(t.endMs),
-              style: TextStyle(color: context.muted, fontSize: 12),
-            ),
+            Text(_mmss(t.endMs), style: label),
             const SizedBox(width: NeoSpace.md),
           ],
         ),
@@ -881,18 +1070,15 @@ class _TrimPanelState extends State<_TrimPanel> {
               height: 36,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(NeoRadius.sm),
-                border: Border.all(color: context.palette.line),
+                border: Border.all(color: EditorColors.line),
               ),
               clipBehavior: Clip.antiAlias,
               child: _cover == null
                   ? const SizedBox.shrink()
-                  : _Thumb(thumb: _cover!),
+                  : _FileThumb(thumb: _cover!),
             ),
             const SizedBox(width: NeoSpace.sm),
-            Text(
-              'Couverture',
-              style: TextStyle(color: context.muted, fontSize: 12),
-            ),
+            const Text('Couverture', style: label),
             Expanded(
               child: Slider(
                 value: t.coverMs.toDouble().clamp(
@@ -908,10 +1094,7 @@ class _TrimPanelState extends State<_TrimPanel> {
                 },
               ),
             ),
-            Text(
-              '${((t.endMs - t.startMs) / 1000).round()} s',
-              style: TextStyle(color: context.muted, fontSize: 12),
-            ),
+            Text('${((t.endMs - t.startMs) / 1000).round()} s', style: label),
             const SizedBox(width: NeoSpace.md),
           ],
         ),

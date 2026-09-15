@@ -5,17 +5,34 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'album_draft.dart';
 import 'album_editor_screen.dart';
-import 'album_picker.dart';
+import 'gallery/gallery_import.dart';
+import 'gallery/gallery_screen.dart';
 import 'album_publish_queue.dart';
 
 /// Les trois étapes d'une publication d'album, enchaînées : **choisir**
-/// (`AlbumPicker`) → **éditer** (`AlbumEditorScreen`, qui pousse lui-même
-/// l'écran de légende) → **publier** (`AlbumPublishQueue`, en arrière-plan).
+/// (`GalleryScreen`, notre galerie) → **éditer** (`AlbumEditorScreen`, qui
+/// pousse lui-même l'écran de légende) → **publier** (`AlbumPublishQueue`, en
+/// arrière-plan).
 ///
 /// Rend la main dès que l'envoi est déposé : le profil affiche le bandeau.
 abstract final class AlbumFlow {
   static Future<void> start(BuildContext context) async {
-    final picked = await AlbumPicker.pick(context, freeSlots: kAlbumMaxMedia);
+    final pick = await Navigator.of(context).push<GalleryPick>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => const GalleryScreen(max: kAlbumMaxMedia),
+      ),
+    );
+    if (pick == null || !context.mounted) return;
+    final picked = pick.file != null
+        ? await GalleryImport.fromFiles(context, [
+            pick.file!,
+          ], freeSlots: kAlbumMaxMedia)
+        : await GalleryImport.toDraftMedia(
+            context,
+            pick.entries,
+            freeSlots: kAlbumMaxMedia,
+          );
     if (picked.isEmpty || !context.mounted) return;
     final draft = await Navigator.of(context).push<AlbumDraft>(
       MaterialPageRoute(
