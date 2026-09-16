@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../core/models/library_item.dart';
 import '../../../core/typography.dart';
 import '../../../core/utils/ids.dart';
 import '../../cards/native_media.dart';
@@ -46,7 +47,7 @@ class AlbumEditorScreen extends StatefulWidget {
   State<AlbumEditorScreen> createState() => _AlbumEditorScreenState();
 }
 
-enum _Tool { texte, sticker, filtre, modifier, rogner }
+enum _Tool { texte, sticker, filtre, modifier, cadrer, rogner }
 
 class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   late AlbumDraft _draft = widget.draft;
@@ -55,6 +56,11 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
 
   /// Le média tel qu'il était à l'ouverture du panneau : « Annuler » le rend.
   AlbumDraftMedia? _snapshot;
+
+  /// Le brouillon ENTIER, pour un panneau qui touche à toute la publication
+  /// (le format : il remet les cadrages de tous les médias). L'instantané
+  /// d'un seul média ne saurait pas les rendre.
+  AlbumDraft? _draftSnapshot;
   String? _selectedOverlay;
 
   /// Le texte en cours d'écriture, tapé sur l'image ; nul sinon.
@@ -98,9 +104,10 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
           _update((m) => m.withOverlay(s));
           setState(() => _selectedOverlay = s.id);
         }
-      case _Tool.filtre || _Tool.modifier || _Tool.rogner:
+      case _Tool.filtre || _Tool.modifier || _Tool.rogner || _Tool.cadrer:
         setState(() {
           _snapshot = _media;
+          _draftSnapshot = tool == _Tool.cadrer ? _draft : null;
           _tool = tool;
           _selectedOverlay = null;
         });
@@ -109,10 +116,16 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
 
   void _cancelPanel() {
     final snap = _snapshot;
+    final draftSnap = _draftSnapshot;
     setState(() {
-      if (snap != null) _draft = _draft.update(snap.id, (_) => snap);
+      if (draftSnap != null) {
+        _draft = draftSnap;
+      } else if (snap != null) {
+        _draft = _draft.update(snap.id, (_) => snap);
+      }
       if (snap != null && snap.isVideo) _images.invalidate(snap);
       _snapshot = null;
+      _draftSnapshot = null;
       _tool = null;
     });
   }
@@ -120,6 +133,7 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   void _donePanel() => setState(() {
     if (_media.isVideo) _images.invalidate(_media);
     _snapshot = null;
+    _draftSnapshot = null;
     _tool = null;
   });
 
@@ -222,6 +236,35 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   }
 
   Future<void> _next() async {
+    // Une vidéo toute seule n'est pas une publication (Jay, 2026-09-17) :
+    // chez nous, une vidéo seule est une Vibe. On le DIT, avec la sortie,
+    // au lieu de griser un bouton — un mur sans issue est un bug.
+    if (_draft.videoSeule) {
+      final ajouter = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Une vidéo toute seule ne se publie pas'),
+          content: const Text(
+            'Chez nous, une vidéo seule c\'est une Vibe : le format qu\'on '
+            'filme avec la caméra de NeoVibe.\n\n'
+            'Pour la publier ici, ajoute au moins une autre photo ou vidéo '
+            '\u2014 ça en fera un carrousel.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Compris'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Ajouter un média'),
+            ),
+          ],
+        ),
+      );
+      if (ajouter == true && mounted) await _add();
+      return;
+    }
     final result = await Navigator.of(context).push<AlbumDraft>(
       MaterialPageRoute(
         builder: (_) => AlbumCaptionScreen(
@@ -347,6 +390,7 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
                 title: switch (tool) {
                   _Tool.filtre => 'Filtre',
                   _Tool.modifier => 'Modifier',
+                  _Tool.cadrer => 'Format',
                   _Tool.rogner => 'Rogner',
                   _ => '',
                 },
@@ -364,6 +408,11 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
                     media: media,
                     onAdjust: (a) => _update((m) => m.copyWith(adjust: a)),
                     onCrop: (c) => _update((m) => m.copyWith(crop: c)),
+                  ),
+                  _Tool.cadrer => _AspectPanel(
+                    current: _draft.aspect,
+                    onPick: (a) =>
+                        setState(() => _draft = _draft.withAspect(a)),
                   ),
                   _Tool.rogner => _TrimPanel(
                     media: media,
@@ -724,6 +773,7 @@ class _Toolbar extends StatelessWidget {
       (_Tool.sticker, Icons.emoji_emotions_outlined, 'Superposition'),
       (_Tool.filtre, Icons.auto_awesome_outlined, 'Filtre'),
       (_Tool.modifier, Icons.tune, 'Modifier'),
+      (_Tool.cadrer, Icons.crop, 'Format'),
       if (video) (_Tool.rogner, Icons.content_cut, 'Rogner'),
     ];
     return SafeArea(
@@ -833,6 +883,88 @@ class _Panel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: NeoSpace.xs),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Format — les trois ratios d'une publication
+// ---------------------------------------------------------------------------
+
+/// Les trois formats d'Instagram, repris tels quels (Jay, 2026-09-17) :
+/// **4:5** (le portrait, celui qui prend le plus d'écran), **1:1** et
+/// **1,91:1**. Le choix vaut pour la publication ENTIÈRE — c'est le sens du
+/// format chez eux : *« le ratio du premier média s'applique automatiquement
+/// à tous les suivants »*.
+class _AspectPanel extends StatelessWidget {
+  const _AspectPanel({required this.current, required this.onPick});
+
+  final AlbumAspect current;
+  final ValueChanged<AlbumAspect> onPick;
+
+  static const _choix = [
+    (AlbumAspect.portrait, 'Portrait', '4:5'),
+    (AlbumAspect.square, 'Carré', '1:1'),
+    (AlbumAspect.landscape, 'Paysage', '1,91:1'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final c = EditorColors.of(context);
+    return Center(
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          for (final (aspect, nom, label) in _choix)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: NeoSpace.md),
+              child: GestureDetector(
+                onTap: () => onPick(aspect),
+                behavior: HitTestBehavior.opaque,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // La vignette a la FORME du format : on choisit une
+                    // forme, pas un mot.
+                    SizedBox(
+                      width: 56,
+                      height: 56,
+                      child: Center(
+                        child: AspectRatio(
+                          aspectRatio: aspect.ratio,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(
+                                color: aspect == current ? c.ink : c.inkFaint,
+                                width: aspect == current ? 2.5 : 1.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: NeoSpace.xs),
+                    Text(
+                      nom,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: aspect == current
+                            ? FontWeight.w700
+                            : FontWeight.w500,
+                        color: aspect == current ? c.ink : c.inkMuted,
+                      ),
+                    ),
+                    Text(
+                      label,
+                      style: TextStyle(fontSize: 11, color: c.inkMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
       ),
     );

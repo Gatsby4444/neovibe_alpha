@@ -12,8 +12,7 @@ import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
 import '../proximity/net/proximity_controller.dart';
 import 'library_repository.dart';
-import 'feed/publications_feed_screen.dart';
-import 'mini_card.dart';
+import 'publications_tabs.dart';
 import 'profile_header.dart';
 
 /// Profil d'un autre utilisateur — connexion OU personne croisée en ping.
@@ -130,37 +129,13 @@ class UserLibraryScreen extends ConsumerWidget {
               padding: const EdgeInsets.all(24),
               child: Text('Erreur : $e'),
             ),
-            data: (list) => list.isEmpty
-                ? Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Text(
-                      'Rien à voir ici — bibliothèque vide ou accès restreint.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: context.muted),
-                    ),
-                  )
-                : GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(10),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 3,
-                          mainAxisSpacing: 10,
-                          crossAxisSpacing: 10,
-                          childAspectRatio: kMiniCardRatio,
-                        ),
-                    itemCount: list.length,
-                    itemBuilder: (context, index) => MiniCard(
-                      item: list[index],
-                      onTap: () => openPublications(
-                        context,
-                        items: list,
-                        initialIndex: index,
-                        title: profile.displayName,
-                      ),
-                    ),
-                  ),
+            data: (list) => PublicationsTabs(
+              items: list,
+              feedTitle: profile.displayName,
+              emptyMessage:
+                  'Rien à voir ici — bibliothèque vide ou accès restreint.',
+              padding: const EdgeInsets.all(10),
+            ),
           ),
           const SizedBox(height: 24),
         ],

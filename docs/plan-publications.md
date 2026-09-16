@@ -373,3 +373,58 @@ la carte quand le doigt l'incline**. Contre-test fait : posés au-dessus de la
 carte, ils restent immobiles et le test passe au rouge. `reel_layout_test.dart`
 supprimé (il mesurait la mise en page que Jay a écartée).
 
+### 9.8 Deux formats, deux jeux de règles — v0.9.193 (2026-09-17)
+
+Jay, captures d'Instagram à l'appui : *« je remarque deux formats : les
+publications et les Reels. Chacun obéit à ses propres règles d'affichage et
+d'édition. […] Nous on est un mix entre Insta et Snap, on n'a pas de Reels, on
+a des Vibes — et c'est ça nos Reels. »* Les règles qu'il a données, reprises
+telles quelles :
+
+| | **Publication** (photo seule ou carrousel) | **Vibe** (notre Reel) |
+|---|---|---|
+| format | **4:5** (défaut), **1:1** ou **1,91:1** — le **premier média** propose, le choix vaut pour toute la publication | **9:16**, imposé |
+| contenu | 1 photo, ou **2 à 20** photos et vidéos mêlées | la carte, une ou deux faces |
+| vidéo seule | **impossible** — c'est une Vibe | — |
+| dans le fil | à son format, pleine largeur | **recadrée en 4:5** (règle d'Instagram : un Reel 9:16 est recadré en 4:5 dans le fil) |
+| dans la grille | vignette 4:5 | vignette 4:5 |
+| en plein écran | carrousel à son format | **9:16**, son vrai format |
+
+**Le profil a deux onglets** (`publications_tabs.dart`), comme Instagram : la
+**grille** (tout, publications et Vibes mêlées) mène au **fil** posé sur la
+case touchée ; l'onglet **Vibes** (les Vibes seules) mène au **plein écran**.
+Les deux autres onglets d'Instagram (republications, mentions) ne nous servent
+à rien.
+
+**Ce que ça règle, au-delà de la ressemblance** : une Vibe ne mange plus 72 %
+de la hauteur d'un fil, donc une cellule tient dans un écran sans effort ; et
+comme Vibe et album font désormais la même largeur, l'en-tête, les actions et
+la légende retrouvent le même bord gauche pour les deux (la question
+« aligné sur la carte ou sur l'écran ? » du 2026-09-16 n'a plus lieu d'être).
+
+**Où ça vit :**
+
+| Quoi | Où |
+|---|---|
+| le 4:5 du fil et de la grille | `kVibeFeedRatio` + `fitForRatio` (`core/widgets/vibe_face.dart`) — **recadrer, c'est montrer moins** : `cover` hors du format natif, `contain` au sien |
+| le format d'affichage d'une Vibe | `VibeCardView.ratio` → les trois états de la face (attente, photo, vidéo) |
+| la vignette de la grille | `kMiniCardRatio = kVibeFeedRatio` ; les vignettes de **Card** (Enregistrements, chat) passent à `kVibeFaceRatio` — ce sont deux objets, pas deux réglages |
+| les deux onglets | `library/publications_tabs.dart`, branché sur mon profil et sur celui d'un autre |
+| les trois ratios | `AlbumAspect` (déjà en base), `AlbumDraft.aspectFor` (le premier média propose), `AlbumDraft.withAspect` (changer de format **remet les cadrages à zéro**), outil **Format** dans l'éditeur |
+| 20 médias | `kAlbumMaxMedia`, migration `20260917120000_carrousel_jusqu_a_20.sql` (`slot` 0…19 **et** la RPC : les deux verrous bougent ensemble) |
+| la vidéo seule | `AlbumDraft.videoSeule` + la boîte de dialogue de l'éditeur, qui **dit la sortie** (ajouter un média, ou filmer une Vibe) |
+
+⚠️ **Le 3:4 n'est plus proposé** mais reste lisible : il a existé du 2026-09-15
+au 2026-09-17 et des publications le portent (`AlbumAspect.tall`, admis par la
+contrainte en base).
+
+🟡 **Pas fait, et dit à Jay** : la durée d'une Vibe reste à **60 s** (les 15 min
+d'un Reel supposeraient de toucher la caméra) ; et l'import d'une **vidéo**
+dans une Vibe n'existe pas — c'est pour ça qu'une vidéo seule est refusée avec
+un message plutôt que transformée.
+
+Tests : `album_draft_test` (20 médias, les trois formats, le premier média
+propose, changer de format remet les cadrages, la vidéo seule),
+`vibe_face_layout_test` (recadrée et non rétrécie : même largeur, moins haute,
+et `cover` hors du format natif). **524** au total.
+

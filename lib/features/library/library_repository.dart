@@ -86,11 +86,11 @@ class LibraryRepository {
     saveable: saveable,
   );
 
-  /// Publie un **album** : de 1 à 11 médias déjà préparés par l'éditeur
+  /// Publie un **album** : de 1 à 20 médias déjà préparés par l'éditeur
   /// (photos rendues, vidéos recompressées ≤ 60 s, couvertures extraites),
   /// tous scellés avec **la même clé**, puis la même transaction serveur.
   ///
-  /// [onProgress] est appelé après chaque fichier déposé — un album de onze
+  /// [onProgress] est appelé après chaque fichier déposé — un album de vingt
   /// vidéos, c'est une minute d'envoi ; l'écran doit pouvoir le dire.
   Future<String> publishAlbum(
     AlbumUpload album, {

@@ -21,6 +21,24 @@ import '../video/sealed_video_view.dart';
 /// plus jamais de ce qui est chargé.
 const kVibeFaceRatio = 9 / 16;
 
+/// **Le format d'une Vibe quand elle n'est pas en plein écran** : 4:5.
+///
+/// Règle reprise d'Instagram par Jay le 2026-09-17 : un Reel est **publié**
+/// en 9:16, mais dès qu'il défile dans le fil classique il est **recadré en
+/// 4:5**. Nos Vibes sont nos Reels : elles gardent leur 9:16 (c'est le
+/// format du contenu, il ne bouge pas), et ce sont le **fil** et la **grille
+/// du profil** qui en montrent un 4:5.
+///
+/// ⚠️ Recadrer, c'est **montrer moins**, pas montrer plus petit : à un
+/// format qui n'est pas le sien, une face se coupe (`BoxFit.cover`) au lieu
+/// de se poser dans des bandes noires. Voir [fitForRatio].
+const kVibeFeedRatio = 4 / 5;
+
+/// Comment une face remplit son cadre : **à son format natif rien n'est
+/// coupé** ; à tout autre format, on recadre.
+BoxFit fitForRatio(double ratio) =>
+    ratio == kVibeFaceRatio ? BoxFit.contain : BoxFit.cover;
+
 /// L'**apparence** d'une face de Vibe : liseré à la couleur du type (dégradé
 /// pour Oneshot et BeReal, or épais pour la One of One), coins arrondis, fond
 /// noir, halo coloré.
@@ -137,18 +155,29 @@ class VibeFaceFrame extends StatelessWidget {
 /// toute la vie de l'écran. Le verso qui charge occupe sa place au lieu de la
 /// créer en arrivant.
 class VibeFaceLoading extends StatelessWidget {
-  const VibeFaceLoading({super.key, required this.type, this.overlay});
+  const VibeFaceLoading({
+    super.key,
+    required this.type,
+    this.overlay,
+    this.ratio = kVibeFaceRatio,
+  });
 
   final CardType type;
   final Widget? overlay;
+
+  /// Le format d'affichage — 9:16 en plein écran, [kVibeFeedRatio] dans un
+  /// fil. **Il ne dépend jamais de ce qui est chargé** (voir [kVibeFaceRatio]).
+  final double ratio;
 
   @override
   Widget build(BuildContext context) => VibeFaceFrame(
     type: type,
     overlay: overlay,
-    child: const AspectRatio(
-      aspectRatio: kVibeFaceRatio,
-      child: Center(child: CircularProgressIndicator(color: Colors.white24)),
+    child: AspectRatio(
+      aspectRatio: ratio,
+      child: const Center(
+        child: CircularProgressIndicator(color: Colors.white24),
+      ),
     ),
   );
 }
@@ -159,11 +188,15 @@ class VibePhotoFace extends StatelessWidget {
     required this.bytes,
     required this.type,
     this.overlay,
+    this.ratio = kVibeFaceRatio,
   });
 
   final Uint8List bytes;
   final CardType type;
   final Widget? overlay;
+
+  /// Voir [VibeFaceLoading.ratio].
+  final double ratio;
 
   @override
   Widget build(BuildContext context) {
@@ -171,10 +204,10 @@ class VibePhotoFace extends StatelessWidget {
       type: type,
       overlay: overlay,
       child: AspectRatio(
-        aspectRatio: kVibeFaceRatio,
+        aspectRatio: ratio,
         child: Image.memory(
           bytes,
-          fit: BoxFit.contain,
+          fit: fitForRatio(ratio),
           errorBuilder: (context, error, stack) => const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -259,6 +292,7 @@ class VibeVideoFace extends StatefulWidget {
     required this.type,
     required this.active,
     this.overlay,
+    this.ratio = kVibeFaceRatio,
   });
 
   /// Le média ouvert : une vidéo scellée que le lecteur natif lit bloc par
@@ -273,6 +307,10 @@ class VibeVideoFace extends StatefulWidget {
 
   /// Voir [VibeFaceFrame.overlay].
   final Widget? overlay;
+
+  /// Voir [VibeFaceLoading.ratio]. La vidéo remplit déjà son cadre en
+  /// `cover` : elle se recadre sans rien changer d'autre.
+  final double ratio;
 
   @override
   State<VibeVideoFace> createState() => _VibeVideoFaceState();
@@ -327,7 +365,7 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
       type: widget.type,
       overlay: widget.overlay,
       child: AspectRatio(
-        aspectRatio: kVibeFaceRatio,
+        aspectRatio: widget.ratio,
         child: _error != null
             ? VideoFaceError(error: _error!)
             : !_controller.value.isInitialized

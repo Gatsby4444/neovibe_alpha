@@ -30,9 +30,12 @@ import 'vibe_card_view.dart';
 /// d'une cinquantaine de pixels. Remontées, elles ne coûtent plus rien : la
 /// ligne d'identité avait la place.
 ///
-/// Deux formats, deux médias : un **album** est un carrousel à son ratio ;
-/// une **Vibe** est la carte recto/verso, retournable sur place, dans un
-/// cadre haut — un tap l'ouvre en plein écran (`onOpenVibe`).
+/// Deux formats, deux médias, **la même largeur** : un **album** est un
+/// carrousel au ratio choisi à la publication (4:5, 1:1 ou 1,91:1) ; une
+/// **Vibe** est la carte recto/verso, retournable sur place, **recadrée en
+/// 4:5** — exactement ce que fait Instagram d'un Reel dans le fil classique
+/// (Jay, 2026-09-17). Un tap l'ouvre en plein écran, à son vrai format
+/// (`onOpenVibe`).
 ///
 /// [active] : la cellule est celle qu'on regarde (`ActiveItemTracker`) — ses
 /// vidéos jouent, et la vue se compte après 3 s d'affichage réel.
@@ -145,13 +148,11 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
             onPageChanged: (i) => setState(() => _page = i),
           )
         else
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: NeoSpace.xs),
-            child: VibeCardView(
-              item: item,
-              active: widget.active,
-              onTap: widget.onOpenVibe,
-            ),
+          VibeCardView(
+            item: item,
+            active: widget.active,
+            onTap: widget.onOpenVibe,
+            ratio: kVibeFeedRatio,
           ),
         if (item.caption != null && item.caption!.isNotEmpty)
           Padding(

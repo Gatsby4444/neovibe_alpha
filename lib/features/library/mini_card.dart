@@ -5,11 +5,23 @@ import '../../core/content/content_face.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/vibe_face.dart';
 import '../cards/flippable_card.dart';
 import 'feed/publications_feed_screen.dart';
 
-/// Format d'une mini-card : portrait, comme la card en grand.
-const kMiniCardRatio = 9 / 16;
+/// **Le format d'une vignette de la grille du profil : 4:5.**
+///
+/// Choisi par Jay le 2026-09-17, « comme Instagram aujourd'hui ». Avant, la
+/// grille était au format de la Card (9:16) — cohérent tant que tout était une
+/// Card, brutal depuis qu'une publication peut être un paysage 1,91:1 : il
+/// n'en serait resté qu'une lame verticale. Une Vibe y est **recadrée**, comme
+/// elle l'est dans le fil ([kVibeFeedRatio]) et comme Instagram recadre un
+/// Reel dans sa grille.
+///
+/// ⚠️ Ce n'est PAS le format d'une Card. Une vignette de Card (les
+/// Enregistrements, l'aperçu d'un partage dans le chat) reste en
+/// [kVibeFaceRatio] : là, l'objet montré est la carte elle-même.
+const kMiniCardRatio = kVibeFeedRatio;
 
 class _ThumbPlaceholder extends StatelessWidget {
   const _ThumbPlaceholder({required this.icon});

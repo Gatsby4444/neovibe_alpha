@@ -27,10 +27,11 @@ AlbumDraftMedia video(String id, int ms) => AlbumDraftMedia(
 
 void main() {
   group('AlbumDraft — les règles de Jay', () {
-    test('11 médias au plus : le douzième est ignoré', () {
+    test('20 médias au plus : le vingt-et-unième est ignoré', () {
       var d = const AlbumDraft();
-      d = d.add([for (var i = 0; i < 13; i++) photo('p$i')]);
-      expect(d.media.length, kAlbumMaxMedia);
+      d = d.add([for (var i = 0; i < 25; i++) photo('p$i')]);
+      expect(kAlbumMaxMedia, 20, reason: 'la règle d\'Instagram (Jay, 17/09)');
+      expect(d.media.length, 20);
       expect(d.isFull, isTrue);
       expect(d.freeSlots, 0);
     });
@@ -42,10 +43,57 @@ void main() {
       expect(d.reorder(1, 1), d);
     });
 
-    test('un seul format : 3:4, vertical (Jay, 2026-09-15)', () {
-      expect(const AlbumDraft().aspect, AlbumAspect.tall);
-      expect(AlbumAspect.tall.ratio, 0.75);
-      expect(AlbumAspect.fromDb(3, 4), AlbumAspect.tall);
+    test('trois formats, et le premier média propose le sien', () {
+      // Les trois d'Instagram, repris le 2026-09-17.
+      expect(AlbumAspect.portrait.ratio, 0.8);
+      expect(AlbumAspect.square.ratio, 1);
+      expect(AlbumAspect.landscape.ratio, 1.91);
+
+      // Une photo verticale de téléphone (3:4, ou même 9:16) : portrait.
+      expect(AlbumDraft.aspectFor(photo('a')), AlbumAspect.portrait);
+      expect(
+        AlbumDraft.aspectFor(photo('b', w: 1080, h: 1920)),
+        AlbumAspect.portrait,
+      );
+      // Un carré reste carré, un 16:9 devient le paysage 1,91:1.
+      expect(
+        AlbumDraft.aspectFor(photo('c', w: 1000, h: 1000)),
+        AlbumAspect.square,
+      );
+      expect(
+        AlbumDraft.aspectFor(photo('d', w: 1920, h: 1080)),
+        AlbumAspect.landscape,
+      );
+    });
+
+    test('changer de format remet les cadrages à zéro', () {
+      final d = const AlbumDraft()
+          .add([photo('a'), photo('b')])
+          .update(
+            'a',
+            (m) => m.copyWith(crop: const CropSpec(zoom: 2, cx: 0.2)),
+          );
+      expect(d.media.first.crop.zoom, 2);
+
+      final carre = d.withAspect(AlbumAspect.square);
+      expect(carre.aspect, AlbumAspect.square);
+      // Un cadrage est relatif à SON cadre : gardé, il montrerait autre
+      // chose que ce que l'utilisateur avait choisi, sans le dire.
+      expect(carre.media.every((m) => m.crop == CropSpec.none), isTrue);
+
+      // Le même format : rien ne bouge (on ne perd pas un cadrage pour rien).
+      expect(carre.withAspect(AlbumAspect.square), same(carre));
+    });
+
+    test('une vidéo toute seule ne se publie pas', () {
+      expect(const AlbumDraft().add([video('v', 5000)]).videoSeule, isTrue);
+      // Accompagnée, c'est un carrousel : ça passe.
+      expect(
+        const AlbumDraft().add([video('v', 5000), photo('p')]).videoSeule,
+        isFalse,
+      );
+      // Une photo seule est une publication ordinaire.
+      expect(const AlbumDraft().add([photo('p')]).videoSeule, isFalse);
     });
   });
 

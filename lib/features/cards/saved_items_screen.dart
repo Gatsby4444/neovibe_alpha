@@ -10,7 +10,6 @@ import '../../core/widgets/card_type_badge.dart';
 import '../../core/crypto/media_open.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../../core/widgets/pull_down_to_close.dart';
-import '../library/mini_card.dart' show kMiniCardRatio;
 import 'flippable_card.dart';
 import '../../core/widgets/system_bars.dart';
 
@@ -101,7 +100,7 @@ class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
                     crossAxisCount: 3,
                     mainAxisSpacing: 10,
                     crossAxisSpacing: 10,
-                    childAspectRatio: kMiniCardRatio,
+                    childAspectRatio: kVibeFaceRatio,
                   ),
                   itemCount: list.length,
                   itemBuilder: (context, i) => _SavedTile(item: list[i]),

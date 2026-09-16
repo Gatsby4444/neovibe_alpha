@@ -37,8 +37,13 @@ abstract final class AlbumFlow {
     final draft = await Navigator.of(context).push<AlbumDraft>(
       MaterialPageRoute(
         fullscreenDialog: true,
-        builder: (_) =>
-            AlbumEditorScreen(draft: const AlbumDraft().add(picked)),
+        // Le premier média propose le format de toute la publication
+        // (règle d'Instagram) ; l'outil Format le change ensuite.
+        builder: (_) => AlbumEditorScreen(
+          draft: AlbumDraft(
+            aspect: AlbumDraft.aspectFor(picked.first),
+          ).add(picked),
+        ),
       ),
     );
     if (draft == null || !context.mounted) return;

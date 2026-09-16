@@ -15,8 +15,13 @@ import 'overlay_model.dart';
 /// exactement la même description ; et un futur « brouillon sauvegardé » n'a
 /// qu'à sérialiser ceci.
 
-/// Le plafond de Jay : « jusqu'à 11 contenus ».
-const kAlbumMaxMedia = 11;
+/// Le plafond : **20 médias**, la règle d'Instagram reprise par Jay le
+/// 2026-09-17 (« carrousel : 2 à 20 médias »). C'était 11 jusque-là.
+///
+/// ⚠️ La base le tient aussi (`library_media.slot` 0 … 19 et
+/// `publish_to_library`) : les deux doivent bouger ensemble, sinon l'app
+/// laisse composer ce que le serveur refusera.
+const kAlbumMaxMedia = 20;
 
 /// Le plafond de Jay : « vidéo de max 1 min par contenu ».
 const kAlbumMaxVideoMs = 60000;
@@ -334,7 +339,7 @@ class AlbumDraftMedia {
 class AlbumDraft {
   const AlbumDraft({
     this.media = const [],
-    this.aspect = AlbumAspect.tall,
+    this.aspect = AlbumAspect.portrait,
     this.caption = '',
     this.isPublic = false,
     this.shareable = false,
@@ -343,9 +348,15 @@ class AlbumDraft {
 
   final List<AlbumDraftMedia> media;
 
-  /// Toujours [AlbumAspect.tall] depuis le 2026-09-15 : un seul format,
-  /// pas de choix. Le champ reste pour que l'export et le visionneur lisent
-  /// la même chose que la base.
+  /// **Le format de la publication entière** : 4:5, 1:1 ou 1,91:1, jamais
+  /// un par média (règle d'Instagram, redonnée par Jay le 2026-09-17 : *« le
+  /// ratio du premier média s'applique automatiquement à tous les
+  /// suivants »*). Il est proposé d'après le premier média ([aspectFor]) et
+  /// reste modifiable par l'outil Cadrer.
+  ///
+  /// ⚠️ Le 3:4 ([AlbumAspect.tall]) n'est plus proposé — il a existé du
+  /// 2026-09-15 au 2026-09-17 et des publications le portent encore : le
+  /// visionneur doit continuer à le lire.
   final AlbumAspect aspect;
   final String caption;
   final bool isPublic;
@@ -377,6 +388,45 @@ class AlbumDraft {
   AlbumDraft add(Iterable<AlbumDraftMedia> items) =>
       copyWith(media: [...media, ...items.take(math.max(0, freeSlots))]);
 
+  /// **Changer le format remet les cadrages à zéro.** Un cadrage est relatif
+  /// à SON cadre (zoom et point de visée dans le rectangle inscrit) : gardé
+  /// tel quel dans un cadre d'un autre format, il ne montre plus ce que
+  /// l'utilisateur avait choisi — il montre autre chose, sans le dire.
+  AlbumDraft withAspect(AlbumAspect a) => a == aspect
+      ? this
+      : copyWith(
+          aspect: a,
+          media: [for (final m in media) m.copyWith(crop: CropSpec.none)],
+        );
+
+  /// **Le format que propose un média** : celui des trois qui s'éloigne le
+  /// moins du sien. Comparé en écart *relatif* (et non en différence de
+  /// nombres) — sinon le paysage 1,91 écraserait tout, un ratio étant une
+  /// échelle, pas une distance.
+  static AlbumAspect aspectFor(AlbumDraftMedia m) {
+    final r = m.srcHeight == 0 ? 1.0 : m.srcWidth / m.srcHeight;
+    AlbumAspect best = AlbumAspect.portrait;
+    var bestEcart = double.infinity;
+    for (final a in const [
+      AlbumAspect.portrait,
+      AlbumAspect.square,
+      AlbumAspect.landscape,
+    ]) {
+      final ecart = (math.log(r) - math.log(a.ratio)).abs();
+      if (ecart < bestEcart) {
+        bestEcart = ecart;
+        best = a;
+      }
+    }
+    return best;
+  }
+
+  /// Une vidéo, et rien d'autre : **ça ne se publie pas** (règle d'Instagram
+  /// tranchée par Jay le 2026-09-17 — une vidéo seule est un Reel, chez nous
+  /// une Vibe). L'écran qui s'en aperçoit doit le DIRE, pas refuser en
+  /// silence.
+  bool get videoSeule => media.length == 1 && media.first.isVideo;
+
   AlbumDraft remove(String id) =>
       copyWith(media: media.where((m) => m.id != id).toList());
 
@@ -394,7 +444,7 @@ class AlbumDraft {
 
   /// La **découpe** d'une vidéo trop longue (Jay : *« si une vidéo est trop
   /// longue on peut proposer à l'utilisateur de la découper et répartir
-  /// automatiquement sur plusieurs contenus du carrousel parmi les 11 »*).
+  /// automatiquement sur plusieurs contenus du carrousel »*).
   ///
   /// Rend les morceaux `[début, fin]` de [maxMs] au plus, dans l'ordre, sans
   /// dépasser [freeSlots] morceaux. Un bout de queue de moins d'une seconde

@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/supabase_providers.dart';
@@ -8,8 +7,7 @@ import '../connections/heart_screen.dart';
 import '../settings/settings_screen.dart';
 import 'album_editor/album_publish_banner.dart';
 import 'library_repository.dart';
-import 'feed/publications_feed_screen.dart';
-import 'mini_card.dart';
+import 'publications_tabs.dart';
 import 'profile_edit_screen.dart';
 import 'profile_header.dart';
 import 'publish_choice_sheet.dart';
@@ -115,63 +113,37 @@ class ProfileScreen extends ConsumerWidget {
                 padding: const EdgeInsets.all(24),
                 child: Text('Erreur : $e'),
               ),
-              data: (list) => list.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Text(
-                        'Ta bibliothèque est vide.\nPublie une Vibe ou ajoute une photo : ici, ça reste.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: context.muted),
-                      ),
-                    )
-                  : GridView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      padding: const EdgeInsets.fromLTRB(10, 0, 10, 80),
-                      // 3 colonnes (consigne Jay), mais au FORMAT CARD
-                      // (portrait) au lieu des carrés d'avant.
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            mainAxisSpacing: 10,
-                            crossAxisSpacing: 10,
-                            childAspectRatio: kMiniCardRatio,
-                          ),
-                      itemCount: list.length,
-                      itemBuilder: (context, index) => MiniCard(
-                        item: list[index],
-                        onTap: () => openPublications(
-                          context,
-                          items: list,
-                          initialIndex: index,
+              data: (list) => PublicationsTabs(
+                items: list,
+                feedTitle: 'Publications',
+                emptyMessage:
+                    'Ta bibliothèque est vide.\nPublie une Vibe ou ajoute '
+                    'une photo : ici, ça reste.',
+                onLongPress: (item) async {
+                  final delete = await showDialog<bool>(
+                    context: context,
+                    builder: (context) => AlertDialog(
+                      title: const Text('Retirer de la bibliothèque ?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(context, false),
+                          child: const Text('Annuler'),
                         ),
-                        onLongPress: () async {
-                          final delete = await showDialog<bool>(
-                            context: context,
-                            builder: (context) => AlertDialog(
-                              title: const Text('Retirer de la bibliothèque ?'),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.pop(context, false),
-                                  child: const Text('Annuler'),
-                                ),
-                                FilledButton(
-                                  onPressed: () => Navigator.pop(context, true),
-                                  child: const Text('Retirer'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (delete == true) {
-                            await ref
-                                .read(libraryRepositoryProvider)
-                                .removeItem(list[index].id);
-                            ref.invalidate(libraryItemsProvider(me));
-                          }
-                        },
-                      ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(context, true),
+                          child: const Text('Retirer'),
+                        ),
+                      ],
                     ),
+                  );
+                  if (delete == true) {
+                    await ref
+                        .read(libraryRepositoryProvider)
+                        .removeItem(item.id);
+                    ref.invalidate(libraryItemsProvider(me));
+                  }
+                },
+              ),
             ),
           ],
         ),

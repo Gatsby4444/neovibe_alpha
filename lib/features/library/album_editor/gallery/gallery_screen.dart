@@ -160,7 +160,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
               right: 0,
               top: 0,
               child: AspectRatio(
-                aspectRatio: AlbumAspect.tall.ratio,
+                aspectRatio: AlbumAspect.portrait.ratio,
                 child: _Preview(feed: _feed, entry: _shown, canvas: c.canvas),
               ),
             ),

@@ -12,7 +12,7 @@ import '../../core/models/card.dart';
 import '../../core/models/message.dart';
 import '../stories/story_viewer_screen.dart';
 import '../library/feed/publications_feed_screen.dart';
-import '../library/mini_card.dart';
+import '../../core/widgets/vibe_face.dart';
 import '../../core/widgets/card_type_badge.dart';
 import '../../core/models/story.dart';
 import '../../core/content/shared_content.dart';
@@ -1290,7 +1290,7 @@ class _SharedContentTile extends ConsumerWidget {
                   borderRadius: BorderRadius.circular(8),
                   child: SizedBox(
                     width: 46,
-                    height: 46 / kMiniCardRatio,
+                    height: 46 / kVibeFaceRatio,
                     child: face.when(
                       // Vignette d'habillage : fond et icônes suivent le thème.
                       loading: () => ColoredBox(

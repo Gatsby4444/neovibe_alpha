@@ -69,7 +69,7 @@ class _AlbumCarouselState extends ConsumerState<AlbumCarousel> {
       ref.watch(contentFaceProvider(_spec(media[_current + 1])));
     }
     return AspectRatio(
-      aspectRatio: (item.aspect ?? AlbumAspect.tall).ratio,
+      aspectRatio: (item.aspect ?? AlbumAspect.portrait).ratio,
       child: Stack(
         fit: StackFit.expand,
         children: [
