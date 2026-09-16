@@ -13,17 +13,33 @@ import '../../../core/utils/formats.dart';
 import '../../../core/widgets/avatar.dart';
 import '../../../core/widgets/card_type_badge.dart';
 import '../../../core/widgets/pull_down_to_close.dart';
+import '../../../core/widgets/system_bars.dart';
 import '../../connections/connections_repository.dart';
 import '../user_library_screen.dart';
 import 'publication_actions.dart';
 import 'vibe_card_view.dart';
 
+/// La bande du haut, réservée à la croix : une seule définition, celle qui
+/// dimensionne le bouton, et celle que la page laisse libre au-dessus d'elle.
+const kReelTopBar = 48.0;
+
+/// La gouttière des actions, à droite de la carte (un `IconButton` fait 48).
+const kReelActionsGutter = 52.0;
+
 /// **Les Vibes en plein écran, à la suite** — façon Reels : une Vibe par
 /// écran, fond noir, on glisse vers le haut pour la suivante. La carte garde
 /// son geste libre (retourner, incliner) : un départ vertical va au
 /// défilement, un départ horizontal à la carte (voir [TiltableCard]).
-/// Par-dessus : l'auteur et la légende en bas à gauche, les actions en
-/// colonne à droite, la croix en haut.
+/// Autour d'elle : l'auteur et la légende en dessous, les actions en colonne
+/// à sa droite, la croix en haut.
+///
+/// ⚠️ **Rien ne passe par-dessus la carte.** Une Vibe n'est pas une vidéo
+/// plein cadre sur laquelle on pose des icônes : c'est un objet avec son
+/// liseré, son halo et ses bords. Le 2026-09-16, la carte prenait toute la
+/// largeur et la colonne d'actions flottait dessus — le cœur au milieu de
+/// l'image, le marque-page à cheval sur le bord. Chacun a maintenant sa
+/// place réservée dans la mise en page, et la carte occupe tout ce qui
+/// reste.
 ///
 /// Fermer : la croix, ou **tirer vers le bas depuis la première Vibe** —
 /// le même geste que les autres visionneurs (Jay, 2026-09-14), lu ici dans
@@ -91,50 +107,63 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
       _vibes = rest;
       _current = _current.clamp(0, rest.length - 1);
     });
+    // La liste a rétréci sous le doigt : si on était sur la dernière, la
+    // page courante du contrôleur n'existe plus. On le recale sur ce qu'on
+    // affiche vraiment, sinon il pointe hors de la liste.
+    if (_pages.hasClients && _pages.page?.round() != _current) {
+      _pages.jumpToPage(_current);
+    }
     _reporter.watching(_vibes[_current].id);
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: _OverscrollToClose(
-        atFirstPage: _current == 0,
-        onClose: () => Navigator.of(context).maybePop(),
-        child: Stack(
-          children: [
-            // Sans la lueur de bord : le sur-défilement du haut est un
-            // geste (fermer), pas une butée à signaler.
-            ScrollConfiguration(
-              behavior: ScrollConfiguration.of(
-                context,
-              ).copyWith(overscroll: false),
-              child: PageView.builder(
-                controller: _pages,
-                scrollDirection: Axis.vertical,
-                onPageChanged: _onPage,
-                itemCount: _vibes.length,
-                itemBuilder: (context, i) => _ReelPage(
-                  key: ValueKey(_vibes[i].id),
-                  item: _vibes[i],
-                  active: i == _current,
-                  onDeleted: () => _removed(_vibes[i]),
+    return DarkSystemBars(
+      // Écran noir sans AppBar : il annonce lui-même des icônes
+      // système claires (voir [DarkSystemBars]).
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: _OverscrollToClose(
+          atFirstPage: _current == 0,
+          onClose: () => Navigator.of(context).maybePop(),
+          child: Stack(
+            children: [
+              // Sans la lueur de bord : le sur-défilement du haut est un
+              // geste (fermer), pas une butée à signaler.
+              ScrollConfiguration(
+                behavior: ScrollConfiguration.of(
+                  context,
+                ).copyWith(overscroll: false),
+                child: PageView.builder(
+                  controller: _pages,
+                  scrollDirection: Axis.vertical,
+                  onPageChanged: _onPage,
+                  itemCount: _vibes.length,
+                  itemBuilder: (context, i) => _ReelPage(
+                    key: ValueKey(_vibes[i].id),
+                    item: _vibes[i],
+                    active: i == _current,
+                    onDeleted: () => _removed(_vibes[i]),
+                  ),
                 ),
               ),
-            ),
-            Positioned(
-              top: 0,
-              left: 0,
-              child: SafeArea(
-                child: IconButton(
-                  icon: const Icon(Icons.close),
-                  color: Colors.white,
-                  tooltip: 'Fermer',
-                  onPressed: () => Navigator.of(context).maybePop(),
+              Positioned(
+                top: 0,
+                left: 0,
+                child: SafeArea(
+                  child: SizedBox(
+                    height: kReelTopBar,
+                    child: IconButton(
+                      icon: const Icon(Icons.close),
+                      color: Colors.white,
+                      tooltip: 'Fermer',
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -176,74 +205,82 @@ class _ReelPage extends ConsumerWidget {
         ? ref.watch(contentFaceProvider(_spec(false))).value
         : null;
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // La carte, centrée, avec de l'air en bas pour la légende.
-        Padding(
-          padding: const EdgeInsets.only(bottom: 56),
-          child: Center(
-            child: VibeCardView(item: item, active: active),
-          ),
-        ),
-        // Le voile du bas : lisibilité du texte, sans cacher la carte.
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 0,
-          child: IgnorePointer(
-            child: Container(
-              height: 220,
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Colors.transparent, Colors.black87],
+    return ReelLayout(
+      card: VibeCardView(item: item, active: active),
+      actions: PublicationActions(
+        item: item,
+        mine: mine,
+        saveId: item.id,
+        saveFront: front,
+        saveBack: back,
+        saveFrontIsVideo: item.frontIsVideo,
+        saveBackIsVideo: item.backIsVideo,
+        vertical: true,
+        color: Colors.white,
+        onDeleted: onDeleted,
+      ),
+      author: _Author(item: item, owner: owner, mine: mine),
+    );
+  }
+}
+
+/// **La mise en page d'une Vibe plein écran, et rien d'autre.**
+///
+/// Elle existe séparée du contenu parce que c'est elle qui portait le défaut
+/// du 2026-09-16 : les actions flottaient *par-dessus* la carte. Ici chacun a
+/// sa place réservée — la carte au centre de ce qui reste, les actions dans
+/// leur gouttière à droite calées sur le bas de la carte, l'auteur en dessous
+/// — et `test/reel_layout_test.dart` le vérifie en mesurant les trois boîtes,
+/// sans avoir besoin d'une vraie Vibe.
+class ReelLayout extends StatelessWidget {
+  const ReelLayout({
+    super.key,
+    required this.card,
+    required this.actions,
+    required this.author,
+  });
+
+  final Widget card;
+  final Widget actions;
+  final Widget author;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        // La bande de la croix, en haut : la carte ne monte pas dessous.
+        padding: const EdgeInsets.only(top: kReelTopBar),
+        child: Column(
+          children: [
+            Expanded(
+              child: Center(
+                // Largeur minimale : la rangée fait exactement la largeur de
+                // la carte plus sa gouttière, et se centre. Les actions se
+                // calent sur le BAS de la carte, pas sur le bas de l'écran.
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Flexible(child: card),
+                    SizedBox(width: kReelActionsGutter, child: actions),
+                  ],
                 ),
               ),
             ),
-          ),
-        ),
-        Positioned(
-          left: 0,
-          right: 64,
-          bottom: 0,
-          child: SafeArea(
-            top: false,
-            child: Padding(
+            // L'auteur et sa légende, sous la carte : ils prennent la place
+            // qu'il leur faut, la carte occupe tout le reste.
+            Padding(
               padding: const EdgeInsets.fromLTRB(
                 NeoSpace.lg,
-                0,
-                0,
+                NeoSpace.sm,
+                NeoSpace.lg,
                 NeoSpace.md,
               ),
-              child: _Author(item: item, owner: owner, mine: mine),
+              child: Align(alignment: Alignment.centerLeft, child: author),
             ),
-          ),
+          ],
         ),
-        Positioned(
-          right: 0,
-          bottom: 0,
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 4, bottom: NeoSpace.sm),
-              child: PublicationActions(
-                item: item,
-                mine: mine,
-                saveId: item.id,
-                saveFront: front,
-                saveBack: back,
-                saveFrontIsVideo: item.frontIsVideo,
-                saveBackIsVideo: item.backIsVideo,
-                vertical: true,
-                color: Colors.white,
-                onDeleted: onDeleted,
-              ),
-            ),
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

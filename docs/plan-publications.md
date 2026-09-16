@@ -287,7 +287,7 @@ les likes ; toucher le compte dit **qui a aimé**.
 | **L'album** | `feed/album_carousel.dart` | `PageView` horizontal au ratio, « n/N », points, vidéo en boucle muette (tap = son), média suivant demandé d'avance |
 | **La Vibe** | `feed/vibe_card_view.dart` | la carte recto/verso retournable (`FlippableCard`, axe horizontal), même composant en cellule et en plein écran |
 | **Les actions** | `feed/publication_actions.dart` | à plat ou en colonne ; `LikeButton`, `SaveButton`, repartage (`RecipientPickerScreen` en mode repost), retirer / `ContentOverflowMenu` ; `showLikers` |
-| **Le fil du profil** | `feed/publications_feed_screen.dart` | la liste, posée sur la publication touchée (`ensureVisible`, ou estimation puis réalignement) ; `openPublications(context, items, index)` |
+| **Le fil du profil** | `feed/publications_feed_screen.dart` | la liste, **ancrée** sur la publication touchée (`core/widgets/anchored_list.dart` — elle est l'origine du défilement, rien n'est estimé) ; `openPublications(context, items, index)` |
 | **Les Vibes plein écran** | `feed/vibes_reel_screen.dart` | `PageView` vertical, une Vibe par page ; fermeture par **sur-défilement** depuis la première (la liste tient le geste vertical, on lit ce qu'elle rapporte — même décision et même animation que `PullDownToClose`) |
 | **Les grilles** | `mini_card.dart` (`onTap`), `profile_screen.dart`, `user_library_screen.dart` | la grille décide où mène le tap : le fil de **ce** profil, avec **sa** liste |
 | **Le chat** | `chat_screen.dart` | une publication repartagée s'ouvre dans le même fil, seule |
@@ -313,3 +313,34 @@ Défaut latent attrapé par ce test : le contrôleur d'animation de
 `TiltableCard` était un `late final` avec initialiseur — pour une carte jamais
 touchée, son premier accès était `dispose()`, qui créait un ticker sur un
 élément démonté. Créé dans `initState` désormais. Tests : **512**.
+
+### 9.6 Deuxième test de Jay sur la v0.9.190 — v0.9.191 (2026-09-16)
+
+*« Mon test révèle encore des bugs UI qui nuisent à l'UX. »* Deux points, plus
+« vérifie le reste aussi ».
+
+| # | Vu | Cause | Fait |
+|---|---|---|---|
+| 1 | *« cliquer sur une card dans le profil ouvre le viewer, mais pas en face de la card »* — son hypothèse : les hauteurs qui s'adaptent à l'image | le fil **estimait** le décalage (une hauteur devinée par publication) puis corrigeait *si* la cellule visée avait été construite. La correction n'a lieu que si l'estimation tombe à moins d'un `cacheExtent` de la vérité ; l'erreur s'accumulant à chaque cellule, au-delà d'une vingtaine de publications la cellule n'existe pas et **plus rien ne corrige** — sans erreur levée | **`AnchoredList`** (`core/widgets/anchored_list.dart`) : la publication touchée **est** l'origine du défilement (`CustomScrollView.center`), les précédentes vivent aux décalages négatifs. Exact quels que soient le nombre d'éléments et leurs hauteurs — plus rien à estimer. `test/anchored_list_test.dart` (4), contre-test fait (sans l'origine, 3 tests rouges) |
+| 2 | *« dans le viewer, spécialement pour les cards, les boutons ne sont pas bien placés »* (le cœur sur la carte, le marque-page à cheval sur son bord) | la carte prenait toute la largeur et la colonne d'actions était un `Positioned` **par-dessus** | **`ReelLayout`** : la carte au centre de ce qui reste, les actions dans une **gouttière** réservée à droite calées sur le bas de la carte, l'auteur **sous** la carte, la bande de la croix réservée en haut. `test/reel_layout_test.dart` (5) mesure les trois boîtes, contre-test fait (l'ancienne superposition → rouge) |
+
+**Le reste, vérifié à la source :**
+
+- **Les icônes système invisibles sur un écran noir.** Le thème fixe
+  `systemOverlayStyle` pour **toutes** les AppBar (identité claire → icônes
+  sombres) ; une AppBar noire en héritait donc, icônes sombres sur noir.
+  Vérifié dans `material/app_bar.dart` : la déduction par luminosité du fond
+  n'a lieu que si personne n'a répondu avant, et le thème répond toujours.
+  → `core/widgets/system_bars.dart` (`kSystemBarsOnDark`, `DarkSystemBars`),
+  passé aux 8 AppBar noires et aux 2 écrans noirs sans AppBar (les Vibes
+  plein écran, le visionneur de story).
+- **La cellule d'une Vibe dans le fil** : la largeur de la carte se calculait
+  sans son cadre (marge + liseré), donc la carte était ~30 px sous le plafond
+  de 72 % annoncé (`VibeFaceFrame.chrome(type)`, une seule définition) ; et la
+  ligne d'actions partait du bord de l'écran alors que la carte est centrée —
+  toute la cellule se cale maintenant sur la largeur de la carte.
+- **Le contrôleur de pages des Vibes plein écran** ne se recalait pas après un
+  « Retirer » : en supprimant la dernière, il pointait hors de la liste.
+- **Le compte de likes à zéro** affichait un libellé vide, qui occupait une
+  ligne et décalait la colonne du plein écran.
+

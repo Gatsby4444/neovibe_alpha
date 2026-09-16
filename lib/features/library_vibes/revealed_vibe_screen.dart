@@ -9,6 +9,7 @@ import '../../core/models/library_vibe.dart';
 import '../../core/widgets/vibe_face.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
+import '../../core/widgets/system_bars.dart';
 
 /// Ouverture d'une vibe révélée — **dissipation** du flou vers l'image.
 ///
@@ -132,6 +133,7 @@ class _RevealedVibeScreenState extends ConsumerState<RevealedVibeScreen>
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
+        systemOverlayStyle: kSystemBarsOnDark,
         foregroundColor: Colors.white,
         elevation: 0,
       ),

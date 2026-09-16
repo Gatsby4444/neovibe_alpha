@@ -19,6 +19,7 @@ import 'card_media_cache.dart';
 import 'cards_repository.dart';
 import '../../core/widgets/pull_down_to_close.dart';
 import 'flippable_card.dart';
+import '../../core/widgets/system_bars.dart';
 
 /// Étapes d'affichage d'une Card.
 enum _Phase { loading, error, viewing, exhausted, destroyed }
@@ -606,6 +607,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
             ? null
             : AppBar(
                 backgroundColor: Colors.black,
+                systemOverlayStyle: kSystemBarsOnDark,
                 title: CardTypeBadge(type: type),
                 actions: [
                   // Enregistrer : une copie EN CLAIR sur l'appareil, faite

@@ -5,6 +5,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../core/theme.dart';
+import '../../core/widgets/system_bars.dart';
 
 /// Recadrage **carré** d'une photo de profil : on déplace et on zoome, le
 /// cadre ne bouge pas.
@@ -200,6 +201,7 @@ class _AvatarCropperScreenState extends State<AvatarCropperScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
+        systemOverlayStyle: kSystemBarsOnDark,
         foregroundColor: Colors.white,
         elevation: 0,
         title: const Text('Recadrer', style: TextStyle(fontSize: 16)),

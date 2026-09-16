@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/content/likes.dart';
 import '../../../core/models/library_item.dart';
 import '../../../core/typography.dart';
+import '../../../core/widgets/anchored_list.dart';
 import 'active_item_tracker.dart';
 import 'publication_cell.dart';
 import 'vibes_reel_screen.dart';
@@ -32,6 +33,11 @@ void openPublications(
 /// posée sur cette publication, avec toutes les autres avant et après, Cards
 /// et albums mêlés. Chaque publication est une [PublicationCell].
 ///
+/// « Posée sur cette publication » est exact, et pas approché : la
+/// publication touchée est l'**origine** du défilement ([AnchoredList]), pas
+/// une position estimée d'après la hauteur des précédentes. Des cellules de
+/// hauteurs différentes ne se devinent pas.
+///
 /// Une Vibe touchée s'ouvre en plein écran façon Reels (`VibesReelScreen`)
 /// sur les Vibes de ce profil. Pas de « tirer pour fermer » ici : c'est une
 /// liste, le geste vertical lui appartient ; la flèche de la barre ferme.
@@ -56,51 +62,20 @@ class PublicationsFeedScreen extends ConsumerStatefulWidget {
 class _PublicationsFeedScreenState
     extends ConsumerState<PublicationsFeedScreen> {
   late List<LibraryItem> _items = List.of(widget.items);
-  final _scroll = ScrollController();
-  final _cellKeys = <String, GlobalKey>{};
+
+  /// La publication sur laquelle le fil est posé — elle suit son élément, pas
+  /// son rang : retirer une publication d'avant décale tout le reste.
+  late int _anchor = widget.initialIndex;
 
   @override
   void initState() {
     super.initState();
     // Les likes de tout le fil, en un aller-retour.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(likesStoreProvider.notifier).load(_items.map((i) => i.id));
-      _jumpToInitial();
+      if (mounted) {
+        ref.read(likesStoreProvider.notifier).load(_items.map((i) => i.id));
+      }
     });
-  }
-
-  /// Se poser sur la publication touchée : les cellules ont des hauteurs
-  /// différentes (un album 3:4, une Vibe 9:16), on ne peut pas calculer
-  /// l'offset — on laisse la première image se poser, puis on aligne.
-  void _jumpToInitial() {
-    if (widget.initialIndex <= 0) return;
-    final key = _cellKeys[_items[widget.initialIndex].id];
-    final ctx = key?.currentContext;
-    if (ctx != null) {
-      Scrollable.ensureVisible(ctx, alignment: 0);
-      return;
-    }
-    // Pas encore construite (hors de la fenêtre) : on estime, puis on
-    // réaligne une fois qu'elle existe.
-    final size = MediaQuery.sizeOf(context);
-    var offset = 0.0;
-    for (var i = 0; i < widget.initialIndex; i++) {
-      final it = _items[i];
-      offset += it.isAlbum
-          ? size.width / (it.aspect ?? AlbumAspect.tall).ratio + 150
-          : size.height * 0.72 + 150;
-    }
-    _scroll.jumpTo(offset.clamp(0, _scroll.position.maxScrollExtent));
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final c = key?.currentContext;
-      if (c != null && mounted) Scrollable.ensureVisible(c, alignment: 0);
-    });
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
   }
 
   void _openVibe(LibraryItem item) {
@@ -116,7 +91,12 @@ class _PublicationsFeedScreenState
   }
 
   void _removed(LibraryItem item) {
-    setState(() => _items = _items.where((i) => i.id != item.id).toList());
+    final index = _items.indexWhere((i) => i.id == item.id);
+    if (index < 0) return;
+    setState(() {
+      _items = List.of(_items)..removeAt(index);
+      if (index < _anchor) _anchor -= 1;
+    });
     if (_items.isEmpty) Navigator.of(context).maybePop();
   }
 
@@ -127,8 +107,7 @@ class _PublicationsFeedScreenState
       body: ActiveItemTracker(
         child: _FeedList(
           items: _items,
-          scroll: _scroll,
-          keyFor: (id) => _cellKeys.putIfAbsent(id, GlobalKey.new),
+          anchor: _anchor,
           onOpenVibe: _openVibe,
           onDeleted: _removed,
         ),
@@ -140,32 +119,30 @@ class _PublicationsFeedScreenState
 class _FeedList extends StatelessWidget {
   const _FeedList({
     required this.items,
-    required this.scroll,
-    required this.keyFor,
+    required this.anchor,
     required this.onOpenVibe,
     required this.onDeleted,
   });
 
   final List<LibraryItem> items;
-  final ScrollController scroll;
-  final GlobalKey Function(String id) keyFor;
+  final int anchor;
   final ValueChanged<LibraryItem> onOpenVibe;
   final ValueChanged<LibraryItem> onDeleted;
 
   @override
   Widget build(BuildContext context) {
     final tracker = ActiveItemTracker.of(context);
-    return ListView.builder(
-      controller: scroll,
+    return AnchoredList(
+      itemCount: items.length,
+      anchorIndex: anchor,
       // Les cellules voisines sont construites d'avance : leurs médias se
       // déchiffrent avant d'entrer à l'écran.
       scrollCacheExtent: const ScrollCacheExtent.pixels(800),
-      padding: const EdgeInsets.only(bottom: NeoSpace.xxl),
-      itemCount: items.length,
+      bottomPadding: NeoSpace.xxl,
       itemBuilder: (context, i) {
         final item = items[i];
         return TrackedItem(
-          key: keyFor(item.id),
+          key: ValueKey(item.id),
           id: item.id,
           child: ValueListenableBuilder<String?>(
             valueListenable: tracker.active,

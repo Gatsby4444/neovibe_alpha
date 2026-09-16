@@ -12,6 +12,7 @@ import '../../core/widgets/vibe_face.dart';
 import '../../core/widgets/pull_down_to_close.dart';
 import '../library/mini_card.dart' show kMiniCardRatio;
 import 'flippable_card.dart';
+import '../../core/widgets/system_bars.dart';
 
 enum _SavedFilter { mine, others }
 
@@ -240,6 +241,7 @@ class _SavedViewerScreenState extends State<_SavedViewerScreen> {
         backgroundColor: Colors.black,
         appBar: AppBar(
           backgroundColor: Colors.black,
+          systemOverlayStyle: kSystemBarsOnDark,
           title: CardTypeBadge(type: item.cardType, fontSize: 12),
         ),
         body: Center(

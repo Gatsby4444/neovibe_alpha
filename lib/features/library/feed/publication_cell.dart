@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/content/content_face.dart';
 import '../../../core/content/content_view_reporter.dart';
+import '../../../core/models/card.dart';
 import '../../../core/models/library_item.dart';
 import '../../../core/models/profile.dart';
 import '../../../core/supabase_providers.dart';
@@ -11,6 +12,7 @@ import '../../../core/typography.dart';
 import '../../../core/utils/formats.dart';
 import '../../../core/widgets/avatar.dart';
 import '../../../core/widgets/card_type_badge.dart';
+import '../../../core/widgets/vibe_face.dart';
 import '../../connections/connections_repository.dart';
 import '../user_library_screen.dart';
 import 'album_carousel.dart';
@@ -108,7 +110,7 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
         : null;
     saveId = item.isAlbum ? '${item.id}#${item.media[_page].slot}' : item.id;
 
-    return Column(
+    final cell = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _Header(item: item, owner: owner, mine: mine),
@@ -119,7 +121,8 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
             onPageChanged: (i) => setState(() => _page = i),
           )
         else
-          _VibeFrame(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: NeoSpace.xs),
             child: VibeCardView(
               item: item,
               active: widget.active,
@@ -151,7 +154,32 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
         const SizedBox(height: NeoSpace.md),
       ],
     );
+
+    // Un album prend toute la largeur (c'est son format). Une Vibe est plus
+    // étroite : toute la cellule se cale sur elle, sinon la ligne d'actions
+    // commence au bord de l'écran, loin de la carte à laquelle elle
+    // appartient.
+    if (item.isAlbum) return cell;
+    return Center(
+      child: SizedBox(
+        width: vibeCellWidth(context, item.cardType),
+        child: cell,
+      ),
+    );
   }
+}
+
+/// **La largeur d'une Vibe dans un fil.** Elle se déduit de la hauteur qu'on
+/// lui accorde — pas plus des trois quarts de l'écran : assez pour la
+/// regarder, pas au point de perdre le fil — en tenant compte du cadre
+/// (marge + liseré), qui n'est pas de l'image et qui compte pourtant dans la
+/// hauteur finale. L'oublier rapetissait la carte d'une trentaine de pixels
+/// sous le plafond annoncé.
+double vibeCellWidth(BuildContext context, CardType type) {
+  final size = MediaQuery.sizeOf(context);
+  final chrome = VibeFaceFrame.chrome(type);
+  final width = (size.height * 0.72 - chrome) * kVibeFaceRatio + chrome;
+  return width.clamp(0.0, size.width - 2 * NeoSpace.lg);
 }
 
 /// L'en-tête : avatar, nom, âge — et le type de Card, en pastille.
@@ -247,27 +275,6 @@ class _CaptionState extends State<_Caption> {
             TextSpan(text: widget.text),
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// Le cadre d'une Vibe dans un fil : la carte au format 9:16, centrée, pas
-/// plus haute que les trois quarts de l'écran — assez pour la regarder,
-/// pas au point de perdre le fil.
-class _VibeFrame extends StatelessWidget {
-  const _VibeFrame({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final maxH = size.height * 0.72;
-    final width = (maxH * 9 / 16).clamp(0.0, size.width - 2 * NeoSpace.lg);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: NeoSpace.xs),
-        child: SizedBox(width: width, child: child),
       ),
     );
   }

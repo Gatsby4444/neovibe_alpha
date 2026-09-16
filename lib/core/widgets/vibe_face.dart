@@ -43,11 +43,23 @@ class VibeFaceFrame extends StatelessWidget {
   final CardType type;
   final Widget child;
 
+  /// La marge autour du liseré, et l'épaisseur du liseré lui-même.
+  static const _marge = 16.0;
+  static double _liseret(CardType type) =>
+      type == CardType.oneOfOne ? 4.0 : 2.5;
+
+  /// **Ce que le cadre ajoute à l'image**, en largeur comme en hauteur (les
+  /// deux marges et les deux liserés). Une seule définition : celle qui
+  /// dessine le cadre, et celle dont se sert une mise en page qui veut poser
+  /// une carte à une taille voulue. La deviner, c'est deux chiffres qui se
+  /// désaccordent au premier changement de style.
+  static double chrome(CardType type) => 2 * (_marge + _liseret(type));
+
   @override
   Widget build(BuildContext context) {
-    final borderWidth = type == CardType.oneOfOne ? 4.0 : 2.5;
+    final borderWidth = _liseret(type);
     return Container(
-      margin: const EdgeInsets.all(16),
+      margin: const EdgeInsets.all(_marge),
       padding: EdgeInsets.all(borderWidth),
       decoration: BoxDecoration(
         gradient: type.gradient,

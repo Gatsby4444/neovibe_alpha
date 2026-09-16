@@ -199,15 +199,22 @@ class LikeButton extends ConsumerWidget {
         }
       },
     );
+    // Personne n'a encore aimé : pas de compte du tout. Un libellé vide
+    // occupe quand même une ligne, et décalait la colonne du plein écran.
+    if (count == 0) {
+      return vertical
+          ? heart
+          : Padding(
+              padding: const EdgeInsets.only(right: NeoSpace.sm),
+              child: heart,
+            );
+    }
     final label = GestureDetector(
-      onTap: count == 0 ? null : () => showLikers(context, ref, contentId),
+      onTap: () => showLikers(context, ref, contentId),
       child: Padding(
-        padding: EdgeInsets.only(
-          left: vertical ? 0 : 0,
-          right: vertical ? 0 : NeoSpace.sm,
-        ),
+        padding: EdgeInsets.only(right: vertical ? 0 : NeoSpace.sm),
         child: Text(
-          count == 0 ? '' : '$count',
+          '$count',
           style: TextStyle(
             color: color,
             fontSize: 13,

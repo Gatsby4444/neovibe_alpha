@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
+import '../../core/widgets/system_bars.dart';
 
 /// Lecture plein écran d'une vidéo éphémère de messagerie.
 class VideoPlayerScreen extends StatefulWidget {
@@ -36,7 +37,10 @@ class _VideoPlayerScreenState extends State<VideoPlayerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(backgroundColor: Colors.black),
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        systemOverlayStyle: kSystemBarsOnDark,
+      ),
       body: Center(
         child: !_ready
             ? const CircularProgressIndicator()

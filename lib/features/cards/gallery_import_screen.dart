@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import 'face_background.dart';
+import '../../core/widgets/system_bars.dart';
 
 /// Ajustement d'une image importée de la galerie avant de la poser sur une
 /// card (consigne Jay 2026-07-12) : recadrage par zoom/déplacement/rotation
@@ -111,6 +112,7 @@ class _GalleryImportScreenState extends State<GalleryImportScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
+        systemOverlayStyle: kSystemBarsOnDark,
         title: const Text('Ajuster l\'image'),
         actions: [
           IconButton(

@@ -12,6 +12,7 @@ import '../../core/widgets/pull_down_to_close.dart';
 import '../cards/flippable_card.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
+import '../../core/widgets/system_bars.dart';
 
 /// Ouverture d'une vibe **en grand**, révélée ou non, avec bascule de face.
 ///
@@ -134,6 +135,7 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
         backgroundColor: Colors.black,
         appBar: AppBar(
           backgroundColor: Colors.black,
+          systemOverlayStyle: kSystemBarsOnDark,
           foregroundColor: Colors.white,
           elevation: 0,
           title: Text(

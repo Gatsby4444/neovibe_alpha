@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import '../../core/widgets/system_bars.dart';
 
 /// Éditeur de face façon Snapchat (consigne Jay) : dessin au doigt, textes
 /// déplaçables, sur photo ([baseImage]) ou sur fond de couleur (création
@@ -124,6 +125,7 @@ class _FaceEditorScreenState extends State<FaceEditorScreen> {
       backgroundColor: Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.black,
+        systemOverlayStyle: kSystemBarsOnDark,
         title: Text(widget.baseImage == null ? 'Création' : 'Annoter'),
         actions: [
           IconButton(
