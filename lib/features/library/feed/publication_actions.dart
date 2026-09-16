@@ -9,6 +9,7 @@ import '../../../core/theme.dart';
 import '../../../core/typography.dart';
 import '../../../core/utils/formats.dart';
 import '../../../core/widgets/avatar.dart';
+import '../../../core/widgets/action_button.dart';
 import '../../../core/widgets/content_overflow_menu.dart';
 import '../../../core/widgets/save_button.dart';
 import '../../cards/send/recipient_picker_screen.dart';
@@ -17,8 +18,19 @@ import '../../cards/send/share_plan.dart';
 import '../library_repository.dart';
 
 /// **Les actions d'une publication** — aimer, enregistrer, partager, et le
-/// menu (retirer si c'est la mienne, signaler sinon). Les mêmes dans le fil
-/// du profil (à plat, sous le média) et en plein écran (en colonne, à droite).
+/// menu « … ».
+///
+/// Deux poses, le même contenu :
+/// - **à plat et resserré**, dans l'en-tête d'une cellule du fil, sur la ligne
+///   de l'avatar et du pseudo (Jay, 2026-09-16 : sous la carte, la cellule ne
+///   tenait plus dans un écran) ;
+/// - **en colonne**, sur la carte en plein écran, à droite — donc *dans* la
+///   carte : elles s'inclinent et se retournent avec elle, et les deux faces
+///   portent les mêmes, dans les mêmes états (ces états viennent des
+///   providers, pas du widget : ils ne peuvent pas diverger).
+///
+/// ⚠️ **Plus de corbeille dans la barre** : « Retirer » vit dans le menu,
+/// avec les options du même genre à venir (Jay, 2026-09-16).
 class PublicationActions extends ConsumerWidget {
   const PublicationActions({
     super.key,
@@ -30,6 +42,7 @@ class PublicationActions extends ConsumerWidget {
     this.saveFrontIsVideo = false,
     this.saveBackIsVideo = false,
     this.vertical = false,
+    this.dense = false,
     this.color,
     this.onDeleted,
   });
@@ -48,6 +61,9 @@ class PublicationActions extends ConsumerWidget {
   /// En colonne (plein écran) plutôt qu'à plat.
   final bool vertical;
 
+  /// Resserré : l'en-tête d'une cellule du fil (voir [ActionMetrics]).
+  final bool dense;
+
   /// La couleur des icônes ; par défaut l'encre du thème.
   final Color? color;
 
@@ -59,7 +75,12 @@ class PublicationActions extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final ink = color ?? Theme.of(context).colorScheme.onSurface;
     final children = [
-      LikeButton(contentId: item.id, color: ink, vertical: vertical),
+      LikeButton(
+        contentId: item.id,
+        color: ink,
+        vertical: vertical,
+        dense: dense,
+      ),
       SaveButton(
         contentId: saveId,
         cardType: item.cardType,
@@ -70,31 +91,28 @@ class PublicationActions extends ConsumerWidget {
         backIsVideo: saveBackIsVideo,
         mine: mine,
         color: ink,
+        dense: dense,
       ),
       if (item.shareable)
-        IconButton(
+        ActionIconButton(
           icon: const Icon(Icons.reply_outlined),
           color: ink,
+          dense: dense,
           tooltip: 'Partager dans une conversation',
           onPressed: () => _share(context, ref),
         ),
-      if (mine)
-        IconButton(
-          icon: const Icon(Icons.delete_outline),
-          color: ink,
-          tooltip: 'Retirer de ma bibliothèque',
-          onPressed: () => _confirmDelete(context, ref),
-        )
-      else
-        ContentOverflowMenu(
-          contentId: item.id,
-          authorId: item.ownerId,
-          color: ink,
-        ),
+      ContentOverflowMenu(
+        contentId: item.id,
+        authorId: item.ownerId,
+        color: ink,
+        dense: dense,
+        mine: mine,
+        onRemove: mine ? () => _confirmDelete(context, ref) : null,
+      ),
     ];
     return vertical
         ? Column(mainAxisSize: MainAxisSize.min, children: children)
-        : Row(children: children);
+        : Row(mainAxisSize: MainAxisSize.min, children: children);
   }
 
   Future<void> _share(BuildContext context, WidgetRef ref) async {
@@ -172,20 +190,23 @@ class LikeButton extends ConsumerWidget {
     required this.contentId,
     required this.color,
     this.vertical = false,
+    this.dense = false,
   });
 
   final String contentId;
   final Color color;
   final bool vertical;
+  final bool dense;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(likesStoreProvider.select((m) => m[contentId]));
     final liked = state?.liked ?? false;
     final count = state?.count ?? 0;
-    final heart = IconButton(
+    final heart = ActionIconButton(
       icon: Icon(liked ? Icons.favorite : Icons.favorite_border),
       color: liked ? const Color(0xFFFF2D55) : color,
+      dense: dense,
       tooltip: liked ? 'Ne plus aimer' : 'Aimer',
       onPressed: () async {
         try {

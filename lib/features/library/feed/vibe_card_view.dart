@@ -16,12 +16,19 @@ import '../../cards/flippable_card.dart';
 ///
 /// Les faces passent par le socle (`contentFaceProvider`) : scellé → clé →
 /// clair, la clé prise dans le lot de la bibliothèque du propriétaire.
+///
+/// [overlay] se pose **dans** chaque face (voir [VibeFaceFrame.overlay]) :
+/// c'est ce qui fait que l'identité et les actions du plein écran s'inclinent
+/// et se retournent avec la carte, et qu'on les retrouve **identiques sur les
+/// deux faces** — c'est le même widget des deux côtés, et ce qu'il affiche
+/// (aimé ? enregistré ?) vient des providers, pas de la face.
 class VibeCardView extends ConsumerStatefulWidget {
   const VibeCardView({
     super.key,
     required this.item,
     required this.active,
     this.onTap,
+    this.overlay,
   });
 
   final LibraryItem item;
@@ -29,6 +36,10 @@ class VibeCardView extends ConsumerStatefulWidget {
   /// La carte est celle qu'on regarde : sa face visible joue (vidéo).
   final bool active;
   final VoidCallback? onTap;
+
+  /// Ce qui se pose sur les deux faces, dans le cadre. Nul dans le fil : là,
+  /// l'identité et les actions vivent dans l'en-tête de la cellule.
+  final Widget? overlay;
 
   @override
   ConsumerState<VibeCardView> createState() => _VibeCardViewState();
@@ -53,8 +64,17 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
   }
 
   Widget _face(OpenedMedia m, bool isVideo, bool active) => isVideo
-      ? VibeVideoFace(media: m, type: widget.item.cardType, active: active)
-      : VibePhotoFace(bytes: m.photoBytes!, type: widget.item.cardType);
+      ? VibeVideoFace(
+          media: m,
+          type: widget.item.cardType,
+          active: active,
+          overlay: widget.overlay,
+        )
+      : VibePhotoFace(
+          bytes: m.photoBytes!,
+          type: widget.item.cardType,
+          overlay: widget.overlay,
+        );
 
   @override
   Widget build(BuildContext context) {
@@ -69,9 +89,11 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
     }
 
     return front.when(
-      loading: () => VibeFaceLoading(type: item.cardType),
+      loading: () =>
+          VibeFaceLoading(type: item.cardType, overlay: widget.overlay),
       error: (e, _) => VibeFaceFrame(
         type: item.cardType,
+        overlay: widget.overlay,
         child: const AspectRatio(
           aspectRatio: 9 / 16,
           child: Center(
@@ -99,7 +121,7 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
           onTap: widget.onTap,
           front: frontFace,
           back: backFile == null
-              ? VibeFaceLoading(type: item.cardType)
+              ? VibeFaceLoading(type: item.cardType, overlay: widget.overlay)
               : _face(backFile, item.backIsVideo, widget.active && !_showFront),
         );
       },

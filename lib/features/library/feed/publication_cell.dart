@@ -19,9 +19,16 @@ import 'album_carousel.dart';
 import 'publication_actions.dart';
 import 'vibe_card_view.dart';
 
-/// **Une publication dans un fil** — l'en-tête (qui, quand), le média, la
-/// légende, les actions. C'est LA cellule : le fil du profil aujourd'hui, le
-/// feed local demain, même widget.
+/// **Une publication dans un fil** — l'en-tête (qui, quand, **et les
+/// actions**), le média, la légende. C'est LA cellule : le fil du profil
+/// aujourd'hui, le feed local demain, même widget.
+///
+/// ⚠️ **Les actions sont en HAUT, sur la ligne du pseudo** (Jay, 2026-09-16).
+/// Sous le média, elles ajoutaient une quatrième bande à la cellule et
+/// *« on ne peut pas bien voir toutes les parties du contenu sur l'écran en
+/// une fois, c'est limite »* — une cellule de Vibe dépassait la hauteur utile
+/// d'une cinquantaine de pixels. Remontées, elles ne coûtent plus rien : la
+/// ligne d'identité avait la place.
 ///
 /// Deux formats, deux médias : un **album** est un carrousel à son ratio ;
 /// une **Vibe** est la carte recto/verso, retournable sur place, dans un
@@ -113,7 +120,24 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
     final cell = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _Header(item: item, owner: owner, mine: mine),
+        _Header(
+          item: item,
+          owner: owner,
+          mine: mine,
+          actions: PublicationActions(
+            item: item,
+            mine: mine,
+            saveId: saveId,
+            saveFront: saveFront,
+            saveBack: saveBack,
+            saveFrontIsVideo: item.isAlbum
+                ? item.media[_page].isVideo
+                : item.frontIsVideo,
+            saveBackIsVideo: !item.isAlbum && item.backIsVideo,
+            dense: true,
+            onDeleted: widget.onDeleted,
+          ),
+        ),
         if (item.isAlbum)
           AlbumCarousel(
             item: item,
@@ -129,18 +153,6 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
               onTap: widget.onOpenVibe,
             ),
           ),
-        PublicationActions(
-          item: item,
-          mine: mine,
-          saveId: saveId,
-          saveFront: saveFront,
-          saveBack: saveBack,
-          saveFrontIsVideo: item.isAlbum
-              ? item.media[_page].isVideo
-              : item.frontIsVideo,
-          saveBackIsVideo: !item.isAlbum && item.backIsVideo,
-          onDeleted: widget.onDeleted,
-        ),
         if (item.caption != null && item.caption!.isNotEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(
@@ -182,63 +194,103 @@ double vibeCellWidth(BuildContext context, CardType type) {
   return width.clamp(0.0, size.width - 2 * NeoSpace.lg);
 }
 
-/// L'en-tête : avatar, nom, âge — et le type de Card, en pastille.
+/// L'en-tête : avatar, pseudo, date et type — et, à droite, les actions.
+///
+/// La date et le type passent sur une **deuxième ligne**, sous le pseudo :
+/// une cellule de Vibe ne fait que la largeur de la carte, et la ligne doit
+/// désormais loger quatre boutons. Sur une seule ligne, le pseudo se réduisait
+/// à trois lettres.
 class _Header extends StatelessWidget {
-  const _Header({required this.item, required this.owner, required this.mine});
+  const _Header({
+    required this.item,
+    required this.owner,
+    required this.mine,
+    required this.actions,
+  });
 
   final LibraryItem item;
   final Profile? owner;
   final bool mine;
+  final Widget actions;
 
   @override
   Widget build(BuildContext context) {
     final name = owner?.displayName ?? '';
-    return InkWell(
-      onTap: owner == null || mine
-          ? null
-          : () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => UserLibraryScreen(profile: owner!),
-              ),
-            ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          NeoSpace.md,
-          NeoSpace.sm,
-          NeoSpace.md,
-          NeoSpace.sm,
+    final identity = Row(
+      children: [
+        Avatar(
+          stored: owner?.avatarUrl,
+          radius: 17,
+          fallback: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
         ),
-        child: Row(
-          children: [
-            Avatar(
-              stored: owner?.avatarUrl,
-              radius: 17,
-              fallback: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
-            ),
-            const SizedBox(width: NeoSpace.sm + 2),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 14,
+        const SizedBox(width: NeoSpace.sm + 2),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 14,
+                ),
+              ),
+              // ⚠️ Mis à l'échelle plutôt que coupé : une cellule de Vibe est
+              // étroite, et « One of One » ne rentre pas toujours à côté de la
+              // date. Rogner la pastille du type, c'est perdre l'information ;
+              // la réduire un peu, non.
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      timeAgo(item.createdAt),
+                      maxLines: 1,
+                      style: TextStyle(color: context.muted, fontSize: 12),
                     ),
-                  ),
-                  Text(
-                    timeAgo(item.createdAt),
-                    style: TextStyle(color: context.muted, fontSize: 12),
-                  ),
-                ],
+                    if (!item.isAlbum) ...[
+                      const SizedBox(width: NeoSpace.xs + 2),
+                      CardTypeBadge(type: item.cardType, fontSize: 9),
+                    ],
+                  ],
+                ),
               ),
-            ),
-            if (!item.isAlbum) CardTypeBadge(type: item.cardType, fontSize: 11),
-          ],
+            ],
+          ),
         ),
+      ],
+    );
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        NeoSpace.md,
+        NeoSpace.xs,
+        NeoSpace.xs,
+        NeoSpace.xs,
+      ),
+      child: Row(
+        children: [
+          // Seule l'identité mène au profil : les boutons, à côté, gardent
+          // leur propre geste.
+          Expanded(
+            child: InkWell(
+              onTap: owner == null || mine
+                  ? null
+                  : () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => UserLibraryScreen(profile: owner!),
+                      ),
+                    ),
+              child: identity,
+            ),
+          ),
+          actions,
+        ],
       ),
     );
   }

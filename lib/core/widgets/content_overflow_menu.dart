@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'action_button.dart';
+
 import '../content/moderation.dart';
 import 'report_sheet.dart';
 
@@ -16,9 +18,13 @@ import 'report_sheet.dart';
 /// utilisateur — seule la cible enregistrée change. Le blocage, lui, vise
 /// toujours la personne.
 ///
-/// Il n'apparaît **jamais sur son propre contenu ni sur son propre profil** —
-/// on ne se signale pas soi-même, et proposer l'action y serait au mieux du
-/// bruit.
+/// On ne se signale **jamais soi-même** : sur mon propre contenu ([mine]),
+/// le menu ne propose pas le signalement mais **les options du propriétaire**
+/// — « Retirer » aujourd'hui, d'autres demain. C'est la demande de Jay du
+/// 2026-09-16 : la corbeille quitte la barre d'actions pour ce menu, *« puisqu'on
+/// va en ajouter et que les options de ce type seront dedans »*. Un seul « … »
+/// partout, dont le contenu dépend de qui regarde — pas deux boutons
+/// différents selon le cas.
 ///
 /// C'est le seul point d'entrée de la modération côté utilisateur, et il est
 /// volontairement au même endroit partout : quelqu'un qui tombe sur un contenu
@@ -36,6 +42,9 @@ class ContentOverflowMenu extends ConsumerWidget {
     required this.authorId,
     this.authorName,
     this.color = Colors.white,
+    this.mine = false,
+    this.onRemove,
+    this.dense = false,
   });
 
   /// Nul quand le menu porte sur une personne et non sur un contenu.
@@ -44,36 +53,68 @@ class ContentOverflowMenu extends ConsumerWidget {
   final String? authorName;
   final Color color;
 
+  /// Ce contenu est le mien : les options du propriétaire, pas celles de la
+  /// modération.
+  final bool mine;
+
+  /// « Retirer », quand c'est le mien. Nul = l'option n'existe pas ici.
+  final VoidCallback? onRemove;
+
+  /// Resserré, pour l'en-tête d'une cellule du fil (voir [ActionMetrics]).
+  final bool dense;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final blocked = ref.watch(isBlockedProvider(authorId)).value ?? false;
+    // Mon contenu sans aucune option de propriétaire : pas de menu vide.
+    if (mine && onRemove == null) return const SizedBox.shrink();
+    final blocked = mine
+        ? false
+        : ref.watch(isBlockedProvider(authorId)).value ?? false;
 
     return PopupMenuButton<String>(
       icon: Icon(Icons.more_vert, color: color),
       tooltip: 'Plus',
-      itemBuilder: (context) => [
-        PopupMenuItem(
-          value: 'report',
-          child: ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.flag_outlined),
-            title: Text(contentId != null ? 'Signaler ce contenu' : 'Signaler'),
-          ),
-        ),
-        PopupMenuItem(
-          value: blocked ? 'unblock' : 'block',
-          child: ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            leading: Icon(blocked ? Icons.person_add_alt : Icons.block),
-            title: Text(blocked ? 'Débloquer' : 'Bloquer'),
-          ),
-        ),
-      ],
+      iconSize: ActionMetrics.icon(dense),
+      padding: ActionMetrics.padding(dense),
+      itemBuilder: (context) => mine
+          ? [
+              const PopupMenuItem(
+                value: 'remove',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.delete_outline),
+                  title: Text('Retirer'),
+                ),
+              ),
+            ]
+          : [
+              PopupMenuItem(
+                value: 'report',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.flag_outlined),
+                  title: Text(
+                    contentId != null ? 'Signaler ce contenu' : 'Signaler',
+                  ),
+                ),
+              ),
+              PopupMenuItem(
+                value: blocked ? 'unblock' : 'block',
+                child: ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(blocked ? Icons.person_add_alt : Icons.block),
+                  title: Text(blocked ? 'Débloquer' : 'Bloquer'),
+                ),
+              ),
+            ],
       onSelected: (v) async {
         final repo = ref.read(moderationRepositoryProvider);
         switch (v) {
+          case 'remove':
+            onRemove?.call();
           case 'report':
             await showReportSheet(
               context,

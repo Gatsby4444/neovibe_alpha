@@ -344,3 +344,32 @@ touchée, son premier accès était `dispose()`, qui créait un ticker sur un
 - **Le compte de likes à zéro** affichait un libellé vide, qui occupait une
   ligne et décalait la colonne du plein écran.
 
+### 9.7 Troisième passe sur le visionneur — v0.9.192 (2026-09-16)
+
+Jay sur la v0.9.191 : *« ok c'est mieux sauf pour les boutons dans le plein
+écran car en fait tu as décalé la card et donc elle n'est plus centrée, ce
+n'est pas joli »*. Quatre demandes.
+
+| # | Demande de Jay | Fait |
+|---|---|---|
+| 1 | *« incorporer les boutons dans la card à droite, mais qu'ils bougent avec la card de manière dynamique (les mêmes des deux côtés et mêmes états) »* | `VibeFaceFrame.overlay` : un calque **dans le cadre**, donc dans le `Transform` de la carte — il s'incline et se retourne avec elle. `VibeCardView.overlay` le passe aux **deux faces** (et aux états d'attente) : c'est le **même widget** des deux côtés, et ce qu'il affiche (aimé ? enregistré ?) vient des providers, jamais de la face — les deux ne *peuvent pas* diverger |
+| 2 | *« mettre toute la partie (PP, username, date, type) au-dessus et pas en dessous, et de même incorporée à la card »* | `VibeCardChrome` (`feed/vibe_card_chrome.dart`) : identité en haut, actions en colonne à droite, légende en bas — plus deux voiles dégradés pour que le blanc reste lisible sur une image claire. La croix reste **par-dessus et fixe** (fermer est une commande de l'écran), et passe en haut à **droite** puisque le haut-gauche de la carte porte l'identité |
+| 3 | *« pour les boutons dans la vue fil, mets-les aussi en haut à droite, au-dessus de la card, sur la même ligne que la pp et l'username, à l'horizontal, car dans le format actuel on ne peut pas bien voir toutes les parties du contenu sur l'écran en une fois »* | l'en-tête de `PublicationCell` prend les actions à droite, **resserrées** (`ActionMetrics`, `dense`) ; la rangée sous le média disparaît (−48 px par cellule). Date et type passent sur une deuxième ligne sous le pseudo, mises à l'échelle (`FittedBox`) : « One of One » ne rentre pas toujours à côté de la date dans une cellule de Vibe |
+| 4 | *« pour les deux vues, mets le bouton supprimer dans un menu qui affichera les options puisqu'on va en ajouter »* | la corbeille quitte la barre ; `ContentOverflowMenu` gagne `mine` + `onRemove` : **un seul « … » partout**, qui montre les options du propriétaire sur mon contenu (« Retirer » aujourd'hui, les suivantes demain) et celles de la modération sur celui des autres. On ne se signale toujours pas soi-même |
+
+**Ce que la carte gagne** : plus rien n'est *à côté* d'elle, donc plus rien ne
+la décale — elle est centrée et occupe tout l'écran. C'est la leçon des deux
+essais précédents : **tant qu'une commande est à côté du contenu, elle le
+déplace ; dedans, elle ne coûte rien.**
+
+Mesures partagées : `core/widgets/action_button.dart` (`ActionMetrics`,
+`ActionIconButton`) — une seule définition des deux tailles, pour que quatre
+boutons sur une même ligne ne se règlent pas chacun de leur côté.
+
+Tests : `test/vibe_card_chrome_test.dart` (4) — le calque ne prend aucune
+place (la carte reste centrée, au pixel près), tout est dans le cadre, la
+bande de la barre de lecture vidéo reste libre, et **les boutons bougent avec
+la carte quand le doigt l'incline**. Contre-test fait : posés au-dessus de la
+carte, ils restent immobiles et le test passe au rouge. `reel_layout_test.dart`
+supprimé (il mesurait la mise en page que Jay a écartée).
+

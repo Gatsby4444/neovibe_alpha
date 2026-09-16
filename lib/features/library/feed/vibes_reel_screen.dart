@@ -17,29 +17,28 @@ import '../../../core/widgets/system_bars.dart';
 import '../../connections/connections_repository.dart';
 import '../user_library_screen.dart';
 import 'publication_actions.dart';
+import 'vibe_card_chrome.dart';
 import 'vibe_card_view.dart';
-
-/// La bande du haut, réservée à la croix : une seule définition, celle qui
-/// dimensionne le bouton, et celle que la page laisse libre au-dessus d'elle.
-const kReelTopBar = 48.0;
-
-/// La gouttière des actions, à droite de la carte (un `IconButton` fait 48).
-const kReelActionsGutter = 52.0;
 
 /// **Les Vibes en plein écran, à la suite** — façon Reels : une Vibe par
 /// écran, fond noir, on glisse vers le haut pour la suivante. La carte garde
 /// son geste libre (retourner, incliner) : un départ vertical va au
 /// défilement, un départ horizontal à la carte (voir [TiltableCard]).
-/// Autour d'elle : l'auteur et la légende en dessous, les actions en colonne
-/// à sa droite, la croix en haut.
+/// **La carte est seule à l'écran, centrée, et porte tout le reste**
+/// (`VibeCardChrome`) : l'identité en haut, les actions en colonne à droite,
+/// la légende en bas. Elles sont *dans* la carte, sur ses deux faces — donc
+/// elles bougent avec elle et ne lui prennent aucune place.
 ///
-/// ⚠️ **Rien ne passe par-dessus la carte.** Une Vibe n'est pas une vidéo
-/// plein cadre sur laquelle on pose des icônes : c'est un objet avec son
-/// liseré, son halo et ses bords. Le 2026-09-16, la carte prenait toute la
-/// largeur et la colonne d'actions flottait dessus — le cœur au milieu de
-/// l'image, le marque-page à cheval sur le bord. Chacun a maintenant sa
-/// place réservée dans la mise en page, et la carte occupe tout ce qui
-/// reste.
+/// ⚠️ **Deux essais avant celui-là, et ce qu'ils apprennent.** Les actions ont
+/// d'abord flotté par-dessus la carte (cœur au milieu de l'image) ; puis on
+/// leur a réservé une gouttière à côté — et la carte, poussée vers la gauche,
+/// n'était plus centrée (*« ce n'est pas joli »*, Jay, 2026-09-16). Tant que
+/// la commande est à CÔTÉ du contenu, elle le déplace. Dedans, elle ne coûte
+/// rien.
+///
+/// Seule la croix reste par-dessus, fixe : fermer est une commande de
+/// l'écran, pas du contenu — elle doit rester au même endroit même quand la
+/// carte tourne.
 ///
 /// Fermer : la croix, ou **tirer vers le bas depuis la première Vibe** —
 /// le même geste que les autres visionneurs (Jay, 2026-09-14), lu ici dans
@@ -147,18 +146,17 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
                   ),
                 ),
               ),
+              // En haut à DROITE : le haut-gauche de la carte porte
+              // désormais la photo et le pseudo.
               Positioned(
                 top: 0,
-                left: 0,
+                right: 0,
                 child: SafeArea(
-                  child: SizedBox(
-                    height: kReelTopBar,
-                    child: IconButton(
-                      icon: const Icon(Icons.close),
-                      color: Colors.white,
-                      tooltip: 'Fermer',
-                      onPressed: () => Navigator.of(context).maybePop(),
-                    ),
+                  child: IconButton(
+                    icon: const Icon(Icons.close),
+                    color: Colors.white,
+                    tooltip: 'Fermer',
+                    onPressed: () => Navigator.of(context).maybePop(),
                   ),
                 ),
               ),
@@ -205,163 +203,118 @@ class _ReelPage extends ConsumerWidget {
         ? ref.watch(contentFaceProvider(_spec(false))).value
         : null;
 
-    return ReelLayout(
-      card: VibeCardView(item: item, active: active),
-      actions: PublicationActions(
-        item: item,
-        mine: mine,
-        saveId: item.id,
-        saveFront: front,
-        saveBack: back,
-        saveFrontIsVideo: item.frontIsVideo,
-        saveBackIsVideo: item.backIsVideo,
-        vertical: true,
-        color: Colors.white,
-        onDeleted: onDeleted,
-      ),
-      author: _Author(item: item, owner: owner, mine: mine),
-    );
-  }
-}
-
-/// **La mise en page d'une Vibe plein écran, et rien d'autre.**
-///
-/// Elle existe séparée du contenu parce que c'est elle qui portait le défaut
-/// du 2026-09-16 : les actions flottaient *par-dessus* la carte. Ici chacun a
-/// sa place réservée — la carte au centre de ce qui reste, les actions dans
-/// leur gouttière à droite calées sur le bas de la carte, l'auteur en dessous
-/// — et `test/reel_layout_test.dart` le vérifie en mesurant les trois boîtes,
-/// sans avoir besoin d'une vraie Vibe.
-class ReelLayout extends StatelessWidget {
-  const ReelLayout({
-    super.key,
-    required this.card,
-    required this.actions,
-    required this.author,
-  });
-
-  final Widget card;
-  final Widget actions;
-  final Widget author;
-
-  @override
-  Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
-        // La bande de la croix, en haut : la carte ne monte pas dessous.
-        padding: const EdgeInsets.only(top: kReelTopBar),
-        child: Column(
-          children: [
-            Expanded(
-              child: Center(
-                // Largeur minimale : la rangée fait exactement la largeur de
-                // la carte plus sa gouttière, et se centre. Les actions se
-                // calent sur le BAS de la carte, pas sur le bas de l'écran.
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Flexible(child: card),
-                    SizedBox(width: kReelActionsGutter, child: actions),
-                  ],
-                ),
-              ),
+      child: Center(
+        child: VibeCardView(
+          item: item,
+          active: active,
+          // Tout est DANS la carte : elle reste centrée et prend l'écran.
+          overlay: VibeCardChrome(
+            header: _Identity(item: item, owner: owner, mine: mine),
+            actions: PublicationActions(
+              item: item,
+              mine: mine,
+              saveId: item.id,
+              saveFront: front,
+              saveBack: back,
+              saveFrontIsVideo: item.frontIsVideo,
+              saveBackIsVideo: item.backIsVideo,
+              vertical: true,
+              color: Colors.white,
+              onDeleted: onDeleted,
             ),
-            // L'auteur et sa légende, sous la carte : ils prennent la place
-            // qu'il leur faut, la carte occupe tout le reste.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                NeoSpace.lg,
-                NeoSpace.sm,
-                NeoSpace.lg,
-                NeoSpace.md,
-              ),
-              child: Align(alignment: Alignment.centerLeft, child: author),
-            ),
-          ],
+            caption: (item.caption?.isNotEmpty ?? false)
+                ? _Caption(text: item.caption!)
+                : null,
+          ),
         ),
       ),
     );
   }
 }
 
-/// L'auteur (avatar, nom, âge, type) et la légende — dépliable au tap.
-class _Author extends StatefulWidget {
-  const _Author({required this.item, required this.owner, required this.mine});
+/// L'identité, en haut de la carte : photo, pseudo, date, type. Un appui mène
+/// au profil de l'auteur (sauf le mien).
+class _Identity extends StatelessWidget {
+  const _Identity({
+    required this.item,
+    required this.owner,
+    required this.mine,
+  });
 
   final LibraryItem item;
   final Profile? owner;
   final bool mine;
 
   @override
-  State<_Author> createState() => _AuthorState();
+  Widget build(BuildContext context) {
+    final name = owner?.displayName ?? '';
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: owner == null || mine
+          ? null
+          : () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => UserLibraryScreen(profile: owner!),
+              ),
+            ),
+      child: Row(
+        children: [
+          Avatar(
+            stored: owner?.avatarUrl,
+            radius: 16,
+            fallback: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
+          ),
+          const SizedBox(width: NeoSpace.sm),
+          Flexible(
+            child: Text(
+              name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                fontSize: 14,
+              ),
+            ),
+          ),
+          const SizedBox(width: NeoSpace.sm),
+          Text(
+            timeAgo(item.createdAt),
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(width: NeoSpace.sm),
+          CardTypeBadge(type: item.cardType, fontSize: 10),
+        ],
+      ),
+    );
+  }
 }
 
-class _AuthorState extends State<_Author> {
+/// La légende, en bas de la carte — deux lignes, dépliable au tap.
+class _Caption extends StatefulWidget {
+  const _Caption({required this.text});
+
+  final String text;
+
+  @override
+  State<_Caption> createState() => _CaptionState();
+}
+
+class _CaptionState extends State<_Caption> {
   var _expanded = false;
 
   @override
   Widget build(BuildContext context) {
-    final owner = widget.owner;
-    final name = owner?.displayName ?? '';
-    final caption = widget.item.caption;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        GestureDetector(
-          behavior: HitTestBehavior.opaque,
-          onTap: owner == null || widget.mine
-              ? null
-              : () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => UserLibraryScreen(profile: owner),
-                  ),
-                ),
-          child: Row(
-            children: [
-              Avatar(
-                stored: owner?.avatarUrl,
-                radius: 16,
-                fallback: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
-              ),
-              const SizedBox(width: NeoSpace.sm),
-              Flexible(
-                child: Text(
-                  name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w700,
-                    fontSize: 14,
-                  ),
-                ),
-              ),
-              const SizedBox(width: NeoSpace.sm),
-              Text(
-                timeAgo(widget.item.createdAt),
-                style: const TextStyle(color: Colors.white70, fontSize: 12),
-              ),
-              const SizedBox(width: NeoSpace.sm),
-              CardTypeBadge(type: widget.item.cardType, fontSize: 10),
-            ],
-          ),
-        ),
-        if (caption != null && caption.isNotEmpty) ...[
-          const SizedBox(height: NeoSpace.xs),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => setState(() => _expanded = !_expanded),
-            child: Text(
-              caption,
-              maxLines: _expanded ? 12 : 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontSize: 14),
-            ),
-          ),
-        ],
-      ],
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => setState(() => _expanded = !_expanded),
+      child: Text(
+        widget.text,
+        maxLines: _expanded ? 10 : 2,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: Colors.white, fontSize: 14),
+      ),
     );
   }
 }

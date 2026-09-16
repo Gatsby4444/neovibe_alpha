@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../content/saved_store.dart';
 import '../crypto/media_open.dart';
 import '../models/card.dart';
+import 'action_button.dart';
 
 /// Le bouton « Enregistrer », commun aux trois visionneuses.
 ///
@@ -28,6 +29,7 @@ class SaveButton extends ConsumerWidget {
     this.authorName,
     this.mine = false,
     this.color = Colors.white,
+    this.dense = false,
   });
 
   final String contentId;
@@ -48,14 +50,18 @@ class SaveButton extends ConsumerWidget {
   final bool mine;
   final Color color;
 
+  /// Resserré, pour l'en-tête d'une cellule du fil (voir [ActionMetrics]).
+  final bool dense;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     if (!canSave) return const SizedBox.shrink();
     final saved = ref.watch(isSavedProvider(contentId)).value ?? false;
     final ready = front != null;
 
-    return IconButton(
+    return ActionIconButton(
       color: color,
+      dense: dense,
       icon: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
       tooltip: saved
           ? 'Retirer de mes Enregistrements'

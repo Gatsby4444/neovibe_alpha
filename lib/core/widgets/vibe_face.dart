@@ -38,10 +38,28 @@ const kVibeFaceRatio = 9 / 16;
 /// diffusion.** L'apparence appartient au contenu ; seules les règles
 /// appartiennent au format.
 class VibeFaceFrame extends StatelessWidget {
-  const VibeFaceFrame({super.key, required this.type, required this.child});
+  const VibeFaceFrame({
+    super.key,
+    required this.type,
+    required this.child,
+    this.overlay,
+  });
 
   final CardType type;
   final Widget child;
+
+  /// **Ce qui se pose SUR la face, dans le cadre** — l'identité, les actions,
+  /// la légende en plein écran (`VibeCardChrome`). Il est ici, et pas
+  /// par-dessus la carte, pour une raison précise : *dans* le cadre, il
+  /// appartient à la carte, donc il s'incline et se retourne avec elle
+  /// (demande de Jay, 2026-09-16 : *« incorporer les boutons dans la card à
+  /// droite mais qu'ils bougent avec la card »*). Posé au-dessus, il resterait
+  /// immobile pendant que la carte tourne.
+  ///
+  /// Il est **coupé aux coins arrondis** comme l'image, et il ne couvre que ce
+  /// qu'il dessine : le reste laisse passer le doigt (la barre de lecture
+  /// d'une vidéo reste attrapable).
+  final Widget? overlay;
 
   /// La marge autour du liseré, et l'épaisseur du liseré lui-même.
   static const _marge = 16.0;
@@ -71,7 +89,20 @@ class VibeFaceFrame extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(17),
-        child: ColoredBox(color: Colors.black, child: child),
+        child: ColoredBox(
+          color: Colors.black,
+          child: overlay == null
+              ? child
+              // ⚠️ `child` est le SEUL enfant non positionné : c'est lui qui
+              // donne sa taille à la pile (le calque ne doit rien décider de
+              // la taille de la face).
+              : Stack(
+                  children: [
+                    child,
+                    Positioned.fill(child: overlay!),
+                  ],
+                ),
+        ),
       ),
     );
   }
@@ -106,13 +137,15 @@ class VibeFaceFrame extends StatelessWidget {
 /// toute la vie de l'écran. Le verso qui charge occupe sa place au lieu de la
 /// créer en arrivant.
 class VibeFaceLoading extends StatelessWidget {
-  const VibeFaceLoading({super.key, required this.type});
+  const VibeFaceLoading({super.key, required this.type, this.overlay});
 
   final CardType type;
+  final Widget? overlay;
 
   @override
   Widget build(BuildContext context) => VibeFaceFrame(
     type: type,
+    overlay: overlay,
     child: const AspectRatio(
       aspectRatio: kVibeFaceRatio,
       child: Center(child: CircularProgressIndicator(color: Colors.white24)),
@@ -121,15 +154,22 @@ class VibeFaceLoading extends StatelessWidget {
 }
 
 class VibePhotoFace extends StatelessWidget {
-  const VibePhotoFace({super.key, required this.bytes, required this.type});
+  const VibePhotoFace({
+    super.key,
+    required this.bytes,
+    required this.type,
+    this.overlay,
+  });
 
   final Uint8List bytes;
   final CardType type;
+  final Widget? overlay;
 
   @override
   Widget build(BuildContext context) {
     return VibeFaceFrame(
       type: type,
+      overlay: overlay,
       child: AspectRatio(
         aspectRatio: kVibeFaceRatio,
         child: Image.memory(
@@ -218,6 +258,7 @@ class VibeVideoFace extends StatefulWidget {
     required this.media,
     required this.type,
     required this.active,
+    this.overlay,
   });
 
   /// Le média ouvert : une vidéo scellée que le lecteur natif lit bloc par
@@ -229,6 +270,9 @@ class VibeVideoFace extends StatefulWidget {
   /// La face est posée à l'écran : la vidéo joue avec le son. Sinon elle est
   /// en pause et muette.
   final bool active;
+
+  /// Voir [VibeFaceFrame.overlay].
+  final Widget? overlay;
 
   @override
   State<VibeVideoFace> createState() => _VibeVideoFaceState();
@@ -281,6 +325,7 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
   Widget build(BuildContext context) {
     return VibeFaceFrame(
       type: widget.type,
+      overlay: widget.overlay,
       child: AspectRatio(
         aspectRatio: kVibeFaceRatio,
         child: _error != null
