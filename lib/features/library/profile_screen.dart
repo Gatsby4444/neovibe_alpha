@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
 import '../connections/friends_list_screen.dart';
 import '../connections/heart_screen.dart';
@@ -18,6 +19,52 @@ import 'publish_choice_sheet.dart';
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
+  Future<void> _editer(
+    BuildContext context,
+    WidgetRef ref,
+    Profile profile, {
+    bool bio = false,
+  }) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ProfileEditScreen(profile: profile, focusBio: bio),
+      ),
+    );
+    ref.invalidate(myProfileProvider);
+  }
+
+  Future<void> _menu(
+    BuildContext context,
+    WidgetRef ref,
+    Profile profile,
+  ) async {
+    final choix = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Modifier le profil'),
+              subtitle: const Text('Photo, pseudo, tag'),
+              onTap: () => Navigator.pop(context, 'profil'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.notes_outlined),
+              title: const Text('Modifier la bio'),
+              onTap: () => Navigator.pop(context, 'bio'),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (choix == null || !context.mounted) return;
+    await _editer(context, ref, profile, bio: choix == 'bio');
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final me = ref.watch(currentUserIdProvider)!;
@@ -32,17 +79,14 @@ class ProfileScreen extends ConsumerWidget {
         centerTitle: true,
         title: const Text('Profil'),
         actions: [
+          // Le menu « … » de mon profil (Jay, 2026-09-18) : les options,
+          // nommées, dans une feuille — dont « Modifier la bio », qui ouvre
+          // le clavier directement sur elle.
           if (profile != null)
             IconButton(
-              icon: const Icon(Icons.edit),
-              tooltip: 'Modifier le profil',
-              onPressed: () => Navigator.of(context)
-                  .push(
-                    MaterialPageRoute(
-                      builder: (_) => ProfileEditScreen(profile: profile),
-                    ),
-                  )
-                  .then((_) => ref.invalidate(myProfileProvider)),
+              icon: const Icon(Icons.more_horiz),
+              tooltip: 'Plus',
+              onPressed: () => _menu(context, ref, profile),
             ),
           IconButton(
             icon: const Icon(Icons.settings),
@@ -74,6 +118,7 @@ class ProfileScreen extends ConsumerWidget {
             if (profile != null)
               ProfileHeader(
                 profile: profile,
+                onAddBio: () => _editer(context, ref, profile, bio: true),
                 // Le compteur d'amis ouvre la liste recherchable (consigne Jay)
                 onFriendsTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const FriendsListScreen()),

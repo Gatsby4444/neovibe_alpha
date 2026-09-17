@@ -15,9 +15,23 @@ import '../cards/cards_repository.dart';
 /// Réutilisé sur mon profil et sur celui d'une connexion ou d'un croisé.
 /// [onFriendsTap] : sur MON profil, le compteur d'amis ouvre la liste.
 class ProfileHeader extends ConsumerWidget {
-  const ProfileHeader({super.key, required this.profile, this.onFriendsTap});
+  const ProfileHeader({
+    super.key,
+    required this.profile,
+    this.onFriendsTap,
+    this.onAddBio,
+  });
   final Profile profile;
   final VoidCallback? onFriendsTap;
+
+  /// Sur MON profil : ce qu'un appui sur « Ajouter une bio » fait. Nul chez
+  /// les autres — on ne propose pas d'écrire la bio de quelqu'un d'autre.
+  ///
+  /// ⚠️ Jay, 2026-09-18 : *« ajouter une option pour modifier la bio et créer
+  /// cette option »*. L'édition existait ; ce qui n'existait pas, c'était la
+  /// porte : une bio vide n'affichait **rien**, donc rien ne disait qu'on
+  /// pouvait en écrire une.
+  final VoidCallback? onAddBio;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -82,6 +96,28 @@ class ProfileHeader extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.only(top: 10),
               child: _ExpandableBio(bio: profile.bio!),
+            )
+          else if (onAddBio != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: InkWell(
+                onTap: onAddBio,
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add, size: 16, color: context.muted),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Ajouter une bio',
+                        style: TextStyle(color: context.muted, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
         ],
       ),

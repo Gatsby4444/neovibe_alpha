@@ -6,6 +6,7 @@ import '../../../core/crypto/media_open.dart';
 import '../../../core/models/library_item.dart';
 import '../../../core/video/sealed_video_controller.dart';
 import '../../../core/video/sealed_video_view.dart';
+import '../../../core/video/video_watchdog.dart';
 import '../../../core/widgets/vibe_face.dart';
 
 /// **Le carrousel d'un album** : ses médias à son ratio, feuilletés à
@@ -350,13 +351,16 @@ class _VideoState extends State<_Video> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          FittedBox(
-            fit: BoxFit.cover,
-            clipBehavior: Clip.hardEdge,
-            child: SizedBox(
-              width: _controller.value.size.width,
-              height: _controller.value.size.height,
-              child: SealedVideoView(_controller),
+          VideoWatchdog(
+            controller: _controller,
+            child: FittedBox(
+              fit: BoxFit.cover,
+              clipBehavior: Clip.hardEdge,
+              child: SizedBox(
+                width: _controller.value.size.width,
+                height: _controller.value.size.height,
+                child: SealedVideoView(_controller),
+              ),
             ),
           ),
           Positioned(

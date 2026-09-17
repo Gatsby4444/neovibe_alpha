@@ -3,8 +3,6 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
-import 'package:flutter/gestures.dart';
-
 import '../../core/motion.dart';
 import 'held_pan.dart';
 
@@ -116,19 +114,10 @@ class _TiltableCardState extends State<TiltableCard>
       ..rotateX(_tiltX)
       ..rotateY(_tiltY);
 
-    return RawGestureDetector(
-      gestures: {
-        // Le geste libre de la carte n'entre dans la course qu'après un
-        // temps de pose (voir [HeldPanGestureRecognizer]).
-        HeldPanGestureRecognizer:
-            GestureRecognizerFactoryWithHandlers<HeldPanGestureRecognizer>(
-              () => HeldPanGestureRecognizer(debugOwner: this),
-              (instance) => instance
-                ..onStart = _onPanStart
-                ..onUpdate = _onPanUpdate
-                ..onEnd = _onPanEnd,
-            ),
-      },
+    return ZoneDeManipulation(
+      onStart: _onPanStart,
+      onUpdate: _onPanUpdate,
+      onEnd: _onPanEnd,
       child: Transform(
         alignment: Alignment.center,
         transform: matrix,
@@ -380,24 +369,92 @@ class _FlippableCardState extends State<FlippableCard>
         onVerticalDragEnd: _onPanEnd,
         child: card,
       ),
-      null => RawGestureDetector(
-        gestures: {
-          TapGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
-                () => TapGestureRecognizer(debugOwner: this),
-                (instance) => instance.onTap = widget.onTap,
-              ),
-          HeldPanGestureRecognizer:
-              GestureRecognizerFactoryWithHandlers<HeldPanGestureRecognizer>(
-                () => HeldPanGestureRecognizer(debugOwner: this),
-                (instance) => instance
-                  ..onStart = _onPanStart
-                  ..onUpdate = _onPanUpdate
-                  ..onEnd = _onPanEnd,
-              ),
-        },
-        child: card,
+      // ⚠️ **Deux gestes, deux territoires** (Jay, 2026-09-18) :
+      //
+      // - le **swipe horizontal** retourne la carte, partout et tout de
+      //   suite, comme il l'a toujours fait. Le remplacer par le temps de
+      //   pose avait cassé le geste le plus naturel de l'app ;
+      // - la **manipulation** (incliner dans l'espace) se prend au **centre**
+      //   de la carte, en s'attardant 90 ms. Les bords ne l'écoutent pas :
+      //   c'est ce qui rend le défilement et le swipe sûrs d'eux.
+      null => ZoneDeManipulation(
+        onStart: _onPanStart,
+        onUpdate: _onPanUpdate,
+        onEnd: _onPanEnd,
+        child: GestureDetector(
+          onTap: widget.onTap,
+          onHorizontalDragStart: _onPanStart,
+          onHorizontalDragUpdate: _onPanUpdate,
+          onHorizontalDragEnd: _onPanEnd,
+          child: card,
+        ),
       ),
     };
+  }
+}
+
+/// **La zone centrale d'une carte : là où on peut la SAISIR.**
+///
+/// Elle pose un second reconnaisseur par-dessus [child], limité aux
+/// [kZoneManipulation] du milieu et **translucide** : il n'enlève rien aux
+/// gestes qui vivent en dessous (le swipe qui retourne, le tap) ni au-dessus
+/// (le défilement de la liste). Il attend simplement son tour — et il ne
+/// l'obtient qu'après une pose de [kTempsDePose].
+///
+/// ⚠️ **Les bords n'écoutent rien, et c'est le but.** Jay, 2026-09-18 :
+/// *« cela permet de libérer une zone sur les côtés pour être sûr que c'est
+/// que du scroll »*. Une règle de geste qui vaut partout ne laisse aucun
+/// endroit où l'utilisateur est certain de ce qui va se passer.
+class ZoneDeManipulation extends StatelessWidget {
+  const ZoneDeManipulation({
+    super.key,
+    required this.child,
+    required this.onStart,
+    required this.onUpdate,
+    required this.onEnd,
+  });
+
+  final Widget child;
+  final GestureDragStartCallback onStart;
+  final GestureDragUpdateCallback onUpdate;
+  final GestureDragEndCallback onEnd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      // ⚠️ `passthrough` : les contraintes de l'écran arrivent à la carte
+      // telles quelles. Avec le `loose` par défaut, une face sans taille
+      // propre (une couleur, un test) se réduisait à zéro — et une carte de
+      // zéro pixel ne reçoit aucun doigt.
+      fit: StackFit.passthrough,
+      children: [
+        child,
+        Positioned.fill(
+          child: FractionallySizedBox(
+            widthFactor: kZoneManipulation,
+            heightFactor: kZoneManipulation,
+            alignment: Alignment.center,
+            child: RawGestureDetector(
+              // Translucide : il s'ajoute au chemin du doigt sans en priver
+              // personne.
+              behavior: HitTestBehavior.translucent,
+              gestures: {
+                HeldPanGestureRecognizer:
+                    GestureRecognizerFactoryWithHandlers<
+                      HeldPanGestureRecognizer
+                    >(
+                      () => HeldPanGestureRecognizer(debugOwner: this),
+                      (instance) => instance
+                        ..onStart = onStart
+                        ..onUpdate = onUpdate
+                        ..onEnd = onEnd,
+                    ),
+              },
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }

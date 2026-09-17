@@ -10,6 +10,7 @@ import '../../../core/supabase_providers.dart';
 import '../../../core/typography.dart';
 import '../../../core/video/sealed_video_controller.dart';
 import '../../../core/video/sealed_video_view.dart';
+import '../../../core/video/video_watchdog.dart';
 import '../../../core/widgets/like_burst.dart';
 import '../../../core/widgets/pinch_to_close.dart';
 import '../../../core/widgets/system_bars.dart';
@@ -251,13 +252,16 @@ class _FlowPage extends ConsumerWidget {
             ),
           ),
         ),
+        // La colonne d'actions : à droite, sa base au niveau du bloc auteur
+        // — comme sur les Reels. Elle monte depuis là ; rien ne se
+        // chevauche, puisque l'auteur s'arrête 64 px avant le bord.
         Positioned(
           right: 0,
           bottom: 0,
           child: SafeArea(
             top: false,
             child: Padding(
-              padding: const EdgeInsets.only(right: 2, bottom: NeoSpace.sm),
+              padding: const EdgeInsets.only(right: 10, bottom: NeoSpace.md),
               child: PublicationActions(
                 item: item,
                 mine: mine,
@@ -350,16 +354,19 @@ class _VideoState extends State<_Video> {
     }
     return ColoredBox(
       color: Colors.black,
-      child: FittedBox(
-        // `contain` : un Flow est publié à SON format (choix de Jay), il ne
-        // se recadre pas pour remplir un écran 9:16 — les bandes noires font
-        // partie du format, comme chez Instagram.
-        fit: BoxFit.contain,
-        clipBehavior: Clip.hardEdge,
-        child: SizedBox(
-          width: _controller.value.size.width,
-          height: _controller.value.size.height,
-          child: SealedVideoView(_controller),
+      child: VideoWatchdog(
+        controller: _controller,
+        child: FittedBox(
+          // `contain` : un Flow est publié à SON format (choix de Jay), il ne
+          // se recadre pas pour remplir un écran 9:16 — les bandes noires font
+          // partie du format, comme chez Instagram.
+          fit: BoxFit.contain,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: _controller.value.size.width,
+            height: _controller.value.size.height,
+            child: SealedVideoView(_controller),
+          ),
         ),
       ),
     );

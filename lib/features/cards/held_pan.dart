@@ -21,25 +21,44 @@ import 'package:flutter/gestures.dart';
 ///
 /// Pendant [kTempsDePose], les mouvements ne sont pas transmis au
 /// reconnaisseur : il ne peut donc pas franchir son seuil, ni gagner. Si le
-/// doigt part tout de suite, le défilement gagne seul. S'il s'attarde, la
-/// carte entre dans la course — et il lui faut alors son déplacement habituel
-/// pour l'emporter, compté **à partir de là** : la carte ne saute pas.
+/// doigt part tout de suite, il **renonce définitivement** — un défilement
+/// prolongé ne doit pas finir par retourner la carte.
+///
+/// ⚠️ **Une fois la pose faite, il gagne vite** : [seuilArme] pixels
+/// suffisent, moins que les 18 px du défilement et du retournement. Sans
+/// cela, un geste posé puis glissé à l'horizontale serait repris par le
+/// retournement, et la manipulation n'existerait jamais (Jay, 2026-09-18 :
+/// le swipe horizontal rapide doit retourner la carte **comme avant**, et
+/// c'est la **zone centrale maintenue** qui donne la manipulation).
 class HeldPanGestureRecognizer extends PanGestureRecognizer {
-  HeldPanGestureRecognizer({super.debugOwner, this.delai = kTempsDePose});
+  HeldPanGestureRecognizer({
+    super.debugOwner,
+    this.delai = kTempsDePose,
+    this.seuilArme = 8,
+  });
 
   /// Le temps pendant lequel le doigt doit rester posé avant de pouvoir
   /// emmener la carte.
   final Duration delai;
 
+  /// Le déplacement qui suffit à gagner **une fois la pose faite**. Plus
+  /// petit que les seuils du défilement et du retournement : c'est ce qui
+  /// donne la priorité à un geste délibéré.
+  final double seuilArme;
+
   Duration? _pose;
   var _parcouru = 0.0;
+  var _apresPose = 0.0;
   var _renonce = false;
+  var _gagne = false;
 
   @override
   void addAllowedPointer(PointerDownEvent event) {
     _pose = event.timeStamp;
     _parcouru = 0;
+    _apresPose = 0;
     _renonce = false;
+    _gagne = false;
     super.addAllowedPointer(event);
   }
 
@@ -62,6 +81,14 @@ class HeldPanGestureRecognizer extends PanGestureRecognizer {
       }
       return;
     }
+    // La pose est faite : quelques pixels suffisent à emporter le geste.
+    if (!_gagne && event is PointerMoveEvent) {
+      _apresPose += event.delta.distance;
+      if (_apresPose > seuilArme) {
+        _gagne = true;
+        resolve(GestureDisposition.accepted);
+      }
+    }
     super.handleEvent(event);
   }
 
@@ -69,13 +96,19 @@ class HeldPanGestureRecognizer extends PanGestureRecognizer {
   void didStopTrackingLastPointer(int pointer) {
     _pose = null;
     _renonce = false;
+    _gagne = false;
     _parcouru = 0;
+    _apresPose = 0;
     super.didStopTrackingLastPointer(pointer);
   }
 }
 
-/// **120 ms.** En dessous, l'œil ne distingue plus « poser puis glisser » de
-/// « glisser » : le geste de carte partirait encore tout seul. Au-dessus de
-/// 200, la pose devient une attente consciente — et Jay demande justement
-/// l'inverse, *« un effet inconscient »*.
-const kTempsDePose = Duration(milliseconds: 120);
+/// **90 ms** (Jay, 2026-09-18 ; 120 auparavant). Assez pour distinguer une
+/// saisie d'un effleurement, assez court pour rester inconscient.
+const kTempsDePose = Duration(milliseconds: 90);
+
+/// **La part centrale de la carte qui écoute la pose.** Les bords — 20 % de
+/// chaque côté — n'écoutent rien : ils sont là pour que le défilement et le
+/// swipe soient sûrs d'eux (Jay : *« cela permet de libérer une zone sur les
+/// côtés pour être sûr que c'est que du scroll »*).
+const kZoneManipulation = 0.6;

@@ -6,6 +6,7 @@ import '../crypto/media_open.dart';
 import '../models/card.dart';
 import '../video/sealed_video_controller.dart';
 import '../video/sealed_video_view.dart';
+import '../video/video_watchdog.dart';
 
 /// Le format d'une face de Vibe : portrait 9:16, celui de la capture
 /// (`card_capture_screen.dart`, `targetRatio`).
@@ -428,13 +429,16 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
             : Stack(
                 fit: StackFit.expand,
                 children: [
-                  FittedBox(
-                    fit: BoxFit.cover,
-                    clipBehavior: Clip.hardEdge,
-                    child: SizedBox(
-                      width: _controller.value.size.width,
-                      height: _controller.value.size.height,
-                      child: SealedVideoView(_controller),
+                  VideoWatchdog(
+                    controller: _controller,
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      clipBehavior: Clip.hardEdge,
+                      child: SizedBox(
+                        width: _controller.value.size.width,
+                        height: _controller.value.size.height,
+                        child: SealedVideoView(_controller),
+                      ),
                     ),
                   ),
                   Positioned(

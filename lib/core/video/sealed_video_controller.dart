@@ -19,6 +19,7 @@ class SealedVideoValue {
     this.isPlaying = false,
     this.isBuffering = false,
     this.isCompleted = false,
+    this.hasFirstFrame = false,
     this.error,
   });
 
@@ -34,6 +35,15 @@ class SealedVideoValue {
   final Duration buffered;
   final bool isPlaying;
   final bool isBuffering;
+
+  /// **Une image a-t-elle été rendue, au moins une ?**
+  ///
+  /// ⚠️ C'est le seul signal qui distingue « la vidéo joue » de « la vidéo
+  /// joue **et on la voit** ». Le natif l'envoyait déjà (`onRenderedFirstFrame`)
+  /// et personne ne le lisait : il ne servait qu'à la mesure d'ouverture.
+  /// Sans lui, une image qui n'arrive jamais est indiscernable d'un fond noir
+  /// — c'est exactement ce que Jay voit depuis deux versions.
+  final bool hasFirstFrame;
 
   /// **Ce qui a cassé, s'il y a cassé.**
   ///
@@ -60,6 +70,7 @@ class SealedVideoValue {
     bool? isPlaying,
     bool? isBuffering,
     bool? isCompleted,
+    bool? hasFirstFrame,
   }) => SealedVideoValue(
     isInitialized: isInitialized ?? this.isInitialized,
     size: size ?? this.size,
@@ -70,6 +81,7 @@ class SealedVideoValue {
     isPlaying: isPlaying ?? this.isPlaying,
     isBuffering: isBuffering ?? this.isBuffering,
     isCompleted: isCompleted ?? this.isCompleted,
+    hasFirstFrame: hasFirstFrame ?? this.hasFirstFrame,
     error: error,
   );
 
@@ -83,6 +95,7 @@ class SealedVideoValue {
     position: position,
     buffered: buffered,
     isCompleted: isCompleted,
+    hasFirstFrame: hasFirstFrame,
     error: error,
   );
 }
@@ -370,6 +383,7 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
         if (_ready?.isCompleted == false) _ready!.complete();
       case 'firstFrame':
         VideoOpenTrace.of(_traceId)?.mark(VideoOpenStep.premiereImage);
+        value = value.copyWith(hasFirstFrame: true);
       case 'position':
         value = value.copyWith(
           position: Duration(milliseconds: (map['position']! as num).toInt()),

@@ -7,6 +7,7 @@ import 'feed/flows_reel_screen.dart';
 import 'feed/publications_feed_screen.dart';
 import 'feed/vibes_reel_screen.dart';
 import 'mini_card.dart';
+import '../../core/widgets/reel_route.dart';
 
 /// **Les deux onglets d'un profil**, comme sur Instagram (Jay, 2026-09-17) :
 ///
@@ -135,15 +136,13 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
       // format qui fait l'onglet, autant le montrer tout de suite.
       case _Onglet.vibes:
         Navigator.of(context).push(
-          MaterialPageRoute(
-            fullscreenDialog: true,
+          ReelRoute(
             builder: (_) => VibesReelScreen(vibes: liste, initialIndex: index),
           ),
         );
       case _Onglet.flows:
         Navigator.of(context).push(
-          MaterialPageRoute(
-            fullscreenDialog: true,
+          ReelRoute(
             builder: (_) => FlowsReelScreen(flows: liste, initialIndex: index),
           ),
         );

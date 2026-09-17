@@ -10,6 +10,7 @@ import 'active_item_tracker.dart';
 import 'flows_reel_screen.dart';
 import 'publication_cell.dart';
 import 'vibes_reel_screen.dart';
+import '../../../core/widgets/reel_route.dart';
 
 /// Ouvre le fil posé sur `items[initialIndex]`.
 void openPublications(
@@ -89,8 +90,7 @@ class _PublicationsFeedScreenState
       final index = flows.indexWhere((i) => i.id == item.id);
       if (index < 0) return;
       Navigator.of(context).push(
-        MaterialPageRoute(
-          fullscreenDialog: true,
+        ReelRoute(
           builder: (_) => FlowsReelScreen(flows: flows, initialIndex: index),
         ),
       );
@@ -100,8 +100,7 @@ class _PublicationsFeedScreenState
     final index = vibes.indexWhere((i) => i.id == item.id);
     if (index < 0) return;
     Navigator.of(context).push(
-      MaterialPageRoute(
-        fullscreenDialog: true,
+      ReelRoute(
         builder: (_) => VibesReelScreen(vibes: vibes, initialIndex: index),
       ),
     );

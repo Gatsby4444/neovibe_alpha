@@ -3,48 +3,57 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/features/cards/flippable_card.dart';
 import 'package:neovibe/features/cards/held_pan.dart';
 
-/// Ce que ces tests défendent : **ce qui départage une carte d'une liste,
-/// c'est le TEMPS DE POSE** (Jay, 2026-09-17).
+/// **Qui prend le doigt, et quand** — la règle de Jay du 2026-09-18, après
+/// trois essais.
 ///
-/// Deux métriques ont été essayées avant, et rejetées à l'usage : la distance
-/// seule (la liste volait les gestes de carte), puis un seuil de défilement
-/// élargi (la carte volait les défilements — *« le nouveau système est
-/// pire »*). La troisième est la bonne parce qu'elle ne mesure pas le geste
-/// mais l'**intention** : on effleure pour défiler, on saisit pour manipuler.
+/// | Où le doigt se pose | Ce qu'il fait | Ce qui gagne |
+/// |---|---|---|
+/// | n'importe où | il part **tout de suite** vers le haut | le **défilement** |
+/// | n'importe où | il part **tout de suite** à l'horizontale | le **retournement** |
+/// | **au centre** | il s'attarde `kTempsDePose`, puis glisse | la **manipulation** |
+/// | **sur un bord** | il s'attarde, puis glisse vers le haut | le **défilement** |
 ///
-/// Règle : un doigt qui part **avant** `kTempsDePose` ne peut pas emmener la
-/// carte ; après, il le peut (voir `HeldPanGestureRecognizer`).
+/// Les deux premières lignes sont ce que Jay a redemandé : *« si je swipe
+/// rapidement cela ne retourne plus la card comme avant […] il faut le
+/// remettre »*. Les deux dernières sont la nouveauté : une **zone centrale**
+/// qui, tenue un instant, donne la carte — et des **bords** qui n'écoutent
+/// rien, pour que le défilement soit sûr de lui.
 void main() {
   const cardWidth = 300.0;
   const cardHeight = 500.0;
 
-  /// Un doigt avance par petits pas. `tester.drag` saute d'un coup, et le
-  /// reconnaisseur (`DragStartBehavior.start`) ignore tout ce qui précède
-  /// son acceptation : la carte ne verrait rien du geste.
-  Future<void> dragInSteps(
+  /// Un doigt avance par petits pas, depuis [depuis] (le centre par défaut).
+  ///
+  /// ⚠️ **Chaque événement porte son heure.** Dans `flutter_test`, un `moveBy`
+  /// sans `timeStamp` vaut zéro : tous les mouvements auraient lieu à
+  /// l'instant du contact, et une règle fondée sur le temps ne pourrait
+  /// jamais devenir vraie. (Le piège a coûté un diagnostic.)
+  Future<void> doigt(
     WidgetTester tester,
     Finder finder,
     Offset total, {
     int steps = 30,
-    // Le doigt se pose, s'attarde, puis glisse : c'est ce qui donne la carte.
-    // `pose: false` = il part tout de suite, c'est un défilement.
-    bool pose = true,
+    bool pose = false,
+    Alignment depuis = Alignment.center,
   }) async {
-    // ⚠️ **Chaque événement porte son heure.** Dans `flutter_test`, un
-    // `moveBy` sans `timeStamp` vaut zéro : tous les mouvements auraient lieu
-    // au même instant que le contact, et une règle fondée sur le temps ne
-    // pourrait jamais devenir vraie. (Le piège a coûté un diagnostic.)
+    final boite = tester.getRect(finder);
+    final depart =
+        boite.center +
+        Offset(
+          depuis.x * boite.width / 2 * 0.9,
+          depuis.y * boite.height / 2 * 0.9,
+        );
     var t = pose
         ? kTempsDePose + const Duration(milliseconds: 20)
         : Duration.zero;
-    final gesture = await tester.startGesture(tester.getCenter(finder));
+    final geste = await tester.startGesture(depart);
     if (pose) await tester.pump(t);
     for (var i = 0; i < steps; i++) {
       t += const Duration(milliseconds: 16);
-      await gesture.moveBy(total / steps.toDouble(), timeStamp: t);
+      await geste.moveBy(total / steps.toDouble(), timeStamp: t);
       await tester.pump(const Duration(milliseconds: 16));
     }
-    await gesture.up();
+    await geste.up();
   }
 
   late ScrollController scroll;
@@ -78,20 +87,20 @@ void main() {
     settled.clear();
   });
 
-  group('FlippableCard libre dans une liste', () {
-    Widget card() => FlippableCard(
-      key: const ValueKey('card'),
-      onSideChanged: sides.add,
-      onSideSettled: settled.add,
-      front: const ColoredBox(color: Colors.red),
-      back: const ColoredBox(color: Colors.blue),
-    );
+  tearDown(() => scroll.dispose());
 
-    testWidgets('un départ vertical défile, la carte ne bouge pas', (
-      tester,
-    ) async {
-      await tester.pumpWidget(harness(card: card()));
-      await dragInSteps(
+  Widget flippable() => FlippableCard(
+    key: const ValueKey('card'),
+    onSideChanged: sides.add,
+    onSideSettled: settled.add,
+    front: const ColoredBox(color: Colors.red),
+    back: const ColoredBox(color: Colors.blue),
+  );
+
+  group('FlippableCard libre dans une liste', () {
+    testWidgets('un départ vertical immédiat défile', (tester) async {
+      await tester.pumpWidget(harness(card: flippable()));
+      await doigt(
         tester,
         find.byKey(const ValueKey('card')),
         const Offset(0, -200),
@@ -99,15 +108,15 @@ void main() {
       await tester.pumpAndSettle();
       expect(scroll.offset, greaterThan(100));
       expect(sides, isEmpty);
-      expect(settled, isEmpty);
     });
 
-    testWidgets('un départ horizontal retourne, la liste ne bouge pas', (
+    testWidgets('un swipe horizontal RAPIDE retourne — sans rien tenir', (
       tester,
     ) async {
-      await tester.pumpWidget(harness(card: card()));
-      // Une largeur de carte = un demi-tour.
-      await dragInSteps(
+      // La demande de Jay du 2026-09-18 : le geste le plus naturel de l'app
+      // ne doit rien exiger de plus qu'avant.
+      await tester.pumpWidget(harness(card: flippable()));
+      await doigt(
         tester,
         find.byKey(const ValueKey('card')),
         const Offset(cardWidth, 0),
@@ -116,55 +125,71 @@ void main() {
       expect(scroll.offset, 0);
       expect(settled, [false]);
     });
+
+    testWidgets('au centre, tenu puis glissé : la carte, pas la liste', (
+      tester,
+    ) async {
+      await tester.pumpWidget(harness(card: flippable()));
+      await doigt(
+        tester,
+        find.byKey(const ValueKey('card')),
+        const Offset(0, -200),
+        pose: true,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        scroll.offset,
+        0,
+        reason:
+            'la zone centrale tenue prend le geste « à la place de scroller »',
+      );
+    });
+
+    testWidgets('sur le bord, même tenu, le vertical défile', (tester) async {
+      await tester.pumpWidget(harness(card: flippable()));
+      await doigt(
+        tester,
+        find.byKey(const ValueKey('card')),
+        const Offset(0, -200),
+        pose: true,
+        depuis: Alignment.centerLeft,
+      );
+      await tester.pumpAndSettle();
+      expect(
+        scroll.offset,
+        greaterThan(100),
+        reason: 'les bords n\'écoutent pas la pose : ils sont au défilement',
+      );
+    });
   });
 
   group('TiltableCard dans une liste', () {
-    testWidgets('un départ vertical défile', (tester) async {
-      await tester.pumpWidget(
-        harness(
-          card: const TiltableCard(
-            key: ValueKey('card'),
-            child: ColoredBox(color: Colors.red),
-          ),
-        ),
-      );
-      await dragInSteps(
+    Widget tiltable() => const TiltableCard(
+      key: ValueKey('tilt'),
+      child: ColoredBox(color: Colors.red),
+    );
+
+    testWidgets('un départ vertical immédiat défile', (tester) async {
+      await tester.pumpWidget(harness(card: tiltable()));
+      await doigt(
         tester,
-        find.byKey(const ValueKey('card')),
+        find.byKey(const ValueKey('tilt')),
         const Offset(0, -200),
       );
       await tester.pumpAndSettle();
       expect(scroll.offset, greaterThan(100));
     });
-  });
 
-  testWidgets('sans le temps de pose, l\'horizontale ne retourne PLUS rien', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      harness(
-        card: FlippableCard(
-          key: const ValueKey('card'),
-          onSideChanged: sides.add,
-          onSideSettled: settled.add,
-          front: const ColoredBox(color: Colors.red),
-          back: const ColoredBox(color: Colors.blue),
-        ),
-      ),
-    );
-    // Contre-test de la règle : le doigt part immédiatement — la carte ne
-    // doit pas s'en saisir, même à l'horizontale.
-    await dragInSteps(
-      tester,
-      find.byType(FlippableCard),
-      const Offset(220, 0),
-      pose: false,
-    );
-    await tester.pumpAndSettle();
-    expect(
-      settled,
-      isEmpty,
-      reason: 'un geste bref n\'appartient pas à la carte',
-    );
+    testWidgets('au centre, tenu, le geste va à la carte', (tester) async {
+      await tester.pumpWidget(harness(card: tiltable()));
+      await doigt(
+        tester,
+        find.byKey(const ValueKey('tilt')),
+        const Offset(0, -200),
+        pose: true,
+      );
+      await tester.pumpAndSettle();
+      expect(scroll.offset, 0);
+    });
   });
 }

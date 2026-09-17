@@ -14,8 +14,16 @@ import '../profile/profile_repository.dart';
 /// Édition du profil : PP, username (unique), tag name (optionnel, affiché en
 /// conversation), bio.
 class ProfileEditScreen extends ConsumerStatefulWidget {
-  const ProfileEditScreen({super.key, required this.profile});
+  const ProfileEditScreen({
+    super.key,
+    required this.profile,
+    this.focusBio = false,
+  });
   final Profile profile;
+
+  /// Ouvrir le clavier directement sur la bio : c'est ce que « Modifier la
+  /// bio » promet, on ne fait pas chercher le champ.
+  final bool focusBio;
 
   @override
   ConsumerState<ProfileEditScreen> createState() => _ProfileEditScreenState();
@@ -186,6 +194,7 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _bio,
+            autofocus: widget.focusBio,
             maxLength: 500,
             maxLines: 4,
             decoration: const InputDecoration(
