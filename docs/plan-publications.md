@@ -469,3 +469,25 @@ sommets arrondis et aux côtés creusés.
   tout tient dans le plus petit côté, et le rayon ne remonte jamais entre les
   deux).
 
+### 9.10 La galerie complète — v0.9.196 (2026-09-17)
+
+Jay : *« fais comme sur Instagram pour la galerie : une interface plus complète
+et pro qui permet d'afficher les albums et filtrer par d'autres critères »*.
+
+Le titre de la galerie devient **ce qu'on regarde** (« Récent ⌄ ») et l'ouvre
+au tap : une feuille « Sélectionner un album » avec les trois raccourcis
+(**Récent**, **Photos**, **Vidéos**) puis les **dossiers du téléphone**
+(Camera, Screenshots, WhatsApp…), celui qui a le média le plus récent en
+premier, avec couverture et compte.
+
+| Où | Quoi |
+|---|---|
+| natif | `NativeGallery.albums()` et un `list()` filtrable par **dossier** et par **type**. ⚠️ **Pas de `GROUP BY`** : le `MediaProvider` d'Android le refuse comme il refuse `LIMIT` — on parcourt le curseur trié **une fois** et on agrège en Kotlin, sur trois colonnes |
+| cuisine | `GalleryFeed.filter` : changer de filtre vide la liste et repart, **mais garde les vignettes** (ce sont les mêmes fichiers) ; et une page qui revient après un changement de filtre est **jetée** — sinon elle s'ajouterait à la liste d'un autre dossier |
+| l'objet | `GalleryFilter` porte le dossier **et** le type, avec son égalité de valeur : c'est elle qui décide du rechargement. Deux réglages séparés pour une même chose finissent toujours par se contredire |
+| l'écran | `album_sheet.dart` ; la feuille emprunte le cache de vignettes de la grille au lieu d'en tenir un second |
+
+Catalogue natif à jour (`docs/parties-natives-par-os.md`), avec l'équivalent
+iOS : `PHAssetCollection` + un prédicat sur `mediaType` — l'agrégation y est
+native, la question du `GROUP BY` ne s'y pose pas.
+

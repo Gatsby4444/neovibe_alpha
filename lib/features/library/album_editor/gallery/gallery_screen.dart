@@ -7,6 +7,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../../../core/models/library_item.dart';
 import '../../../../core/typography.dart';
 import '../editor_theme.dart';
+import 'album_sheet.dart';
 import 'gallery_feed.dart';
 import 'gallery_import.dart';
 import 'native_gallery.dart';
@@ -123,6 +124,17 @@ class _GalleryScreenState extends State<GalleryScreen> {
     });
   }
 
+  /// Ouvre « Sélectionner un album » et applique le choix. La grille se
+  /// recharge toute seule : c'est la cuisine qui tient le filtre, pas l'écran.
+  Future<void> _choisirAlbum() async {
+    final choix = await choisirAlbum(
+      context,
+      feed: _feed,
+      courant: _feed.filter,
+    );
+    if (choix != null) _feed.filter = choix;
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = EditorColors.of(context);
@@ -134,9 +146,11 @@ class _GalleryScreenState extends State<GalleryScreen> {
           tooltip: 'Fermer',
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: Text(
-          widget.single ? 'Choisir une image' : 'Nouvelle publication',
-        ),
+        // Le titre devient le sélecteur d'album, comme sur Instagram : il
+        // dit ce qu'on regarde, et l'ouvre au tap.
+        title: widget.single
+            ? const Text('Choisir une image')
+            : _TitreFiltre(feed: _feed, onTap: _choisirAlbum),
         actions: [
           EditorPrimaryButton(
             label: 'Suivant',
@@ -636,6 +650,39 @@ class _DurationBadge extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Le titre de la galerie : **ce qu'on regarde**, et la flèche qui le change.
+class _TitreFiltre extends StatelessWidget {
+  const _TitreFiltre({required this.feed, required this.onTap});
+
+  final GalleryFeed feed;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                feed.filter.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.keyboard_arrow_down, size: 22),
+          ],
+        ),
       ),
     );
   }

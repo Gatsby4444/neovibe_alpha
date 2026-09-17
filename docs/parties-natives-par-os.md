@@ -29,7 +29,7 @@
 |---|---|---|---|
 | Caméra | `neovibe/camera` | CameraX + Camera2 + OpenGL ES | AVFoundation + Metal/CoreImage + AVAssetWriter |
 | Anti-capture | (dans `neovibe/camera` : `setSecure`) | `WindowManager.FLAG_SECURE` | Pas d'équivalent strict → détection + occultation |
-| **Galerie du téléphone** *(2026-09-15)* | `neovibe/gallery` | `NativeGallery` (`MediaStore` paginé par `Bundle`, `loadThumbnail`, copie dans le cache) | `PHPhotoLibrary` / `PHImageManager` (`requestImage`, `requestExportSession`) |
+| **Galerie du téléphone** *(2026-09-15, **albums et filtres le 2026-09-17**)* | `neovibe/gallery` | `NativeGallery` (`MediaStore` paginé par `Bundle`, **`albums()` agrégé par `BUCKET_ID`**, `list()` filtrable par dossier et par type, `loadThumbnail`, copie dans le cache) | `PHPhotoLibrary` / `PHImageManager` (`requestImage`, `requestExportSession`) + **`PHAssetCollection.fetchAssetCollections`** pour les albums |
 | Média (hors caméra) *(étendu le 2026-09-15)* | `neovibe/media` | `NativeMedia` (couverture d'une vidéo, sonde, JPEG) + **`MediaTranscoder`** (rognage, recadrage, matrice de couleurs, recompression H.264 par `MediaCodec` + GL) | `AVAssetImageGenerator`, `CGImageSource`, `AVAssetExportSession` + `AVVideoComposition` + `CIFilter` |
 | Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise + scan) | CoreBluetooth, **mode dégradé à concevoir** |
 | ~~Transport GATT (liens, trames)~~ | — | **SUPPRIMÉ le 2026-08-27** — le BLE ne fait plus que prouver la proximité | *sans objet* |
@@ -878,7 +878,19 @@ la `SurfaceTexture` sont à **vérifier sur appareil** (comme le miroir de la
 frontale, `RAPPELS.md` #9).
 
 **`NativeGallery.kt`** (nouveau, 2026-09-15, canal `neovibe/gallery`) : la
-galerie **dans l'app** (« Nouvelle publication »). `list(offset, limit)` =
+galerie **dans l'app** (« Nouvelle publication »).
+
+**Étendu le 2026-09-17** (Jay : *« une interface plus complète et pro comme sur
+Instagram, qui permet d'afficher les albums et filtrer »*) : `albums()` rend
+les dossiers du téléphone avec leur nom, leur compte et la couverture la plus
+récente, et `list()` prend un `bucketId` et un `mediaType`. ⚠️ **Pas de
+`GROUP BY`** : le `MediaProvider` le refuse comme il refuse `LIMIT` — on
+parcourt le curseur trié par date **une fois** et on agrège en Kotlin (trois
+colonnes : c'est une lecture d'index). **iOS** : `PHAssetCollection` +
+`PHFetchOptions.predicate` sur `mediaType` ; l'agrégation y est native, la
+question du `GROUP BY` ne s'y pose pas.
+
+`list(offset, limit, bucketId, mediaType)` =
 `MediaStore.Files` (images + vidéos) triés par date, **paginés par `Bundle`**
 (`QUERY_ARG_LIMIT` / `OFFSET` — `LIMIT` dans l'ordre de tri est refusé depuis
 Android 11) ; `thumbnail(uri, size)` = `ContentResolver.loadThumbnail` (API 29,

@@ -24,6 +24,24 @@ class GalleryFeed extends ChangeNotifier {
 
   final int pageSize;
 
+  /// **Ce qu'on regarde** : tout, un type, un dossier. Changer de filtre vide
+  /// la liste et repart de zéro — mais **garde les vignettes** : ce sont les
+  /// mêmes fichiers, et les redemander au natif serait du travail refait pour
+  /// un résultat identique.
+  var _filter = GalleryFilter.tout;
+  GalleryFilter get filter => _filter;
+
+  set filter(GalleryFilter value) {
+    if (value == _filter) return;
+    _filter = value;
+    _entries.clear();
+    _exhausted = false;
+    _error = null;
+    _queue.clear();
+    notifyListeners();
+    loadMore();
+  }
+
   final _entries = <GalleryEntry>[];
   var _loading = false;
   var _exhausted = false;
@@ -40,10 +58,16 @@ class GalleryFeed extends ChangeNotifier {
     _error = null;
     notifyListeners();
     try {
+      final demande = _filter;
       final page = await NativeGallery.list(
         offset: _entries.length,
         limit: pageSize,
+        bucketId: _filter.album?.id,
+        mediaType: _filter.mediaType,
       );
+      // Le filtre a pu changer pendant l'aller-retour : cette page n'est
+      // plus celle qu'on regarde.
+      if (demande != _filter) return;
       if (page.length < pageSize) _exhausted = true;
       _entries.addAll(page);
     } catch (e) {

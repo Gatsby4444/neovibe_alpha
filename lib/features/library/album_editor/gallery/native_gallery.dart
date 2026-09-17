@@ -5,14 +5,40 @@ import 'package:flutter/services.dart';
 abstract final class NativeGallery {
   static const _channel = MethodChannel('neovibe/gallery');
 
-  /// Une page de médias, les plus récents d'abord.
+  /// **Les dossiers du téléphone** (Camera, Screenshots, WhatsApp…), celui
+  /// qui a le média le plus récent d'abord.
+  static Future<List<GalleryAlbum>> albums() async {
+    final rows = await _channel.invokeListMethod<Map<Object?, Object?>>(
+      'albums',
+    );
+    return [
+      for (final r in rows ?? const <Map<Object?, Object?>>[])
+        GalleryAlbum(
+          id: r['id'] as String,
+          name: r['name'] as String? ?? 'Sans nom',
+          count: r['count'] as int? ?? 0,
+          coverUri: r['coverUri'] as String?,
+        ),
+    ];
+  }
+
+  /// Une page de médias, les plus récents d'abord — de tout le téléphone, ou
+  /// du seul dossier [bucketId], et du seul type [mediaType] (`image` ou
+  /// `video`).
   static Future<List<GalleryEntry>> list({
     required int offset,
     required int limit,
+    String? bucketId,
+    String? mediaType,
   }) async {
     final rows = await _channel.invokeListMethod<Map<Object?, Object?>>(
       'list',
-      {'offset': offset, 'limit': limit},
+      {
+        'offset': offset,
+        'limit': limit,
+        'bucketId': ?bucketId,
+        'mediaType': ?mediaType,
+      },
     );
     return [
       for (final r in rows ?? const <Map<Object?, Object?>>[])
@@ -70,4 +96,60 @@ class GalleryEntry {
 
   @override
   int get hashCode => uri.hashCode;
+}
+
+/// **Un dossier de la galerie**, tel que le `MediaStore` le range : Camera,
+/// Screenshots, WhatsApp Images… Le `MediaStore` les appelle des *buckets* ;
+/// l'utilisateur, lui, dit « album ».
+class GalleryAlbum {
+  const GalleryAlbum({
+    required this.id,
+    required this.name,
+    required this.count,
+    this.coverUri,
+  });
+
+  final String id;
+  final String name;
+  final int count;
+
+  /// Le média le plus récent du dossier — sa couverture.
+  final String? coverUri;
+}
+
+/// **Ce qu'on regarde dans la galerie** : tout, un type, ou un dossier.
+///
+/// Un seul objet pour le filtre entier : le dossier et le type changeaient
+/// autrefois séparément, et deux réglages d'une même chose finissent toujours
+/// par se contredire. Il porte son égalité de valeur — c'est ce qui permet à
+/// la cuisine de ne se recharger que s'il a **vraiment** changé.
+class GalleryFilter {
+  const GalleryFilter({this.album, this.mediaType});
+
+  /// Tout le téléphone, photos et vidéos mêlées.
+  static const tout = GalleryFilter();
+  static const photos = GalleryFilter(mediaType: 'image');
+  static const videos = GalleryFilter(mediaType: 'video');
+
+  final GalleryAlbum? album;
+
+  /// `image`, `video`, ou nul pour les deux.
+  final String? mediaType;
+
+  String get label =>
+      album?.name ??
+      switch (mediaType) {
+        'image' => 'Photos',
+        'video' => 'Vidéos',
+        _ => 'Récent',
+      };
+
+  @override
+  bool operator ==(Object other) =>
+      other is GalleryFilter &&
+      other.album?.id == album?.id &&
+      other.mediaType == mediaType;
+
+  @override
+  int get hashCode => Object.hash(album?.id, mediaType);
 }
