@@ -341,6 +341,7 @@ class AlbumDraft {
     this.media = const [],
     this.aspect = AlbumAspect.portrait,
     this.caption = '',
+    this.captionFont,
     this.isPublic = false,
     this.shareable = false,
     this.saveable = false,
@@ -359,6 +360,11 @@ class AlbumDraft {
   /// visionneur doit continuer à le lire.
   final AlbumAspect aspect;
   final String caption;
+
+  /// La police de la légende, choisie par l'auteur (voir [OverlayFont]).
+  /// Nulle = celle du texte courant.
+  final OverlayFont? captionFont;
+
   final bool isPublic;
   final bool shareable;
   final bool saveable;
@@ -371,6 +377,7 @@ class AlbumDraft {
     List<AlbumDraftMedia>? media,
     AlbumAspect? aspect,
     String? caption,
+    OverlayFont? captionFont,
     bool? isPublic,
     bool? shareable,
     bool? saveable,
@@ -378,6 +385,7 @@ class AlbumDraft {
     media: media ?? this.media,
     aspect: aspect ?? this.aspect,
     caption: caption ?? this.caption,
+    captionFont: captionFont ?? this.captionFont,
     isPublic: isPublic ?? this.isPublic,
     shareable: shareable ?? this.shareable,
     saveable: saveable ?? this.saveable,

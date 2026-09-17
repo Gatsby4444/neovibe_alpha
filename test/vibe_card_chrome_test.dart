@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/models/card.dart';
 import 'package:neovibe/core/widgets/vibe_face.dart';
 import 'package:neovibe/features/cards/flippable_card.dart';
+import 'package:neovibe/features/cards/held_pan.dart';
 import 'package:neovibe/features/library/feed/vibe_card_chrome.dart';
 
 /// Une fausse face : le format d'une Vibe, sans réseau ni clé.
@@ -94,9 +95,16 @@ void main() {
     final doigt = await tester.startGesture(
       tester.getCenter(find.byType(TiltableCard)),
     );
+    // Le doigt s'attarde avant de glisser : c'est ce qui donne la carte
+    // (voir [kTempsDePose]). Et chaque événement porte son heure — sans quoi
+    // ils auraient tous lieu à l'instant zéro, et une règle fondée sur le
+    // temps ne pourrait jamais devenir vraie.
+    var t = kTempsDePose + const Duration(milliseconds: 20);
+    await tester.pump(t);
     for (var i = 0; i < 30; i++) {
-      await doigt.moveBy(const Offset(4, 0));
-      await tester.pump();
+      t += const Duration(milliseconds: 16);
+      await doigt.moveBy(const Offset(4, 0), timeStamp: t);
+      await tester.pump(const Duration(milliseconds: 16));
     }
     final incline = tester.getRect(find.byKey(const ValueKey('actions')));
     await doigt.up();

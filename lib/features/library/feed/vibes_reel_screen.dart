@@ -14,8 +14,8 @@ import '../../../core/widgets/avatar.dart';
 import '../../../core/widgets/card_type_badge.dart';
 import '../../../core/widgets/like_burst.dart';
 import '../../../core/widgets/pinch_to_close.dart';
+import '../../../core/widgets/press_veil.dart';
 import '../../../core/widgets/pull_down_to_close.dart';
-import '../../../core/widgets/scroll_slop.dart';
 import '../../../core/widgets/system_bars.dart';
 import '../../../core/widgets/vibe_face.dart';
 import '../../connections/connections_repository.dart';
@@ -142,24 +142,23 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
                   behavior: ScrollConfiguration.of(
                     context,
                   ).copyWith(overscroll: false),
-                  // Plus de marge au doigt qui part de travers : ici, un
-                  // défilement déclenché par erreur CHANGE DE VIBE — la même
-                  // erreur qui, dans le fil, ne coûte que trois pixels
-                  // (Jay, 2026-09-17 ; le calcul est dans [ScrollSlop]).
-                  child: ScrollSlop(
-                    child: PageView.builder(
+                  // ⚠️ **Pas de seuil élargi ici.** On a essayé (v0.9.194) :
+                  // la carte gagnait alors trop souvent — Jay a tranché,
+                  // *« le nouveau système est pire »*. Ce qui départage n'est
+                  // pas la distance mais le **temps de pose**
+                  // (`HeldPanGestureRecognizer`), et il vit dans la carte,
+                  // donc partout à la fois.
+                  child: Builder(
+                    builder: (context) => PageView.builder(
                       controller: _pages,
                       scrollDirection: Axis.vertical,
                       onPageChanged: _onPage,
                       itemCount: _vibes.length,
-                      // La carte, elle, garde les réglages de l'appareil.
-                      itemBuilder: (context, i) => DeviceGestures(
-                        child: _ReelPage(
-                          key: ValueKey(_vibes[i].id),
-                          item: _vibes[i],
-                          active: i == _current,
-                          onDeleted: () => _removed(_vibes[i]),
-                        ),
+                      itemBuilder: (context, i) => _ReelPage(
+                        key: ValueKey(_vibes[i].id),
+                        item: _vibes[i],
+                        active: i == _current,
+                        onDeleted: () => _removed(_vibes[i]),
                       ),
                     ),
                   ),
@@ -277,8 +276,10 @@ class _Identity extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = owner?.displayName ?? '';
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    // Le voile dit au doigt qu'il a été entendu (Jay, 2026-09-17) ; clair,
+    // parce qu'il se pose sur une image.
+    return PressVeil(
+      clair: true,
       onTap: owner == null || mine ? null : () => openProfile(context, owner!),
       child: Row(
         children: [

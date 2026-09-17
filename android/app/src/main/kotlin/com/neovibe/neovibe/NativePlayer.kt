@@ -353,10 +353,16 @@ class NativePlayer(
                 stopTicking()
                 // Un échec DOIT se voir : un chargement sans fin est pire qu'une
                 // erreur (leçon du 2026-08-12, troisième exemplaire).
+                // ⚠️ **Le nombre de lecteurs vivants part avec l'erreur.**
+                // Un décodeur vidéo qui meurt pendant que le son continue a
+                // presque toujours la même cause : il n'y en avait plus de
+                // libre. Sans ce compte, l'écran noir ne dit rien ; avec, il
+                // se diagnostique du premier coup.
                 events.send(
                     mapOf(
                         "event" to "error",
                         "message" to (error.message ?: error.errorCodeName),
+                        "players" to players.size,
                     ),
                 )
             }

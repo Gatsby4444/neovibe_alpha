@@ -7,6 +7,7 @@ import '../../../core/typography.dart';
 import '../../../core/widgets/card_type_badge.dart';
 import '../feed/publication_caption.dart';
 import 'album_draft.dart';
+import 'overlay_model.dart';
 
 /// La dernière étape avant de publier : la **légende**, la **visibilité** et
 /// les **droits** — les mêmes que ceux d'une Card publiée (publique / selon
@@ -100,6 +101,50 @@ class _AlbumCaptionScreenState extends State<AlbumCaptionScreen> {
                 ),
               ),
             ],
+          ),
+          // Les polices : chacune écrit son propre nom, c'est le seul
+          // aperçu qui dise vraiment ce qu'on choisit.
+          SizedBox(
+            height: 42,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              children: [
+                for (final f in OverlayFont.values)
+                  Padding(
+                    padding: const EdgeInsets.only(right: NeoSpace.sm),
+                    child: GestureDetector(
+                      onTap: () => setState(
+                        () => _draft = _draft.copyWith(captionFont: f),
+                      ),
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: NeoSpace.md,
+                        ),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _draft.captionFont == f
+                                ? context.palette.ink
+                                : context.palette.ink.withValues(alpha: 0.2),
+                            width: _draft.captionFont == f ? 2 : 1,
+                          ),
+                        ),
+                        child: Text(
+                          f.label,
+                          style: TextStyle(
+                            fontFamily: f.family,
+                            fontWeight:
+                                FontWeight.values[(f.weight ~/ 100) - 1],
+                            fontSize: 14,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
           Padding(
             padding: const EdgeInsets.only(top: NeoSpace.xs),

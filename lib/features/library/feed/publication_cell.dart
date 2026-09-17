@@ -12,6 +12,7 @@ import '../../../core/utils/formats.dart';
 import '../../../core/widgets/avatar.dart';
 import '../../../core/widgets/card_type_badge.dart';
 import '../../../core/widgets/like_burst.dart';
+import '../../../core/widgets/press_veil.dart';
 import '../../../core/widgets/vibe_face.dart';
 import '../../connections/connections_repository.dart';
 import 'album_carousel.dart';
@@ -167,7 +168,7 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
         // n'est pas une publication qu'on commente, c'est une carte — le
         // texte y entrera par son propre éditeur, écrit sur l'image.
         if (item.isPublication && (item.caption?.isNotEmpty ?? false))
-          PublicationCaption(author: owner?.displayName, text: item.caption!),
+          PublicationCaption(text: item.caption!, font: item.captionFont),
         const SizedBox(height: NeoSpace.md),
       ],
     );
@@ -267,9 +268,11 @@ class _Header extends StatelessWidget {
       child: Row(
         children: [
           // Seule l'identité mène au profil : les boutons, à côté, gardent
-          // leur propre geste.
+          // leur propre geste. Le voile dit au doigt qu'il a été entendu —
+          // l'onde d'un InkWell se peignait DERRIÈRE l'avatar et le pseudo,
+          // donc elle ne se voyait pas (Jay, 2026-09-17).
           Expanded(
-            child: InkWell(
+            child: PressVeil(
               onTap: owner == null || mine
                   ? null
                   : () => openProfile(context, owner!),

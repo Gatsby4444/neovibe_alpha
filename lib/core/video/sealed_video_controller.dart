@@ -19,6 +19,7 @@ class SealedVideoValue {
     this.isPlaying = false,
     this.isBuffering = false,
     this.isCompleted = false,
+    this.error,
   });
 
   final bool isInitialized;
@@ -33,6 +34,15 @@ class SealedVideoValue {
   final Duration buffered;
   final bool isPlaying;
   final bool isBuffering;
+
+  /// **Ce qui a cassé, s'il y a cassé.**
+  ///
+  /// ⚠️ Une erreur qui arrive APRÈS l'ouverture était jetée : le commentaire
+  /// disait « la face vidéo a déjà de quoi s'afficher ». C'est faux dans le
+  /// seul cas qui compte — quand le décodeur vidéo meurt, il ne reste rien à
+  /// afficher, **et le son continue**. C'était l'écran noir de Jay du
+  /// 2026-09-17 : la panne était connue du lecteur, et personne ne la lisait.
+  final Object? error;
 
   /// La lecture a atteint la fin. Sert au budget de vues, qui ne doit se
   /// décompter qu'une fois.
@@ -60,6 +70,20 @@ class SealedVideoValue {
     isPlaying: isPlaying ?? this.isPlaying,
     isBuffering: isBuffering ?? this.isBuffering,
     isCompleted: isCompleted ?? this.isCompleted,
+    error: error,
+  );
+
+  /// La même valeur, **avec son échec**. Un `copyWith` ne peut pas poser un
+  /// champ de nul à non nul sans ambiguïté : d'où une méthode à part.
+  SealedVideoValue withError(Object error) => SealedVideoValue(
+    isInitialized: isInitialized,
+    size: size,
+    rotationCorrection: rotationCorrection,
+    duration: duration,
+    position: position,
+    buffered: buffered,
+    isCompleted: isCompleted,
+    error: error,
   );
 }
 
@@ -364,18 +388,24 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
       case 'completed':
         value = value.copyWith(isCompleted: true);
       case 'error':
+        final vivants = map['players'] as int?;
         _onError(
           PlatformException(
             code: 'PLAYBACK_ERROR',
-            message: map['message'] as String?,
+            message: [
+              map['message'] as String? ?? 'inconnue',
+              if (vivants != null) '($vivants lecteurs vivants)',
+            ].join(' '),
           ),
         );
     }
   }
 
   void _onError(Object error, [StackTrace? stack]) {
-    // Avant l'ouverture, l'échec part par la future ; après, il n'y a plus
-    // personne pour l'attendre — mais la face vidéo a déjà de quoi s'afficher.
+    // Avant l'ouverture, l'échec part par la future. **Après, il entre dans
+    // la valeur** : c'est le seul moyen pour que la face l'apprenne — sinon
+    // elle reste noire pendant que le son joue.
+    value = value.withError(error);
     if (_ready?.isCompleted == false) _ready!.completeError(error);
   }
 

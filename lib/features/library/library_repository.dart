@@ -14,6 +14,7 @@ import '../../core/models/library_item.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
+import 'album_editor/album_draft.dart';
 
 /// Bibliothèque d'un utilisateur (la RLS applique les droits d'accès :
 /// on reçoit une liste vide si l'accès est refusé).
@@ -104,6 +105,7 @@ class LibraryRepository {
     aspect: album.aspect,
     media: album.media,
     caption: album.caption,
+    captionFont: album.captionFont,
     isPublic: album.isPublic,
     shareable: album.shareable,
     saveable: album.saveable,
@@ -116,12 +118,13 @@ class LibraryRepository {
     CardType cardType = CardType.standard,
     AlbumAspect? aspect,
     String? caption,
+    String? captionFont,
     required bool isPublic,
     required bool shareable,
     required bool saveable,
     void Function(int done, int total)? onProgress,
   }) async {
-    assert(media.isNotEmpty && media.length <= 11);
+    assert(media.isNotEmpty && media.length <= kAlbumMaxMedia);
     final me = _client.auth.currentUser!.id;
     final itemId = newUuid();
 
@@ -189,6 +192,7 @@ class LibraryRepository {
         'p_card_type': cardType.dbValue,
         'p_media': rows,
         'p_caption': caption,
+        'p_caption_font': captionFont,
         'p_is_public': isPublic,
         'p_shareable': shareable,
         'p_saveable': saveable,
@@ -334,13 +338,17 @@ class AlbumUpload {
     required this.media,
     required this.aspect,
     this.caption,
+    this.captionFont,
     this.isPublic = false,
     this.shareable = false,
     this.saveable = false,
-  }) : assert(media.length >= 1 && media.length <= 11);
+  }) : assert(media.length >= 1 && media.length <= kAlbumMaxMedia);
   final List<AlbumMediaUpload> media;
   final AlbumAspect aspect;
   final String? caption;
+
+  /// Le nom de la police choisie pour la légende (voir [OverlayFont]).
+  final String? captionFont;
   final bool isPublic;
   final bool shareable;
   final bool saveable;

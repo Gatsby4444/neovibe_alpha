@@ -153,6 +153,7 @@ class LibraryItem {
     this.cardType = CardType.standard,
     this.aspect,
     this.caption,
+    this.captionFont,
     this.isPublic = false,
     this.shareable = false,
     this.saveable = false,
@@ -177,6 +178,12 @@ class LibraryItem {
   final List<LibraryMedia> media;
 
   final String? caption;
+
+  /// **La police choisie par l'auteur** pour sa légende (le nom d'une
+  /// [OverlayFont]), nulle = celle du texte courant. Jay, 2026-09-17 :
+  /// *« ce serait bien de pouvoir choisir la police d'écriture de la
+  /// description »* — et c'est l'auteur qui choisit, à la publication.
+  final String? captionFont;
 
   /// Publication publique : visible par toute personne accédant au profil
   /// par un moyen légitime (un rang au-dessus de « connexions »).
@@ -240,6 +247,7 @@ class LibraryItem {
       ),
       media: rows,
       caption: json['caption'] as String?,
+      captionFont: json['caption_font'] as String?,
       isPublic: json['is_public'] as bool? ?? false,
       shareable:
           (json['contents'] as Map<String, dynamic>?)?['shareable'] as bool? ??
@@ -280,6 +288,7 @@ class LibraryItem {
       other.aspect == aspect &&
       _sameMedia(other.media, media) &&
       other.caption == caption &&
+      other.captionFont == captionFont &&
       other.isPublic == isPublic &&
       other.shareable == shareable &&
       other.saveable == saveable &&
@@ -303,6 +312,7 @@ class LibraryItem {
     aspect,
     Object.hashAll(media),
     caption,
+    captionFont,
     isPublic,
     shareable,
     saveable,

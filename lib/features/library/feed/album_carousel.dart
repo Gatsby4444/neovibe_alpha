@@ -60,6 +60,24 @@ class _AlbumCarouselState extends ConsumerState<AlbumCarousel> {
     expiresAt: null,
   );
 
+  /// La couverture d'une vidéo, s'il y en a une : la même clé, la même
+  /// place de cache que le poster déposé à la publication.
+  ContentFace? _posterSpec(LibraryMedia m) {
+    final poster = m.posterPath;
+    if (!m.isVideo || poster == null) return null;
+    return (
+      contentId: widget.item.id,
+      ownerId: widget.item.ownerId,
+      bucket: 'library',
+      path: poster,
+      slot: ContentSlot.poster(m.slot),
+      isVideo: false,
+      encrypted: widget.item.encrypted,
+      batchOwner: widget.item.ownerId,
+      expiresAt: null,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
@@ -83,6 +101,9 @@ class _AlbumCarouselState extends ConsumerState<AlbumCarousel> {
             },
             itemBuilder: (context, i) => _Page(
               spec: _spec(media[i]),
+              // La couverture d'une vidéo : ce qu'on montre quand son
+              // lecteur n'existe pas.
+              poster: _posterSpec(media[i]),
               isVideo: media[i].isVideo,
               playing: widget.active && i == _current,
               muted: _muted,
@@ -153,9 +174,18 @@ class Dots extends StatelessWidget {
   }
 }
 
+/// Une page du carrousel.
+///
+/// ⚠️ **Un lecteur vidéo n'est créé que pour la page qu'on REGARDE.**
+/// Jusqu'au 2026-09-17, chaque page construite par le `PageView` — donc les
+/// voisines aussi — ouvrait le sien. Un lecteur, c'est un décodeur matériel,
+/// et un téléphone en a un nombre fini : passé la limite, le décodeur vidéo
+/// échoue **pendant que le son continue**. C'est l'écran noir de Jay.
+/// Les autres pages montrent leur couverture, qui est une image.
 class _Page extends ConsumerWidget {
   const _Page({
     required this.spec,
+    required this.poster,
     required this.isVideo,
     required this.playing,
     required this.muted,
@@ -163,6 +193,9 @@ class _Page extends ConsumerWidget {
   });
 
   final ContentFace spec;
+
+  /// La couverture, si c'est une vidéo qui en a une.
+  final ContentFace? poster;
   final bool isVideo;
   final bool playing;
   final bool muted;
@@ -170,6 +203,31 @@ class _Page extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Une vidéo qu'on ne regarde pas : sa couverture, et rien d'autre.
+    if (isVideo && !playing && poster != null) {
+      final couverture = ref.watch(contentFaceProvider(poster!));
+      return couverture.when(
+        loading: () => const ColoredBox(color: Colors.black),
+        error: (e, _) => const ColoredBox(color: Colors.black),
+        data: (m) => Stack(
+          fit: StackFit.expand,
+          children: [
+            Image.memory(
+              m.photoBytes!,
+              fit: BoxFit.cover,
+              gaplessPlayback: true,
+            ),
+            const Center(
+              child: Icon(
+                Icons.play_circle_outline,
+                color: Colors.white70,
+                size: 46,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     final opened = ref.watch(contentFaceProvider(spec));
     return opened.when(
       loading: () => const Center(
@@ -231,6 +289,9 @@ class _VideoState extends State<_Video> {
   @override
   void initState() {
     super.initState();
+    // Même écoute que la face d'une Vibe : un décodeur qui meurt doit se
+    // voir, pas laisser une image noire avec du son.
+    _controller.addListener(_onValeur);
     _controller
         .initialize()
         .then((_) {
@@ -242,6 +303,11 @@ class _VideoState extends State<_Video> {
         .catchError((Object e) {
           if (mounted) setState(() => _error = e);
         });
+  }
+
+  void _onValeur() {
+    final e = _controller.value.error;
+    if (e != null && _error == null && mounted) setState(() => _error = e);
   }
 
   void _apply() {
@@ -258,6 +324,7 @@ class _VideoState extends State<_Video> {
 
   @override
   void dispose() {
+    _controller.removeListener(_onValeur);
     _controller.dispose();
     super.dispose();
   }

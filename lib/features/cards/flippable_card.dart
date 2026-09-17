@@ -3,7 +3,10 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
+import 'package:flutter/gestures.dart';
+
 import '../../core/motion.dart';
+import 'held_pan.dart';
 
 /// **Le geste d'une carte, et comment il cohabite avec l'écran qui la porte.**
 ///
@@ -113,10 +116,19 @@ class _TiltableCardState extends State<TiltableCard>
       ..rotateX(_tiltX)
       ..rotateY(_tiltY);
 
-    return GestureDetector(
-      onPanStart: _onPanStart,
-      onPanUpdate: _onPanUpdate,
-      onPanEnd: _onPanEnd,
+    return RawGestureDetector(
+      gestures: {
+        // Le geste libre de la carte n'entre dans la course qu'après un
+        // temps de pose (voir [HeldPanGestureRecognizer]).
+        HeldPanGestureRecognizer:
+            GestureRecognizerFactoryWithHandlers<HeldPanGestureRecognizer>(
+              () => HeldPanGestureRecognizer(debugOwner: this),
+              (instance) => instance
+                ..onStart = _onPanStart
+                ..onUpdate = _onPanUpdate
+                ..onEnd = _onPanEnd,
+            ),
+      },
       child: Transform(
         alignment: Alignment.center,
         transform: matrix,
@@ -130,7 +142,8 @@ class _TiltableCardState extends State<TiltableCard>
 /// - le doigt entraîne la carte : rotation Y continue + légère inclinaison X,
 /// - au relâchement, un angle suffisant ou un swipe (vélocité) termine le
 ///   retournement ; sinon la carte revient à plat sur sa face courante,
-/// - un tap déclenche un retournement animé complet.
+/// - ⚠️ **le tap ne retourne plus** (Jay, 2026-09-17) : il appartient à
+///   l'écran (ouvrir le plein écran), la carte se retourne au doigt.
 class FlippableCard extends StatefulWidget {
   const FlippableCard({
     super.key,
@@ -300,12 +313,6 @@ class _FlippableCardState extends State<FlippableCard>
     _settleTo(target);
   }
 
-  /// Tap : retournement animé complet vers la face opposée.
-  void _flip() {
-    _controller.stop();
-    _settleTo(((_angle / math.pi).round() + 1) * math.pi);
-  }
-
   void _settleTo(double target) {
     _startAngle = _angle;
     _targetAngle = target.toDouble();
@@ -353,26 +360,42 @@ class _FlippableCardState extends State<FlippableCard>
 
     // Sur un axe contraint, on utilise les reconnaisseurs d'axe : le geste
     // perpendiculaire reste disponible pour le défilement de la liste.
+    // ⚠️ **Le tap ne retourne plus la carte** (Jay, 2026-09-17). Il ne reste
+    // que ce que l'écran en fait — ouvrir le plein écran, par exemple. Une
+    // carte se retourne au doigt, comme une vraie : c'était deux gestes pour
+    // une même chose, et le tap gagnait des retournements qu'on ne voulait
+    // pas.
     return switch (widget.dragAxis) {
       Axis.horizontal => GestureDetector(
-        onTap: widget.onTap ?? _flip,
+        onTap: widget.onTap,
         onHorizontalDragStart: _onPanStart,
         onHorizontalDragUpdate: _onPanUpdate,
         onHorizontalDragEnd: _onPanEnd,
         child: card,
       ),
       Axis.vertical => GestureDetector(
-        onTap: widget.onTap ?? _flip,
+        onTap: widget.onTap,
         onVerticalDragStart: _onPanStart,
         onVerticalDragUpdate: _onPanUpdate,
         onVerticalDragEnd: _onPanEnd,
         child: card,
       ),
-      null => GestureDetector(
-        onTap: widget.onTap ?? _flip,
-        onPanStart: _onPanStart,
-        onPanUpdate: _onPanUpdate,
-        onPanEnd: _onPanEnd,
+      null => RawGestureDetector(
+        gestures: {
+          TapGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                () => TapGestureRecognizer(debugOwner: this),
+                (instance) => instance.onTap = widget.onTap,
+              ),
+          HeldPanGestureRecognizer:
+              GestureRecognizerFactoryWithHandlers<HeldPanGestureRecognizer>(
+                () => HeldPanGestureRecognizer(debugOwner: this),
+                (instance) => instance
+                  ..onStart = _onPanStart
+                  ..onUpdate = _onPanUpdate
+                  ..onEnd = _onPanEnd,
+              ),
+        },
         child: card,
       ),
     };

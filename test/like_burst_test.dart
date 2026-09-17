@@ -111,10 +111,7 @@ void main() {
             home: Scaffold(
               body: ListView(
                 children: [
-                  SizedBox(
-                    width: 380,
-                    child: PublicationCaption(author: 'Charles', text: texte),
-                  ),
+                  SizedBox(width: 380, child: PublicationCaption(text: texte)),
                 ],
               ),
             ),

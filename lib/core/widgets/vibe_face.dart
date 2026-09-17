@@ -375,6 +375,10 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
   @override
   void initState() {
     super.initState();
+    // ⚠️ **On écoute le lecteur, pas seulement son ouverture.** Un décodeur
+    // peut mourir en cours de route — le son continue, l'image devient noire
+    // (Jay, 2026-09-17). Sans cette écoute, l'échec n'arrive nulle part.
+    _controller.addListener(_onValeur);
     _controller
         .initialize()
         .then((_) {
@@ -389,6 +393,11 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
         });
   }
 
+  void _onValeur() {
+    final e = _controller.value.error;
+    if (e != null && _error == null && mounted) setState(() => _error = e);
+  }
+
   @override
   void didUpdateWidget(covariant VibeVideoFace oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -399,6 +408,7 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
 
   @override
   void dispose() {
+    _controller.removeListener(_onValeur);
     _controller.dispose();
     super.dispose();
   }

@@ -110,6 +110,7 @@ class AlbumPublishQueue extends Notifier<AlbumPublishState> {
               caption: draft.caption.trim().isEmpty
                   ? null
                   : draft.caption.trim(),
+              captionFont: draft.captionFont?.name,
               isPublic: draft.isPublic,
               shareable: draft.shareable,
               saveable: draft.saveable,
