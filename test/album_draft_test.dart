@@ -85,6 +85,33 @@ void main() {
       expect(carre.withAspect(AlbumAspect.square), same(carre));
     });
 
+    test('le mode Flow : 9:16, une vidéo, trois minutes, pas de choix', () {
+      // La troisième porte de « Publier » (Jay, 2026-09-18).
+      final f = const AlbumDraft(
+        aspect: AlbumAspect.reel,
+        flow: true,
+      ).add([video('v', 5000), video('w', 5000)]);
+      expect(AlbumAspect.reel.ratio, 9 / 16);
+      expect(f.media.length, 1, reason: 'un Flow : UNE vidéo');
+      expect(f.isFull, isTrue);
+      expect(f.maxVideoMs, kFlowMaxVideoMs);
+      expect(kFlowMaxVideoMs, 180000);
+      // Le format ne se change pas : un Flow est en 9:16, point.
+      expect(f.withAspect(AlbumAspect.square).aspect, AlbumAspect.reel);
+    });
+
+    test('« Éditeur Flow » convertit sur place, cadrages remis', () {
+      final d = const AlbumDraft(aspect: AlbumAspect.landscape)
+          .add([video('v', 5000)])
+          .update('v', (m) => m.copyWith(crop: const CropSpec(zoom: 2)));
+      final f = d.enFlow();
+      expect(f.flow, isTrue);
+      expect(f.aspect, AlbumAspect.reel);
+      expect(f.media.single.crop, CropSpec.none);
+      // Une publication ordinaire, elle, reste à une minute.
+      expect(d.maxVideoMs, kAlbumMaxVideoMs);
+    });
+
     test('une vidéo toute seule est reconnue : ce sera un Flow', () {
       expect(const AlbumDraft().add([video('v', 5000)]).videoSeule, isTrue);
       // Accompagnée, c'est un carrousel : ça passe.

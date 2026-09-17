@@ -491,3 +491,18 @@ Catalogue natif à jour (`docs/parties-natives-par-os.md`), avec l'équivalent
 iOS : `PHAssetCollection` + un prédicat sur `mediaType` — l'agrégation y est
 native, la question du `GROUP BY` ne s'y pose pas.
 
+### 9.11 Le Flow, format complet — v0.9.200 (2026-09-18)
+
+Le Flow n'est plus seulement une requalification : c'est une **troisième
+porte** de « Publier ». Une vidéo, **9:16**, jusqu'à **3 minutes**, les mêmes
+outils que la publication sans le choix du format. Un Flow obtenu par la voie
+publication (une vidéo seule) est annoncé **avant** l'envoi : passer à
+l'éditeur Flow (9:16, plein écran) ou continuer (format d'origine, bandes
+noires en plein écran — comme Instagram quand un Reel n'est pas vertical).
+Dans le fil, rien n'est plus haut que 4:5 : un Flow 9:16 s'y recadre comme une
+Vibe.
+
+Base : `(9, 16)` admis pour `flow` seulement ; `duration_ms ≤ 180000` dans la
+table, et **la RPC tranche par kind** (60 s / 180 s). Détail des règles :
+`album_draft.dart` (`flow`, `maxVideoMs`, `enFlow`).
+

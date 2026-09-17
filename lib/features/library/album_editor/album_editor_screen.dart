@@ -236,6 +236,47 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   }
 
   Future<void> _next() async {
+    // Une vidéo seule publiée par la voie « publication » devient un Flow :
+    // on le DIT avant, et on propose l'éditeur Flow (9:16, plein écran).
+    // Ignorer est permis — le Flow garde alors son format d'origine, avec
+    // des bandes noires en plein écran, comme Instagram (Jay, 2026-09-18).
+    if (!_draft.flow && _draft.videoSeule) {
+      final choix = await showDialog<String>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Ta vidéo deviendra un Flow'),
+          content: const Text(
+            'Une vidéo publiée seule est un Flow : elle se lira en plein '
+            'écran, comme un Reel.\n\n'
+            'Passer à l\'éditeur Flow la cadre en 9:16 pour prendre tout '
+            'l\'écran. Continuer la garde telle quelle — avec des bandes '
+            'noires autour, en plein écran.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, 'continuer'),
+              child: const Text('Continuer'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, 'flow'),
+              child: const Text('Éditeur Flow'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted || choix == null) return;
+      if (choix == 'flow') {
+        // Sur place : le même média, le format 9:16, les cadrages remis.
+        setState(() {
+          _draft = _draft.enFlow();
+          _current = 0;
+          _tool = null;
+          _selectedOverlay = null;
+        });
+        _images.invalidate(_media);
+        return;
+      }
+    }
     final result = await Navigator.of(context).push<AlbumDraft>(
       MaterialPageRoute(
         builder: (_) => AlbumCaptionScreen(
@@ -355,7 +396,12 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
                 }),
                 onAdd: _draft.isFull ? null : _add,
               ),
-              _Toolbar(video: media.isVideo, onTool: _open),
+              _Toolbar(
+                video: media.isVideo,
+                // Un Flow est en 9:16, point : pas de choix de format.
+                format: !_draft.flow,
+                onTool: _open,
+              ),
             ] else
               _Panel(
                 title: switch (tool) {
@@ -387,6 +433,7 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
                   ),
                   _Tool.rogner => _TrimPanel(
                     media: media,
+                    maxMs: _draft.maxVideoMs,
                     onTrim: (t) => _update((m) => m.copyWith(trim: t)),
                   ),
                   _ => const SizedBox.shrink(),
@@ -731,9 +778,16 @@ class _FileThumb extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _Toolbar extends StatelessWidget {
-  const _Toolbar({required this.video, required this.onTool});
+  const _Toolbar({
+    required this.video,
+    required this.onTool,
+    this.format = true,
+  });
 
   final bool video;
+
+  /// L'outil Format (le ratio de la publication). Absent pour un Flow.
+  final bool format;
   final ValueChanged<_Tool> onTool;
 
   @override
@@ -744,7 +798,7 @@ class _Toolbar extends StatelessWidget {
       (_Tool.sticker, Icons.emoji_emotions_outlined, 'Superposition'),
       (_Tool.filtre, Icons.auto_awesome_outlined, 'Filtre'),
       (_Tool.modifier, Icons.tune, 'Modifier'),
-      (_Tool.cadrer, Icons.crop, 'Format'),
+      if (format) (_Tool.cadrer, Icons.crop, 'Format'),
       if (video) (_Tool.rogner, Icons.content_cut, 'Rogner'),
     ];
     return SafeArea(
@@ -1282,10 +1336,17 @@ class _AdjustPanelState extends State<_AdjustPanel> {
 // ---------------------------------------------------------------------------
 
 class _TrimPanel extends StatefulWidget {
-  const _TrimPanel({required this.media, required this.onTrim});
+  const _TrimPanel({
+    required this.media,
+    required this.onTrim,
+    this.maxMs = kAlbumMaxVideoMs,
+  });
 
   final AlbumDraftMedia media;
   final ValueChanged<VideoTrim> onTrim;
+
+  /// Une minute pour une publication, trois pour un Flow.
+  final int maxMs;
 
   @override
   State<_TrimPanel> createState() => _TrimPanelState();
@@ -1352,16 +1413,19 @@ class _TrimPanelState extends State<_TrimPanel> {
                 onChanged: (v) {
                   var s = v.start.round();
                   var e = v.end.round();
-                  // Au plus 60 s : la borne qu'on n'a pas touchée suit.
-                  if (e - s > kAlbumMaxVideoMs) {
+                  // Au plus la limite du format : la borne qu'on n'a pas
+                  // touchée suit.
+                  if (e - s > widget.maxMs) {
                     if (s != t.startMs) {
-                      e = s + kAlbumMaxVideoMs;
+                      e = s + widget.maxMs;
                     } else {
-                      s = e - kAlbumMaxVideoMs;
+                      s = e - widget.maxMs;
                     }
                   }
                   widget.onTrim(
-                    t.copyWith(startMs: s, endMs: e).normalized(m.durationMs!),
+                    t
+                        .copyWith(startMs: s, endMs: e)
+                        .normalized(m.durationMs!, maxMs: widget.maxMs),
                   );
                 },
               ),

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -87,8 +89,13 @@ class _AlbumCarouselState extends ConsumerState<AlbumCarousel> {
     if (_current + 1 < media.length) {
       ref.watch(contentFaceProvider(_spec(media[_current + 1])));
     }
+    // Dans le fil, rien n'est plus haut que 4:5 : un Flow en 9:16 s'y
+    // recadre comme une Vibe (Jay : « dans le fil pas de bandes noires, le
+    // fil s'adapte au format de la vidéo »). Son plein écran, lui, montre
+    // tout.
+    final ratio = (item.aspect ?? AlbumAspect.portrait).ratio;
     return AspectRatio(
-      aspectRatio: (item.aspect ?? AlbumAspect.portrait).ratio,
+      aspectRatio: math.max(ratio, kVibeFeedRatio),
       child: Stack(
         fit: StackFit.expand,
         children: [

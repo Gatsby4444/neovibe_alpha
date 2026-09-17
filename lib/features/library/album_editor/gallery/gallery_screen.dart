@@ -31,10 +31,15 @@ class GalleryScreen extends StatefulWidget {
     required this.max,
     this.single = false,
     this.allowCamera = true,
+    this.videosOnly = false,
   });
 
   final int max;
   final bool single;
+
+  /// Un Flow ne se fait qu'avec une vidéo : la galerie s'ouvre sur les
+  /// vidéos, et n'offre pas les photos.
+  final bool videosOnly;
 
   /// L'appareil photo en première case de la grille.
   final bool allowCamera;
@@ -44,7 +49,8 @@ class GalleryScreen extends StatefulWidget {
 }
 
 class _GalleryScreenState extends State<GalleryScreen> {
-  final _feed = GalleryFeed();
+  late final _feed = GalleryFeed()
+    ..filter = widget.videosOnly ? GalleryFilter.videos : GalleryFilter.tout;
   final _selected = <GalleryEntry>[];
   GalleryEntry? _shown;
   var _permission = _Permission.pending;

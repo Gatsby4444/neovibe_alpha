@@ -85,6 +85,7 @@ class AlbumPublishQueue extends Notifier<AlbumPublishState> {
             draft.media[i],
             draft.aspect,
             dir,
+            maxVideoMs: draft.maxVideoMs,
             onProgress: (p) => state = AlbumPublishState(
               phase: AlbumPublishPhase.rendering,
               done: i,

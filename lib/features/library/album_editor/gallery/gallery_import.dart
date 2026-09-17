@@ -30,6 +30,7 @@ abstract final class GalleryImport {
     BuildContext context,
     List<GalleryEntry> entries, {
     required int freeSlots,
+    int maxVideoMs = kAlbumMaxVideoMs,
   }) async {
     final files = <File>[];
     for (final e in entries) {
@@ -40,7 +41,12 @@ abstract final class GalleryImport {
       }
     }
     if (!context.mounted) return const [];
-    return fromFiles(context, files, freeSlots: freeSlots);
+    return fromFiles(
+      context,
+      files,
+      freeSlots: freeSlots,
+      maxVideoMs: maxVideoMs,
+    );
   }
 
   /// Des fichiers locaux (copies de la galerie, ou prises de l'appareil
@@ -49,6 +55,9 @@ abstract final class GalleryImport {
     BuildContext context,
     List<File> files, {
     required int freeSlots,
+    // Une minute pour une publication, trois pour un Flow. Au-delà, on
+    // propose la découpe — sauf s'il n'y a qu'une place : alors on tronque.
+    int maxVideoMs = kAlbumMaxVideoMs,
   }) async {
     final out = <AlbumDraftMedia>[];
     var illisibles = 0;
@@ -85,12 +94,16 @@ abstract final class GalleryImport {
         durationMs: duration,
         trim: trim,
       );
-      if (duration <= kAlbumMaxVideoMs) {
+      if (duration <= maxVideoMs) {
         out.add(video(null));
         continue;
       }
       final places = freeSlots - out.length;
-      final parts = AlbumDraft.splitPlan(duration, freeSlots: places);
+      final parts = AlbumDraft.splitPlan(
+        duration,
+        freeSlots: places,
+        maxMs: maxVideoMs,
+      );
       if (!context.mounted) return out;
       final decoupe =
           parts.length > 1 &&
@@ -103,7 +116,7 @@ abstract final class GalleryImport {
       if (decoupe) {
         out.addAll(parts.map(video));
       } else {
-        out.add(video(VideoTrim(startMs: 0, endMs: kAlbumMaxVideoMs)));
+        out.add(video(VideoTrim(startMs: 0, endMs: maxVideoMs)));
       }
     }
     if (!context.mounted) return out;

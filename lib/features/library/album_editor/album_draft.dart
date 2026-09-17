@@ -23,6 +23,10 @@ import 'overlay_model.dart';
 /// laisse composer ce que le serveur refusera.
 const kAlbumMaxMedia = 20;
 
+/// **Un Flow va jusqu'à trois minutes** (Jay, 2026-09-18) — la base tient la
+/// même règle, par kind.
+const kFlowMaxVideoMs = 180000;
+
 /// Le plafond de Jay : « vidéo de max 1 min par contenu ».
 const kAlbumMaxVideoMs = 60000;
 
@@ -340,6 +344,7 @@ class AlbumDraft {
   const AlbumDraft({
     this.media = const [],
     this.aspect = AlbumAspect.portrait,
+    this.flow = false,
     this.caption = '',
     this.captionFont,
     this.isPublic = false,
@@ -348,6 +353,15 @@ class AlbumDraft {
   });
 
   final List<AlbumDraftMedia> media;
+
+  /// **C'est un Flow, édité comme tel** (Jay, 2026-09-18) : une seule vidéo,
+  /// le format [AlbumAspect.reel] imposé, jusqu'à [kFlowMaxVideoMs]. La
+  /// troisième porte de « Publier », à côté de la Vibe et de la publication.
+  ///
+  /// ⚠️ Ce n'est PAS la même chose qu'une publication d'une seule vidéo,
+  /// qui devient un Flow *au format d'origine* (requalification) : celle-ci
+  /// garde ses bandes noires en plein écran, celui-là remplit l'écran.
+  final bool flow;
 
   /// **Le format de la publication entière** : 4:5, 1:1 ou 1,91:1, jamais
   /// un par média (règle d'Instagram, redonnée par Jay le 2026-09-17 : *« le
@@ -369,7 +383,24 @@ class AlbumDraft {
   final bool shareable;
   final bool saveable;
 
-  int get freeSlots => kAlbumMaxMedia - media.length;
+  int get freeSlots => (flow ? 1 : kAlbumMaxMedia) - media.length;
+
+  /// La durée maximale d'une vidéo, selon le format.
+  int get maxVideoMs => flow ? kFlowMaxVideoMs : kAlbumMaxVideoMs;
+
+  /// **Devenir un Flow** : le format 9:16, une seule vidéo, les cadrages
+  /// remis (ils étaient relatifs à un autre cadre). C'est ce que « Passer à
+  /// l'éditeur Flow » fait, sans quitter l'éditeur.
+  AlbumDraft enFlow() => AlbumDraft(
+    media: [for (final m in media.take(1)) m.copyWith(crop: CropSpec.none)],
+    aspect: AlbumAspect.reel,
+    flow: true,
+    caption: caption,
+    captionFont: captionFont,
+    isPublic: isPublic,
+    shareable: shareable,
+    saveable: saveable,
+  );
   bool get isFull => freeSlots <= 0;
   bool get isEmpty => media.isEmpty;
 
@@ -384,6 +415,7 @@ class AlbumDraft {
   }) => AlbumDraft(
     media: media ?? this.media,
     aspect: aspect ?? this.aspect,
+    flow: flow,
     caption: caption ?? this.caption,
     captionFont: captionFont ?? this.captionFont,
     isPublic: isPublic ?? this.isPublic,
@@ -400,7 +432,7 @@ class AlbumDraft {
   /// à SON cadre (zoom et point de visée dans le rectangle inscrit) : gardé
   /// tel quel dans un cadre d'un autre format, il ne montre plus ce que
   /// l'utilisateur avait choisi — il montre autre chose, sans le dire.
-  AlbumDraft withAspect(AlbumAspect a) => a == aspect
+  AlbumDraft withAspect(AlbumAspect a) => a == aspect || flow
       ? this
       : copyWith(
           aspect: a,

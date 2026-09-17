@@ -43,8 +43,15 @@ abstract final class AlbumExport {
     AlbumAspect aspect,
     Directory dir, {
     void Function(double progress)? onProgress,
+    int maxVideoMs = kAlbumMaxVideoMs,
   }) => m.isVideo
-      ? _renderVideo(m, aspect, dir, onProgress: onProgress)
+      ? _renderVideo(
+          m,
+          aspect,
+          dir,
+          onProgress: onProgress,
+          maxVideoMs: maxVideoMs,
+        )
       : _renderPhoto(m, aspect, dir);
 
   /// Les images des autocollants d'un média, décodées pour l'export.
@@ -139,6 +146,7 @@ abstract final class AlbumExport {
     AlbumAspect aspect,
     Directory dir, {
     void Function(double progress)? onProgress,
+    int maxVideoMs = kAlbumMaxVideoMs,
   }) async {
     final (outW, outH) = outputSize(aspect);
     final corners = CropGeometry.corners(m, aspect.ratio);
@@ -199,7 +207,7 @@ abstract final class AlbumExport {
     return AlbumMediaUpload(
       file,
       isVideo: true,
-      durationMs: math.min(result.durationMs, kAlbumMaxVideoMs),
+      durationMs: math.min(result.durationMs, maxVideoMs),
       poster: poster,
       width: outW,
       height: outH,

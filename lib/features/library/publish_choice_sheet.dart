@@ -9,7 +9,9 @@ import 'album_editor/album_flow.dart';
 ///
 /// - **Une Vibe** — notre caméra, restreinte à la publication (pas de story,
 ///   pas d'amis : la destination est imposée) ;
-/// - **Photos ou vidéos** — l'éditeur d'album : jusqu'à 11 médias feuilletés.
+/// - **Photos ou vidéos** — l'éditeur d'album : jusqu'à 20 médias feuilletés ;
+/// - **Un Flow** — une vidéo verticale, 9:16, jusqu'à 3 minutes (Jay,
+///   2026-09-18) : *« à la base un Reel c'est du 9:16 »*.
 ///
 /// *« On construit un système hybride en promouvant le plus notre format Card
 /// mais en gardant la possibilité de publier du contenu vertical. »* La Vibe
@@ -42,10 +44,19 @@ Future<void> showPublishChoice(BuildContext context) async {
             leading: const Icon(Icons.photo_library_outlined),
             title: const Text('Photos ou vidéos'),
             subtitle: Text(
-              'Jusqu\'à 11, depuis la galerie ou l\'appareil photo',
+              'Jusqu\'à 20, depuis la galerie ou l\'appareil photo',
               style: TextStyle(color: context.muted),
             ),
             onTap: () => Navigator.pop(context, _Choix.album),
+          ),
+          ListTile(
+            leading: const Icon(Icons.play_circle_outline),
+            title: const Text('Un Flow'),
+            subtitle: Text(
+              'Une vidéo verticale, plein écran, jusqu\'à 3 minutes',
+              style: TextStyle(color: context.muted),
+            ),
+            onTap: () => Navigator.pop(context, _Choix.flow),
           ),
           const SizedBox(height: 8),
         ],
@@ -62,7 +73,9 @@ Future<void> showPublishChoice(BuildContext context) async {
       );
     case _Choix.album:
       await AlbumFlow.start(context);
+    case _Choix.flow:
+      await AlbumFlow.start(context, flow: true);
   }
 }
 
-enum _Choix { vibe, album }
+enum _Choix { vibe, album, flow }

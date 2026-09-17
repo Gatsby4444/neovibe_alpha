@@ -49,7 +49,11 @@ enum AlbumAspect {
   tall(3, 4, '3:4'),
   square(1, 1, '1:1'),
   portrait(4, 5, '4:5'),
-  landscape(191, 100, '1.91:1');
+  landscape(191, 100, '1.91:1'),
+
+  /// **Le format d'un Flow édité comme tel** : vertical plein écran, comme un
+  /// Reel (Jay, 2026-09-18). Jamais proposé pour une publication.
+  reel(9, 16, '9:16');
 
   const AlbumAspect(this.w, this.h, this.label);
 
