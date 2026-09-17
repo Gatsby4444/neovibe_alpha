@@ -13,6 +13,7 @@ import '../../../core/utils/formats.dart';
 import '../../../core/widgets/avatar.dart';
 import '../../../core/widgets/card_type_badge.dart';
 import '../../../core/widgets/like_burst.dart';
+import '../../../core/widgets/pinch_to_close.dart';
 import '../../../core/widgets/pull_down_to_close.dart';
 import '../../../core/widgets/scroll_slop.dart';
 import '../../../core/widgets/system_bars.dart';
@@ -125,54 +126,60 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
       // système claires (voir [DarkSystemBars]).
       child: Scaffold(
         backgroundColor: Colors.black,
-        body: _OverscrollToClose(
-          atFirstPage: _current == 0,
+        // Dézoomer à deux doigts ferme, et l'écran suit le geste
+        // (Jay, 2026-09-17). Posé ICI, autour de tout : c'est l'écran qui se
+        // rétracte, pas la carte.
+        body: PinchToClose(
           onClose: () => Navigator.of(context).maybePop(),
-          child: Stack(
-            children: [
-              // Sans la lueur de bord : le sur-défilement du haut est un
-              // geste (fermer), pas une butée à signaler.
-              ScrollConfiguration(
-                behavior: ScrollConfiguration.of(
-                  context,
-                ).copyWith(overscroll: false),
-                // Plus de marge au doigt qui part de travers : ici, un
-                // défilement déclenché par erreur CHANGE DE VIBE — la même
-                // erreur qui, dans le fil, ne coûte que trois pixels
-                // (Jay, 2026-09-17 ; le calcul est dans [ScrollSlop]).
-                child: ScrollSlop(
-                  child: PageView.builder(
-                    controller: _pages,
-                    scrollDirection: Axis.vertical,
-                    onPageChanged: _onPage,
-                    itemCount: _vibes.length,
-                    // La carte, elle, garde les réglages de l'appareil.
-                    itemBuilder: (context, i) => DeviceGestures(
-                      child: _ReelPage(
-                        key: ValueKey(_vibes[i].id),
-                        item: _vibes[i],
-                        active: i == _current,
-                        onDeleted: () => _removed(_vibes[i]),
+          child: _OverscrollToClose(
+            atFirstPage: _current == 0,
+            onClose: () => Navigator.of(context).maybePop(),
+            child: Stack(
+              children: [
+                // Sans la lueur de bord : le sur-défilement du haut est un
+                // geste (fermer), pas une butée à signaler.
+                ScrollConfiguration(
+                  behavior: ScrollConfiguration.of(
+                    context,
+                  ).copyWith(overscroll: false),
+                  // Plus de marge au doigt qui part de travers : ici, un
+                  // défilement déclenché par erreur CHANGE DE VIBE — la même
+                  // erreur qui, dans le fil, ne coûte que trois pixels
+                  // (Jay, 2026-09-17 ; le calcul est dans [ScrollSlop]).
+                  child: ScrollSlop(
+                    child: PageView.builder(
+                      controller: _pages,
+                      scrollDirection: Axis.vertical,
+                      onPageChanged: _onPage,
+                      itemCount: _vibes.length,
+                      // La carte, elle, garde les réglages de l'appareil.
+                      itemBuilder: (context, i) => DeviceGestures(
+                        child: _ReelPage(
+                          key: ValueKey(_vibes[i].id),
+                          item: _vibes[i],
+                          active: i == _current,
+                          onDeleted: () => _removed(_vibes[i]),
+                        ),
                       ),
                     ),
                   ),
                 ),
-              ),
-              // En haut à DROITE : le haut-gauche de la carte porte
-              // désormais la photo et le pseudo.
-              Positioned(
-                top: 0,
-                right: 0,
-                child: SafeArea(
-                  child: IconButton(
-                    icon: const Icon(Icons.close),
-                    color: Colors.white,
-                    tooltip: 'Fermer',
-                    onPressed: () => Navigator.of(context).maybePop(),
+                // En haut à DROITE : le haut-gauche de la carte porte
+                // désormais la photo et le pseudo.
+                Positioned(
+                  top: 0,
+                  right: 0,
+                  child: SafeArea(
+                    child: IconButton(
+                      icon: const Icon(Icons.close),
+                      color: Colors.white,
+                      tooltip: 'Fermer',
+                      onPressed: () => Navigator.of(context).maybePop(),
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

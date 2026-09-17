@@ -113,13 +113,15 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
     // Ce que « Enregistrer » copie : l'album → le média affiché ; la Card →
     // ses faces. Lu ici, dans le même provider que l'affichage.
     final String saveId;
-    final saveFront = item.isAlbum
+    final saveFront = item.isPublication
         ? ref.watch(contentFaceProvider(_spec(item.media[_page]))).value
         : ref.watch(contentFaceProvider(_spec(item.front))).value;
-    final saveBack = !item.isAlbum && item.hasBack
+    final saveBack = !item.isPublication && item.hasBack
         ? ref.watch(contentFaceProvider(_spec(item.back!))).value
         : null;
-    saveId = item.isAlbum ? '${item.id}#${item.media[_page].slot}' : item.id;
+    saveId = item.isPublication
+        ? '${item.id}#${item.media[_page].slot}'
+        : item.id;
 
     final cell = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -134,10 +136,10 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
             saveId: saveId,
             saveFront: saveFront,
             saveBack: saveBack,
-            saveFrontIsVideo: item.isAlbum
+            saveFrontIsVideo: item.isPublication
                 ? item.media[_page].isVideo
                 : item.frontIsVideo,
-            saveBackIsVideo: !item.isAlbum && item.backIsVideo,
+            saveBackIsVideo: !item.isPublication && item.backIsVideo,
             dense: true,
             onDeleted: widget.onDeleted,
           ),
@@ -147,8 +149,8 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
         // plein écran, et un double tap le retarderait (Jay, 2026-09-17).
         LikeBurst(
           contentId: item.id,
-          doubleTap: item.isAlbum,
-          child: item.isAlbum
+          doubleTap: item.isPublication,
+          child: item.isPublication
               ? AlbumCarousel(
                   item: item,
                   active: widget.active,
@@ -164,7 +166,7 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
         // ⚠️ **Pas de légende sur une Vibe** (Jay, 2026-09-17) : une Vibe
         // n'est pas une publication qu'on commente, c'est une carte — le
         // texte y entrera par son propre éditeur, écrit sur l'image.
-        if (item.isAlbum && (item.caption?.isNotEmpty ?? false))
+        if (item.isPublication && (item.caption?.isNotEmpty ?? false))
           PublicationCaption(author: owner?.displayName, text: item.caption!),
         const SizedBox(height: NeoSpace.md),
       ],
@@ -237,9 +239,14 @@ class _Header extends StatelessWidget {
                       maxLines: 1,
                       style: TextStyle(color: context.muted, fontSize: 12),
                     ),
-                    if (!item.isAlbum) ...[
+                    if (!item.isPublication) ...[
                       const SizedBox(width: NeoSpace.xs + 2),
                       CardTypeBadge(type: item.cardType, fontSize: 9),
+                    ] else if (item.isFlow) ...[
+                      // La requalification se voit : l'app a décidé toute
+                      // seule que cette vidéo seule est un Flow.
+                      const SizedBox(width: NeoSpace.xs + 2),
+                      const FlowBadge(),
                     ],
                   ],
                 ),

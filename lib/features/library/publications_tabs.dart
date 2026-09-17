@@ -67,7 +67,7 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
 
   @override
   Widget build(BuildContext context) {
-    final vibes = widget.items.where((i) => !i.isAlbum).toList();
+    final vibes = widget.items.where((i) => !i.isPublication).toList();
     final liste = _onglet == _Onglet.tout ? widget.items : vibes;
     // La grille de tout recadre en 4:5 ; l'onglet Vibes montre les cartes à
     // LEUR format — c'est ce qui fait comprendre qu'on n'y trouve que ça.

@@ -79,7 +79,7 @@ class _PublicationsFeedScreenState
   }
 
   void _openVibe(LibraryItem item) {
-    final vibes = _items.where((i) => !i.isAlbum).toList();
+    final vibes = _items.where((i) => !i.isPublication).toList();
     final index = vibes.indexWhere((i) => i.id == item.id);
     if (index < 0) return;
     Navigator.of(context).push(

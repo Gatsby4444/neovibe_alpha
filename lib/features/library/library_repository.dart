@@ -96,7 +96,11 @@ class LibraryRepository {
     AlbumUpload album, {
     void Function(int done, int total)? onProgress,
   }) => _publish(
-    kind: LibraryKind.album,
+    // **La requalification** (Jay, 2026-09-17) : une vidéo publiée seule
+    // n'est pas une publication ordinaire, c'est un Flow. Elle se décide
+    // ici, sur le contenu réel, et pas dans un écran — un autre chemin de
+    // publication ne pourrait pas l'oublier.
+    kind: kindDuContenu(album.media),
     aspect: album.aspect,
     media: album.media,
     caption: album.caption,
@@ -295,6 +299,20 @@ class _Upload {
 }
 
 /// Un média d'album prêt à partir, tel que l'éditeur le rend.
+/// **La requalification, en une règle et un seul endroit** : une vidéo
+/// publiée SEULE est un [LibraryKind.flow] ; tout le reste est une
+/// publication ordinaire (Jay, 2026-09-17 — « comme Insta requalifie en Reel
+/// les vidéos seules »).
+///
+/// Elle vit ici, sur le contenu réel, et pas dans un écran : un autre chemin
+/// de publication (un partage, un import, demain le feed) ne peut pas
+/// l'oublier. Et le serveur tient la même règle — un Flow à deux médias y est
+/// refusé.
+LibraryKind kindDuContenu(List<AlbumMediaUpload> media) =>
+    media.length == 1 && media.first.isVideo
+    ? LibraryKind.flow
+    : LibraryKind.album;
+
 class AlbumMediaUpload extends _Upload {
   const AlbumMediaUpload(
     super.file, {

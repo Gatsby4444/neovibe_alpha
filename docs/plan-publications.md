@@ -428,3 +428,44 @@ propose, changer de format remet les cadrages, la vidéo seule),
 `vibe_face_layout_test` (recadrée et non rétrécie : même largeur, moins haute,
 et `cover` hors du format natif). **524** au total.
 
+### 9.9 Le FLOW, et le dézoom qui ferme — v0.9.195 (2026-09-17)
+
+**Le Flow** — Jay a changé d'avis sur la vidéo seule : *« on permet la
+publication d'une vidéo simple […] on va les requalifier automatiquement comme
+un nouveau contenu, comme fait Insta qui requalifie en Reel les vidéos
+seules »*. Nom retenu : **Flow**. Règles tranchées par lui : il se regarde
+**comme une publication, à son format** (4:5 / 1:1 / 1,91:1), et non en plein
+écran vertical.
+
+| Où | Ce qui a été fait |
+|---|---|
+| base | `library_kind` gagne `flow` (migration à part : PostgreSQL refuse d'utiliser une valeur d'enum dans la transaction qui l'ajoute) ; la contrainte de ratio couvre `album` **et** `flow` ; `publish_to_library` refuse un Flow qui ne serait pas **exactement une vidéo** |
+| app | `LibraryKind.flow`, `isFlow`, et surtout **`isPublication`** — c'est ce prédicat que l'affichage lit désormais, jamais `isAlbum` : sinon un Flow aurait été dessiné comme une Vibe, c'est-à-dire pas du tout |
+| la règle | `kindDuContenu(media)` (`library_repository.dart`) : **une seule définition**, sur le contenu réel. Un écran qui l'aurait décidée aurait laissé passer tous les autres chemins de publication |
+| ce qui se voit | une pastille **Flow** dans l'en-tête du fil et sur l'écran de légende **avant de publier** : une décision prise à la place de quelqu'un s'annonce |
+
+Vérifié **en base**, sous l'identité d'un utilisateur : un Flow d'une photo →
+refusé ; de deux vidéos → refusé ; d'une vidéo → **accepté** (essais joués
+puis annulés).
+
+**Le dézoom qui ferme** (`core/widgets/pinch_to_close.dart` +
+`retraction.dart`) : deux doigts qui se rapprochent referment le plein écran,
+et l'écran **suit le geste** — il rétrécit et se referme en heptagone aux
+sommets arrondis et aux côtés creusés.
+
+⚠️ Deux choix qui ne sont pas des détails :
+
+- **un `Listener`, pas un `ScaleGestureRecognizer`.** Ce dernier accepte aussi
+  sur le déplacement du point focal, donc **avec un seul doigt**, exactement
+  comme un pan (`gestures/scale.dart`, `_advanceStateMachine`, lu le
+  2026-09-17) : posé au-dessus du plein écran, il serait entré dans l'arène
+  contre le retournement de la carte et le défilement. Un `Listener` regarde
+  les pointeurs sans les prendre — **rien n'est enlevé à personne** ;
+- **la forme est décrite en polaire**, un rayon par angle. Un rectangle et un
+  heptagone n'ont ni le même nombre de sommets ni les mêmes coins : ils ne
+  s'interpolent pas sommet par sommet, mais leurs rayons, si. C'est ce qui
+  rend la transition continue sous le doigt, et vérifiable
+  (`test/retraction_test.dart` : à 0 c'est le rectangle **exactement**, à 1
+  tout tient dans le plus petit côté, et le rayon ne remonte jamais entre les
+  deux).
+

@@ -85,7 +85,7 @@ void main() {
       expect(carre.withAspect(AlbumAspect.square), same(carre));
     });
 
-    test('une vidéo toute seule ne se publie pas', () {
+    test('une vidéo toute seule est reconnue : ce sera un Flow', () {
       expect(const AlbumDraft().add([video('v', 5000)]).videoSeule, isTrue);
       // Accompagnée, c'est un carrousel : ça passe.
       expect(

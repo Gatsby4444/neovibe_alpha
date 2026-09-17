@@ -1,25 +1,42 @@
 import 'card.dart';
 
-/// Le format d'une publication de bibliothèque (2026-09-15).
+/// Le format d'un contenu de bibliothèque.
 ///
-/// Les deux obéissent aux **mêmes règles** — même audience, permanentes,
-/// aucune limite de vues, mêmes droits portés par `contents`. Seul le format
-/// change : une Card se **retourne**, un album se **feuillette**. C'est
-/// pourquoi ils partagent l'en-tête `library_items` (règle 2 de `CLAUDE.md` :
-/// deux objets aux règles différentes ne partagent pas la table — ici les
-/// règles sont les mêmes). Détail : `docs/plan-publications.md` §2.
+/// Les trois obéissent aux **mêmes règles de diffusion** — même audience,
+/// permanents, aucune limite de vues, mêmes droits portés par `contents` :
+/// c'est pourquoi ils partagent l'en-tête `library_items` (règle 2 de
+/// `CLAUDE.md` : ce qui partage une table partage ses règles). Ce qui change,
+/// c'est **comment on les fait et comment on les regarde**.
+/// Détail : `docs/plan-publications.md` §2 et §9.9.
 enum LibraryKind {
-  /// Une ou deux faces (places 0 et 1), au format Card.
+  /// Une ou deux faces (places 0 et 1), au format Card : **une Vibe**. Elle
+  /// se retourne, et c'est notre format.
   card,
 
-  /// De 1 à 11 médias, photos et vidéos mêlées, à un ratio commun. Le mot
+  /// De 1 à 20 médias, photos et vidéos mêlées, à un ratio commun. Le mot
   /// n'apparaît pas dans l'interface : on dit « publication ».
-  album;
+  album,
 
-  static LibraryKind fromDb(String value) =>
-      value == 'album' ? LibraryKind.album : LibraryKind.card;
+  /// **Un Flow** : une vidéo publiée SEULE (Jay, 2026-09-17). Instagram
+  /// requalifie une vidéo seule en Reel ; nous en faisons un Flow, qui se
+  /// regarde **comme une publication, à son format** — et non en plein écran
+  /// vertical (tranché par Jay). Il a son propre `kind` parce qu'il n'a pas
+  /// les mêmes règles de composition qu'un album : exactement une vidéo, ni
+  /// plus ni moins. C'est aussi ce qui permettra de les rassembler dans un
+  /// fil.
+  flow;
+
+  static LibraryKind fromDb(String value) => switch (value) {
+    'album' => LibraryKind.album,
+    'flow' => LibraryKind.flow,
+    _ => LibraryKind.card,
+  };
 
   String get dbValue => name;
+
+  /// Tout ce qui n'est pas une Vibe : ça se feuillette, ça porte une légende,
+  /// ça a un ratio.
+  bool get isPublication => this != LibraryKind.card;
 }
 
 /// Le ratio d'un album, commun à tous ses médias.
@@ -182,6 +199,14 @@ class LibraryItem {
   final DateTime createdAt;
 
   bool get isAlbum => kind == LibraryKind.album;
+
+  /// Une vidéo publiée seule (voir [LibraryKind.flow]).
+  bool get isFlow => kind == LibraryKind.flow;
+
+  /// **Ce qui se regarde comme une publication** : un album ou un Flow.
+  /// C'est ce prédicat que l'affichage doit lire, jamais [isAlbum] — sans
+  /// quoi un Flow serait dessiné comme une Vibe, c'est-à-dire pas du tout.
+  bool get isPublication => kind.isPublication;
 
   // ── Lectures dérivées pour le format Card (places 0 et 1) ──────────────
 

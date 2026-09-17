@@ -236,35 +236,6 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
   }
 
   Future<void> _next() async {
-    // Une vidéo toute seule n'est pas une publication (Jay, 2026-09-17) :
-    // chez nous, une vidéo seule est une Vibe. On le DIT, avec la sortie,
-    // au lieu de griser un bouton — un mur sans issue est un bug.
-    if (_draft.videoSeule) {
-      final ajouter = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Une vidéo toute seule ne se publie pas'),
-          content: const Text(
-            'Chez nous, une vidéo seule c\'est une Vibe : le format qu\'on '
-            'filme avec la caméra de NeoVibe.\n\n'
-            'Pour la publier ici, ajoute au moins une autre photo ou vidéo '
-            '\u2014 ça en fera un carrousel.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Compris'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Ajouter un média'),
-            ),
-          ],
-        ),
-      );
-      if (ajouter == true && mounted) await _add();
-      return;
-    }
     final result = await Navigator.of(context).push<AlbumDraft>(
       MaterialPageRoute(
         builder: (_) => AlbumCaptionScreen(

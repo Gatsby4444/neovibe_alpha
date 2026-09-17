@@ -40,3 +40,38 @@ class CardTypeBadge extends StatelessWidget {
     );
   }
 }
+
+/// La pastille d'un **Flow** — une vidéo publiée seule (Jay, 2026-09-17).
+///
+/// Elle existe pour que la **requalification se voie** : l'app décide toute
+/// seule qu'une vidéo seule est un Flow, et une décision prise à la place de
+/// quelqu'un doit au moins lui être dite. Sobre : ce n'est pas un type de
+/// Vibe, ça ne prend pas ses couleurs.
+class FlowBadge extends StatelessWidget {
+  const FlowBadge({super.key, this.fontSize = 9});
+
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = Theme.of(context).colorScheme.onSurface;
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: fontSize < 12 ? 7 : 10,
+        vertical: fontSize < 12 ? 2 : 4,
+      ),
+      decoration: BoxDecoration(
+        border: Border.all(color: ink.withValues(alpha: 0.45), width: 1.2),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        'Flow',
+        style: TextStyle(
+          color: ink,
+          fontWeight: FontWeight.bold,
+          fontSize: fontSize,
+        ),
+      ),
+    );
+  }
+}

@@ -95,7 +95,7 @@ class MiniCard extends ConsumerWidget {
     // « tout dans l'affichage de la bibliothèque doit être identique ». Ce qui
     // change : la couverture est le premier média (l'image de couverture pour
     // une vidéo) et la pastille dit combien il y en a.
-    if (item.isAlbum) {
+    if (item.isPublication) {
       final cover = item.media.first;
       final thumb = cover.isVideo && cover.posterPath != null
           ? _PublicationThumb(

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme.dart';
 import '../../../core/typography.dart';
+import '../../../core/widgets/card_type_badge.dart';
 import '../feed/publication_caption.dart';
 import 'album_draft.dart';
 
@@ -102,9 +103,21 @@ class _AlbumCaptionScreenState extends State<AlbumCaptionScreen> {
           ),
           Padding(
             padding: const EdgeInsets.only(top: NeoSpace.xs),
-            child: Text(
-              '$n média${n > 1 ? 's' : ''} · ${_draft.aspect.label}',
-              style: TextStyle(color: context.muted, fontSize: 12),
+            child: Row(
+              children: [
+                Text(
+                  '$n média${n > 1 ? 's' : ''} · ${_draft.aspect.label}',
+                  style: TextStyle(color: context.muted, fontSize: 12),
+                ),
+                // ⚠️ **On dit la requalification avant de publier.** L'app
+                // décide toute seule qu'une vidéo seule est un Flow ; une
+                // décision prise à la place de quelqu'un s'annonce, sinon
+                // il découvre après coup un contenu qu'il n'a pas choisi.
+                if (_draft.videoSeule) ...[
+                  const SizedBox(width: NeoSpace.sm),
+                  const FlowBadge(fontSize: 10),
+                ],
+              ],
             ),
           ),
           const SizedBox(height: NeoSpace.xl),
