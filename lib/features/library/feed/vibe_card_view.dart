@@ -29,7 +29,7 @@ class VibeCardView extends ConsumerStatefulWidget {
     required this.active,
     this.onTap,
     this.overlay,
-    this.ratio = kVibeFaceRatio,
+    this.display = VibeDisplay.card,
   });
 
   final LibraryItem item;
@@ -42,10 +42,10 @@ class VibeCardView extends ConsumerStatefulWidget {
   /// l'identité et les actions vivent dans l'en-tête de la cellule.
   final Widget? overlay;
 
-  /// Le format d'affichage : 9:16 en plein écran, [kVibeFeedRatio] (4:5) dans
-  /// un fil — la Vibe y est **recadrée**, comme Instagram recadre un Reel
-  /// (Jay, 2026-09-17). Le contenu, lui, reste un 9:16.
-  final double ratio;
+  /// Où on la regarde — format et marge (voir [VibeDisplay]). Dans un fil
+  /// elle est **recadrée** en 4:5, comme Instagram recadre un Reel ; le
+  /// contenu, lui, reste un 9:16.
+  final VibeDisplay display;
 
   @override
   ConsumerState<VibeCardView> createState() => _VibeCardViewState();
@@ -75,13 +75,13 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
           type: widget.item.cardType,
           active: active,
           overlay: widget.overlay,
-          ratio: widget.ratio,
+          display: widget.display,
         )
       : VibePhotoFace(
           bytes: m.photoBytes!,
           type: widget.item.cardType,
           overlay: widget.overlay,
-          ratio: widget.ratio,
+          display: widget.display,
         );
 
   @override
@@ -100,13 +100,14 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
       loading: () => VibeFaceLoading(
         type: item.cardType,
         overlay: widget.overlay,
-        ratio: widget.ratio,
+        display: widget.display,
       ),
       error: (e, _) => VibeFaceFrame(
         type: item.cardType,
         overlay: widget.overlay,
+        display: widget.display,
         child: AspectRatio(
-          aspectRatio: widget.ratio,
+          aspectRatio: widget.display.ratio,
           child: Center(
             child: Text(
               'Cette Vibe n\'est plus disponible.',
@@ -135,7 +136,7 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
               ? VibeFaceLoading(
                   type: item.cardType,
                   overlay: widget.overlay,
-                  ratio: widget.ratio,
+                  display: widget.display,
                 )
               : _face(backFile, item.backIsVideo, widget.active && !_showFront),
         );

@@ -16,6 +16,8 @@ import '../../cards/send/recipient_picker_screen.dart';
 import '../../cards/send/share_context.dart';
 import '../../cards/send/share_plan.dart';
 import '../library_repository.dart';
+import '../open_profile.dart';
+import '../../connections/connections_repository.dart';
 
 /// **Les actions d'une publication** — aimer, enregistrer, partager, et le
 /// menu « … ».
@@ -298,6 +300,17 @@ Future<void> showLikers(
                     timeAgo(l.likedAt),
                     style: TextStyle(color: context.muted, fontSize: 12),
                   ),
+                  // Une personne nommée mène à son profil — ici comme
+                  // ailleurs (Jay, 2026-09-17). La feuille se referme
+                  // d'abord : on ne laisse pas un écran par-dessus l'autre.
+                  onTap: () async {
+                    final profil = await ref.read(
+                      profileByIdProvider(l.id).future,
+                    );
+                    if (!context.mounted || profil == null) return;
+                    Navigator.of(context).pop();
+                    openProfile(context, profil);
+                  },
                 );
               },
             );

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/library_item.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/vibe_face.dart';
 import 'feed/publications_feed_screen.dart';
 import 'feed/vibes_reel_screen.dart';
 import 'mini_card.dart';
@@ -68,6 +69,9 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
   Widget build(BuildContext context) {
     final vibes = widget.items.where((i) => !i.isAlbum).toList();
     final liste = _onglet == _Onglet.tout ? widget.items : vibes;
+    // La grille de tout recadre en 4:5 ; l'onglet Vibes montre les cartes à
+    // LEUR format — c'est ce qui fait comprendre qu'on n'y trouve que ça.
+    final ratio = _onglet == _Onglet.tout ? kMiniCardRatio : kVibeFaceRatio;
 
     return Column(
       children: [
@@ -88,15 +92,16 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             padding: widget.padding,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 3,
               mainAxisSpacing: 10,
               crossAxisSpacing: 10,
-              childAspectRatio: kMiniCardRatio,
+              childAspectRatio: ratio,
             ),
             itemCount: liste.length,
             itemBuilder: (context, index) => MiniCard(
               item: liste[index],
+              ratio: ratio,
               onTap: () => _ouvrir(liste, index),
               onLongPress: widget.onLongPress == null
                   ? null

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme.dart';
 import '../../../core/typography.dart';
+import '../feed/publication_caption.dart';
 import 'album_draft.dart';
 
 /// La dernière étape avant de publier : la **légende**, la **visibilité** et
@@ -33,7 +34,10 @@ class _AlbumCaptionScreenState extends State<AlbumCaptionScreen> {
   late final _caption = TextEditingController(text: widget.draft.caption);
 
   /// La limite d'Instagram : assez pour un récit, pas un roman.
-  static const _maxCaption = 2200;
+  /// 500 signes, espaces et sauts de ligne compris (Jay, 2026-09-17).
+  /// La base tient la même limite : une règle qui ne vit que dans un
+  /// écran n'est pas une règle.
+  static const _maxCaption = kCaptionMax;
 
   @override
   void dispose() {

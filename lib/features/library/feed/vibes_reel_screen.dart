@@ -12,13 +12,16 @@ import '../../../core/typography.dart';
 import '../../../core/utils/formats.dart';
 import '../../../core/widgets/avatar.dart';
 import '../../../core/widgets/card_type_badge.dart';
+import '../../../core/widgets/like_burst.dart';
 import '../../../core/widgets/pull_down_to_close.dart';
+import '../../../core/widgets/scroll_slop.dart';
 import '../../../core/widgets/system_bars.dart';
+import '../../../core/widgets/vibe_face.dart';
 import '../../connections/connections_repository.dart';
-import '../user_library_screen.dart';
 import 'publication_actions.dart';
 import 'vibe_card_chrome.dart';
 import 'vibe_card_view.dart';
+import '../open_profile.dart';
 
 /// **Les Vibes en plein écran, à la suite** — façon Reels : une Vibe par
 /// écran, fond noir, on glisse vers le haut pour la suivante. La carte garde
@@ -133,16 +136,25 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
                 behavior: ScrollConfiguration.of(
                   context,
                 ).copyWith(overscroll: false),
-                child: PageView.builder(
-                  controller: _pages,
-                  scrollDirection: Axis.vertical,
-                  onPageChanged: _onPage,
-                  itemCount: _vibes.length,
-                  itemBuilder: (context, i) => _ReelPage(
-                    key: ValueKey(_vibes[i].id),
-                    item: _vibes[i],
-                    active: i == _current,
-                    onDeleted: () => _removed(_vibes[i]),
+                // Plus de marge au doigt qui part de travers : ici, un
+                // défilement déclenché par erreur CHANGE DE VIBE — la même
+                // erreur qui, dans le fil, ne coûte que trois pixels
+                // (Jay, 2026-09-17 ; le calcul est dans [ScrollSlop]).
+                child: ScrollSlop(
+                  child: PageView.builder(
+                    controller: _pages,
+                    scrollDirection: Axis.vertical,
+                    onPageChanged: _onPage,
+                    itemCount: _vibes.length,
+                    // La carte, elle, garde les réglages de l'appareil.
+                    itemBuilder: (context, i) => DeviceGestures(
+                      child: _ReelPage(
+                        key: ValueKey(_vibes[i].id),
+                        item: _vibes[i],
+                        active: i == _current,
+                        onDeleted: () => _removed(_vibes[i]),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -205,27 +217,36 @@ class _ReelPage extends ConsumerWidget {
 
     return SafeArea(
       child: Center(
-        child: VibeCardView(
-          item: item,
-          active: active,
-          // Tout est DANS la carte : elle reste centrée et prend l'écran.
-          overlay: VibeCardChrome(
-            header: _Identity(item: item, owner: owner, mine: mine),
-            actions: PublicationActions(
-              item: item,
-              mine: mine,
-              saveId: item.id,
-              saveFront: front,
-              saveBack: back,
-              saveFrontIsVideo: item.frontIsVideo,
-              saveBackIsVideo: item.backIsVideo,
-              vertical: true,
-              color: Colors.white,
-              onDeleted: onDeleted,
+        // Appui long = j'aime, avec le cœur qui jaillit (Jay, 2026-09-17).
+        // Pas de double tap ici : le tap retourne la carte, et l'attendre
+        // rendrait le retournement mou.
+        child: LikeBurst(
+          contentId: item.id,
+          child: VibeCardView(
+            item: item,
+            active: active,
+            // Au plus près des bords : la marge du cadre est tout ce qui
+            // sépare deux Vibes quand on passe de l'une à l'autre.
+            display: VibeDisplay.full,
+            // Tout est DANS la carte : elle reste centrée et prend l'écran.
+            overlay: VibeCardChrome(
+              header: _Identity(item: item, owner: owner, mine: mine),
+              actions: PublicationActions(
+                item: item,
+                mine: mine,
+                saveId: item.id,
+                saveFront: front,
+                saveBack: back,
+                saveFrontIsVideo: item.frontIsVideo,
+                saveBackIsVideo: item.backIsVideo,
+                vertical: true,
+                color: Colors.white,
+                onDeleted: onDeleted,
+              ),
+              // Pas de légende sur une Vibe : le texte y viendra par son
+              // propre éditeur, écrit SUR l'image (Jay, 2026-09-17).
+              caption: null,
             ),
-            caption: (item.caption?.isNotEmpty ?? false)
-                ? _Caption(text: item.caption!)
-                : null,
           ),
         ),
       ),
@@ -251,13 +272,7 @@ class _Identity extends StatelessWidget {
     final name = owner?.displayName ?? '';
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: owner == null || mine
-          ? null
-          : () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => UserLibraryScreen(profile: owner!),
-              ),
-            ),
+      onTap: owner == null || mine ? null : () => openProfile(context, owner!),
       child: Row(
         children: [
           Avatar(

@@ -56,9 +56,16 @@ class MiniCard extends ConsumerWidget {
     this.onTap,
     this.onLongPress,
     this.decodeWidth = 400,
+    this.ratio = kMiniCardRatio,
   });
 
   final LibraryItem item;
+
+  /// Le format de la vignette. [kMiniCardRatio] (4:5) dans la grille de
+  /// tout ; **[kVibeFaceRatio] (9:16) dans l'onglet Vibes** — là, on ne
+  /// montre que des cartes, et les voir à leur vrai format est ce qui le dit
+  /// (Jay, 2026-09-17).
+  final double ratio;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
   final int decodeWidth;
@@ -106,7 +113,7 @@ class MiniCard extends ConsumerWidget {
               decodeWidth: decodeWidth,
             );
       return AspectRatio(
-        aspectRatio: kMiniCardRatio,
+        aspectRatio: ratio,
         child: GestureDetector(
           onLongPress: onLongPress,
           onTap: () => _open(context),
@@ -141,7 +148,7 @@ class MiniCard extends ConsumerWidget {
     // faces uniques, « ce qui est incohérent »).
     if (!item.hasBack) {
       return AspectRatio(
-        aspectRatio: kMiniCardRatio,
+        aspectRatio: ratio,
         child: GestureDetector(
           onLongPress: onLongPress,
           onTap: () => _open(context),
@@ -151,7 +158,7 @@ class MiniCard extends ConsumerWidget {
     }
 
     return AspectRatio(
-      aspectRatio: kMiniCardRatio,
+      aspectRatio: ratio,
       child: GestureDetector(
         onLongPress: onLongPress,
         child: FlippableCard(

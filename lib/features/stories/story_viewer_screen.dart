@@ -25,8 +25,8 @@ import '../../core/video/video_open_trace.dart';
 import '../../core/widgets/avatar.dart';
 import '../../core/widgets/gradient.dart';
 import '../cards/flippable_card.dart';
-import '../library/user_library_screen.dart';
 import 'stories_repository.dart';
+import '../library/open_profile.dart';
 
 /// Hauteur de l'en-tête sous la barre d'état : padding 8 + barres de
 /// progression 2 + espace 10 + rangée d'icônes 48 + padding 8.
@@ -569,11 +569,7 @@ class _Header extends ConsumerWidget {
                 children: [
                   Flexible(
                     child: InkWell(
-                      onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => UserLibraryScreen(profile: owner),
-                        ),
-                      ),
+                      onTap: () => openProfile(context, owner),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [

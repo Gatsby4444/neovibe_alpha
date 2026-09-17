@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/content/content_face.dart';
 import '../../../core/content/content_view_reporter.dart';
-import '../../../core/models/card.dart';
 import '../../../core/models/library_item.dart';
 import '../../../core/models/profile.dart';
 import '../../../core/supabase_providers.dart';
@@ -12,12 +11,14 @@ import '../../../core/typography.dart';
 import '../../../core/utils/formats.dart';
 import '../../../core/widgets/avatar.dart';
 import '../../../core/widgets/card_type_badge.dart';
+import '../../../core/widgets/like_burst.dart';
 import '../../../core/widgets/vibe_face.dart';
 import '../../connections/connections_repository.dart';
-import '../user_library_screen.dart';
 import 'album_carousel.dart';
 import 'publication_actions.dart';
+import 'publication_caption.dart';
 import 'vibe_card_view.dart';
+import '../open_profile.dart';
 
 /// **Une publication dans un fil** — l'en-tête (qui, quand, **et les
 /// actions**), le média, la légende. C'est LA cellule : le fil du profil
@@ -141,58 +142,40 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
             onDeleted: widget.onDeleted,
           ),
         ),
-        if (item.isAlbum)
-          AlbumCarousel(
-            item: item,
-            active: widget.active,
-            onPageChanged: (i) => setState(() => _page = i),
-          )
-        else
-          VibeCardView(
-            item: item,
-            active: widget.active,
-            onTap: widget.onOpenVibe,
-            ratio: kVibeFeedRatio,
-          ),
-        if (item.caption != null && item.caption!.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              NeoSpace.lg,
-              0,
-              NeoSpace.lg,
-              NeoSpace.sm,
-            ),
-            child: _Caption(author: owner?.displayName, text: item.caption!),
-          ),
+        // Aimer au geste : double tap **et** appui long sur une
+        // publication, appui long seul sur une Vibe — le tap y ouvre déjà le
+        // plein écran, et un double tap le retarderait (Jay, 2026-09-17).
+        LikeBurst(
+          contentId: item.id,
+          doubleTap: item.isAlbum,
+          child: item.isAlbum
+              ? AlbumCarousel(
+                  item: item,
+                  active: widget.active,
+                  onPageChanged: (i) => setState(() => _page = i),
+                )
+              : VibeCardView(
+                  item: item,
+                  active: widget.active,
+                  onTap: widget.onOpenVibe,
+                  display: VibeDisplay.feed,
+                ),
+        ),
+        // ⚠️ **Pas de légende sur une Vibe** (Jay, 2026-09-17) : une Vibe
+        // n'est pas une publication qu'on commente, c'est une carte — le
+        // texte y entrera par son propre éditeur, écrit sur l'image.
+        if (item.isAlbum && (item.caption?.isNotEmpty ?? false))
+          PublicationCaption(author: owner?.displayName, text: item.caption!),
         const SizedBox(height: NeoSpace.md),
       ],
     );
 
-    // Un album prend toute la largeur (c'est son format). Une Vibe est plus
-    // étroite : toute la cellule se cale sur elle, sinon la ligne d'actions
-    // commence au bord de l'écran, loin de la carte à laquelle elle
-    // appartient.
-    if (item.isAlbum) return cell;
-    return Center(
-      child: SizedBox(
-        width: vibeCellWidth(context, item.cardType),
-        child: cell,
-      ),
-    );
+    // Album comme Vibe : **toute la largeur**. Depuis que la Vibe est
+    // recadree en 4:5, les deux formats font la meme largeur - la cellule
+    // n'a plus a se caler sur une carte plus etroite que l'ecran, et tout
+    // (en-tete, actions, legende) retrouve le meme bord gauche.
+    return cell;
   }
-}
-
-/// **La largeur d'une Vibe dans un fil.** Elle se déduit de la hauteur qu'on
-/// lui accorde — pas plus des trois quarts de l'écran : assez pour la
-/// regarder, pas au point de perdre le fil — en tenant compte du cadre
-/// (marge + liseré), qui n'est pas de l'image et qui compte pourtant dans la
-/// hauteur finale. L'oublier rapetissait la carte d'une trentaine de pixels
-/// sous le plafond annoncé.
-double vibeCellWidth(BuildContext context, CardType type) {
-  final size = MediaQuery.sizeOf(context);
-  final chrome = VibeFaceFrame.chrome(type);
-  final width = (size.height * 0.72 - chrome) * kVibeFaceRatio + chrome;
-  return width.clamp(0.0, size.width - 2 * NeoSpace.lg);
 }
 
 /// L'en-tête : avatar, pseudo, date et type — et, à droite, les actions.
@@ -282,52 +265,12 @@ class _Header extends StatelessWidget {
             child: InkWell(
               onTap: owner == null || mine
                   ? null
-                  : () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => UserLibraryScreen(profile: owner!),
-                      ),
-                    ),
+                  : () => openProfile(context, owner!),
               child: identity,
             ),
           ),
           actions,
         ],
-      ),
-    );
-  }
-}
-
-/// La légende : le nom en gras, puis le texte ; longue, elle se déplie.
-class _Caption extends StatefulWidget {
-  const _Caption({required this.author, required this.text});
-  final String? author;
-  final String text;
-
-  @override
-  State<_Caption> createState() => _CaptionState();
-}
-
-class _CaptionState extends State<_Caption> {
-  var _expanded = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => setState(() => _expanded = !_expanded),
-      child: RichText(
-        maxLines: _expanded ? null : 3,
-        overflow: _expanded ? TextOverflow.visible : TextOverflow.ellipsis,
-        text: TextSpan(
-          style: DefaultTextStyle.of(context).style.copyWith(fontSize: 14),
-          children: [
-            if (widget.author != null && widget.author!.isNotEmpty)
-              TextSpan(
-                text: '${widget.author} ',
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            TextSpan(text: widget.text),
-          ],
-        ),
       ),
     );
   }

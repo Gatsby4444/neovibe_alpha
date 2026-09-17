@@ -13,8 +13,8 @@ import '../connections/connections_repository.dart';
 import '../connections/friendship.dart';
 import '../connections/friendships_repository.dart';
 import '../connections/tier_avatar.dart';
-import '../library/user_library_screen.dart';
 import 'sphere.dart';
+import '../library/open_profile.dart';
 
 /// **La constellation** : tes amis posés sur une bulle qu'on fait tourner.
 ///
@@ -169,9 +169,7 @@ class _ConstellationScreenState extends ConsumerState<ConstellationScreen>
       if ((d.localPosition - vue.centre).distance <= rayonPastille) {
         final profil = ref.read(profileByIdProvider(ids[vue.index])).value;
         if (profil == null) return;
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => UserLibraryScreen(profile: profil)),
-        );
+        openProfile(context, profil);
         return;
       }
     }

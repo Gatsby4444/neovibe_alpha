@@ -62,7 +62,7 @@ void main() {
     final plein = await sizeOf(tester, const VibeFaceLoading(type: type));
     final fil = await sizeOf(
       tester,
-      const VibeFaceLoading(type: type, ratio: kVibeFeedRatio),
+      const VibeFaceLoading(type: type, display: VibeDisplay.feed),
     );
 
     expect(fil.width, plein.width, reason: 'même largeur : on recadre');

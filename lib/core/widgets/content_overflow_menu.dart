@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../theme.dart';
+import '../typography.dart';
 import 'action_button.dart';
 
 import '../content/moderation.dart';
@@ -67,83 +69,105 @@ class ContentOverflowMenu extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     // Mon contenu sans aucune option de propriétaire : pas de menu vide.
     if (mine && onRemove == null) return const SizedBox.shrink();
+    // ⚠️ Lu ICI, pas seulement dans la feuille : un `read` sur un provider
+    // que personne n'a demandé rend `null` — la feuille aurait proposé
+    // « Bloquer » à quelqu'un de déjà bloqué, une fois sur deux.
+    if (!mine) ref.watch(isBlockedProvider(authorId));
+
+    return ActionIconButton(
+      icon: const Icon(Icons.more_vert),
+      color: color,
+      dense: dense,
+      tooltip: 'Plus',
+      onPressed: () => _ouvrir(context, ref),
+    );
+  }
+
+  /// **La feuille, pas le menu déroulant** (Jay, 2026-09-17 : *« le rendu est
+  /// peu professionnel et premium, fais comme sur Insta : un menu se déroule
+  /// depuis le bas de l'écran »*).
+  ///
+  /// Ce n'est pas qu'une question de goût : un menu déroulant se pose à côté
+  /// du bouton, donc sa taille dépend de la place qui reste et ses options
+  /// arrivent là où l'œil n'est pas. Une feuille arrive toujours du même
+  /// bord, à portée du pouce, et peut grandir — ce qui compte quand on sait
+  /// que les options vont se multiplier.
+  Future<void> _ouvrir(BuildContext context, WidgetRef ref) async {
     final blocked = mine
         ? false
-        : ref.watch(isBlockedProvider(authorId)).value ?? false;
+        : ref.read(isBlockedProvider(authorId)).value ?? false;
 
-    return PopupMenuButton<String>(
-      icon: Icon(Icons.more_vert, color: color),
-      tooltip: 'Plus',
-      iconSize: ActionMetrics.icon(dense),
-      padding: ActionMetrics.padding(dense),
-      itemBuilder: (context) => mine
-          ? [
-              const PopupMenuItem(
-                value: 'remove',
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.delete_outline),
-                  title: Text('Retirer'),
-                ),
+    final choix = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (mine)
+              _Option(
+                icon: Icons.delete_outline,
+                label: 'Retirer',
+                detail: 'Cette publication disparaît pour tout le monde.',
+                danger: true,
+                onTap: () => Navigator.pop(context, 'remove'),
+              )
+            else ...[
+              _Option(
+                icon: Icons.flag_outlined,
+                label: contentId != null ? 'Signaler ce contenu' : 'Signaler',
+                onTap: () => Navigator.pop(context, 'report'),
               ),
-            ]
-          : [
-              PopupMenuItem(
-                value: 'report',
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.flag_outlined),
-                  title: Text(
-                    contentId != null ? 'Signaler ce contenu' : 'Signaler',
-                  ),
-                ),
-              ),
-              PopupMenuItem(
-                value: blocked ? 'unblock' : 'block',
-                child: ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(blocked ? Icons.person_add_alt : Icons.block),
-                  title: Text(blocked ? 'Débloquer' : 'Bloquer'),
-                ),
+              _Option(
+                icon: blocked ? Icons.person_add_alt : Icons.block,
+                label: blocked ? 'Débloquer' : 'Bloquer',
+                detail: blocked
+                    ? null
+                    : 'Vous ne verrez plus vos contenus respectifs.',
+                danger: !blocked,
+                onTap: () =>
+                    Navigator.pop(context, blocked ? 'unblock' : 'block'),
               ),
             ],
-      onSelected: (v) async {
-        final repo = ref.read(moderationRepositoryProvider);
-        switch (v) {
-          case 'remove':
-            onRemove?.call();
-          case 'report':
-            await showReportSheet(
-              context,
-              ref,
-              contentId: contentId,
-              targetUserId: authorId,
-              targetName: authorName,
-            );
-          case 'block':
-            final ok = await _confirmBlock(context);
-            if (ok != true) return;
-            await repo.block(authorId);
-            ref.invalidate(blockedProfilesProvider);
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    '${authorName ?? 'Cette personne'} est bloquée.',
-                  ),
-                ),
-              );
-              Navigator.of(context).maybePop();
-            }
-          case 'unblock':
-            await repo.unblock(authorId);
-            ref.invalidate(blockedProfilesProvider);
-        }
-      },
+            const SizedBox(height: NeoSpace.sm),
+          ],
+        ),
+      ),
     );
+    if (choix == null || !context.mounted) return;
+    await _appliquer(context, ref, choix);
+  }
+
+  Future<void> _appliquer(BuildContext context, WidgetRef ref, String v) async {
+    final repo = ref.read(moderationRepositoryProvider);
+    switch (v) {
+      case 'remove':
+        onRemove?.call();
+      case 'report':
+        await showReportSheet(
+          context,
+          ref,
+          contentId: contentId,
+          targetUserId: authorId,
+          targetName: authorName,
+        );
+      case 'block':
+        final ok = await _confirmBlock(context);
+        if (ok != true) return;
+        await repo.block(authorId);
+        ref.invalidate(blockedProfilesProvider);
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('${authorName ?? 'Cette personne'} est bloquée.'),
+            ),
+          );
+          Navigator.of(context).maybePop();
+        }
+      case 'unblock':
+        await repo.unblock(authorId);
+        ref.invalidate(blockedProfilesProvider);
+    }
   }
 
   Future<bool?> _confirmBlock(BuildContext context) => showDialog<bool>(
@@ -168,4 +192,40 @@ class ContentOverflowMenu extends ConsumerWidget {
       ],
     ),
   );
+}
+
+/// Une option de la feuille : une icône, un libellé, et ce que ça fait
+/// vraiment en dessous quand ce n'est pas évident.
+class _Option extends StatelessWidget {
+  const _Option({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.detail,
+    this.danger = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? detail;
+  final bool danger;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final couleur = danger
+        ? Theme.of(context).colorScheme.error
+        : Theme.of(context).colorScheme.onSurface;
+    return ListTile(
+      leading: Icon(icon, color: couleur),
+      title: Text(
+        label,
+        style: TextStyle(color: couleur, fontWeight: FontWeight.w600),
+      ),
+      subtitle: detail == null
+          ? null
+          : Text(detail!, style: TextStyle(color: context.muted, fontSize: 12)),
+      onTap: onTap,
+    );
+  }
 }

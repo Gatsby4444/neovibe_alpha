@@ -7,8 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/derived_list.dart';
 import '../../core/models/story.dart';
-import '../library/user_library_screen.dart';
 import 'story_viewer_screen.dart';
+import '../library/open_profile.dart';
 
 /// Bandeau horizontal de stories, en haut du Cercle et du Ping.
 ///
@@ -141,11 +141,7 @@ class _StoryCard extends ConsumerWidget {
             builder: (_) => StoryViewerScreen(rings: rings, initialRing: index),
           ),
         ),
-        onLongPress: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => UserLibraryScreen(profile: ring.owner),
-          ),
-        ),
+        onLongPress: () => openProfile(context, ring.owner),
         child: Container(
           width: largeur,
           height: hauteur,

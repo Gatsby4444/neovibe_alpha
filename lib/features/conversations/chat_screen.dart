@@ -27,7 +27,6 @@ import '../cards/cards_repository.dart';
 import '../library_vibes/conversation_library_screen.dart';
 import '../library_vibes/library_target.dart';
 import '../connections/connections_repository.dart';
-import '../library/user_library_screen.dart';
 import 'video_player_screen.dart';
 import '../proximity/ping_store.dart';
 import '../proximity/net/proximity_controller.dart';
@@ -39,6 +38,7 @@ import '../cards/send/share_progress_banner.dart';
 import 'voice/voice_bubble.dart';
 import 'voice/voice_record_bar.dart';
 import 'voice/voice_recorder.dart';
+import '../library/open_profile.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.conversationId});
@@ -731,13 +731,7 @@ class _PeerTitle extends ConsumerWidget {
     final name = profile?.chatName ?? '…';
     return InkWell(
       borderRadius: BorderRadius.circular(12),
-      onTap: profile == null
-          ? null
-          : () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => UserLibraryScreen(profile: profile),
-              ),
-            ),
+      onTap: profile == null ? null : () => openProfile(context, profile),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         child: Column(

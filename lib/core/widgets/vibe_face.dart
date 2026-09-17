@@ -39,6 +39,43 @@ const kVibeFeedRatio = 4 / 5;
 BoxFit fitForRatio(double ratio) =>
     ratio == kVibeFaceRatio ? BoxFit.contain : BoxFit.cover;
 
+/// **Comment une Vibe s'affiche, selon l'endroit où on la regarde.**
+///
+/// Le format et la marge du cadre voyageaient jusqu'ici en paramètres
+/// séparés, de widget en widget — deux réglages d'une même chose, qu'on
+/// pouvait changer l'un sans l'autre. Ils sont ici, ensemble, avec les trois
+/// seules combinaisons qui existent :
+///
+/// | | format | marge | où |
+/// |---|---|---|---|
+/// | [card] | 9:16 | 16 | partout ailleurs (story, Vibe reçue, Enregistrements) |
+/// | [feed] | 4:5 | 16 | le fil et la grille — **recadrée**, comme un Reel |
+/// | [full] | 9:16 | 8 | le plein écran : la carte au plus près des bords |
+class VibeDisplay {
+  const VibeDisplay({required this.ratio, required this.margin});
+
+  /// La Vibe à son format, dans un écran qui n'est pas à elle.
+  static const card = VibeDisplay(ratio: kVibeFaceRatio, margin: 16);
+
+  /// Recadrée pour un fil ou une grille (voir [kVibeFeedRatio]).
+  static const feed = VibeDisplay(ratio: kVibeFeedRatio, margin: 16);
+
+  /// Le plein écran. La marge y est **plus courte** : elle est tout ce qui
+  /// sépare deux Vibes quand on passe de l'une à l'autre, et Jay la trouvait
+  /// « un peu grande » (2026-09-17). Deux Vibes ne sont jamais visibles
+  /// ensemble pour autant : une page fait toujours un écran entier.
+  static const full = VibeDisplay(ratio: kVibeFaceRatio, margin: 8);
+
+  final double ratio;
+  final double margin;
+
+  /// Ce que le cadre ajoute à l'image, en largeur comme en hauteur.
+  double chrome(CardType type) => 2 * (margin + VibeFaceFrame.liseret(type));
+
+  /// Recadrer, c'est montrer moins (voir [fitForRatio]).
+  BoxFit get fit => fitForRatio(ratio);
+}
+
 /// L'**apparence** d'une face de Vibe : liseré à la couleur du type (dégradé
 /// pour Oneshot et BeReal, or épais pour la One of One), coins arrondis, fond
 /// noir, halo coloré.
@@ -61,6 +98,7 @@ class VibeFaceFrame extends StatelessWidget {
     required this.type,
     required this.child,
     this.overlay,
+    this.display = VibeDisplay.card,
   });
 
   final CardType type;
@@ -79,23 +117,27 @@ class VibeFaceFrame extends StatelessWidget {
   /// d'une vidéo reste attrapable).
   final Widget? overlay;
 
-  /// La marge autour du liseré, et l'épaisseur du liseré lui-même.
-  static const _marge = 16.0;
-  static double _liseret(CardType type) =>
-      type == CardType.oneOfOne ? 4.0 : 2.5;
+  /// Format et marge — voir [VibeDisplay].
+  final VibeDisplay display;
+
+  /// L'épaisseur du liseré, qui dépend du type.
+  static double liseret(CardType type) => type == CardType.oneOfOne ? 4.0 : 2.5;
 
   /// **Ce que le cadre ajoute à l'image**, en largeur comme en hauteur (les
   /// deux marges et les deux liserés). Une seule définition : celle qui
   /// dessine le cadre, et celle dont se sert une mise en page qui veut poser
   /// une carte à une taille voulue. La deviner, c'est deux chiffres qui se
   /// désaccordent au premier changement de style.
-  static double chrome(CardType type) => 2 * (_marge + _liseret(type));
+  static double chrome(
+    CardType type, [
+    VibeDisplay display = VibeDisplay.card,
+  ]) => display.chrome(type);
 
   @override
   Widget build(BuildContext context) {
-    final borderWidth = _liseret(type);
+    final borderWidth = liseret(type);
     return Container(
-      margin: const EdgeInsets.all(_marge),
+      margin: EdgeInsets.all(display.margin),
       padding: EdgeInsets.all(borderWidth),
       decoration: BoxDecoration(
         gradient: type.gradient,
@@ -159,22 +201,23 @@ class VibeFaceLoading extends StatelessWidget {
     super.key,
     required this.type,
     this.overlay,
-    this.ratio = kVibeFaceRatio,
+    this.display = VibeDisplay.card,
   });
 
   final CardType type;
   final Widget? overlay;
 
-  /// Le format d'affichage — 9:16 en plein écran, [kVibeFeedRatio] dans un
-  /// fil. **Il ne dépend jamais de ce qui est chargé** (voir [kVibeFaceRatio]).
-  final double ratio;
+  /// Format et marge (voir [VibeDisplay]). **Ils ne dépendent jamais de ce
+  /// qui est chargé** (voir [kVibeFaceRatio]).
+  final VibeDisplay display;
 
   @override
   Widget build(BuildContext context) => VibeFaceFrame(
     type: type,
     overlay: overlay,
+    display: display,
     child: AspectRatio(
-      aspectRatio: ratio,
+      aspectRatio: display.ratio,
       child: const Center(
         child: CircularProgressIndicator(color: Colors.white24),
       ),
@@ -188,26 +231,27 @@ class VibePhotoFace extends StatelessWidget {
     required this.bytes,
     required this.type,
     this.overlay,
-    this.ratio = kVibeFaceRatio,
+    this.display = VibeDisplay.card,
   });
 
   final Uint8List bytes;
   final CardType type;
   final Widget? overlay;
 
-  /// Voir [VibeFaceLoading.ratio].
-  final double ratio;
+  /// Voir [VibeFaceLoading.display].
+  final VibeDisplay display;
 
   @override
   Widget build(BuildContext context) {
     return VibeFaceFrame(
       type: type,
       overlay: overlay,
+      display: display,
       child: AspectRatio(
-        aspectRatio: ratio,
+        aspectRatio: display.ratio,
         child: Image.memory(
           bytes,
-          fit: fitForRatio(ratio),
+          fit: display.fit,
           errorBuilder: (context, error, stack) => const Center(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -292,7 +336,7 @@ class VibeVideoFace extends StatefulWidget {
     required this.type,
     required this.active,
     this.overlay,
-    this.ratio = kVibeFaceRatio,
+    this.display = VibeDisplay.card,
   });
 
   /// Le média ouvert : une vidéo scellée que le lecteur natif lit bloc par
@@ -308,9 +352,9 @@ class VibeVideoFace extends StatefulWidget {
   /// Voir [VibeFaceFrame.overlay].
   final Widget? overlay;
 
-  /// Voir [VibeFaceLoading.ratio]. La vidéo remplit déjà son cadre en
+  /// Voir [VibeFaceLoading.display]. La vidéo remplit déjà son cadre en
   /// `cover` : elle se recadre sans rien changer d'autre.
-  final double ratio;
+  final VibeDisplay display;
 
   @override
   State<VibeVideoFace> createState() => _VibeVideoFaceState();
@@ -364,8 +408,9 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
     return VibeFaceFrame(
       type: widget.type,
       overlay: widget.overlay,
+      display: widget.display,
       child: AspectRatio(
-        aspectRatio: widget.ratio,
+        aspectRatio: widget.display.ratio,
         child: _error != null
             ? VideoFaceError(error: _error!)
             : !_controller.value.isInitialized

@@ -49,3 +49,7 @@ __pycache__/
 
 # Fichiers de verrou temporaires de Word (~$Document.docx)
 ~$*
+
+# Jetons d'accès — JAMAIS dans le dépôt (règle de sécurité, CLAUDE.md)
+docs/PAT*.txt
+*PAT*.txt

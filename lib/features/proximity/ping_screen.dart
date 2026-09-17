@@ -12,7 +12,6 @@ import '../../core/widgets/avatar.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';
 import '../connections/connections_repository.dart';
-import '../library/user_library_screen.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
 import 'geo/coarse_location.dart';
@@ -26,6 +25,7 @@ import 'net/radio_status.dart';
 import 'ping_store.dart';
 import 'presence_feed.dart';
 import 'proximity_identity.dart';
+import '../library/open_profile.dart';
 
 /// Le Ping — découverte 100 % locale, chiffrée d'appareil à appareil.
 ///
@@ -634,9 +634,7 @@ Future<void> _ouvrirProfil(
   try {
     final profile = await ref.read(profileByIdProvider(snapshot.userId).future);
     if (profile != null && context.mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => UserLibraryScreen(profile: profile)),
-      );
+      openProfile(context, profile);
       return;
     }
   } catch (_) {
@@ -656,9 +654,7 @@ Future<void> _ouvrirProfilSeul(
   try {
     final profile = await ref.read(profileByIdProvider(userId).future);
     if (profile != null && context.mounted) {
-      Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => UserLibraryScreen(profile: profile)),
-      );
+      openProfile(context, profile);
     }
   } catch (_) {
     // Hors ligne : pas de profil serveur, et rien d'autre à ouvrir.

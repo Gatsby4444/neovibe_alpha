@@ -4,12 +4,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
-import '../library/user_library_screen.dart';
 import 'connections_repository.dart';
 import 'tier_avatar.dart';
 import 'friendships_repository.dart';
 import 'friendship.dart';
 import '../../core/typography.dart';
+import '../library/open_profile.dart';
 
 /// Liste des amis (consigne Jay 2026-07-12) : ouverte depuis le compteur
 /// d'amis du profil — username + PP + barre de recherche.
@@ -142,9 +142,7 @@ class _FriendTile extends ConsumerWidget {
       ),
       title: Text(peer.displayName),
       subtitle: _Sousligne(peer: peer, amitie: amitie),
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => UserLibraryScreen(profile: peer)),
-      ),
+      onTap: () => openProfile(context, peer),
     );
   }
 }
