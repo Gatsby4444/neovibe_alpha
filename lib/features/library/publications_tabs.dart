@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/library_item.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/vibe_face.dart';
+import 'feed/flows_reel_screen.dart';
 import 'feed/publications_feed_screen.dart';
 import 'feed/vibes_reel_screen.dart';
 import 'mini_card.dart';
@@ -11,8 +12,9 @@ import 'mini_card.dart';
 ///
 /// | Onglet | Ce qu'il montre | Ce qu'un appui ouvre |
 /// |---|---|---|
-/// | **la grille** | tout, publications et Vibes mêlées | le **fil**, posé sur la case touchée |
-/// | **les Vibes** | les Vibes seules | le **plein écran**, posé sur celle-là |
+/// | **la grille** | tout : publications, Vibes et Flows | le **fil**, posé sur la case touchée |
+/// | **les Vibes** | les Vibes seules, **à leur format** (9:16) | le **plein écran** des Vibes |
+/// | **les Flows** | les vidéos publiées seules | le **plein écran** des Flows, façon Reels |
 ///
 /// C'est la même séparation que chez eux entre la grille et l'onglet Reels —
 /// *« nous on n'a pas de Reels, on a des Vibes, et c'est ça nos Reels »*. Les
@@ -55,7 +57,8 @@ class PublicationsTabs extends StatefulWidget {
 
 enum _Onglet {
   tout(Icons.grid_on_outlined, 'Tout'),
-  vibes(Icons.style_outlined, 'Vibes');
+  vibes(Icons.style_outlined, 'Vibes'),
+  flows(Icons.play_circle_outline, 'Flows');
 
   const _Onglet(this.icon, this.label);
   final IconData icon;
@@ -67,11 +70,15 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
 
   @override
   Widget build(BuildContext context) {
-    final vibes = widget.items.where((i) => !i.isPublication).toList();
-    final liste = _onglet == _Onglet.tout ? widget.items : vibes;
+    final liste = switch (_onglet) {
+      _Onglet.tout => widget.items,
+      _Onglet.vibes => widget.items.where((i) => !i.isPublication).toList(),
+      _Onglet.flows => widget.items.where((i) => i.isFlow).toList(),
+    };
     // La grille de tout recadre en 4:5 ; l'onglet Vibes montre les cartes à
     // LEUR format — c'est ce qui fait comprendre qu'on n'y trouve que ça.
-    final ratio = _onglet == _Onglet.tout ? kMiniCardRatio : kVibeFaceRatio;
+    // Les Flows gardent le 4:5 : ils sont publiés à leur format, pas au 9:16.
+    final ratio = _onglet == _Onglet.vibes ? kVibeFaceRatio : kMiniCardRatio;
 
     return Column(
       children: [
@@ -80,9 +87,11 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
           Padding(
             padding: const EdgeInsets.all(32),
             child: Text(
-              _onglet == _Onglet.tout
-                  ? widget.emptyMessage
-                  : 'Aucune Vibe publiée pour l\'instant.',
+              switch (_onglet) {
+                _Onglet.tout => widget.emptyMessage,
+                _Onglet.vibes => 'Aucune Vibe publiée pour l\'instant.',
+                _Onglet.flows => 'Aucun Flow publié pour l\'instant.',
+              },
               textAlign: TextAlign.center,
               style: TextStyle(color: context.muted),
             ),
@@ -113,22 +122,32 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
   }
 
   void _ouvrir(List<LibraryItem> liste, int index) {
-    if (_onglet == _Onglet.tout) {
-      openPublications(
-        context,
-        items: liste,
-        initialIndex: index,
-        title: widget.feedTitle,
-      );
-      return;
+    switch (_onglet) {
+      // La grille mène au fil, où les formats se suivent.
+      case _Onglet.tout:
+        openPublications(
+          context,
+          items: liste,
+          initialIndex: index,
+          title: widget.feedTitle,
+        );
+      // Les deux autres onglets mènent droit au plein écran : c'est leur
+      // format qui fait l'onglet, autant le montrer tout de suite.
+      case _Onglet.vibes:
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => VibesReelScreen(vibes: liste, initialIndex: index),
+          ),
+        );
+      case _Onglet.flows:
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            fullscreenDialog: true,
+            builder: (_) => FlowsReelScreen(flows: liste, initialIndex: index),
+          ),
+        );
     }
-    // L'onglet Vibes mène droit au plein écran : c'est son format.
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        fullscreenDialog: true,
-        builder: (_) => VibesReelScreen(vibes: liste, initialIndex: index),
-      ),
-    );
   }
 }
 

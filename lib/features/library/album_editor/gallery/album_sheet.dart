@@ -43,6 +43,11 @@ class _AlbumSheet extends StatefulWidget {
 class _AlbumSheetState extends State<_AlbumSheet> {
   late final Future<List<GalleryAlbum>> _albums = NativeGallery.albums();
 
+  /// Deux rangées qui défilent à l'horizontale, comme sur les captures de
+  /// Jay : l'œil voit d'un coup six dossiers et devine qu'il y en a d'autres.
+  /// « Voir tout » déplie la grille entière pour qui les cherche.
+  var _tout = false;
+
   @override
   Widget build(BuildContext context) {
     final c = EditorColors.of(context);
@@ -51,25 +56,38 @@ class _AlbumSheetState extends State<_AlbumSheet> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // L'en-tête : « Annuler » à gauche, le titre au centre.
           Padding(
             padding: const EdgeInsets.fromLTRB(
-              NeoSpace.lg,
+              NeoSpace.sm,
               0,
-              NeoSpace.lg,
-              NeoSpace.md,
+              NeoSpace.sm,
+              NeoSpace.sm,
             ),
-            child: Text(
-              'Sélectionner un album',
-              style: TextStyle(
-                fontFamily: NeoType.display,
-                fontWeight: FontWeight.w700,
-                fontSize: 18,
-                color: c.ink,
-              ),
+            child: Row(
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Annuler'),
+                ),
+                Expanded(
+                  child: Text(
+                    'Sélectionner un album',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: NeoType.display,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 17,
+                      color: c.ink,
+                    ),
+                  ),
+                ),
+                // La même largeur qu'« Annuler », pour que le titre soit
+                // vraiment au milieu et non « au milieu de ce qui reste ».
+                const SizedBox(width: 72),
+              ],
             ),
           ),
-          // Les trois raccourcis : ce ne sont pas des dossiers, ce sont des
-          // façons de regarder tout le téléphone.
           Row(
             children: [
               for (final f in const [
@@ -86,16 +104,31 @@ class _AlbumSheetState extends State<_AlbumSheet> {
                 ),
             ],
           ),
-          const SizedBox(height: NeoSpace.md),
+          const SizedBox(height: NeoSpace.sm),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: NeoSpace.lg),
-            child: Text(
-              'Albums',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                fontSize: 15,
-                color: c.inkMuted,
-              ),
+            padding: const EdgeInsets.fromLTRB(
+              NeoSpace.lg,
+              0,
+              NeoSpace.md,
+              NeoSpace.sm,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Albums',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 16,
+                      color: c.inkMuted,
+                    ),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () => setState(() => _tout = !_tout),
+                  child: Text(_tout ? 'Réduire' : 'Voir tout'),
+                ),
+              ],
             ),
           ),
           Expanded(
@@ -114,22 +147,38 @@ class _AlbumSheetState extends State<_AlbumSheet> {
                     ),
                   );
                 }
+                final tuile =
+                    (MediaQuery.sizeOf(context).width - 4 * NeoSpace.md) / 3;
+                if (_tout) {
+                  return GridView.builder(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: NeoSpace.md,
+                    ),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 3,
+                          mainAxisSpacing: NeoSpace.md,
+                          crossAxisSpacing: NeoSpace.md,
+                          // Une vignette carrée, son nom et son compte.
+                          childAspectRatio: 0.74,
+                        ),
+                    itemCount: albums.length,
+                    itemBuilder: (context, i) => _tuile(albums[i]),
+                  );
+                }
+                // Deux rangées, qui défilent à l'horizontale.
                 return GridView.builder(
-                  padding: const EdgeInsets.all(NeoSpace.md),
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: NeoSpace.md),
                   gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
+                    crossAxisCount: 2,
                     mainAxisSpacing: NeoSpace.md,
                     crossAxisSpacing: NeoSpace.md,
-                    childAspectRatio: 0.78,
+                    childAspectRatio: 1 / 0.74,
                   ),
                   itemCount: albums.length,
-                  itemBuilder: (context, i) => _Album(
-                    album: albums[i],
-                    feed: widget.feed,
-                    choisi: albums[i].id == widget.courant.album?.id,
-                    onTap: () =>
-                        Navigator.pop(context, GalleryFilter(album: albums[i])),
-                  ),
+                  itemBuilder: (context, i) =>
+                      SizedBox(width: tuile, child: _tuile(albums[i])),
                 );
               },
             ),
@@ -138,6 +187,13 @@ class _AlbumSheetState extends State<_AlbumSheet> {
       ),
     );
   }
+
+  Widget _tuile(GalleryAlbum album) => _Album(
+    album: album,
+    feed: widget.feed,
+    choisi: album.id == widget.courant.album?.id,
+    onTap: () => Navigator.pop(context, GalleryFilter(album: album)),
+  );
 }
 
 /// Récent · Photos · Vidéos : un rond, un mot.
@@ -214,9 +270,11 @@ class _Album extends StatelessWidget {
       onTap: onTap,
       behavior: HitTestBehavior.opaque,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
+          AspectRatio(
+            aspectRatio: 1,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: Container(
@@ -250,6 +308,7 @@ class _Album extends StatelessWidget {
           Text(
             album.name,
             maxLines: 1,
+            textAlign: TextAlign.center,
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 13,
@@ -259,6 +318,7 @@ class _Album extends StatelessWidget {
           ),
           Text(
             '${album.count}',
+            textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: c.inkMuted),
           ),
         ],

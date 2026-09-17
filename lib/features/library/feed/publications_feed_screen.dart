@@ -7,6 +7,7 @@ import '../../../core/models/library_item.dart';
 import '../../../core/typography.dart';
 import '../../../core/widgets/anchored_list.dart';
 import 'active_item_tracker.dart';
+import 'flows_reel_screen.dart';
 import 'publication_cell.dart';
 import 'vibes_reel_screen.dart';
 
@@ -78,7 +79,23 @@ class _PublicationsFeedScreenState
     });
   }
 
-  void _openVibe(LibraryItem item) {
+  /// **Ouvrir en grand ce qu'on vient de toucher** — dans le plein écran de
+  /// SON format : les Vibes entre elles, les Flows entre eux (Jay,
+  /// 2026-09-17). Un carrousel, lui, se lit dans le fil : il n'a pas de plein
+  /// écran à lui.
+  void _ouvrirEnGrand(LibraryItem item) {
+    if (item.isFlow) {
+      final flows = _items.where((i) => i.isFlow).toList();
+      final index = flows.indexWhere((i) => i.id == item.id);
+      if (index < 0) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => FlowsReelScreen(flows: flows, initialIndex: index),
+        ),
+      );
+      return;
+    }
     final vibes = _items.where((i) => !i.isPublication).toList();
     final index = vibes.indexWhere((i) => i.id == item.id);
     if (index < 0) return;
@@ -108,7 +125,7 @@ class _PublicationsFeedScreenState
         child: _FeedList(
           items: _items,
           anchor: _anchor,
-          onOpenVibe: _openVibe,
+          onOpen: _ouvrirEnGrand,
           onDeleted: _removed,
         ),
       ),
@@ -120,13 +137,13 @@ class _FeedList extends StatelessWidget {
   const _FeedList({
     required this.items,
     required this.anchor,
-    required this.onOpenVibe,
+    required this.onOpen,
     required this.onDeleted,
   });
 
   final List<LibraryItem> items;
   final int anchor;
-  final ValueChanged<LibraryItem> onOpenVibe;
+  final ValueChanged<LibraryItem> onOpen;
   final ValueChanged<LibraryItem> onDeleted;
 
   @override
@@ -149,7 +166,7 @@ class _FeedList extends StatelessWidget {
             builder: (context, active, _) => PublicationCell(
               item: item,
               active: active == item.id,
-              onOpenVibe: () => onOpenVibe(item),
+              onOpen: () => onOpen(item),
               onDeleted: () => onDeleted(item),
             ),
           ),

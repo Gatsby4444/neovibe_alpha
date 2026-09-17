@@ -39,6 +39,9 @@ import '../open_profile.dart';
 /// (Jay, 2026-09-17). Un tap l'ouvre en plein écran, à son vrai format
 /// (`onOpenVibe`).
 ///
+/// [onOpen] : ouvrir en grand — le plein écran des Vibes ou celui des Flows,
+/// selon le format. Un carrousel n'en a pas : il se lit ici.
+///
 /// [active] : la cellule est celle qu'on regarde (`ActiveItemTracker`) — ses
 /// vidéos jouent, et la vue se compte après 3 s d'affichage réel.
 class PublicationCell extends ConsumerStatefulWidget {
@@ -46,13 +49,13 @@ class PublicationCell extends ConsumerStatefulWidget {
     super.key,
     required this.item,
     required this.active,
-    required this.onOpenVibe,
+    required this.onOpen,
     this.onDeleted,
   });
 
   final LibraryItem item;
   final bool active;
-  final VoidCallback onOpenVibe;
+  final VoidCallback onOpen;
   final VoidCallback? onDeleted;
 
   @override
@@ -160,7 +163,7 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
               : VibeCardView(
                   item: item,
                   active: widget.active,
-                  onTap: widget.onOpenVibe,
+                  onTap: widget.onOpen,
                   display: VibeDisplay.feed,
                 ),
         ),
