@@ -23,10 +23,10 @@ import '../content/likes.dart';
 ///
 /// ⚠️ Un `onDoubleTap` **retarde** le `onTap` du temps du second appui
 /// (~300 ms) : c'est le prix, et c'est pour ça qu'il n'est posé que là où
-/// Jay l'a demandé — sur les publications, et depuis le 2026-09-18 sur les
-/// Vibes en plein écran (à la place de l'appui long, *« puisqu'on n'a plus
-/// le mode mouvement »*), où le tap sur un bord retourne la carte après ce
-/// délai.
+/// Jay l'a demandé — sur les publications, **pas sur les Vibes** : essayé en
+/// plein écran le 2026-09-18 (v0.9.203) et retiré le jour même, *« 300 ms
+/// c'est trop, il faut donner la priorité au retournement »*. Là, c'est
+/// l'appui long, seul.
 class LikeBurst extends ConsumerStatefulWidget {
   const LikeBurst({
     super.key,

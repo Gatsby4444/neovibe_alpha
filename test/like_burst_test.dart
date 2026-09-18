@@ -102,8 +102,7 @@ void main() {
     expect(sans.bascules, 0, reason: 'sans double tap : rien');
   });
 
-  testWidgets('appui long coupé : il n\'aime plus (les Vibes en plein écran, '
-      '2026-09-18)', (tester) async {
+  testWidgets('appui long coupé : il n\'aime plus', (tester) async {
     final sans = await poser(tester, dejaAime: false, longPress: false);
     await tester.longPress(find.byKey(const ValueKey('media')));
     await tester.pumpAndSettle();
