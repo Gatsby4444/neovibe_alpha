@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app.dart' show routeObserver;
+
 /// **Quel élément du fil est « actif »** — celui dont le centre est le plus
 /// proche du centre de la fenêtre. C'est lui qui joue ses vidéos et compte
 /// une vue ; les autres se taisent.
@@ -8,6 +10,15 @@ import 'package:flutter/material.dart';
 /// positions à chaque défilement (et une fois posé) et publie l'identifiant
 /// de l'actif dans [active]. Rien d'autre : ce que « actif » déclenche
 /// appartient à chaque cellule.
+///
+/// ⚠️ **Un fil recouvert n'a AUCUN élément actif.** Jusqu'au 2026-09-18, le
+/// suiveur ne connaissait que le défilement : quand un plein écran se posait
+/// par-dessus le fil (une Vibe, un Flow), l'élément sous le doigt restait
+/// « actif » — son lecteur vidéo continuait de décoder, invisible, pendant
+/// que le plein écran ouvrait le sien sur la **même** vidéo. Deux décodeurs
+/// pour une image, et la vue comptée deux fois. Un décodeur est une ressource
+/// matérielle comptée (v0.9.197) : le suiveur écoute donc le navigateur et
+/// publie `null` tant qu'un autre écran le recouvre.
 class ActiveItemTracker extends StatefulWidget {
   const ActiveItemTracker({super.key, required this.child});
 
@@ -20,9 +31,40 @@ class ActiveItemTracker extends StatefulWidget {
   State<ActiveItemTracker> createState() => ActiveItemTrackerState();
 }
 
-class ActiveItemTrackerState extends State<ActiveItemTracker> {
+class ActiveItemTrackerState extends State<ActiveItemTracker> with RouteAware {
   final active = ValueNotifier<String?>(null);
   final _items = <String, BuildContext>{};
+
+  /// La route du fil, pour savoir quand un autre écran la recouvre.
+  PageRoute<dynamic>? _route;
+
+  /// Vrai tant qu'un écran est posé par-dessus le fil.
+  var _covered = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute<dynamic> && route != _route) {
+      if (_route != null) routeObserver.unsubscribe(this);
+      _route = route;
+      routeObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPushNext() {
+    // Tout de suite, pas à la prochaine image : le plein écran qui arrive va
+    // ouvrir son lecteur, celui du fil doit déjà s'être tu.
+    _covered = true;
+    if (active.value != null) active.value = null;
+  }
+
+  @override
+  void didPopNext() {
+    _covered = false;
+    _schedule();
+  }
 
   void register(String id, BuildContext ctx) {
     _items[id] = ctx;
@@ -46,6 +88,10 @@ class ActiveItemTrackerState extends State<ActiveItemTracker> {
   }
 
   void _recompute() {
+    if (_covered) {
+      if (active.value != null) active.value = null;
+      return;
+    }
     final box = context.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return;
     final viewportCenter = box.size.height / 2;
@@ -74,6 +120,7 @@ class ActiveItemTrackerState extends State<ActiveItemTracker> {
 
   @override
   void dispose() {
+    if (_route != null) routeObserver.unsubscribe(this);
     active.dispose();
     super.dispose();
   }
