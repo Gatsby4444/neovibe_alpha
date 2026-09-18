@@ -117,6 +117,7 @@ class MiniCard extends ConsumerWidget {
         child: GestureDetector(
           onLongPress: onLongPress,
           onTap: () => _open(context),
+          onHorizontalDragStart: _zoneNeutre,
           child: _MiniFrame(
             borderColor: borderColor,
             badgeIcon: item.media.length > 1
@@ -152,6 +153,7 @@ class MiniCard extends ConsumerWidget {
         child: GestureDetector(
           onLongPress: onLongPress,
           onTap: () => _open(context),
+          onHorizontalDragStart: _zoneNeutre,
           child: front,
         ),
       );
@@ -179,6 +181,14 @@ class MiniCard extends ConsumerWidget {
       ),
     );
   }
+
+  /// **Une zone neutre sous chaque mini** (Jay, 2026-09-18) : balayer une
+  /// vignette qui n'a pas de verso — une face unique, une publication, un
+  /// Flow — ne fait **rien**, au lieu de remonter au balayage de l'écran et
+  /// de changer de section. Une mini à deux faces absorbe déjà ce geste pour
+  /// se retourner ; celles-ci l'absorbent pour ne rien faire, et la grille
+  /// se comporte pareil sous le doigt quelle que soit la case.
+  static void _zoneNeutre(DragStartDetails _) {}
 
   void _open(BuildContext context) {
     if (onTap != null) {
