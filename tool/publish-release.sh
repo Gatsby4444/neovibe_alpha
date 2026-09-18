@@ -111,8 +111,21 @@ echo "== 4/4 publication de $TAG ($NOM, versionCode $CODE) =="
 CIBLE="build/neovibe-$TAG-arm64.apk"
 cp "$APK" "$CIBLE"
 
+# ⚠️ Le tag doit pointer sur le commit dont l'APK est SORTI. `gh release
+# create` pose le tag sur la tête de `master` telle que GitHub la connaît —
+# donc, si le commit n'est pas encore poussé, sur le commit PRÉCÉDENT, sans
+# rien dire. C'est arrivé aux v0.9.200 et v0.9.201 (2026-09-18) : les deux
+# tags désignaient une version d'avant l'APK publié. On pousse d'abord, et on
+# vise explicitement le commit courant.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "ARRET : l'arbre n'est pas propre — l'APK doit sortir d'un commit." >&2
+  exit 1
+fi
+SHA="$(git rev-parse HEAD)"
+git push origin HEAD:master
+
 if [ -n "$NOTES" ]; then
-  gh release create "$TAG" "$CIBLE" --title "$TITRE" --notes-file "$NOTES"
+  gh release create "$TAG" "$CIBLE" --target "$SHA" --title "$TITRE" --notes-file "$NOTES"
 else
-  gh release create "$TAG" "$CIBLE" --title "$TITRE" --generate-notes
+  gh release create "$TAG" "$CIBLE" --target "$SHA" --title "$TITRE" --generate-notes
 fi
