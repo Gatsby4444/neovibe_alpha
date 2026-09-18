@@ -49,8 +49,8 @@ Vibe
 │   └── Importer depuis la galerie ✅
 ├── Après la prise
 │   ├── Reprendre le recto ✅
-│   ├── Éditeur de face 🚧   `face_editor_screen.dart` — post-production
-│   └── ⚠️ exclu du Oneshot par principe
+│   ├── Éditeur de Vibe ✅   `cards/editor/vibe_editor_screen.dart` (2026-09-18) — le même que celui des Flows, adapté : recto/verso, 9:16 imposé, Texte · Autocollant · Filtre · Modifier · Rogner ; s'ouvre après la prise, se rouvre depuis « À qui ? » avec les réglages gardés
+│   └── ⚠️ exclu du Oneshot et du BeReal par principe
 └── → écran d'envoi
 ```
 

@@ -15,12 +15,15 @@ import '../../core/utils/ids.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
+import '../../core/typography.dart';
 import '../library_vibes/library_share_screen.dart';
 import '../library_vibes/library_target.dart';
 import 'capture_tools.dart';
 import 'capture_type_state.dart';
+import 'editor/vibe_edit_draft.dart';
+import 'editor/vibe_editor_screen.dart';
+import 'editor/vibe_export.dart';
 import 'face_background.dart';
-import 'face_editor_screen.dart';
 import 'camera_controls.dart';
 import 'gallery_import_screen.dart';
 import 'native_camera.dart';
@@ -1253,7 +1256,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// tout de suite. Depuis un chat, on y retourne ; sinon, **retour à la
   /// caméra** (Jay, 2026-09-14), prête pour la prise suivante — le bandeau
   /// d'envoi dit où en est la précédente.
-  void _afterSend() {
+  /// Quitter le récap — après l'envoi, ou quand l'éditeur abandonne la Vibe :
+  /// dans les deux cas la prise est finie, on rend la caméra (ou l'écran
+  /// d'où on venait).
+  void _leaveRecap() {
     if (widget.directConversationId != null || widget.publicationOnly) {
       Navigator.of(context).pop();
       return;
@@ -1651,7 +1657,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         directConversationId: widget.directConversationId,
         libraryOnly: widget.publicationOnly,
         onRetake: _retakeFromRecap,
-        onSent: _afterSend,
+        onSent: _leaveRecap,
+        onAbandon: _leaveRecap,
       );
     }
 
@@ -2455,9 +2462,18 @@ class _CameraHud extends StatelessWidget {
 /// en haut, petites, avec leurs gestes (modifier / original / refaire), et la
 /// liste « à qui » en dessous. Un écran de moins à chaque envoi.
 ///
-/// Cet état garde ce que l'écran de capture ne connaît pas : les faces
-/// **retouchées** (le dessin, le texte) et leurs originaux — et l'identité
-/// locale de la prise, tirée une seule fois (voir [VibeDraft.newLocalId]).
+/// Cet état garde ce que l'écran de capture ne connaît pas : le **brouillon
+/// de retouche** ([VibeEditDraft] — cadrage, filtre, textes… par face), les
+/// faces **exportées** et leurs originaux — et l'identité locale de la prise,
+/// tirée une seule fois (voir [VibeDraft.newLocalId]).
+///
+/// **L'éditeur s'ouvre d'abord** (Jay, 2026-09-18), pour une Vibe standard :
+/// on retouche, « Suivant » exporte, et on arrive à « À qui ? ». Depuis
+/// l'en-tête, « Modifier » le rouvre **avec les réglages encore là** —
+/// l'export repart toujours des originaux, jamais d'une face déjà exportée.
+/// Un Oneshot ou un BeReal ne passent pas par là : le premier est *un
+/// instant vu des deux côtés*, le second est verrouillé « sans
+/// post-production ».
 class _ShareStep extends StatefulWidget {
   const _ShareStep({
     required this.front,
@@ -2471,6 +2487,7 @@ class _ShareStep extends StatefulWidget {
     this.libraryOnly = false,
     required this.onRetake,
     required this.onSent,
+    required this.onAbandon,
   });
   final File front;
   final File? back; // null = face unique
@@ -2480,6 +2497,9 @@ class _ShareStep extends StatefulWidget {
 
   /// L'envoi est déposé dans la file : l'écran de capture reprend la main.
   final VoidCallback onSent;
+
+  /// L'éditeur a abandonné la Vibe : la prise est finie, sans envoi.
+  final VoidCallback onAbandon;
   final CardType type;
   final bool frontImported;
   final bool backImported;
@@ -2508,22 +2528,164 @@ class _ShareStepState extends State<_ShareStep> {
   late final File _originalFront = widget.front;
   late final File? _originalBack = widget.back;
 
-  Future<void> _editFace(bool isFront) async {
-    final current = isFront ? _front : _back!;
-    final result = await Navigator.of(context).push<File>(
-      MaterialPageRoute(builder: (_) => FaceEditorScreen(baseImage: current)),
-    );
-    if (result != null) {
-      setState(() => isFront ? _front = result : _back = result);
+  /// Une Vibe standard se retouche ; un Oneshot ou un BeReal, jamais.
+  bool get _editable => widget.type == CardType.standard;
+
+  /// Les réglages de retouche, gardés entre deux ouvertures de l'éditeur.
+  /// Nul tant que les faces n'ont pas été sondées.
+  VibeEditDraft? _draft;
+
+  /// L'éditeur est ouvert par-dessus : en dessous, rien à montrer.
+  var _editing = false;
+
+  /// L'export en cours (0..1) ; nul sinon.
+  double? _exportProgress;
+
+  /// Le brouillon tel qu'il a été exporté la dernière fois : rouvrir puis
+  /// « Suivant » sans rien changer ne retranscode pas une vidéo.
+  VibeEditDraft? _lastExported;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_editable) {
+      _editing = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openEditor(startFront: true, firstPass: true);
+      });
     }
   }
 
+  Future<void> _openEditor({
+    required bool startFront,
+    required bool firstPass,
+  }) async {
+    var draft = _draft;
+    if (draft == null) {
+      try {
+        draft = await VibeEditDraft.fromFiles(
+          front: _originalFront,
+          back: _originalBack,
+          frontIsVideo: widget.frontIsVideo,
+          backIsVideo: widget.backIsVideo,
+        );
+      } catch (e) {
+        // Une face que le natif ne sait pas sonder : on passe sans éditeur,
+        // et on le dit — la Vibe part telle quelle.
+        if (!mounted) return;
+        setState(() => _editing = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Retouche impossible sur cette prise : $e')),
+        );
+        return;
+      }
+      _draft = draft;
+    }
+    if (!mounted) return;
+    setState(() => _editing = true);
+    final result = await Navigator.of(context).push<VibeEditDraft>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => VibeEditorScreen(
+          draft: draft!,
+          startFront: startFront,
+          firstPass: firstPass,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (result == null) {
+      // Première ouverture : abandonner l'éditeur, c'est abandonner la
+      // prise. Rouvert depuis « À qui ? » : on garde ce qu'on avait.
+      if (firstPass) {
+        widget.onAbandon();
+      } else {
+        setState(() => _editing = false);
+      }
+      return;
+    }
+    _draft = result;
+    final last = _lastExported;
+    if (last != null &&
+        last.front == result.front &&
+        last.back == result.back) {
+      setState(() => _editing = false);
+      return;
+    }
+    await _export();
+  }
+
+  /// Rend les faces retouchées en fichiers (voir [VibeExport]) : les faces
+  /// non touchées gardent leur fichier de capture.
+  Future<void> _export() async {
+    setState(() => _exportProgress = 0);
+    try {
+      final faces = await VibeExport.render(
+        _draft!,
+        onProgress: (p) {
+          if (mounted) setState(() => _exportProgress = p);
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _front = faces.front;
+        _back = faces.back;
+        _lastExported = _draft;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Export impossible : $e')));
+    } finally {
+      if (mounted) {
+        setState(() {
+          _exportProgress = null;
+          _editing = false;
+        });
+      }
+    }
+  }
+
+  void _editFace(bool isFront) =>
+      _openEditor(startFront: isFront, firstPass: false);
+
+  /// « Revenir à l'original » : les réglages de la face s'effacent, et son
+  /// fichier de capture reprend sa place.
   void _restoreFace(bool isFront) {
-    setState(() => isFront ? _front = _originalFront : _back = _originalBack);
+    setState(() {
+      _draft = _draft?.restore(isFront: isFront);
+      _lastExported = null;
+      isFront ? _front = _originalFront : _back = _originalBack;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
+    final progress = _exportProgress;
+    if (progress != null) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 40,
+                height: 40,
+                child: CircularProgressIndicator(
+                  value: progress > 0 ? progress : null,
+                ),
+              ),
+              const SizedBox(height: NeoSpace.md),
+              const Text('Préparation de ta Vibe…'),
+            ],
+          ),
+        ),
+      );
+    }
+    // L'éditeur est posé par-dessus : rien à construire en dessous, et
+    // surtout pas l'écran « À qui ? », qui apparaîtrait le temps d'une image.
+    if (_editing) return const Scaffold(body: SizedBox.shrink());
     // Le brouillon se reconstruit à chaque retouche (les faces ont changé) ;
     // l'identifiant, lui, survit à ces reconstructions.
     final draft = VibeDraft(
@@ -2545,10 +2707,9 @@ class _ShareStepState extends State<_ShareStep> {
         front: _front,
         back: _back,
         type: widget.type,
+        canEdit: _editable,
         frontEdited: _front != _originalFront,
         backEdited: _back != _originalBack,
-        frontImported: widget.frontImported,
-        backImported: widget.backImported,
         frontIsVideo: widget.frontIsVideo,
         backIsVideo: widget.backIsVideo,
         onEdit: _editFace,

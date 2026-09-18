@@ -12,19 +12,18 @@ import '../../../core/typography.dart';
 /// Avant, le récap était un écran à part : on regardait ce qu'on venait de
 /// prendre, puis « Continuer », puis on choisissait à qui. Ici les faces sont
 /// là, petites, et chacune garde ses trois gestes derrière un menu ⋯ :
-/// **Modifier** (dessin, texte — photos non importées seulement), **Revenir à
-/// l'original** (si modifiée), **Refaire** cette face en gardant l'autre
-/// (consigne Jay 2026-07-26).
+/// **Modifier** (l'éditeur des Vibes, photo ou vidéo, importée ou non —
+/// depuis le 2026-09-18), **Revenir à l'original** (si modifiée), **Refaire**
+/// cette face en gardant l'autre (consigne Jay 2026-07-26).
 class VibeDraftHeader extends StatelessWidget {
   const VibeDraftHeader({
     super.key,
     required this.front,
     required this.back,
     required this.type,
+    required this.canEdit,
     required this.frontEdited,
     required this.backEdited,
-    required this.frontImported,
-    required this.backImported,
     required this.frontIsVideo,
     required this.backIsVideo,
     required this.onEdit,
@@ -37,10 +36,11 @@ class VibeDraftHeader extends StatelessWidget {
   /// Nulle = face unique (verso passé).
   final File? back;
   final CardType type;
+
+  /// Une Vibe standard se retouche ; un Oneshot ou un BeReal, jamais.
+  final bool canEdit;
   final bool frontEdited;
   final bool backEdited;
-  final bool frontImported;
-  final bool backImported;
   final bool frontIsVideo;
   final bool backIsVideo;
 
@@ -69,7 +69,7 @@ class VibeDraftHeader extends StatelessWidget {
             file: front,
             isVideo: frontIsVideo,
             edited: frontEdited,
-            imported: frontImported,
+            canEdit: canEdit,
             hauteur: _hauteur,
             onEdit: () => onEdit(true),
             onRestore: () => onRestore(true),
@@ -82,7 +82,7 @@ class VibeDraftHeader extends StatelessWidget {
               file: verso,
               isVideo: backIsVideo,
               edited: backEdited,
-              imported: backImported,
+              canEdit: canEdit,
               hauteur: _hauteur,
               onEdit: () => onEdit(false),
               onRestore: () => onRestore(false),
@@ -103,7 +103,7 @@ class _Face extends StatelessWidget {
     required this.file,
     required this.isVideo,
     required this.edited,
-    required this.imported,
+    required this.canEdit,
     required this.hauteur,
     required this.onEdit,
     required this.onRestore,
@@ -114,7 +114,7 @@ class _Face extends StatelessWidget {
   final File file;
   final bool isVideo;
   final bool edited;
-  final bool imported;
+  final bool canEdit;
   final double hauteur;
   final VoidCallback onEdit;
   final VoidCallback onRestore;
@@ -122,9 +122,9 @@ class _Face extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Une face vidéo ou importée ne se dessine pas (photos non importées
-    // seulement — consigne Jay).
-    final peutModifier = !isVideo && !imported;
+    // L'éditeur des Vibes prend une photo comme une vidéo, importée ou non ;
+    // seul le type décide (Oneshot, BeReal : jamais).
+    final peutModifier = canEdit;
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -170,11 +170,11 @@ class _Face extends StatelessWidget {
                       value: _Geste.modifier,
                       child: ListTile(
                         dense: true,
-                        leading: Icon(Icons.draw, size: 18),
-                        title: Text('Modifier (dessin, texte)'),
+                        leading: Icon(Icons.tune, size: 18),
+                        title: Text('Modifier'),
                       ),
                     ),
-                  if (edited && !isVideo)
+                  if (edited)
                     const PopupMenuItem(
                       value: _Geste.original,
                       child: ListTile(
