@@ -123,8 +123,10 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
     return DarkSystemBars(
       // Écran noir sans AppBar : il annonce lui-même des icônes
       // système claires (voir [DarkSystemBars]).
+      // Transparent : la route est une superposition (voir [ReelRoute]), le
+      // noir est DANS ce qui se rétracte — autour de l'heptagone, le profil.
       child: Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         // Dézoomer à deux doigts ferme, et l'écran suit le geste
         // (Jay, 2026-09-17). Posé ICI, autour de tout : c'est l'écran qui se
         // rétracte, pas la carte.
@@ -135,6 +137,7 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
             onClose: () => Navigator.of(context).maybePop(),
             child: Stack(
               children: [
+                const Positioned.fill(child: ColoredBox(color: Colors.black)),
                 // Sans la lueur de bord : le sur-défilement du haut est un
                 // geste (fermer), pas une butée à signaler.
                 ScrollConfiguration(

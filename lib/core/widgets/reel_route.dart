@@ -17,12 +17,30 @@ import 'package:flutter/material.dart';
 /// Ici, la sortie dure [sortie] et c'est un **fondu** : l'écran d'en dessous
 /// est déjà là quand la rétraction finit. L'ouverture, elle, garde son temps —
 /// c'est l'entrée dans un espace, pas un retour.
+///
+/// ### Une superposition, pas une page (Jay, 2026-09-18)
+///
+/// *« Lorsqu'on referme en dézoomant le fond est noir et cela fait bizarre,
+/// ce serait bien si on pouvait voir en dessous directement l'écran profil.
+/// Cela veut dire que le plein écran serait un peu comme une superposition. »*
+///
+/// La route n'est donc **pas opaque** : l'écran d'en dessous reste dessiné,
+/// et c'est le plein écran lui-même qui porte son noir — DANS ce qui se
+/// rétracte (`PinchToClose` enveloppe un fond noir, le `Scaffold` est
+/// transparent). Quand l'heptagone se referme, c'est le profil qu'on voit
+/// autour ; à l'ouverture, le fondu pose le noir sur le profil au lieu de le
+/// remplacer.
+///
+/// Le prix : l'écran du dessous continue d'être peint tant que le plein
+/// écran est ouvert — négligeable pour une grille immobile — et tout ce qui
+/// y vit doit se savoir **recouvert** (le fil se tait sous un plein écran,
+/// `ActiveItemTracker`, même jour).
 class ReelRoute<T> extends PageRouteBuilder<T> {
   ReelRoute({required WidgetBuilder builder, super.settings})
     : super(
         pageBuilder: (context, _, _) => builder(context),
         fullscreenDialog: true,
-        opaque: true,
+        opaque: false,
         transitionDuration: entree,
         reverseTransitionDuration: sortie,
         transitionsBuilder: (context, animation, _, child) => FadeTransition(

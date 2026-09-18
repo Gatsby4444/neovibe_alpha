@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/app.dart' show routeObserver;
+import 'package:neovibe/core/widgets/reel_route.dart';
 import 'package:neovibe/features/library/feed/active_item_tracker.dart';
 
 /// Un fil de trois éléments, et ce que le suiveur publie comme « actif ».
@@ -31,10 +32,16 @@ Widget _fil() => MaterialApp(
                         child: SizedBox(
                           height: 300,
                           child: TextButton(
+                            // La route réelle du plein écran : depuis le
+                            // 2026-09-18 elle n'est PAS opaque (une
+                            // superposition), et le fil doit se taire quand
+                            // même.
                             onPressed: () => Navigator.of(context).push(
-                              MaterialPageRoute<void>(
-                                builder: (_) =>
-                                    const Scaffold(body: Text('plein écran')),
+                              ReelRoute<void>(
+                                builder: (_) => const Scaffold(
+                                  backgroundColor: Colors.transparent,
+                                  body: Text('plein écran'),
+                                ),
                               ),
                             ),
                             child: Text('ouvrir $id'),

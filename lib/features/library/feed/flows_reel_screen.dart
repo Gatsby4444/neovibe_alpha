@@ -37,6 +37,10 @@ import 'reel_common.dart';
 /// ⚠️ **Un seul lecteur vit à la fois** : seule la page regardée ouvre le
 /// sien. Un décodeur vidéo est une ressource matérielle comptée — c'est ce
 /// qui rendait des vidéos noires avec le son (v0.9.197).
+/// Où la colonne d'actions se pose sur la hauteur : 0 = le milieu, 1 = le
+/// bas. À mi-chemin des deux — l'entre-deux demandé par Jay.
+const kFlowActionsAlignment = Alignment(1, 0.5);
+
 class FlowsReelScreen extends ConsumerStatefulWidget {
   const FlowsReelScreen({
     super.key,
@@ -112,8 +116,10 @@ class _FlowsReelScreenState extends ConsumerState<FlowsReelScreen> {
   @override
   Widget build(BuildContext context) {
     return DarkSystemBars(
+      // Transparent : la route est une superposition (voir [ReelRoute]), le
+      // noir est DANS ce qui se rétracte — autour de l'heptagone, le profil.
       child: Scaffold(
-        backgroundColor: Colors.black,
+        backgroundColor: Colors.transparent,
         body: PinchToClose(
           onClose: () => Navigator.of(context).maybePop(),
           child: OverscrollToClose(
@@ -121,6 +127,7 @@ class _FlowsReelScreenState extends ConsumerState<FlowsReelScreen> {
             onClose: () => Navigator.of(context).maybePop(),
             child: Stack(
               children: [
+                const Positioned.fill(child: ColoredBox(color: Colors.black)),
                 ScrollConfiguration(
                   behavior: ScrollConfiguration.of(
                     context,
@@ -265,13 +272,15 @@ class _FlowPage extends ConsumerWidget {
             ),
           ),
         ),
-        // La colonne d'actions : à droite, centrée sur la hauteur de l'écran
-        // (Jay, 2026-09-18 : « aligné au milieu, pas en bas »).
+        // La colonne d'actions : à droite, **entre le milieu et le bas** de
+        // l'écran (Jay, 2026-09-18 : d'abord « aligné au milieu, pas en
+        // bas », puis « trop haut, c'est un entre-deux que je veux »).
         Positioned(
           right: 0,
           top: 0,
           bottom: 0,
-          child: Center(
+          child: Align(
+            alignment: kFlowActionsAlignment,
             child: Padding(
               padding: const EdgeInsets.only(right: 10),
               child: PublicationActions(
