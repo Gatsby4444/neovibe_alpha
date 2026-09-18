@@ -144,9 +144,12 @@ enum FlipControl {
   /// reçue, la bibliothèque partagée — et des fils.
   gesture,
 
-  /// **Par les côtés** : un tap sur le bord gauche ou droit retourne. La
-  /// carte n'écoute **aucun glissement** — le défilement de l'écran est seul
-  /// à tenir le doigt, et il est sûr de lui. C'est le plein écran.
+  /// **Par les côtés** : un tap sur le bord gauche ou droit retourne, **et
+  /// le swipe horizontal aussi** (remis par Jay le 2026-09-18 soir : *« remets
+  /// le swipe horizontal sur les Vibes plein écran, je veux retester »*). Ce
+  /// qui n'existe plus ici, c'est la **manipulation** (le centre tenu puis
+  /// glissé) : un doigt qui part vers le haut va toujours au défilement.
+  /// C'est le plein écran.
   sides,
 }
 
@@ -414,14 +417,18 @@ class _FlippableCardState extends State<FlippableCard>
         onVerticalDragEnd: _onPanEnd,
         child: card,
       ),
-      // **Par les côtés** : pas un glissement n'est écouté ici — ce qui
-      // glisse appartient à l'écran (le défilement). Le détecteur enveloppe
-      // la carte : un bouton posé DANS la carte est plus profond que lui, et
-      // c'est le plus profond qui gagne un tap — les actions du plein écran
-      // restent donc les leurs.
+      // **Par les côtés** : le tap sur un bord et le swipe horizontal
+      // retournent ; rien d'autre n'est écouté — pas de zone de manipulation,
+      // le vertical appartient à l'écran (le défilement). Le détecteur
+      // enveloppe la carte : un bouton posé DANS la carte est plus profond
+      // que lui, et c'est le plus profond qui gagne un tap — les actions du
+      // plein écran restent donc les leurs.
       null when widget.control == FlipControl.sides => GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTapUp: _onTapSides,
+        onHorizontalDragStart: _onPanStart,
+        onHorizontalDragUpdate: _onPanUpdate,
+        onHorizontalDragEnd: _onPanEnd,
         child: card,
       ),
       // ⚠️ **Deux gestes, deux territoires** (Jay, 2026-09-18) :

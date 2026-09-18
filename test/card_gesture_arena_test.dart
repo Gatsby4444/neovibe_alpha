@@ -193,9 +193,10 @@ void main() {
     });
   });
 
-  /// **Le plein écran : par les côtés, et aucun glissement** (Jay,
-  /// 2026-09-18). Le défilement est seul à tenir le doigt ; un tap sur un
-  /// bord retourne, un tap au milieu ne fait rien à la carte.
+  /// **Le plein écran : par les côtés, le swipe horizontal, et pas de
+  /// manipulation** (Jay, 2026-09-18). Le vertical va toujours au
+  /// défilement ; un tap sur un bord ou un swipe retourne, un tap au milieu
+  /// ne fait rien à la carte.
   group('FlippableCard par les côtés (plein écran)', () {
     Widget parLesCotes({VoidCallback? onTap}) => FlippableCard(
       key: const ValueKey('card'),
@@ -258,7 +259,9 @@ void main() {
       expect(sides, isEmpty);
     });
 
-    testWidgets('un swipe horizontal ne retourne pas', (tester) async {
+    testWidgets('un swipe horizontal rapide retourne aussi (remis par Jay)', (
+      tester,
+    ) async {
       await tester.pumpWidget(harness(card: parLesCotes()));
       await doigt(
         tester,
@@ -266,7 +269,8 @@ void main() {
         const Offset(cardWidth, 0),
       );
       await tester.pumpAndSettle();
-      expect(settled, isEmpty);
+      expect(settled, [false]);
+      expect(scroll.offset, 0);
     });
   });
 }

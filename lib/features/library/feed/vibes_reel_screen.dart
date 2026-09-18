@@ -21,12 +21,13 @@ import 'vibe_card_view.dart';
 /// écran, fond noir, on glisse vers le haut pour la suivante.
 ///
 /// ⚠️ **Ici, la carte se retourne par les CÔTÉS** — un tap sur son bord
-/// gauche ou droit — et n'écoute aucun glissement (Jay, 2026-09-18 : *« pour
-/// swiper une card cela devient trop complexe en mode plein écran de tenter
-/// de bricoler pour avoir les deux gestes mouvement et scroll en même
-/// temps »*). Le défilement est donc seul à tenir le doigt. Le geste libre
-/// (retourner, incliner) reste celui des autres visionneuses — une Vibe
-/// reçue, la bibliothèque partagée — voir [FlipControl].
+/// gauche ou droit — ou d'un swipe horizontal, et **sans manipulation**
+/// (Jay, 2026-09-18 : *« pour swiper une card cela devient trop complexe en
+/// mode plein écran de tenter de bricoler pour avoir les deux gestes
+/// mouvement et scroll en même temps »*). Un doigt qui part vers le haut va
+/// toujours au défilement. Le geste libre (retourner, incliner) reste celui
+/// des autres visionneuses — une Vibe reçue, la bibliothèque partagée — voir
+/// [FlipControl].
 /// **La carte est seule à l'écran, centrée, et porte tout le reste**
 /// (`VibeCardChrome`) : l'identité en haut, les actions en colonne à droite,
 /// la légende en bas. Elles sont *dans* la carte, sur ses deux faces — donc
