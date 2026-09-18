@@ -10,6 +10,7 @@ import '../../../core/widgets/like_burst.dart';
 import '../../../core/widgets/pinch_to_close.dart';
 import '../../../core/widgets/system_bars.dart';
 import '../../../core/widgets/vibe_face.dart';
+import '../../cards/flippable_card.dart' show FlipControl;
 import '../../connections/connections_repository.dart';
 import 'publication_actions.dart';
 import 'reel_common.dart';
@@ -17,9 +18,15 @@ import 'vibe_card_chrome.dart';
 import 'vibe_card_view.dart';
 
 /// **Les Vibes en plein écran, à la suite** — façon Reels : une Vibe par
-/// écran, fond noir, on glisse vers le haut pour la suivante. La carte garde
-/// son geste libre (retourner, incliner) : un départ vertical va au
-/// défilement, un départ horizontal à la carte (voir [TiltableCard]).
+/// écran, fond noir, on glisse vers le haut pour la suivante.
+///
+/// ⚠️ **Ici, la carte se retourne par les CÔTÉS** — un tap sur son bord
+/// gauche ou droit — et n'écoute aucun glissement (Jay, 2026-09-18 : *« pour
+/// swiper une card cela devient trop complexe en mode plein écran de tenter
+/// de bricoler pour avoir les deux gestes mouvement et scroll en même
+/// temps »*). Le défilement est donc seul à tenir le doigt. Le geste libre
+/// (retourner, incliner) reste celui des autres visionneuses — une Vibe
+/// reçue, la bibliothèque partagée — voir [FlipControl].
 /// **La carte est seule à l'écran, centrée, et porte tout le reste**
 /// (`VibeCardChrome`) : l'identité en haut, les actions en colonne à droite,
 /// la légende en bas. Elles sont *dans* la carte, sur ses deux faces — donc
@@ -226,6 +233,7 @@ class _ReelPage extends ConsumerWidget {
             // Au plus près des bords : la marge du cadre est tout ce qui
             // sépare deux Vibes quand on passe de l'une à l'autre.
             display: VibeDisplay.full,
+            control: FlipControl.sides,
             // Tout est DANS la carte : elle reste centrée et prend l'écran.
             overlay: VibeCardChrome(
               header: ReelIdentity(item: item, owner: owner, mine: mine),

@@ -192,4 +192,81 @@ void main() {
       expect(scroll.offset, 0);
     });
   });
+
+  /// **Le plein écran : par les côtés, et aucun glissement** (Jay,
+  /// 2026-09-18). Le défilement est seul à tenir le doigt ; un tap sur un
+  /// bord retourne, un tap au milieu ne fait rien à la carte.
+  group('FlippableCard par les côtés (plein écran)', () {
+    Widget parLesCotes({VoidCallback? onTap}) => FlippableCard(
+      key: const ValueKey('card'),
+      control: FlipControl.sides,
+      onTap: onTap,
+      onSideChanged: sides.add,
+      onSideSettled: settled.add,
+      front: const ColoredBox(color: Colors.red),
+      back: const ColoredBox(color: Colors.blue),
+    );
+
+    testWidgets('un tap sur le bord droit retourne', (tester) async {
+      await tester.pumpWidget(harness(card: parLesCotes()));
+      final boite = tester.getRect(find.byKey(const ValueKey('card')));
+      await tester.tapAt(Offset(boite.right - 10, boite.center.dy));
+      await tester.pumpAndSettle();
+      expect(settled, [false]);
+      expect(scroll.offset, 0);
+    });
+
+    testWidgets('un tap sur le bord gauche retourne aussi, puis revient', (
+      tester,
+    ) async {
+      await tester.pumpWidget(harness(card: parLesCotes()));
+      final boite = tester.getRect(find.byKey(const ValueKey('card')));
+      await tester.tapAt(Offset(boite.left + 10, boite.center.dy));
+      await tester.pumpAndSettle();
+      await tester.tapAt(Offset(boite.left + 10, boite.center.dy));
+      await tester.pumpAndSettle();
+      expect(settled, [false, true]);
+    });
+
+    testWidgets('un tap au milieu ne retourne pas, il va à l\'écran', (
+      tester,
+    ) async {
+      var ouvert = 0;
+      await tester.pumpWidget(
+        harness(card: parLesCotes(onTap: () => ouvert++)),
+      );
+      await tester.tap(find.byKey(const ValueKey('card')));
+      await tester.pumpAndSettle();
+      expect(settled, isEmpty);
+      expect(ouvert, 1);
+    });
+
+    testWidgets('tenu au centre puis glissé : le DÉFILEMENT, pas la carte', (
+      tester,
+    ) async {
+      // Le contre-test du mode geste : là-bas, ce même doigt manipule la
+      // carte. Ici, elle n'écoute rien.
+      await tester.pumpWidget(harness(card: parLesCotes()));
+      await doigt(
+        tester,
+        find.byKey(const ValueKey('card')),
+        const Offset(0, -200),
+        pose: true,
+      );
+      await tester.pumpAndSettle();
+      expect(scroll.offset, greaterThan(100));
+      expect(sides, isEmpty);
+    });
+
+    testWidgets('un swipe horizontal ne retourne pas', (tester) async {
+      await tester.pumpWidget(harness(card: parLesCotes()));
+      await doigt(
+        tester,
+        find.byKey(const ValueKey('card')),
+        const Offset(cardWidth, 0),
+      );
+      await tester.pumpAndSettle();
+      expect(settled, isEmpty);
+    });
+  });
 }

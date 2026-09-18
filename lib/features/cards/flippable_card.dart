@@ -133,6 +133,23 @@ class _TiltableCardState extends State<TiltableCard>
 ///   retournement ; sinon la carte revient à plat sur sa face courante,
 /// - ⚠️ **le tap ne retourne plus** (Jay, 2026-09-17) : il appartient à
 ///   l'écran (ouvrir le plein écran), la carte se retourne au doigt.
+/// **Comment on retourne la carte.**
+///
+/// Jay, 2026-09-18 : *« pour swiper une card cela devient trop complexe en
+/// mode plein écran de tenter de bricoler pour avoir les deux gestes
+/// mouvement et scroll en même temps. Ce n'est pas assez parfait. »*
+enum FlipControl {
+  /// **Au doigt** : le swipe horizontal retourne, le centre tenu manipule
+  /// (voir [ZoneDeManipulation]). C'est le geste des visionneuses — une Vibe
+  /// reçue, la bibliothèque partagée — et des fils.
+  gesture,
+
+  /// **Par les côtés** : un tap sur le bord gauche ou droit retourne. La
+  /// carte n'écoute **aucun glissement** — le défilement de l'écran est seul
+  /// à tenir le doigt, et il est sûr de lui. C'est le plein écran.
+  sides,
+}
+
 class FlippableCard extends StatefulWidget {
   const FlippableCard({
     super.key,
@@ -143,10 +160,19 @@ class FlippableCard extends StatefulWidget {
     this.invertDrag = false,
     this.dragAxis,
     this.onTap,
+    this.control = FlipControl.gesture,
   });
 
   final Widget front;
   final Widget back;
+
+  /// Au doigt, ou par les côtés (voir [FlipControl]). Ne s'applique qu'au
+  /// geste libre (`dragAxis == null`) : une mini-card garde son axe.
+  final FlipControl control;
+
+  /// La part de la largeur, de chaque côté, qui retourne au tap en mode
+  /// [FlipControl.sides]. Le milieu reste au [onTap] de l'écran.
+  static const sideFraction = 0.3;
 
   /// Axe du geste de retournement.
   /// - `null` (défaut) : geste libre — l'horizontal retourne, le vertical
@@ -302,6 +328,25 @@ class _FlippableCardState extends State<FlippableCard>
     _settleTo(target);
   }
 
+  /// Un tap sur un bord (mode [FlipControl.sides]) : la carte fait un
+  /// demi-tour dans le sens du bord touché, depuis la face la plus proche.
+  void _onTapSides(TapUpDetails details) {
+    final width = context.size?.width ?? 300;
+    final x = details.localPosition.dx;
+    final double sign;
+    if (x < width * FlippableCard.sideFraction) {
+      sign = -1;
+    } else if (x > width * (1 - FlippableCard.sideFraction)) {
+      sign = 1;
+    } else {
+      widget.onTap?.call();
+      return;
+    }
+    _controller.stop();
+    final nearest = (_angle / math.pi).round() * math.pi;
+    _settleTo(nearest + sign * _dragSign * math.pi);
+  }
+
   void _settleTo(double target) {
     _startAngle = _angle;
     _targetAngle = target.toDouble();
@@ -367,6 +412,16 @@ class _FlippableCardState extends State<FlippableCard>
         onVerticalDragStart: _onPanStart,
         onVerticalDragUpdate: _onPanUpdate,
         onVerticalDragEnd: _onPanEnd,
+        child: card,
+      ),
+      // **Par les côtés** : pas un glissement n'est écouté ici — ce qui
+      // glisse appartient à l'écran (le défilement). Le détecteur enveloppe
+      // la carte : un bouton posé DANS la carte est plus profond que lui, et
+      // c'est le plus profond qui gagne un tap — les actions du plein écran
+      // restent donc les leurs.
+      null when widget.control == FlipControl.sides => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapUp: _onTapSides,
         child: card,
       ),
       // ⚠️ **Deux gestes, deux territoires** (Jay, 2026-09-18) :

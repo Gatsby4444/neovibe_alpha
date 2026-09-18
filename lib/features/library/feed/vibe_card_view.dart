@@ -11,8 +11,9 @@ import '../../cards/flippable_card.dart';
 /// **Une Vibe publiée, telle qu'on la regarde** : la carte recto/verso,
 /// retournable au doigt, avec le cadre de son type — le format qu'on
 /// promeut. Même composant dans le fil du profil (en cellule) et en plein
-/// écran, et demain dans le feed des Vibes. Le geste est libre partout
-/// (voir [TiltableCard] : le défilement se règle aux premiers millimètres).
+/// écran, et demain dans le feed des Vibes. Le geste est libre dans le fil
+/// (voir [TiltableCard]) ; en plein écran, la carte se retourne **par les
+/// côtés** et n'écoute aucun glissement ([FlipControl.sides]).
 ///
 /// Les faces passent par le socle (`contentFaceProvider`) : scellé → clé →
 /// clair, la clé prise dans le lot de la bibliothèque du propriétaire.
@@ -30,6 +31,7 @@ class VibeCardView extends ConsumerStatefulWidget {
     this.onTap,
     this.overlay,
     this.display = VibeDisplay.card,
+    this.control = FlipControl.gesture,
   });
 
   final LibraryItem item;
@@ -46,6 +48,11 @@ class VibeCardView extends ConsumerStatefulWidget {
   /// elle est **recadrée** en 4:5, comme Instagram recadre un Reel ; le
   /// contenu, lui, reste un 9:16.
   final VibeDisplay display;
+
+  /// Au doigt (fil, visionneuses) ou par les côtés (plein écran) — voir
+  /// [FlipControl]. Par les côtés, une carte sans verso n'écoute rien du
+  /// tout : ni retournement, ni inclinaison.
+  final FlipControl control;
 
   @override
   ConsumerState<VibeCardView> createState() => _VibeCardViewState();
@@ -126,9 +133,16 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
         // ⚠️ La structure ne dépend QUE de `hasBack`, constant : choisir
         // d'après l'arrivée du verso changerait le type du widget et
         // reconstruirait le lecteur du recto (voir [VibeFaceLoading]).
-        if (!item.hasBack) return _tappable(TiltableCard(child: frontFace));
+        if (!item.hasBack) {
+          return _tappable(
+            widget.control == FlipControl.sides
+                ? frontFace
+                : TiltableCard(child: frontFace),
+          );
+        }
         final backFile = back?.value;
         return FlippableCard(
+          control: widget.control,
           onSideChanged: (f) => setState(() => _showFront = f),
           onTap: widget.onTap,
           front: frontFace,
