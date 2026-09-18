@@ -17,6 +17,7 @@ import '../../cards/send/share_context.dart';
 import '../../cards/send/share_plan.dart';
 import '../library_repository.dart';
 import '../open_profile.dart';
+import 'edit_caption_sheet.dart';
 import '../../connections/connections_repository.dart';
 
 /// **Les actions d'une publication** — aimer, enregistrer, partager, et le
@@ -47,6 +48,7 @@ class PublicationActions extends ConsumerWidget {
     this.dense = false,
     this.color,
     this.onDeleted,
+    this.onChanged,
   });
 
   final LibraryItem item;
@@ -72,6 +74,11 @@ class PublicationActions extends ConsumerWidget {
   /// Après « Retirer » : l'écran qui nous contient décide (fermer, ou
   /// retirer la cellule).
   final VoidCallback? onDeleted;
+
+  /// Après « Modifier la description » : la publication mise à jour, pour
+  /// l'écran qui tient une copie de la liste. Le dépôt a déjà invalidé la
+  /// grille ; ici, c'est l'exemplaire à l'écran qu'on remplace.
+  final ValueChanged<LibraryItem>? onChanged;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -110,11 +117,20 @@ class PublicationActions extends ConsumerWidget {
         dense: dense,
         mine: mine,
         onRemove: mine ? () => _confirmDelete(context, ref) : null,
+        // Une Vibe n'a pas de description (Jay, 2026-09-17) : rien à modifier.
+        onEditCaption: mine && item.isPublication
+            ? () => _editCaption(context, ref)
+            : null,
       ),
     ];
     return vertical
         ? Column(mainAxisSize: MainAxisSize.min, children: children)
         : Row(mainAxisSize: MainAxisSize.min, children: children);
+  }
+
+  Future<void> _editCaption(BuildContext context, WidgetRef ref) async {
+    final updated = await showEditCaptionSheet(context, item);
+    if (updated != null) onChanged?.call(updated);
   }
 
   Future<void> _share(BuildContext context, WidgetRef ref) async {

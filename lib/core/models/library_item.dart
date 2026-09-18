@@ -299,6 +299,25 @@ class LibraryItem {
       other.encrypted == encrypted &&
       other.createdAt == createdAt;
 
+  /// La même publication avec une autre légende — ce que « Modifier la
+  /// description » rend aux écrans qui tiennent une copie de la liste.
+  LibraryItem withCaption({String? caption, String? captionFont}) =>
+      LibraryItem(
+        id: id,
+        ownerId: ownerId,
+        media: media,
+        createdAt: createdAt,
+        kind: kind,
+        cardType: cardType,
+        aspect: aspect,
+        caption: caption,
+        captionFont: captionFont,
+        isPublic: isPublic,
+        shareable: shareable,
+        saveable: saveable,
+        encrypted: encrypted,
+      );
+
   static bool _sameMedia(List<LibraryMedia> a, List<LibraryMedia> b) {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {

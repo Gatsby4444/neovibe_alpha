@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../core/theme.dart';
 import '../album_editor/overlay_model.dart';
 import '../../../core/typography.dart';
+import 'caption_editor.dart';
 
 /// **La limite d'une légende : 500 signes, espaces et sauts de ligne
 /// compris** (Jay, 2026-09-17). Il n'y en avait aucune en base — seulement un
@@ -49,14 +50,7 @@ class _PublicationCaptionState extends State<PublicationCaption> {
   var _deplie = false;
 
   /// La police choisie, si elle existe encore sous ce nom.
-  OverlayFont? get _police {
-    final nom = widget.font;
-    if (nom == null) return null;
-    for (final f in OverlayFont.values) {
-      if (f.name == nom) return f;
-    }
-    return null;
-  }
+  OverlayFont? get _police => overlayFontNamed(widget.font);
 
   @override
   Widget build(BuildContext context) {

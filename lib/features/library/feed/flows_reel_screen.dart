@@ -24,8 +24,8 @@ import 'reel_common.dart';
 /// comme sur Insta avec les reels »*).
 ///
 /// Une vidéo par écran, fond noir, on glisse vers le haut pour la suivante.
-/// Par-dessus : l'auteur et sa légende en bas à gauche, les actions en colonne
-/// à droite.
+/// Par-dessus : l'auteur et sa légende **en haut** à gauche, les actions en
+/// colonne à droite, **au milieu** de la hauteur (Jay, 2026-09-18).
 ///
 /// ⚠️ **Ce n'est pas l'écran des Vibes, et c'est voulu.** Une Vibe est un
 /// objet qu'on manipule — elle se retourne, elle s'incline, son habillage vit
@@ -102,6 +102,13 @@ class _FlowsReelScreenState extends ConsumerState<FlowsReelScreen> {
     _reporter.watching(_flows[_current].id);
   }
 
+  /// La légende d'un Flow a changé : on remplace l'exemplaire qu'on tient.
+  void _changed(LibraryItem item) {
+    final index = _flows.indexWhere((f) => f.id == item.id);
+    if (index < 0) return;
+    setState(() => _flows = List.of(_flows)..[index] = item);
+  }
+
   @override
   Widget build(BuildContext context) {
     return DarkSystemBars(
@@ -128,6 +135,7 @@ class _FlowsReelScreenState extends ConsumerState<FlowsReelScreen> {
                       item: _flows[i],
                       active: i == _current,
                       onDeleted: () => _removed(_flows[i]),
+                      onChanged: _changed,
                     ),
                   ),
                 ),
@@ -159,11 +167,13 @@ class _FlowPage extends ConsumerWidget {
     required this.item,
     required this.active,
     required this.onDeleted,
+    required this.onChanged,
   });
 
   final LibraryItem item;
   final bool active;
   final VoidCallback onDeleted;
+  final ValueChanged<LibraryItem> onChanged;
 
   ContentFace get _spec => (
     contentId: item.id,
@@ -205,19 +215,19 @@ class _FlowPage extends ConsumerWidget {
             data: (media) => _Video(media: media, active: active),
           ),
         ),
-        // Le voile du bas : du blanc sur une vidéo claire ne se lit pas.
+        // Le voile du haut : du blanc sur une vidéo claire ne se lit pas.
         const Positioned(
           left: 0,
           right: 0,
-          bottom: 0,
+          top: 0,
           child: IgnorePointer(
             child: SizedBox(
-              height: 220,
+              height: 200,
               child: DecoratedBox(
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
                     colors: [Color(0xB3000000), Colors.transparent],
                   ),
                 ),
@@ -225,18 +235,21 @@ class _FlowPage extends ConsumerWidget {
             ),
           ),
         ),
+        // L'auteur et sa légende : EN HAUT (Jay, 2026-09-18 : « déplace la
+        // partie PP, username, description… tout cela en haut et non plus en
+        // bas »). La droite est laissée au bouton « Fermer ».
         Positioned(
           left: 0,
-          right: 64,
-          bottom: 0,
+          right: 56,
+          top: 0,
           child: SafeArea(
-            top: false,
+            bottom: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(
                 NeoSpace.lg,
+                NeoSpace.sm,
                 0,
                 0,
-                NeoSpace.md,
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -252,16 +265,15 @@ class _FlowPage extends ConsumerWidget {
             ),
           ),
         ),
-        // La colonne d'actions : à droite, sa base au niveau du bloc auteur
-        // — comme sur les Reels. Elle monte depuis là ; rien ne se
-        // chevauche, puisque l'auteur s'arrête 64 px avant le bord.
+        // La colonne d'actions : à droite, centrée sur la hauteur de l'écran
+        // (Jay, 2026-09-18 : « aligné au milieu, pas en bas »).
         Positioned(
           right: 0,
+          top: 0,
           bottom: 0,
-          child: SafeArea(
-            top: false,
+          child: Center(
             child: Padding(
-              padding: const EdgeInsets.only(right: 10, bottom: NeoSpace.md),
+              padding: const EdgeInsets.only(right: 10),
               child: PublicationActions(
                 item: item,
                 mine: mine,
@@ -271,6 +283,7 @@ class _FlowPage extends ConsumerWidget {
                 vertical: true,
                 color: Colors.white,
                 onDeleted: onDeleted,
+                onChanged: onChanged,
               ),
             ),
           ),

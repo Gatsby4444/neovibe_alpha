@@ -51,12 +51,16 @@ class PublicationCell extends ConsumerStatefulWidget {
     required this.active,
     required this.onOpen,
     this.onDeleted,
+    this.onChanged,
   });
 
   final LibraryItem item;
   final bool active;
   final VoidCallback onOpen;
   final VoidCallback? onDeleted;
+
+  /// La publication a changé (sa légende) : l'écran remplace son exemplaire.
+  final ValueChanged<LibraryItem>? onChanged;
 
   @override
   ConsumerState<PublicationCell> createState() => _PublicationCellState();
@@ -146,6 +150,7 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
             saveBackIsVideo: !item.isPublication && item.backIsVideo,
             dense: true,
             onDeleted: widget.onDeleted,
+            onChanged: widget.onChanged,
           ),
         ),
         // Aimer au geste : double tap **et** appui long sur une

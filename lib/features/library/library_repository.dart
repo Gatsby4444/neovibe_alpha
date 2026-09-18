@@ -231,6 +231,30 @@ class LibraryRepository {
     return key as String;
   }
 
+  /// Change la légende (et sa police) d'une de MES publications.
+  ///
+  /// Pas de RPC : la politique `library_update_own` laisse le propriétaire
+  /// écrire sa ligne, et la contrainte `library_items_caption_len` tient la
+  /// limite de 500 signes — vérifié en base sous identité le 2026-09-18
+  /// (propriétaire : modifié ; 501 signes : refusé ; inconnu : 0 ligne).
+  /// Une légende vide devient `null`, comme à la publication.
+  Future<void> updateCaption(
+    String itemId, {
+    required String? caption,
+    required String? captionFont,
+  }) async {
+    final texte = caption?.trim();
+    await _client
+        .from('library_items')
+        .update({
+          'caption': texte == null || texte.isEmpty ? null : texte,
+          'caption_font': captionFont,
+        })
+        .eq('id', itemId);
+    // L'invalidation appartient à l'écriture (2026-08-25).
+    ref.invalidate(libraryItemsProvider(_client.auth.currentUser!.id));
+  }
+
   Future<void> removeItem(String itemId) async {
     // La ligne `contents` est emportée par la suppression : c'est elle qui
     // porte l'identité. Le graphe et les vues la suivent — une publication

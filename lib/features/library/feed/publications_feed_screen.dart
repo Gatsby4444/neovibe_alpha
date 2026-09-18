@@ -116,6 +116,15 @@ class _PublicationsFeedScreenState
     if (_items.isEmpty) Navigator.of(context).maybePop();
   }
 
+  /// La légende d'une publication a changé : on remplace l'exemplaire qu'on
+  /// tient — la liste reçue à l'ouverture est une copie, elle ne se met pas
+  /// à jour toute seule.
+  void _changed(LibraryItem item) {
+    final index = _items.indexWhere((i) => i.id == item.id);
+    if (index < 0) return;
+    setState(() => _items = List.of(_items)..[index] = item);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -126,6 +135,7 @@ class _PublicationsFeedScreenState
           anchor: _anchor,
           onOpen: _ouvrirEnGrand,
           onDeleted: _removed,
+          onChanged: _changed,
         ),
       ),
     );
@@ -138,12 +148,14 @@ class _FeedList extends StatelessWidget {
     required this.anchor,
     required this.onOpen,
     required this.onDeleted,
+    required this.onChanged,
   });
 
   final List<LibraryItem> items;
   final int anchor;
   final ValueChanged<LibraryItem> onOpen;
   final ValueChanged<LibraryItem> onDeleted;
+  final ValueChanged<LibraryItem> onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -167,6 +179,7 @@ class _FeedList extends StatelessWidget {
               active: active == item.id,
               onOpen: () => onOpen(item),
               onDeleted: () => onDeleted(item),
+              onChanged: onChanged,
             ),
           ),
         );

@@ -5,9 +5,8 @@ import 'package:flutter/material.dart';
 import '../../../core/theme.dart';
 import '../../../core/typography.dart';
 import '../../../core/widgets/card_type_badge.dart';
-import '../feed/publication_caption.dart';
+import '../feed/caption_editor.dart';
 import 'album_draft.dart';
-import 'overlay_model.dart';
 
 /// La dernière étape avant de publier : la **légende**, la **visibilité** et
 /// les **droits** — les mêmes que ceux d'une Card publiée (publique / selon
@@ -35,12 +34,6 @@ class _AlbumCaptionScreenState extends State<AlbumCaptionScreen> {
   late AlbumDraft _draft = widget.draft;
   late final _caption = TextEditingController(text: widget.draft.caption);
 
-  /// La limite d'Instagram : assez pour un récit, pas un roman.
-  /// 500 signes, espaces et sauts de ligne compris (Jay, 2026-09-17).
-  /// La base tient la même limite : une règle qui ne vit que dans un
-  /// écran n'est pas une règle.
-  static const _maxCaption = kCaptionMax;
-
   @override
   void dispose() {
     _caption.dispose();
@@ -58,92 +51,33 @@ class _AlbumCaptionScreenState extends State<AlbumCaptionScreen> {
       body: ListView(
         padding: const EdgeInsets.all(NeoSpace.lg),
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 72,
-                height: 72 / _draft.aspect.ratio.clamp(0.8, 1.25),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(NeoRadius.sm),
-                  border: Border.all(color: context.palette.line),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: FutureBuilder<File?>(
-                  future: widget.coverThumb,
-                  builder: (context, snap) => snap.data == null
-                      ? ColoredBox(
-                          color: Theme.of(
-                            context,
-                          ).colorScheme.surfaceContainerHighest,
-                        )
-                      : Image.file(
-                          snap.data!,
-                          fit: BoxFit.cover,
-                          cacheWidth: 200,
-                        ),
-                ),
+          CaptionEditor(
+            controller: _caption,
+            font: _draft.captionFont,
+            onFontChanged: (f) =>
+                setState(() => _draft = _draft.copyWith(captionFont: f)),
+            leading: Container(
+              width: 72,
+              height: 72 / _draft.aspect.ratio.clamp(0.8, 1.25),
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(NeoRadius.sm),
+                border: Border.all(color: context.palette.line),
               ),
-              const SizedBox(width: NeoSpace.md),
-              Expanded(
-                child: TextField(
-                  controller: _caption,
-                  maxLines: 6,
-                  minLines: 3,
-                  maxLength: _maxCaption,
-                  textCapitalization: TextCapitalization.sentences,
-                  decoration: const InputDecoration(
-                    hintText: 'Écris une légende…',
-                    border: InputBorder.none,
-                    filled: false,
-                    counterText: '',
-                  ),
-                ),
+              clipBehavior: Clip.antiAlias,
+              child: FutureBuilder<File?>(
+                future: widget.coverThumb,
+                builder: (context, snap) => snap.data == null
+                    ? ColoredBox(
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.surfaceContainerHighest,
+                      )
+                    : Image.file(
+                        snap.data!,
+                        fit: BoxFit.cover,
+                        cacheWidth: 200,
+                      ),
               ),
-            ],
-          ),
-          // Les polices : chacune écrit son propre nom, c'est le seul
-          // aperçu qui dise vraiment ce qu'on choisit.
-          SizedBox(
-            height: 42,
-            child: ListView(
-              scrollDirection: Axis.horizontal,
-              children: [
-                for (final f in OverlayFont.values)
-                  Padding(
-                    padding: const EdgeInsets.only(right: NeoSpace.sm),
-                    child: GestureDetector(
-                      onTap: () => setState(
-                        () => _draft = _draft.copyWith(captionFont: f),
-                      ),
-                      behavior: HitTestBehavior.opaque,
-                      child: Container(
-                        alignment: Alignment.center,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: NeoSpace.md,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: _draft.captionFont == f
-                                ? context.palette.ink
-                                : context.palette.ink.withValues(alpha: 0.2),
-                            width: _draft.captionFont == f ? 2 : 1,
-                          ),
-                        ),
-                        child: Text(
-                          f.label,
-                          style: TextStyle(
-                            fontFamily: f.family,
-                            fontWeight:
-                                FontWeight.values[(f.weight ~/ 100) - 1],
-                            fontSize: 14,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
             ),
           ),
           Padding(
