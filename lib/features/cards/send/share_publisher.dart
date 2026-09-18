@@ -109,7 +109,6 @@ class SharePublisher {
       premierId = id;
       try {
         await ref.read(savedStoreProvider).rekey(draft.localId, id);
-        ref.invalidate(savedItemsProvider);
       } catch (_) {
         // Une copie locale qui garde son identifiant local reste lisible ;
         // elle échappe seulement à la révocation par identifiant serveur.

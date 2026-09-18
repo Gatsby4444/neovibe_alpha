@@ -137,8 +137,8 @@ class _RootGateState extends ConsumerState<RootGate> {
       }
       if (!mounted) return;
 
-      final removed = await ref.read(savedStoreProvider).purgeRevoked();
-      if (removed > 0 && mounted) ref.invalidate(savedItemsProvider);
+      // `remove` invalide lui-même les lecteurs : rien à faire ici.
+      await ref.read(savedStoreProvider).purgeRevoked();
 
       // Les octets des contenus qui n'existent plus côté serveur. Le serveur
       // dit lesquels ; l'API Storage est le seul chemin qui les supprime

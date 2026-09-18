@@ -200,8 +200,7 @@ class _SavedTile extends ConsumerWidget {
       );
       return;
     }
-    ref.invalidate(savedItemsProvider);
-    ref.invalidate(isSavedProvider(item.contentId));
+    // L'invalidation est faite par le magasin, à l'écriture (2026-09-18).
   }
 }
 

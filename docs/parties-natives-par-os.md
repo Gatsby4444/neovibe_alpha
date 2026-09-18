@@ -30,7 +30,7 @@
 | Caméra | `neovibe/camera` | CameraX + Camera2 + OpenGL ES | AVFoundation + Metal/CoreImage + AVAssetWriter |
 | Anti-capture | (dans `neovibe/camera` : `setSecure`) | `WindowManager.FLAG_SECURE` | Pas d'équivalent strict → détection + occultation |
 | **Galerie du téléphone** *(2026-09-15, **albums et filtres le 2026-09-17**)* | `neovibe/gallery` | `NativeGallery` (`MediaStore` paginé par `Bundle`, **`albums()` agrégé par `BUCKET_ID`**, `list()` filtrable par dossier et par type, `loadThumbnail`, copie dans le cache) | `PHPhotoLibrary` / `PHImageManager` (`requestImage`, `requestExportSession`) + **`PHAssetCollection.fetchAssetCollections`** pour les albums |
-| Média (hors caméra) *(étendu le 2026-09-15)* | `neovibe/media` | `NativeMedia` (couverture d'une vidéo, sonde, JPEG) + **`MediaTranscoder`** (rognage, recadrage, matrice de couleurs, recompression H.264 par `MediaCodec` + GL) | `AVAssetImageGenerator`, `CGImageSource`, `AVAssetExportSession` + `AVVideoComposition` + `CIFilter` |
+| Média (hors caméra) *(étendu le 2026-09-18)* | `neovibe/media` | `NativeMedia` (couverture d'une vidéo, sonde, JPEG, **clair d'un scellé**) + **`MediaTranscoder`** (rognage, recadrage, matrice de couleurs, recompression H.264 par `MediaCodec` + GL) | `AVAssetImageGenerator`, `CGImageSource`, `AVAssetExportSession` + `AVVideoComposition` + `CIFilter` ; `unseal` : `CryptoKit` `AES.GCM` (le même lecteur de blocs que le lecteur vidéo) |
 | Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise + scan) | CoreBluetooth, **mode dégradé à concevoir** |
 | ~~Transport GATT (liens, trames)~~ | — | **SUPPRIMÉ le 2026-08-27** — le BLE ne fait plus que prouver la proximité | *sans objet* |
 | ~~Transfert média proximité~~ | — | **ABANDONNÉ le 2026-08-27** — tout le contenu passe par le serveur | *sans objet* |
@@ -859,6 +859,7 @@ d'album, `docs/plan-publications.md`), quatre de plus.
 | `probe(path)` | photo ou vidéo, dimensions **après rotation** (EXIF pour une photo, `KEY_ROTATION` pour une vidéo), durée | `PROBE_FAILED` |
 | `encodeJpeg(rgba, width, height, dest, quality)` | des pixels RGBA rendus par Flutter → un JPEG (`dart:ui` ne sait écrire que du PNG) | `JPEG_FAILED` |
 | `transcode(jobId, source, dest, startMs, endMs, corners[8], outWidth, outHeight, uniforms[24], rotation, overlayPath?)` | **`MediaTranscoder.kt`** : une vidéo de la galerie rognée, cadrée / tournée / redressée (les coins de `CropGeometry`), corrigée (le contrat `ColorGrade.toUniforms`), avec le calque des textes et autocollants (un PNG) brûlé dessus, recompressée ; progression par `transcodeProgress(jobId, progress)` du natif vers Dart, au plus une fois par pour cent | `TRANSCODE_FAILED` |
+| `unseal(sealed, key, dest)` *(2026-09-18)* | le **clair** d'un média scellé `NVC1` écrit dans `dest`, bloc par bloc par `SealedChunkReader` (AES matériel, fil de travail) — ce que « Enregistrer » copie dans les Enregistrements. Le déchiffrement Dart plafonnait à ~2,7 Mo/s sur le fil de l'interface : un Flow de 36 Mo figeait l'écran treize secondes. `dest` est effacé sur échec | `BAD_ARGS`, `UNSEAL_FAILED` |
 
 **Android (fait)** : `NativeMedia.kt`, tout sur un exécuteur dédié (jamais le
 thread principal), écriture `.part` puis renommage. **`MediaTranscoder.kt`**

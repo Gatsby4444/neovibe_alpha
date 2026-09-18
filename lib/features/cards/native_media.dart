@@ -130,6 +130,30 @@ abstract final class NativeMedia {
     }
   }
 
+  /// Écrit dans [dest] le **clair** du média scellé [sealed] (format `NVC1`),
+  /// déchiffré par le natif sur un fil de travail — ce que « Enregistrer »
+  /// copie dans les Enregistrements.
+  ///
+  /// Rend `false` si le natif est absent (tests, autre plateforme) : l'appelant
+  /// retombe alors sur le déchiffrement Dart. Lève sur un échec réel (clé
+  /// fausse, fichier tronqué) — le natif a déjà effacé [dest].
+  static Future<bool> unseal({
+    required String sealed,
+    required String key,
+    required String dest,
+  }) async {
+    try {
+      await _channel.invokeMethod<String>('unseal', {
+        'sealed': sealed,
+        'key': key,
+        'dest': dest,
+      });
+      return true;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
   /// Déplace l'index d'un MP4 (`moov`) **en tête de fichier**, pour qu'un
   /// lecteur distant puisse décoder dès les premiers octets reçus au lieu
   /// d'aller d'abord chercher la fin.

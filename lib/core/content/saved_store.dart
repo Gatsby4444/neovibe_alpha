@@ -119,11 +119,16 @@ class SavedStore {
     return _index!;
   }
 
+  /// Écrit l'index — et **le dit**. L'invalidation appartient à l'écriture
+  /// (2026-08-25) : tout lecteur voit une sauvegarde dès qu'elle existe, quel
+  /// que soit le bouton ou l'écran qui l'a demandée. Avant le 2026-09-18,
+  /// chaque appelant invalidait lui-même, et l'un d'eux l'oubliait forcément.
   Future<void> _save() async {
     if (_index == null) return;
     try {
       await (await _indexFile()).writeAsString(jsonEncode(_index));
     } catch (_) {}
+    ref.read(savedIndexVersionProvider.notifier).bump();
   }
 
   Future<List<SavedItem>> all() async {
@@ -160,31 +165,40 @@ class SavedStore {
     String? authorName,
     bool mine = false,
   }) async {
-    final dir = await _dir();
-    String ext(bool v) => v ? 'mp4' : 'jpg';
-    final frontPath =
-        '${dir.path}${Platform.pathSeparator}${contentId}_front.${ext(frontIsVideo)}';
-    await writeFront(File(frontPath));
-    String? backPath;
-    if (writeBack != null) {
-      backPath =
-          '${dir.path}${Platform.pathSeparator}${contentId}_back.${ext(backIsVideo)}';
-      await writeBack(File(backPath));
-    }
+    // Le bouton se remplit à l'appui, pas à la fin de l'écriture : c'est ici
+    // que « en cours » commence, et c'est le magasin qui le dit — pas chaque
+    // bouton pour lui-même, sinon celui du fil et celui du plein écran
+    // pourraient se contredire sur le même contenu.
+    ref.read(savingIdsProvider.notifier).start(contentId);
+    try {
+      final dir = await _dir();
+      String ext(bool v) => v ? 'mp4' : 'jpg';
+      final frontPath =
+          '${dir.path}${Platform.pathSeparator}${contentId}_front.${ext(frontIsVideo)}';
+      await writeFront(File(frontPath));
+      String? backPath;
+      if (writeBack != null) {
+        backPath =
+            '${dir.path}${Platform.pathSeparator}${contentId}_back.${ext(backIsVideo)}';
+        await writeBack(File(backPath));
+      }
 
-    final index = await _load();
-    index[contentId] = SavedItem(
-      contentId: contentId,
-      cardType: cardType,
-      frontPath: frontPath,
-      backPath: backPath,
-      frontIsVideo: frontIsVideo,
-      backIsVideo: backIsVideo,
-      savedAt: DateTime.now(),
-      authorName: authorName,
-      mine: mine,
-    ).toJson();
-    await _save();
+      final index = await _load();
+      index[contentId] = SavedItem(
+        contentId: contentId,
+        cardType: cardType,
+        frontPath: frontPath,
+        backPath: backPath,
+        frontIsVideo: frontIsVideo,
+        backIsVideo: backIsVideo,
+        savedAt: DateTime.now(),
+        authorName: authorName,
+        mine: mine,
+      ).toJson();
+      await _save();
+    } finally {
+      ref.read(savingIdsProvider.notifier).end(contentId);
+    }
   }
 
   /// Rebaptise une sauvegarde faite AVANT que le contenu n'existe côté serveur.
@@ -279,14 +293,56 @@ class SavedStore {
 
 final savedStoreProvider = Provider(SavedStore.new);
 
-/// Les Enregistrements, pour l'écran qui les liste.
-final savedItemsProvider = FutureProvider<List<SavedItem>>(
-  (ref) => ref.watch(savedStoreProvider).all(),
+/// **La version de l'index** : un compteur que le magasin incrémente à chaque
+/// écriture. Les lecteurs ci-dessous l'observent — c'est par lui, et par lui
+/// seul, qu'ils apprennent qu'une sauvegarde est apparue ou a disparu.
+///
+/// Pourquoi pas `ref.invalidate` depuis le magasin ? Parce que ces lecteurs
+/// dépendent du magasin : un magasin qui invalide ce qui dépend de lui est
+/// une dépendance circulaire, et Riverpod la refuse. Le magasin ne connaît
+/// donc pas ses lecteurs — il publie, ils écoutent.
+class SavedIndexVersion extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state = state + 1;
+}
+
+final savedIndexVersionProvider = NotifierProvider<SavedIndexVersion, int>(
+  SavedIndexVersion.new,
 );
 
+/// Les Enregistrements, pour l'écran qui les liste.
+final savedItemsProvider = FutureProvider<List<SavedItem>>((ref) {
+  ref.watch(savedIndexVersionProvider);
+  return ref.watch(savedStoreProvider).all();
+});
+
 /// Ce contenu est-il déjà dans mes Enregistrements ?
-final isSavedProvider = FutureProvider.family<bool, String>(
-  (ref, id) => ref.watch(savedStoreProvider).isSaved(id),
+final isSavedProvider = FutureProvider.family<bool, String>((ref, id) {
+  ref.watch(savedIndexVersionProvider);
+  return ref.watch(savedStoreProvider).isSaved(id);
+});
+
+/// Les contenus dont la sauvegarde est **en cours** — entre l'appui et la fin
+/// de l'écriture du clair.
+///
+/// C'est ce qui rend le bouton instantané : il se remplit dès l'appui, sans
+/// attendre que le fichier soit écrit (une vidéo de 36 Mo se déchiffre en
+/// plusieurs secondes même au natif). Jay, 2026-09-18 : *« l'état du bouton
+/// enregistrer attend de savoir si le contenu est vraiment enregistré […]
+/// donc la sensation n'est pas instantanée »*.
+class SavingIds extends Notifier<Set<String>> {
+  @override
+  Set<String> build() => const {};
+
+  void start(String id) => state = {...state, id};
+
+  void end(String id) => state = {...state}..remove(id);
+}
+
+final savingIdsProvider = NotifierProvider<SavingIds, Set<String>>(
+  SavingIds.new,
 );
 
 /// Les octets d'une photo enregistrée, lus **une fois**.

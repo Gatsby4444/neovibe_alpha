@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:path_provider/path_provider.dart';
 
+import '../../features/cards/native_media.dart';
 import '../video/sealed_video_controller.dart';
 import 'chunked_seal.dart';
 import 'media_seal.dart';
@@ -211,8 +212,22 @@ class MediaOpen {
   }
 
   /// Écrit le clair de bout en bout, en flux.
+  ///
+  /// **Par le natif** pour le format par blocs : le déchiffrement Dart
+  /// plafonne à ~2,7 Mo/s et tourne sur le fil qui dessine l'écran — un Flow
+  /// de 36 Mo, c'était treize secondes d'écran figé (Jay, 2026-09-18). Le
+  /// lecteur Kotlin, lui, passe par les instructions AES du processeur, sur
+  /// un fil de travail. Le chemin Dart ne sert plus que là où le natif est
+  /// absent (tests).
   static Future<void> writeClear(File sealed, String key, File target) async {
     if (await ChunkedSeal.isChunked(sealed)) {
+      if (await NativeMedia.unseal(
+        sealed: sealed.path,
+        key: key,
+        dest: target.path,
+      )) {
+        return;
+      }
       final out = target.openWrite();
       try {
         await for (final part in ChunkedSeal.read(sealed, key)) {

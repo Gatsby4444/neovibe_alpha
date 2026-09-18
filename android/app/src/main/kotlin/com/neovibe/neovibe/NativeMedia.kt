@@ -28,6 +28,12 @@ import java.util.concurrent.Executors
  *   d'une photo d'album ; `dart:ui` ne sait écrire que du PNG).
  * - `transcode` : une vidéo de la galerie rognée, recadrée, corrigée et
  *   recompressée pour un album ([MediaTranscoder]), avec sa progression.
+ * - `unseal` : le **clair** d'un média scellé `NVC1`, écrit dans un fichier
+ *   — ce que « Enregistrer » copie dans les Enregistrements. Le déchiffrement
+ *   en Dart plafonnait à ~2,7 Mo/s **sur le fil de l'interface** : un Flow de
+ *   36 Mo figeait l'écran treize secondes (Jay, 2026-09-18 : « Sauvegarder
+ *   bugue et est lent »). Ici, [SealedChunkReader] passe par les instructions
+ *   AES du processeur, sur le fil de travail.
  *
  * Volontairement séparé de [NativeCamera] : ça ne touche pas au matériel, ça ne
  * doit pas partager son cycle de vie ni ses verrous.
@@ -146,8 +152,54 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
                     }
                 }
             }
+            "unseal" -> {
+                val sealed = call.argument<String>("sealed")
+                val key = call.argument<String>("key")
+                val dest = call.argument<String>("dest")
+                if (sealed == null || key == null || dest == null) {
+                    result.error("BAD_ARGS", "sealed, key et dest sont requis", null)
+                    return
+                }
+                worker.execute {
+                    val error = unseal(File(sealed), key, File(dest))
+                    main.post {
+                        if (error == null) result.success(dest)
+                        else result.error("UNSEAL_FAILED", error, null)
+                    }
+                }
+            }
             else -> result.notImplemented()
         }
+    }
+
+    /**
+     * Écrit dans [dest] le clair de [sealed], bloc par bloc : la mémoire reste
+     * bornée à un bloc, quelle que soit la taille de la vidéo. Rend `null` en
+     * cas de succès, sinon le message d'erreur — et [dest] est alors effacé :
+     * un clair tronqué qui reste sur le disque passerait pour une sauvegarde.
+     */
+    private fun unseal(sealed: File, key: String, dest: File): String? = try {
+        SealedChunkReader(sealed, key).use { reader ->
+            FileOutputStream(dest).use { out ->
+                val buffer = ByteArray(256 * 1024)
+                var position = 0L
+                while (position < reader.plainLength) {
+                    val n = reader.read(position, buffer, 0, buffer.size)
+                    if (n <= 0) break
+                    out.write(buffer, 0, n)
+                    position += n
+                }
+                if (position != reader.plainLength) {
+                    throw IllegalStateException(
+                        "clair incomplet : $position / ${reader.plainLength} octets",
+                    )
+                }
+            }
+        }
+        null
+    } catch (e: Exception) {
+        dest.delete()
+        e.message ?: e.javaClass.simpleName
     }
 
     private fun transcodeParams(call: MethodCall): MediaTranscoder.Params {

@@ -105,7 +105,6 @@ class _SaveForMeButtonState extends ConsumerState<SaveForMeButton> {
         backIsVideo: draft.backIsVideo,
         mine: true,
       );
-      ref.invalidate(savedItemsProvider);
       if (!mounted) return;
       setState(() {
         _saved = true;

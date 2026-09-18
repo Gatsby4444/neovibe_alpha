@@ -57,16 +57,23 @@ class SaveButton extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     if (!canSave) return const SizedBox.shrink();
     final saved = ref.watch(isSavedProvider(contentId)).value ?? false;
+    // En cours d'écriture : le bouton est déjà plein, et inerte le temps que
+    // ça finisse — un second appui n'aurait rien à ajouter ni à retirer.
+    final saving = ref.watch(
+      savingIdsProvider.select((ids) => ids.contains(contentId)),
+    );
     final ready = front != null;
 
     return ActionIconButton(
       color: color,
       dense: dense,
-      icon: Icon(saved ? Icons.bookmark : Icons.bookmark_border),
+      icon: Icon(saved || saving ? Icons.bookmark : Icons.bookmark_border),
       tooltip: saved
           ? 'Retirer de mes Enregistrements'
           : 'Enregistrer sur cet appareil',
-      onPressed: !ready && !saved ? null : () => _toggle(context, ref, saved),
+      onPressed: saving || (!ready && !saved)
+          ? null
+          : () => _toggle(context, ref, saved),
     );
   }
 
@@ -87,17 +94,11 @@ class SaveButton extends ConsumerWidget {
           mine: mine,
         );
       }
-      ref.invalidate(isSavedProvider(contentId));
-      ref.invalidate(savedItemsProvider);
-      if (context.mounted) {
+      // Plus de message « Enregistré » : le bouton l'a dit à l'appui. Retirer
+      // reste annoncé — c'est une perte, elle mérite une phrase.
+      if (saved && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              saved
-                  ? 'Retiré de tes Enregistrements.'
-                  : 'Enregistré sur cet appareil.',
-            ),
-          ),
+          const SnackBar(content: Text('Retiré de tes Enregistrements.')),
         );
       }
     } catch (e) {
