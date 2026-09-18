@@ -27,6 +27,7 @@ Future<_FauxLikes> poser(
   WidgetTester tester, {
   required bool dejaAime,
   bool doubleTap = false,
+  bool longPress = true,
 }) async {
   final faux = _FauxLikes(dejaAime);
   await tester.pumpWidget(
@@ -37,6 +38,7 @@ Future<_FauxLikes> poser(
           body: LikeBurst(
             contentId: 'c1',
             doubleTap: doubleTap,
+            longPress: longPress,
             child: const SizedBox(
               key: ValueKey('media'),
               width: 300,
@@ -97,11 +99,15 @@ void main() {
     await tester.pump(kDoubleTapMinTime);
     await tester.tap(find.byKey(const ValueKey('media')));
     await tester.pumpAndSettle();
-    expect(
-      sans.bascules,
-      0,
-      reason: 'une Vibe : le tap retourne, il n\'aime pas',
-    );
+    expect(sans.bascules, 0, reason: 'sans double tap : rien');
+  });
+
+  testWidgets('appui long coupé : il n\'aime plus (les Vibes en plein écran, '
+      '2026-09-18)', (tester) async {
+    final sans = await poser(tester, dejaAime: false, longPress: false);
+    await tester.longPress(find.byKey(const ValueKey('media')));
+    await tester.pumpAndSettle();
+    expect(sans.bascules, 0);
   });
 
   group('La légende', () {

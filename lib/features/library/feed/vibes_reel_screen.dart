@@ -225,11 +225,16 @@ class _ReelPage extends ConsumerWidget {
 
     return SafeArea(
       child: Center(
-        // Appui long = j'aime, avec le cœur qui jaillit (Jay, 2026-09-17).
-        // Pas de double tap ici : le tap retourne la carte, et l'attendre
-        // rendrait le retournement mou.
+        // Double tap = j'aime, avec le cœur qui jaillit — à la place de
+        // l'appui long (Jay, 2026-09-18 : *« rajoute le double tap pour liker
+        // sur les cards, remplace l'appui long par cela, puisqu'on n'a plus
+        // le mode mouvement »*). ⚠️ Le prix, assumé et dit à Jay : un tap sur
+        // un bord attend ~300 ms (le temps d'un éventuel second tap) avant
+        // de retourner la carte.
         child: LikeBurst(
           contentId: item.id,
+          doubleTap: true,
+          longPress: false,
           child: VibeCardView(
             item: item,
             active: active,
