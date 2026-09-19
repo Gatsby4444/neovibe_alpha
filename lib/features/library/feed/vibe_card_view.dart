@@ -103,7 +103,15 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
       VideoOpenTrace.markPrefetched(item.id, front: false);
     }
 
-    return front.when(
+    // ⚠️ **La structure ne dépend QUE de `hasBack`, constant** — jamais de
+    // l'arrivée d'une face. Le recto en attente est une face comme une
+    // autre : la carte retournable existe dès la première image, et le
+    // geste avec elle. Jusqu'au 2026-09-19, le cadre d'attente du recto
+    // n'écoutait rien : balayer une Vibe trop tôt ne la retournait pas — dans
+    // le fil, le geste remontait à la couverture et FERMAIT le fil ; en plein
+    // écran, il tombait dans le vide. (Le verso suivait déjà cette règle :
+    // choisir d'après son arrivée aurait reconstruit le lecteur du recto.)
+    final frontFace = front.when(
       loading: () => VibeFaceLoading(
         type: item.cardType,
         overlay: widget.overlay,
@@ -124,37 +132,29 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
           ),
         ),
       ),
-      data: (frontFile) {
-        final frontFace = _face(
-          frontFile,
-          item.frontIsVideo,
-          widget.active && _showFront,
-        );
-        // ⚠️ La structure ne dépend QUE de `hasBack`, constant : choisir
-        // d'après l'arrivée du verso changerait le type du widget et
-        // reconstruirait le lecteur du recto (voir [VibeFaceLoading]).
-        if (!item.hasBack) {
-          return _tappable(
-            widget.control == FlipControl.sides
-                ? frontFace
-                : TiltableCard(child: frontFace),
-          );
-        }
-        final backFile = back?.value;
-        return FlippableCard(
-          control: widget.control,
-          onSideChanged: (f) => setState(() => _showFront = f),
-          onTap: widget.onTap,
-          front: frontFace,
-          back: backFile == null
-              ? VibeFaceLoading(
-                  type: item.cardType,
-                  overlay: widget.overlay,
-                  display: widget.display,
-                )
-              : _face(backFile, item.backIsVideo, widget.active && !_showFront),
-        );
-      },
+      data: (frontFile) =>
+          _face(frontFile, item.frontIsVideo, widget.active && _showFront),
+    );
+    if (!item.hasBack) {
+      return _tappable(
+        widget.control == FlipControl.sides
+            ? frontFace
+            : TiltableCard(child: frontFace),
+      );
+    }
+    final backFile = back?.value;
+    return FlippableCard(
+      control: widget.control,
+      onSideChanged: (f) => setState(() => _showFront = f),
+      onTap: widget.onTap,
+      front: frontFace,
+      back: backFile == null
+          ? VibeFaceLoading(
+              type: item.cardType,
+              overlay: widget.overlay,
+              display: widget.display,
+            )
+          : _face(backFile, item.backIsVideo, widget.active && !_showFront),
     );
   }
 

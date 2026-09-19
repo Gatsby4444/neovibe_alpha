@@ -160,6 +160,9 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
               item: item,
               active: widget.active,
               onPageChanged: (i) => setState(() => _page = i),
+              // Un Flow s'ouvre en plein écran d'un tap, comme une Vibe
+              // (Jay, 2026-09-19). Un carrousel, lui, se lit ici.
+              onTap: item.isFlow ? widget.onOpen : null,
             )
           : VibeCardView(
               item: item,

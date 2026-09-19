@@ -23,6 +23,7 @@ class AlbumCarousel extends ConsumerStatefulWidget {
     required this.item,
     required this.active,
     this.onPageChanged,
+    this.onTap,
     this.initialPage = 0,
   });
 
@@ -31,6 +32,10 @@ class AlbumCarousel extends ConsumerStatefulWidget {
   /// La cellule est celle qu'on regarde : ses vidéos peuvent jouer.
   final bool active;
   final ValueChanged<int>? onPageChanged;
+
+  /// Un tap sur le média (pas sur le bouton du son) : ouvrir en grand — un
+  /// Flow, en plein écran (Jay, 2026-09-19). Nul = le tap ne fait rien.
+  final VoidCallback? onTap;
   final int initialPage;
 
   @override
@@ -97,49 +102,57 @@ class _AlbumCarouselState extends ConsumerState<AlbumCarousel> {
     final ratio = (item.aspect ?? AlbumAspect.portrait).ratio;
     return AspectRatio(
       aspectRatio: math.max(ratio, kVibeFeedRatio),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const ColoredBox(color: Colors.black),
-          PageView.builder(
-            controller: _pages,
-            itemCount: media.length,
-            onPageChanged: (i) {
-              setState(() => _current = i);
-              widget.onPageChanged?.call(i);
-            },
-            itemBuilder: (context, i) => _Page(
-              spec: _spec(media[i]),
-              // La couverture d'une vidéo : ce qu'on montre quand son
-              // lecteur n'existe pas.
-              poster: _posterSpec(media[i]),
-              isVideo: media[i].isVideo,
-              playing: widget.active && i == _current,
-              muted: _muted,
-              onToggleMute: () => setState(() => _muted = !_muted),
+      // Le tap enveloppe le carrousel : le bouton du son, DANS une page, est
+      // plus profond, et c'est le plus profond qui gagne un tap.
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const ColoredBox(color: Colors.black),
+            PageView.builder(
+              controller: _pages,
+              itemCount: media.length,
+              onPageChanged: (i) {
+                setState(() => _current = i);
+                widget.onPageChanged?.call(i);
+              },
+              itemBuilder: (context, i) => _Page(
+                spec: _spec(media[i]),
+                // La couverture d'une vidéo : ce qu'on montre quand son
+                // lecteur n'existe pas.
+                poster: _posterSpec(media[i]),
+                isVideo: media[i].isVideo,
+                playing: widget.active && i == _current,
+                muted: _muted,
+                onToggleMute: () => setState(() => _muted = !_muted),
+              ),
             ),
-          ),
-          if (media.length > 1)
-            Positioned(
-              top: 10,
-              right: 10,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Text(
-                  '${_current + 1}/${media.length}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+            if (media.length > 1)
+              Positioned(
+                top: 10,
+                right: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.55),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${_current + 1}/${media.length}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -315,27 +328,30 @@ class _VideoState extends State<_Video> {
         ),
       );
     }
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: widget.onToggleMute,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          VideoWatchdog(
-            controller: _controller,
-            child: FittedBox(
-              fit: BoxFit.cover,
-              clipBehavior: Clip.hardEdge,
-              child: SizedBox(
-                width: _controller.value.size.width,
-                height: _controller.value.size.height,
-                child: SealedVideoView(_controller),
-              ),
+    // ⚠️ Le son ne bascule QUE sur son bouton (Jay, 2026-09-19) : avant, un
+    // tap n'importe où sur la vidéo le coupait ou l'allumait — et le tap
+    // d'un Flow doit ouvrir le plein écran.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        VideoWatchdog(
+          controller: _controller,
+          child: FittedBox(
+            fit: BoxFit.cover,
+            clipBehavior: Clip.hardEdge,
+            child: SizedBox(
+              width: _controller.value.size.width,
+              height: _controller.value.size.height,
+              child: SealedVideoView(_controller),
             ),
           ),
-          Positioned(
-            right: 10,
-            bottom: 10,
+        ),
+        Positioned(
+          right: 10,
+          bottom: 10,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: widget.onToggleMute,
             child: Container(
               width: 28,
               height: 28,
@@ -350,8 +366,8 @@ class _VideoState extends State<_Video> {
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
