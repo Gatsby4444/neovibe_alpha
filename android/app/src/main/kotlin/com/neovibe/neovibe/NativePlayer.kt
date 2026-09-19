@@ -175,6 +175,8 @@ class NativePlayer(
                         File(cachePath),
                         File("$cachePath.map"),
                         HttpRangeFetcher(url),
+                        readAhead = RemoteChunkStore.READ_AHEAD,
+                        prefetchExecutor = RemoteChunkStore.prefetchPool,
                     ),
                     key,
                 )

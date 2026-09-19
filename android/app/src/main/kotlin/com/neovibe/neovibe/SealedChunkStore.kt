@@ -175,7 +175,25 @@ class RemoteChunkStore(
     private val data: File,
     private val map: File,
     private val fetcher: RangeFetcher,
+    /**
+     * **Lecture d'avance** (2026-09-19, point 3 du chantier « comme les
+     * autres ») : combien de blocs demander d'avance, en une requête, dès
+     * qu'un bloc est servi. 0 = aucune (les tests mesurent des requêtes à
+     * l'unité). En production : 4 blocs = 1 Mo par requête — au lieu d'un
+     * bloc de 256 Ko demandé quand ExoPlayer le réclame, sans anticipation,
+     * ce qui faisait « charger et saccader » sur un réseau moyen.
+     */
+    private val readAhead: Int = 0,
+    private val prefetchExecutor: java.util.concurrent.Executor? = null,
 ) : SealedChunkStore() {
+
+    /** Verrou de tout accès au fichier et à la carte : le préchargement écrit
+     *  depuis un autre fil. `wait`/`notifyAll` dessus pendant une requête en
+     *  vol, pour ne pas demander deux fois le même bloc. */
+    private val lock = Object()
+
+    /** Les blocs qu'une requête d'avance est en train d'amener. */
+    private var inFlight: LongRange? = null
 
     /** Nombre de requêtes réseau émises — sert aux tests et à la mesure. */
     var requests = 0
@@ -243,25 +261,85 @@ class RemoteChunkStore(
     }
 
     override fun sealedChunk(index: Long): ByteArray {
-        val file = raf ?: throw IOException("cache non ouvert")
         val size = layout.sealedSizeOf(index)
         val offset = layout.sealedOffset(index)
-
-        if (index < present.size && present[index.toInt()].toInt() == 1) {
-            val bytes = ByteArray(size)
-            file.seek(offset)
-            file.readFully(bytes)
-            return bytes
+        synchronized(lock) {
+            // Une requête d'avance amène justement ce bloc : on l'attend, au
+            // lieu de le demander une seconde fois.
+            while (inFlight?.contains(index) == true) lock.wait()
+            val file = raf ?: throw IOException("cache non ouvert")
+            if (has(index)) {
+                val bytes = ByteArray(size)
+                file.seek(offset)
+                file.readFully(bytes)
+                schedulePrefetch(index + 1)
+                return bytes
+            }
         }
-
+        // Le bloc réclamé, seul et tout de suite : un saut ne doit coûter que
+        // ce qu'il demande (voir `PartialStreamingTest`). La suite arrive par
+        // la lecture d'avance, sur un autre fil.
         val bytes = fetcher.fetch(offset, offset + size - 1)
         requests++
         if (bytes.size != size) {
             throw IOException("bloc $index incomplet : ${bytes.size} au lieu de $size")
         }
-        store(index, bytes)
-        saveMap()
+        synchronized(lock) {
+            store(index, bytes)
+            saveMap()
+        }
+        schedulePrefetch(index + 1)
         return bytes
+    }
+
+    private fun has(index: Long) = index < present.size && present[index.toInt()].toInt() == 1
+
+    /**
+     * Demande d'avance, en UNE requête et sur un fil à part, les blocs
+     * manquants qui suivent [from] — au plus [readAhead], contigus.
+     */
+    private fun schedulePrefetch(from: Long) {
+        val executor = prefetchExecutor ?: return
+        if (readAhead <= 0) return
+        val range: LongRange
+        synchronized(lock) {
+            if (inFlight != null || raf == null) return
+            val count = layout.chunkCount
+            var start = from
+            while (start < count && has(start)) start++
+            if (start >= count) return
+            var end = start
+            while (end + 1 < count && end + 1 < start + readAhead && !has(end + 1)) end++
+            range = start..end
+            inFlight = range
+        }
+        executor.execute {
+            try {
+                val first = layout.sealedOffset(range.first)
+                val last = layout.sealedOffset(range.last) + layout.sealedSizeOf(range.last) - 1
+                val bytes = fetcher.fetch(first, last)
+                requests++
+                synchronized(lock) {
+                    if (raf != null && bytes.size.toLong() == last - first + 1) {
+                        var cursor = 0
+                        for (i in range) {
+                            val s = layout.sealedSizeOf(i)
+                            store(i, bytes.copyOfRange(cursor, cursor + s))
+                            cursor += s
+                        }
+                        saveMap()
+                    }
+                }
+            } catch (_: Exception) {
+                // Une avance manquée n'est pas une panne : le bloc sera
+                // demandé à l'unité quand ExoPlayer le réclamera.
+            } finally {
+                synchronized(lock) {
+                    inFlight = null
+                    lock.notifyAll()
+                }
+            }
+        }
     }
 
     /** Le média est-il entièrement sur l'appareil ? */
@@ -292,8 +370,19 @@ class RemoteChunkStore(
     }
 
     override fun close() {
-        raf?.close()
-        raf = null
+        synchronized(lock) {
+            raf?.close()
+            raf = null
+        }
+    }
+
+    companion object {
+        /** Quatre blocs d'avance = 1 Mo par requête. */
+        const val READ_AHEAD = 4
+
+        /** Les requêtes d'avance de tous les lecteurs, deux à la fois au plus. */
+        val prefetchPool: java.util.concurrent.ExecutorService =
+            java.util.concurrent.Executors.newFixedThreadPool(2)
     }
 }
 
