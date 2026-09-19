@@ -46,12 +46,25 @@ class NativeDiagnostics(
         } catch (_: Exception) {
             null
         }
+        // L'espace libre du volume de l'app (2026-09-19) : un rendu vidéo a
+        // disparu du cache en plein travail ; sans ce chiffre, on ne peut pas
+        // dire si le système manquait de place.
+        val stat = runCatching { android.os.StatFs(context.filesDir.path) }.getOrNull()
+        val mem = android.app.ActivityManager.MemoryInfo().also {
+            (context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager)
+                .getMemoryInfo(it)
+        }
         result.success(
             mapOf(
                 "appVersion" to (info?.versionName ?: "?"),
                 "appBuild" to (info?.longVersionCode?.toString() ?: "?"),
                 "model" to "${Build.MANUFACTURER} ${Build.MODEL}",
                 "android" to "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+                "diskFreeBytes" to (stat?.availableBytes ?: -1L),
+                "diskTotalBytes" to (stat?.totalBytes ?: -1L),
+                "memAvailBytes" to mem.availMem,
+                "memTotalBytes" to mem.totalMem,
+                "memLow" to mem.lowMemory,
             ),
         )
     }

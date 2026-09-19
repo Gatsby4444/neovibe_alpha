@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/content/content_face.dart';
@@ -15,6 +14,7 @@ import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
 import 'album_editor/album_draft.dart';
+import '../../core/work_dir.dart';
 
 /// Bibliothèque d'un utilisateur (la RLS applique les droits d'accès :
 /// on reçoit une liste vide si l'accès est refusé).
@@ -132,7 +132,7 @@ class LibraryRepository {
     // chaque appel, des fichiers distincts restent donc sûrs.
     final mediaKey = await ChunkedSeal.newKey();
     const sealedType = FileOptions(contentType: 'application/octet-stream');
-    final temp = await getTemporaryDirectory();
+    final temp = await WorkDir.named('seal');
 
     // Le nombre de fichiers à déposer : un par média, plus une couverture par
     // vidéo d'album.

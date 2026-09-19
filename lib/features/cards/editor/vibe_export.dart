@@ -1,9 +1,8 @@
 import 'dart:io';
 
-import 'package:path_provider/path_provider.dart';
-
 import '../../library/album_editor/album_export.dart';
 import 'vibe_edit_draft.dart';
+import '../../../core/work_dir.dart';
 
 /// Les deux faces d'une Vibe, prêtes à l'envoi.
 typedef VibeFaces = ({File front, File? back});
@@ -22,8 +21,7 @@ abstract final class VibeExport {
     VibeEditDraft draft, {
     void Function(double progress)? onProgress,
   }) async {
-    final dir = Directory('${(await getTemporaryDirectory()).path}/vibe_edit');
-    if (!await dir.exists()) await dir.create(recursive: true);
+    final dir = await WorkDir.named('vibe_edit');
 
     // La progression : la moitié par face quand il y en a deux à rendre.
     final toRender = [if (draft.frontEdited) true, if (draft.backEdited) false];

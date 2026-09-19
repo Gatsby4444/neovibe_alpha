@@ -2,12 +2,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../../../core/utils/ids.dart';
 import '../../../cards/native_media.dart';
 import '../album_draft.dart';
 import 'native_gallery.dart';
+import '../../../../core/work_dir.dart';
 
 /// **De la galerie au brouillon** : copie un média dans notre cache, le sonde
 /// (dimensions après rotation, durée), et le transforme en [AlbumDraftMedia].
@@ -15,11 +15,11 @@ import 'native_gallery.dart';
 /// et répartir automatiquement sur plusieurs contenus du carrousel »*) ;
 /// refusée, elle est gardée en un seul média rogné à ses 60 premières secondes.
 abstract final class GalleryImport {
-  /// Copie [entry] dans le cache de l'app et rend le fichier.
+  /// Copie [entry] dans le dossier de travail de l'app et rend le fichier.
   static Future<File> copy(GalleryEntry entry) async {
-    final temp = await getTemporaryDirectory();
+    final work = await WorkDir.named('gallery');
     final ext = entry.isVideo ? 'mp4' : 'jpg';
-    final dest = File('${temp.path}/gallery_${newUuid()}.$ext');
+    final dest = File('${work.path}/gallery_${newUuid()}.$ext');
     await NativeGallery.copy(entry.uri, dest.path);
     return dest;
   }

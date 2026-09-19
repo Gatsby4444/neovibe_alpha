@@ -3,8 +3,6 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'package:path_provider/path_provider.dart';
-
 import '../../core/crypto/chunked_seal.dart';
 import '../../core/utils/ids.dart';
 import '../../core/media/face_delivery.dart';
@@ -13,6 +11,7 @@ import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import '../conversations/conversations_repository.dart';
 import 'card_media_cache.dart';
+import '../../core/work_dir.dart';
 
 /// Cards reçues (livraisons non détruites), temps réel.
 final receivedDeliveriesProvider = StreamProvider<List<CardDelivery>>((ref) {
@@ -123,7 +122,7 @@ class CardsRepository {
 
     // Préparée pour la livraison puis scellée par blocs, en flux — un seul
     // chemin pour les trois écrans qui publient (voir `FaceDelivery`).
-    final temp = await getTemporaryDirectory();
+    final temp = await WorkDir.named('seal');
     final sealedFront = File('${temp.path}/seal_card_${stamp}_f');
     await FaceDelivery.seal(
       front,

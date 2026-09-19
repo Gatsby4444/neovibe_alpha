@@ -646,6 +646,22 @@ class DiagnosticBundle {
         'app ${info['appVersion'] ?? '?'}+${info['appBuild'] ?? '?'} · '
         '${info['model'] ?? '?'} · Android ${info['android'] ?? '?'}',
       );
+      // L'espace et la mémoire AU MOMENT du relevé : un rendu vidéo a
+      // disparu du cache en plein travail le 2026-09-19, et rien ne disait
+      // si le système manquait de place.
+      String mo(String? v) {
+        final n = int.tryParse(v ?? '');
+        return n == null || n < 0
+            ? '?'
+            : (n / (1024 * 1024)).toStringAsFixed(0);
+      }
+
+      buffer.writeln(
+        'disque : ${mo(info['diskFreeBytes'])} Mo libres sur '
+        '${mo(info['diskTotalBytes'])} · mémoire : ${mo(info['memAvailBytes'])} Mo '
+        'disponibles sur ${mo(info['memTotalBytes'])}'
+        '${info['memLow'] == 'true' ? ' · 🔴 MÉMOIRE BASSE' : ''}',
+      );
     }
 
     // ⚠️ Placée juste après l'appareil, et **avant** les journaux : c'est la

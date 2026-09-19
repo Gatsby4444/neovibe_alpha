@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/content/content_face.dart';
@@ -17,6 +16,7 @@ import '../../core/derived_list.dart';
 import '../connections/connections_repository.dart';
 import '../../core/content/content_media_cache.dart';
 import '../../core/content/own_keys.dart';
+import '../../core/work_dir.dart';
 
 /// Toutes les stories vivantes que j'ai le droit de voir.
 ///
@@ -206,7 +206,7 @@ class StoriesRepository {
 
     // Préparée pour la livraison puis scellée par blocs, en flux — un seul
     // chemin pour les trois écrans qui publient (voir `FaceDelivery`).
-    final temp = await getTemporaryDirectory();
+    final temp = await WorkDir.named('seal');
     final sealedFront = File('${temp.path}/seal_${storyId}_f');
     await FaceDelivery.seal(
       front,

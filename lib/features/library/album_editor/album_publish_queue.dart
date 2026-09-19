@@ -1,13 +1,11 @@
-import 'dart:io';
-
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 
 import '../../../core/diagnostics/app_log.dart';
 import '../library_repository.dart';
 import 'album_draft.dart';
 import 'album_export.dart';
+import '../../../core/work_dir.dart';
 
 /// Où en est la publication d'un album : rendu des médias, puis envoi.
 ///
@@ -69,11 +67,9 @@ class AlbumPublishQueue extends Notifier<AlbumPublishState> {
       done: 0,
       total: total,
     );
-    final temp = await getTemporaryDirectory();
-    final dir = Directory(
-      '${temp.path}/album_${DateTime.now().millisecondsSinceEpoch}',
-    );
-    await dir.create(recursive: true);
+    // Sous le dossier PERMANENT de l'app, pas le cache : le système peut
+    // vider le cache en plein rendu (voir [WorkDir]).
+    final dir = await WorkDir.fresh('album');
     try {
       final rendered = <AlbumMediaUpload>[];
       for (var i = 0; i < total; i++) {

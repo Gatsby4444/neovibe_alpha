@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/crypto/chunked_seal.dart';
@@ -17,6 +16,7 @@ import '../../core/utils/ids.dart';
 import '../conversations/conversations_repository.dart';
 import '../cards/card_media_cache.dart';
 import 'library_vault_cache.dart';
+import '../../core/work_dir.dart';
 
 /// Bibliothèques éphémères de conversation — couche d'accès.
 ///
@@ -404,7 +404,7 @@ class LibraryVibesRepository {
     String key, {
     required bool isVideo,
   }) async {
-    final dir = await getTemporaryDirectory();
+    final dir = await WorkDir.named('seal');
     final target = File('${dir.path}/vault_seal_${newUuid()}.bin');
     try {
       await FaceDelivery.seal(source, target, key, isVideo: isVideo);
