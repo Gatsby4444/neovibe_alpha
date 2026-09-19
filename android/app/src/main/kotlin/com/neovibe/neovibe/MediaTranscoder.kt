@@ -121,10 +121,15 @@ object MediaTranscoder {
      * écrites par le processeur, que le GPU sait toujours lire), et si c'est
      * encore noir, on **échoue** avec le nom du décodeur et les erreurs GL.
      */
-    fun run(p: Params, onProgress: (Float) -> Unit = {}): Result {
-        val first = runOnce(p, softwareDecoder = false, onProgress)
+    fun run(
+        p: Params,
+        onProgress: (Float) -> Unit = {},
+        /** Relu entre deux images : vrai = on arrete, le resultat dit « annule ». */
+        isCancelled: () -> Boolean = { false },
+    ): Result {
+        val first = runOnce(p, softwareDecoder = false, onProgress, isCancelled)
         if (first.ok || !first.message.startsWith(BLACK_PREFIX)) return first
-        val second = runOnce(p, softwareDecoder = true, onProgress)
+        val second = runOnce(p, softwareDecoder = true, onProgress, isCancelled)
         return if (second.ok) {
             Result(true, second.message, second.durationMs, second.hasAudio, "${first.note} → repli logiciel : ${second.note}")
         } else {
@@ -134,7 +139,14 @@ object MediaTranscoder {
 
     private const val BLACK_PREFIX = "rendu noir"
 
-    private fun runOnce(p: Params, softwareDecoder: Boolean, onProgress: (Float) -> Unit): Result {
+    const val CANCELLED = "annulé"
+
+    private fun runOnce(
+        p: Params,
+        softwareDecoder: Boolean,
+        onProgress: (Float) -> Unit,
+        isCancelled: () -> Boolean,
+    ): Result {
         var extractor: MediaExtractor? = null
         var audioExtractor: MediaExtractor? = null
         var decoder: MediaCodec? = null
@@ -233,6 +245,10 @@ object MediaTranscoder {
             var glErrorDraw = 0
             val stMatrix = FloatArray(16)
             while (!outputDone) {
+                if (isCancelled()) {
+                    tmp.delete()
+                    return Result(false, CANCELLED, 0, hasAudio)
+                }
                 if (!inputDone) {
                     val inIndex = decoder.dequeueInputBuffer(CODEC_TIMEOUT_US)
                     if (inIndex >= 0) {

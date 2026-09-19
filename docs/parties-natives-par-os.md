@@ -34,6 +34,7 @@
 | Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise + scan) | CoreBluetooth, **mode dégradé à concevoir** |
 | ~~Transport GATT (liens, trames)~~ | — | **SUPPRIMÉ le 2026-08-27** — le BLE ne fait plus que prouver la proximité | *sans objet* |
 | ~~Transfert média proximité~~ | — | **ABANDONNÉ le 2026-08-27** — tout le contenu passe par le serveur | *sans objet* |
+| **File de publication** *(2026-09-19)* | `neovibe/publish` + `/events` | `publish/` : `PublishService` (premier plan `dataSync`), `PublishPipeline`, `PublishStore`, `SessionStore`, `SupabaseHttp` (TUS par OkHttp), `PublishBridge`, `BootReceiver` | `BGProcessingTask` + `URLSession` en arrière-plan (`background` configuration, reprise par `Range`/TUS), même `job.json`, même pipeline — voir § 10 |
 | Hôte / cycle de vie | — | `MainActivity : FlutterFragmentActivity` | `AppDelegate` / `FlutterViewController` |
 | Journal caméra (dev) | (dans `neovibe/camera`) | `CamLog` (fichier disque) | fichier disque (trivial) |
 | Diagnostic appareil (dev) | `neovibe/diag` | `NativeDiagnostics` (`PackageManager` + `Build`) | `Bundle.main.infoDictionary` + `UIDevice` |
@@ -860,6 +861,7 @@ d'album, `docs/plan-publications.md`), quatre de plus.
 | `encodeJpeg(rgba, width, height, dest, quality)` | des pixels RGBA rendus par Flutter → un JPEG (`dart:ui` ne sait écrire que du PNG) | `JPEG_FAILED` |
 | `transcode(jobId, source, dest, startMs, endMs, corners[8], outWidth, outHeight, uniforms[24], rotation, overlayPath?)` | **`MediaTranscoder.kt`** : une vidéo de la galerie rognée, cadrée / tournée / redressée (les coins de `CropGeometry`), corrigée (le contrat `ColorGrade.toUniforms`), avec le calque des textes et autocollants (un PNG) brûlé dessus, recompressée ; progression par `transcodeProgress(jobId, progress)` du natif vers Dart, au plus une fois par pour cent | `TRANSCODE_FAILED` |
 | `readAll(sealed, key)` *(2026-09-19)* | le **clair** d'un média scellé rendu en mémoire (les photos, les vignettes du profil) par `SealedChunkReader` — le déchiffrement Dart figeait l'écran ~85 ms par vignette | `BAD_ARGS`, `READ_FAILED` |
+| `seal(source, key, dest)` *(2026-09-19)* | **scelle** `source` au format `NVC1` dans `dest` (`SealedChunkWriter.kt`, le miroir du lecteur ; 4 tests JVM de va-et-vient) — le scellage Dart tournait sur le fil de l'interface, ~9 s d'écran figé par vidéo de 25 Mo | `BAD_ARGS`, `SEAL_FAILED` |
 | `unseal(sealed, key, dest)` *(2026-09-18)* | le **clair** d'un média scellé `NVC1` écrit dans `dest`, bloc par bloc par `SealedChunkReader` (AES matériel, fil de travail) — ce que « Enregistrer » copie dans les Enregistrements. Le déchiffrement Dart plafonnait à ~2,7 Mo/s sur le fil de l'interface : un Flow de 36 Mo figeait l'écran treize secondes. `dest` est effacé sur échec | `BAD_ARGS`, `UNSEAL_FAILED` |
 
 **Android (fait)** : `NativeMedia.kt`, tout sur un exécuteur dédié (jamais le
@@ -1061,9 +1063,18 @@ d'objet, **et c'est le but** : la cause est supprimée, pas entourée.
 |---|---|
 | `SealedChunkReader.kt` | lit le format `NVC1` en accès aléatoire, AES-GCM par `javax.crypto` (instructions AES du processeur) |
 | `SealedDataSource.kt` | l'expose à ExoPlayer comme une `androidx.media3.datasource.DataSource` |
-| `SealedChunkStore.kt` | d'où viennent les octets scellés : fichier local, ou **intervalles HTTP + cache partiel** (`RemoteChunkStore`, `HttpRangeFetcher`) |
+| `SealedChunkStore.kt` | d'où viennent les octets scellés : fichier local, ou **intervalles HTTP + cache partiel** (`RemoteChunkStore`, `HttpRangeFetcher`). **Lecture d'avance** *(2026-09-19)* : un bloc servi déclenche, sur un fil à part (`prefetchPool`, deux au plus), UNE requête pour les `READ_AHEAD = 4` blocs suivants (1 Mo) ; un saut ne coûte toujours que le bloc réclamé (`ReadAheadTest`) |
 | `Mp4FastStart.kt` | déplace l'index MP4 (`moov`) en tête, pour décoder dès les premiers octets reçus |
 | `NativePlayer.kt` | l'ExoPlayer lui-même, rendu dans un `TextureRegistry.SurfaceProducer` ; canal `neovibe/player` + `neovibe/player/events/<id>`. **Mode `audio`** *(2026-09-13)* : `create` accepte `audio: true` pour un média sans image (message vocal) — la surface est créée (c'est elle qui donne l'identifiant) mais pas donnée à ExoPlayer, et « prêt » n'attend plus une taille de vidéo qui ne viendrait jamais. Côté Dart : `SealedVideoController.audioStreaming` |
+
+**Commandes ajoutées le 2026-09-19** (canal `neovibe/player`) : `suspend`
+(rend le décodeur matériel — `exoPlayer.stop()` — en gardant la liste, la
+position et la dernière image sur la surface), `resume(play)` (re-prépare,
+~200 ms), `stats` → `{dropped, rendered, skipped, positionMs}` ; et
+l'événement `dropped {total}` (compteur cumulé d'`onDroppedVideoFrames`).
+Côté Dart : `SealedVideoController.suspend/resume`, `droppedFrames`. Une
+cellule du fil hors de vue rend son décodeur ; le journal note les images
+perdues à la fermeture d'un lecteur.
 
 Dépendances ajoutées : `androidx.media3:media3-exoplayer`, `-datasource`,
 `-common`, en **1.9.2** — la version qu'apporte déjà `video_player_android`.
@@ -1233,6 +1244,56 @@ la JVM par `./gradlew test`, sans appareil :
 | `EnergyWatcherTest.kt` | *(2026-09-14)* les libellés d'énergie du carnet et la ligne d'état, stables parce que la lecture Dart les compte |
 | `PresenceLogTest.kt`, `SightingBookTest.kt`, `SlotAlarmTest.kt` | présences, constats, réveil par créneau |
 | `RecognitionVectorsTest.kt` | les vecteurs de reconnaissance partagés avec le Dart |
-| `SealedChunkReaderTest.kt`, `Mp4FastStartTest.kt`, `PartialStreamingTest.kt` | le lecteur de médias scellés (§7) |
+| `SealedChunkReaderTest.kt`, `Mp4FastStartTest.kt`, `PartialStreamingTest.kt`, `ReadAheadTest.kt` *(2026-09-19)* | le lecteur de médias scellés (§7), et la lecture d'avance |
+| `SealedChunkWriterTest.kt` *(2026-09-19)* | le scelleur natif produit ce que le lecteur natif (et le Dart) lit : 0 octet, bloc partiel, bloc exact, plusieurs blocs |
+| `publish/PublishPipelineTest.kt` *(2026-09-19)* | la file de publication sans codec ni réseau : préparé et déposé avant « Publier », inscrit après ; vidéo transcodée une fois ; **reprise à l'offset du serveur** après une coupure ; attente croissante ; jeton refusé → attente de l'app ; refus du serveur → échec avec message ; annulation → coffre et dossier effacés ; `job.json` se relit tel quel |
 
 **iOS** : à réécrire en XCTest sur les mêmes vecteurs, au moment du portage.
+
+## 10. La file de publication — `publish/` *(2026-09-19)*
+
+**Rôle** : finir une publication **avec ou sans l'app** — tranché par Jay le
+2026-09-19 (*« la publication est une file NATIVE et persistante »*, `CLAUDE.md`).
+Le Dart rend les photos (shader de l'aperçu) et le calque des vidéos, calcule
+les paramètres du transcodage, écrit la couverture, tire la clé ; puis il
+**dépose** (`PublishPreparer` → `PublishBridge`). Tout le reste est ici.
+
+**Canal** : `neovibe/publish` (méthodes) + `neovibe/publish/events` (flux).
+
+| Méthode | Rôle |
+|---|---|
+| `configure(url, anonKey, accessToken)` | la session, à chaque connexion et renouvellement (`SessionStore`, `publish_session.json`). ⚠️ Le service ne renouvelle **jamais** le jeton lui-même — le jeton de renouvellement est à usage unique, l'employer d'ici déconnecterait l'app |
+| `signOut()` | efface la session |
+| `jobDir(id)` | le dossier de travail `<filesDir>/publish/<id>/` — **pas sous `work/`**, balayé au démarrage de l'app |
+| `enqueue(job)` | dépose le JSON de `PublishJob` et réveille le service |
+| `release(id, caption, captionFont, isPublic, shareable, saveable)` | « Publier » → `release.json` |
+| `cancel(id)` | retour en arrière → marqueur `cancel`, le service efface (coffre et dossier) |
+| `retry(id)` | après un échec : repart de ce qui est fait (scellé, déposé) |
+| `ack(id)` | l'app a vu la publication dans sa liste : le dossier s'efface |
+| `pending()` | l'état de tout ce qui est rangé |
+
+Événements : `{jobs: [instantané…]}` à chaque changement (`PublishHub`), et
+`{needToken: true}` quand le serveur refuse le jeton — le Dart (`main.dart`)
+rafraîchit sa session et rappelle `configure`.
+
+| Fichier | Rôle |
+|---|---|
+| `PublishJob.kt` | le contrat sur le disque : phases `preparing → uploading → waiting → registering → done` (ou `failed`, `cancelled`), les fichiers et où chacun en est. **Deux écrivains, deux fichiers** : `job.json` n'est écrit que par le service ; `release.json` et `cancel` que par l'app |
+| `PublishStore.kt` | un dossier par publication, écriture `.tmp` + renommage ; les lectures ne créent rien |
+| `SessionStore.kt` | url, clé publique, jeton — un autre fichier, une autre durée de vie |
+| `SupabaseHttp.kt` | **TUS** (sondé sur le projet de dev le 2026-09-19) : `POST /storage/v1/upload/resumable` → `Location` ; `HEAD` → `Upload-Offset` ; `PATCH` par blocs de **6 Mo exactement** ; et l'inscription `POST /rest/v1/rpc/publish_to_library`. Range les réponses en `AuthExpired` (401, ou 400/403 « JWS » du coffre), `Rejected` (4xx : ne se réessaie pas seul), `IOException` (réseau : attente croissante 5 s → 5 min). **OkHttp** : `HttpURLConnection` ne sait pas émettre `PATCH`, et Supabase ignore `X-HTTP-Method-Override` (sondé) |
+| `PublishPipeline.kt` | le travail, pas à pas, **reprenable à chaque pas** : transcode (`MediaTranscoder`, avec annulation entre deux images), couvre (`NativeMedia.extract`), scelle (`SealedChunkWriter`), envoie (deux fichiers à la fois, reprise à l'offset du serveur), attend « Publier », inscrit, copie les scellés dans le cache de mes contenus (`ownCache`), efface. Testé sur la JVM |
+| `PublishService.kt` | service de premier plan **`dataSync`** (`FOREGROUND_SERVICE_DATA_SYNC`) : une boucle qui fait avancer chaque publication et attend (jeton, « Publier », délai) ; réveillé par l'app (`kick`), le retour du réseau (`registerDefaultNetworkCallback`), Android (`START_STICKY`) ou le boot ; notification « Envoi… 43 % » ; s'arrête seul quand il n'y a plus rien ; une notification à part sur un échec |
+| `PublishBridge.kt` | le pont, jetable (naît et meurt avec l'activité) |
+| `PublishHub.kt` | l'`object` par lequel le service publie ce qu'il constate, que le pont soit là ou non |
+| `BootReceiver.kt` | `BOOT_COMPLETED` (`RECEIVE_BOOT_COMPLETED`) : relance le service **s'il reste une publication en cours** — et rien d'autre, jamais la proximité |
+
+Dépendances ajoutées : `com.google.code.gson:gson:2.11.0` (main, elle n'était
+qu'en test), `com.squareup.okhttp3:okhttp:4.12.0`.
+
+**iOS (à faire)** : le même `job.json`, le même pipeline (`AVAssetExportSession`
+pour le transcodage, `CryptoKit` pour le scellage) ; l'envoi par `URLSession`
+en configuration `background` (il continue app tuée, le système rappelle
+l'app à la fin), TUS identique ; la reprise après relance par
+`BGProcessingTask`. Pas de service de premier plan sur iOS : c'est la session
+d'arrière-plan qui porte « survit à la fermeture ».

@@ -358,9 +358,15 @@ dependencies {
     implementation("androidx.media3:media3-datasource:$media3Version")
     implementation("androidx.media3:media3-common:$media3Version")
 
+    // La file de publication native (publish/, 2026-09-19) : Gson écrit et
+    // relit `job.json` ; OkHttp porte l'envoi reprenable TUS — `HttpURLConnection`
+    // ne sait pas émettre PATCH, et Supabase ignore `X-HTTP-Method-Override`
+    // (sondé le 2026-09-19 : la requête est prise pour une création).
+    implementation("com.google.code.gson:gson:2.11.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
     // Vecteurs de test croisés du format scellé (voir docs/format-media-scelle.md)
     testImplementation("junit:junit:4.13.2")
-    testImplementation("com.google.code.gson:gson:2.11.0")
 }
 
 flutter {

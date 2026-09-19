@@ -185,6 +185,14 @@ et l'export ne fait que lire.
 
 ## 9. Ce qui a été construit, et ce qui s'écarte du plan (2026-09-15)
 
+> ⚠️ **Périmé en partie le 2026-09-19** : la publication ne passe plus par
+> `publishAlbum`, `AlbumPublishQueue` ni `AlbumPublishBanner` (supprimés).
+> Elle est déposée à une **file native et persistante** (`PublishPreparer` →
+> `PublishBridge` → `publish/PublishService.kt`), qui transcode, scelle,
+> envoie de façon reprenable (TUS) et inscrit — avec ou sans l'app. La grille
+> montre la publication en cours à sa place (`PendingCell`). Description à
+> jour : `docs/file-de-publication.md`.
+
 | Pièce | Fichier | Note |
 |---|---|---|
 | Serveur | `supabase/migrations/20260915120000_les_albums.sql` | comme §3, plus **`library_media.owner_id`** : au rejeu, le déclencheur des octets à supprimer tournait *après* la suppression de l'en-tête (cascade depuis `contents`) et ne trouvait plus le propriétaire — zéro pierre tombale. Le propriétaire est donc sur la ligne de média, comme `old.owner_id` dans l'ancien déclencheur. 17 contrôles sous RLS (propriétaire, ami, inconnu ; chemins hors dossier, 61 s, album vide, ratio 3:2 refusés ; fichier et poster de la place 7 ; clé en lot ; jointure PostgREST ; écriture directe refusée ; suppression → 0 média, 9 pierres tombales) |

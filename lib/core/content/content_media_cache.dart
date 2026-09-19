@@ -129,6 +129,13 @@ class ContentMediaCache {
   // Mes contenus
   // ---------------------------------------------------------------------
 
+  /// **Où** le scellé d'une de MES places se range — pour la file de
+  /// publication native, qui y copie elle-même ce qu'elle a scellé une fois
+  /// la publication inscrite (2026-09-19). Le chemin, pas le fichier : une
+  /// seule définition du rangement, ici.
+  Future<String> ownPath(String contentId, {required int slot}) async =>
+      _faceFile(await _dir('own'), contentId, slot).path;
+
   /// Dépose le scellé d'une de MES faces, à la publication.
   Future<void> storeOwn(
     String contentId,
@@ -137,7 +144,7 @@ class ContentMediaCache {
   }) async {
     try {
       await sealed.copy(_faceFile(await _dir('own'), contentId, slot).path);
-      await _enforceOwnLimit();
+      await enforceOwnLimit();
     } catch (_) {
       // Le cache est un confort : un échec ne doit jamais bloquer la
       // publication (le contenu existe déjà côté serveur à ce moment-là).
@@ -148,7 +155,7 @@ class ContentMediaCache {
     final file = _faceFile(await _dir('own'), contentId, slot);
     if (!await file.exists()) return null;
     try {
-      // La date d'accès, lue par [_enforceOwnLimit] : les moins récemment
+      // La date d'accès, lue par [enforceOwnLimit] : les moins récemment
       // OUVERTES partent d'abord, pas les plus anciennement créées.
       //
       // ⚠️ Jusqu'au 2026-08-31, cette ligne portait `// usage LRU` et **rien ne
@@ -164,7 +171,7 @@ class ContentMediaCache {
   ///
   /// Perdre une face de MON contenu n'est pas grave : elle se retéléchargera
   /// depuis le coffre, où elle est toujours. C'est un cache, pas un original.
-  Future<void> _enforceOwnLimit() async {
+  Future<void> enforceOwnLimit() async {
     final dir = await _dir('own');
     var total = 0;
     final fichiers = <(File, DateTime, int)>[];

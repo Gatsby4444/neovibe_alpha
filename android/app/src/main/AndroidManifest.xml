@@ -80,6 +80,17 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- La file de publication (2026-09-19, `publish/PublishService`) : un
+         service de premier plan de type `dataSync` qui finit l'envoi d'une
+         publication quand l'app est fermée, et repart après un redémarrage
+         du téléphone (`BootReceiver`). Android 14+ exige la permission du
+         type ; `RECEIVE_BOOT_COMPLETED` est de niveau normal.
+         ⚠️ Le receveur de boot ne démarre QUE la file de publication — jamais
+         la proximité (voir la note sur `ACCESS_BACKGROUND_LOCATION`). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Mise a jour depuis l'app (outil de DEV, demande de Jay 2026-08-16).
@@ -127,6 +138,20 @@
             android:name=".ble.ProximityService"
             android:foregroundServiceType="connectedDevice|location"
             android:exported="false" />
+
+        <!-- La file de publication : transcode, scelle, envoie (reprenable) et
+             inscrit une publication — avec ou sans l'app (Jay, 2026-09-19). -->
+        <service
+            android:name=".publish.PublishService"
+            android:foregroundServiceType="dataSync"
+            android:exported="false" />
+        <receiver
+            android:name=".publish.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
 
         <!-- Publie l'APK telecharge a l'installateur systeme. Portee
              volontairement etroite : voir res/xml/file_paths_updates.xml.

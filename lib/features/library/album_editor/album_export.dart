@@ -7,7 +7,6 @@ import 'package:flutter/painting.dart';
 import '../../../core/diagnostics/app_log.dart';
 import '../../../core/models/library_item.dart';
 import '../../cards/native_media.dart';
-import '../library_repository.dart';
 import 'album_draft.dart';
 import 'crop_geometry.dart';
 import 'editor_images.dart';
@@ -37,9 +36,16 @@ abstract final class AlbumExport {
     return (w, h);
   }
 
-  /// Exporte [m] dans [dir]. Photo : un rendu Flutter puis un appel natif.
-  /// Vidéo : le transcodeur natif, avec sa progression (0..1).
-  static Future<AlbumMediaUpload> render(
+  /// Exporte [m] dans [dir], **ici et maintenant** — l'éditeur de Vibes s'en
+  /// sert (une face à la fois, sous les yeux de l'utilisateur). Photo : un
+  /// rendu Flutter puis un appel natif. Vidéo : le transcodeur natif, avec sa
+  /// progression (0..1).
+  ///
+  /// ⚠️ Une **publication**, elle, ne passe plus par ici pour ses vidéos : le
+  /// Dart rend les photos ([renderPhoto]) et le calque ([renderOverlay]),
+  /// calcule les paramètres ([videoSpec]), et c'est le service natif qui
+  /// transcode, scelle et envoie — avec ou sans l'app (Jay, 2026-09-19).
+  static Future<RenderedMedia> render(
     AlbumDraftMedia m,
     AlbumAspect aspect,
     Directory dir, {
@@ -53,7 +59,17 @@ abstract final class AlbumExport {
           onProgress: onProgress,
           maxVideoMs: maxVideoMs,
         )
-      : _renderPhoto(m, aspect, dir);
+      : _renderPhotoMedia(m, aspect, dir);
+
+  static Future<RenderedMedia> _renderPhotoMedia(
+    AlbumDraftMedia m,
+    AlbumAspect aspect,
+    Directory dir,
+  ) async {
+    final (outW, outH) = outputSize(aspect);
+    final file = await renderPhoto(m, aspect, dir);
+    return RenderedMedia(file, isVideo: false, width: outW, height: outH);
+  }
 
   /// Les images des autocollants d'un média, décodées pour l'export.
   static Future<Map<String, ui.Image>> _stickerImages(AlbumDraftMedia m) async {
@@ -69,7 +85,8 @@ abstract final class AlbumExport {
     return out;
   }
 
-  static Future<AlbumMediaUpload> _renderPhoto(
+  /// Rend une photo : le fichier JPEG produit, à [outputSize].
+  static Future<File> renderPhoto(
     AlbumDraftMedia m,
     AlbumAspect aspect,
     Directory dir,
@@ -113,7 +130,7 @@ abstract final class AlbumExport {
         height: outH,
         dest: file.path,
       );
-      return AlbumMediaUpload(file, isVideo: false, width: outW, height: outH);
+      return file;
     } finally {
       image.dispose();
       for (final s in stickers.values) {
@@ -142,7 +159,65 @@ abstract final class AlbumExport {
     trim: m.trim,
   );
 
-  static Future<AlbumMediaUpload> _renderVideo(
+  /// Le calque des textes et autocollants d'une vidéo, rendu une fois à la
+  /// taille de sortie en PNG : le transcodeur le pose sur chaque image. Nul
+  /// s'il n'y a rien à poser.
+  static Future<String?> renderOverlay(
+    AlbumDraftMedia m,
+    AlbumAspect aspect,
+    Directory dir,
+  ) async {
+    if (m.overlays.isEmpty) return null;
+    final (outW, outH) = outputSize(aspect);
+    final stickers = await _stickerImages(m);
+    try {
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      OverlayPainter(
+        images: (path) => stickers[path],
+      ).paintAll(canvas, Size(outW.toDouble(), outH.toDouble()), m.overlays);
+      final picture = recorder.endRecording();
+      final img = await picture.toImage(outW, outH);
+      picture.dispose();
+      final png = await img.toByteData(format: ui.ImageByteFormat.png);
+      img.dispose();
+      final f = File('${dir.path}/album_${m.id}_overlay.png');
+      await f.writeAsBytes(png!.buffer.asUint8List());
+      return f.path;
+    } finally {
+      for (final s in stickers.values) {
+        s.dispose();
+      }
+    }
+  }
+
+  /// **Les paramètres du transcodeur** pour [m] — la seule définition, que
+  /// le transcodage soit fait ici ([render]) ou par le service natif : les
+  /// coins du cadrage, le rognage, les nombres de couleur, la rotation, le
+  /// calque. Les clés sont celles que le Kotlin lit (`TranscodeSpec`).
+  static Map<String, Object?> videoSpec(
+    AlbumDraftMedia m,
+    AlbumAspect aspect, {
+    required String? overlayPath,
+  }) {
+    final (outW, outH) = outputSize(aspect);
+    final corners = CropGeometry.corners(m, aspect.ratio);
+    final trim = m.effectiveTrim;
+    return {
+      'startMs': trim.startMs,
+      'endMs': trim.endMs,
+      'corners': [
+        for (final c in corners) ...[c.dx, c.dy],
+      ],
+      'outWidth': outW,
+      'outHeight': outH,
+      'uniforms': m.grade.toUniforms(),
+      'overlayPath': overlayPath,
+      'rotation': m.rotation,
+    };
+  }
+
+  static Future<RenderedMedia> _renderVideo(
     AlbumDraftMedia m,
     AlbumAspect aspect,
     Directory dir, {
@@ -150,47 +225,20 @@ abstract final class AlbumExport {
     int maxVideoMs = kAlbumMaxVideoMs,
   }) async {
     final (outW, outH) = outputSize(aspect);
-    final corners = CropGeometry.corners(m, aspect.ratio);
     final trim = m.effectiveTrim;
     final file = File('${dir.path}/album_${m.id}.mp4');
-
-    // Le calque des textes et autocollants, rendu une fois à la taille de
-    // sortie : le transcodeur le pose sur chaque image.
-    String? overlayPath;
-    if (m.overlays.isNotEmpty) {
-      final stickers = await _stickerImages(m);
-      try {
-        final recorder = ui.PictureRecorder();
-        final canvas = ui.Canvas(recorder);
-        OverlayPainter(
-          images: (path) => stickers[path],
-        ).paintAll(canvas, Size(outW.toDouble(), outH.toDouble()), m.overlays);
-        final picture = recorder.endRecording();
-        final img = await picture.toImage(outW, outH);
-        picture.dispose();
-        final png = await img.toByteData(format: ui.ImageByteFormat.png);
-        img.dispose();
-        final f = File('${dir.path}/album_${m.id}_overlay.png');
-        await f.writeAsBytes(png!.buffer.asUint8List());
-        overlayPath = f.path;
-      } finally {
-        for (final s in stickers.values) {
-          s.dispose();
-        }
-      }
-    }
+    final overlayPath = await renderOverlay(m, aspect, dir);
+    final spec = videoSpec(m, aspect, overlayPath: overlayPath);
 
     final result = await NativeMedia.transcode(
       source: m.source.path,
       dest: file.path,
-      startMs: trim.startMs,
-      endMs: trim.endMs,
-      corners: [
-        for (final c in corners) ...[c.dx, c.dy],
-      ],
+      startMs: spec['startMs']! as int,
+      endMs: spec['endMs']! as int,
+      corners: spec['corners']! as List<double>,
       outWidth: outW,
       outHeight: outH,
-      uniforms: m.grade.toUniforms(),
+      uniforms: spec['uniforms']! as List<double>,
       rotation: m.rotation,
       overlayPath: overlayPath,
       onProgress: onProgress,
@@ -211,7 +259,7 @@ abstract final class AlbumExport {
       atMs: (trim.coverMs - trim.startMs).clamp(0, result.durationMs),
     );
     if (!ok) throw StateError('couverture impossible à extraire');
-    return AlbumMediaUpload(
+    return RenderedMedia(
       file,
       isVideo: true,
       durationMs: math.min(result.durationMs, maxVideoMs),
@@ -220,4 +268,26 @@ abstract final class AlbumExport {
       height: outH,
     );
   }
+}
+
+/// Un média rendu par [AlbumExport.render] : le fichier, et pour une vidéo
+/// sa durée et sa couverture.
+class RenderedMedia {
+  const RenderedMedia(
+    this.file, {
+    required this.isVideo,
+    this.durationMs,
+    this.poster,
+    this.width,
+    this.height,
+  }) : assert(
+         !isVideo || (durationMs != null && poster != null),
+         'Une vidéo rendue porte sa durée et sa couverture',
+       );
+  final File file;
+  final bool isVideo;
+  final int? durationMs;
+  final File? poster;
+  final int? width;
+  final int? height;
 }

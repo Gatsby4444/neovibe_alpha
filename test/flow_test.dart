@@ -1,18 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/models/library_item.dart';
 import 'package:neovibe/features/library/library_repository.dart';
 
-AlbumMediaUpload photo() =>
-    AlbumMediaUpload(File('/tmp/p.jpg'), isVideo: false);
+bool photo() => false;
 
-AlbumMediaUpload video() => AlbumMediaUpload(
-  File('/tmp/v.mp4'),
-  isVideo: true,
-  durationMs: 4000,
-  poster: File('/tmp/v.jpg'),
-);
+bool video() => true;
 
 /// **Le Flow** — une vidéo publiée seule (Jay, 2026-09-17).
 ///

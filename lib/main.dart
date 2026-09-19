@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app.dart';
 import 'core/motion.dart';
 import 'core/config/env.dart';
+import 'core/publish/publish_bridge.dart';
 import 'core/diagnostics/app_log.dart';
 import 'core/diagnostics/app_log_observers.dart';
 import 'core/notifications/notification_service.dart';
@@ -208,7 +210,22 @@ void _suivreLeJetonDuTempsReel() {
   final client = Supabase.instance.client;
   client.auth.onAuthStateChange.listen((state) {
     final token = state.session?.accessToken;
-    if (token == null) return;
+    if (token == null) {
+      if (state.event == AuthChangeEvent.signedOut) {
+        unawaited(PublishBridge.instance.signOut());
+      }
+      return;
+    }
+    // La file de publication native travaille avec ou sans l'app : elle a
+    // besoin du jeton, et de chaque renouvellement (2026-09-19). Elle ne
+    // le renouvelle jamais elle-même (voir `SessionStore.kt`).
+    unawaited(
+      PublishBridge.instance.configure(
+        url: Env.supabaseUrl,
+        anonKey: Env.supabasePublishableKey,
+        accessToken: token,
+      ),
+    );
     if (state.event == AuthChangeEvent.tokenRefreshed ||
         state.event == AuthChangeEvent.signedIn ||
         state.event == AuthChangeEvent.initialSession) {
@@ -217,6 +234,24 @@ void _suivreLeJetonDuTempsReel() {
       // relèveraient pas tout seuls.
       realtimeEpoch.value++;
       AppLog.instance.app('jeton temps réel rafraîchi', state.event.name);
+    }
+  });
+  // Le service de publication dit que son jeton est refusé (l'app était
+  // fermée, le sien a expiré) : on en tire un frais et on le lui dépose.
+  PublishBridge.instance.events.listen((e) async {
+    if (e is! PublishNeedsToken) return;
+    try {
+      final fresh = await client.auth.refreshSession();
+      final token = fresh.session?.accessToken;
+      if (token == null) return;
+      await PublishBridge.instance.configure(
+        url: Env.supabaseUrl,
+        anonKey: Env.supabasePublishableKey,
+        accessToken: token,
+      );
+      AppLog.instance.app('jeton redonné à la file de publication');
+    } catch (err) {
+      AppLog.instance.error('jeton pour la file de publication : $err');
     }
   });
 }

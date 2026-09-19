@@ -1,21 +1,19 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/library_item.dart';
 import 'album_draft.dart';
 import 'album_editor_screen.dart';
 import 'gallery/gallery_import.dart';
 import 'gallery/gallery_screen.dart';
-import 'album_publish_queue.dart';
 
 /// Les trois étapes d'une publication d'album, enchaînées : **choisir**
 /// (`GalleryScreen`, notre galerie) → **éditer** (`AlbumEditorScreen`, qui
-/// pousse lui-même l'écran de légende) → **publier** (`AlbumPublishQueue`, en
-/// arrière-plan).
+/// pousse lui-même l'écran de légende, dépose à la file native à « Suivant »
+/// et libère à « Publier ») → **publier** (`PublishService`, natif, avec ou
+/// sans l'app).
 ///
-/// Rend la main dès que l'envoi est déposé : le profil affiche le bandeau.
+/// Rend la main dès que « Publier » est pressé : la grille du profil montre
+/// la publication avec son avancement.
 abstract final class AlbumFlow {
   /// [flow] : la troisième porte (Jay, 2026-09-18) — **une** vidéo, en
   /// **9:16**, jusqu'à **trois minutes**. Même galerie (les vidéos seules),
@@ -45,7 +43,7 @@ abstract final class AlbumFlow {
             maxVideoMs: maxVideoMs,
           );
     if (picked.isEmpty || !context.mounted) return;
-    final draft = await Navigator.of(context).push<AlbumDraft>(
+    await Navigator.of(context).push<AlbumDraft>(
       MaterialPageRoute(
         fullscreenDialog: true,
         // Le premier média propose le format de toute la publication
@@ -62,23 +60,6 @@ abstract final class AlbumFlow {
                 ).add(picked),
         ),
       ),
-    );
-    if (draft == null || !context.mounted) return;
-    final container = ProviderScope.containerOf(context, listen: false);
-    if (container.read(albumPublishQueueProvider).isBusy) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Une publication est déjà en cours — attends qu\'elle finisse.',
-          ),
-        ),
-      );
-      return;
-    }
-    // Sans `await` : l'envoi tourne en arrière-plan, la main revient tout
-    // de suite (comme l'envoi d'une Vibe).
-    unawaited(
-      container.read(albumPublishQueueProvider.notifier).publish(draft),
     );
   }
 }

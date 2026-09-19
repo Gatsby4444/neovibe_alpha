@@ -131,7 +131,7 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
                 }
                 worker.execute {
                     var lastReported = -1
-                    val outcome = MediaTranscoder.run(params) { progress ->
+                    val outcome = MediaTranscoder.run(params, onProgress = { progress ->
                         // Au plus une notification par pour cent : le canal
                         // n'est pas fait pour trente messages par seconde.
                         val pct = (progress * 100).toInt()
@@ -144,7 +144,7 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
                                 )
                             }
                         }
-                    }
+                    })
                     main.post {
                         if (outcome.ok) {
                             result.success(
@@ -352,45 +352,51 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
         }
     }
 
-    /** @return null si l'image a été écrite, sinon le message d'erreur. */
-    private fun extract(source: String, dest: String, width: Int, atMs: Int): String? {
-        val retriever = MediaMetadataRetriever()
-        var frame: Bitmap? = null
-        var scaled: Bitmap? = null
-        return try {
-            retriever.setDataSource(source)
-            // À t=0 : OPTION_CLOSEST_SYNC, la première image-clé, la moins chère
-            // à décoder. À un autre instant (la couverture choisie d'une vidéo
-            // d'album) : OPTION_CLOSEST, l'image exacte, plus coûteuse mais
-            // c'est celle que l'utilisateur a désignée. La frame est renvoyée
-            // déjà orientée selon la rotation déclarée dans le fichier.
-            frame = if (atMs <= 0) {
-                retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-            } else {
-                retriever.getFrameAtTime(atMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
-            } ?: return "aucune image décodable"
-            val ratio = frame.height.toFloat() / frame.width.toFloat()
-            val target = minOf(width, frame.width)
-            scaled = Bitmap.createScaledBitmap(frame, target, (target * ratio).toInt(), true)
-            val file = File(dest)
-            file.parentFile?.mkdirs()
-            // Écriture en deux temps : un fichier partiel ne doit jamais être
-            // pris pour une vignette valide si le processus meurt en route.
-            val tmp = File("$dest.part")
-            FileOutputStream(tmp).use { out ->
-                scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+    companion object {
+        /**
+         * @return null si l'image a été écrite, sinon le message d'erreur.
+         * Partagée avec la file de publication ([com.neovibe.neovibe.publish.PublishService]),
+         * qui extrait la couverture d'une vidéo qu'elle vient de transcoder.
+         */
+        internal fun extract(source: String, dest: String, width: Int, atMs: Int): String? {
+            val retriever = MediaMetadataRetriever()
+            var frame: Bitmap? = null
+            var scaled: Bitmap? = null
+            return try {
+                retriever.setDataSource(source)
+                // À t=0 : OPTION_CLOSEST_SYNC, la première image-clé, la moins chère
+                // à décoder. À un autre instant (la couverture choisie d'une vidéo
+                // d'album) : OPTION_CLOSEST, l'image exacte, plus coûteuse mais
+                // c'est celle que l'utilisateur a désignée. La frame est renvoyée
+                // déjà orientée selon la rotation déclarée dans le fichier.
+                frame = if (atMs <= 0) {
+                    retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                } else {
+                    retriever.getFrameAtTime(atMs * 1000L, MediaMetadataRetriever.OPTION_CLOSEST)
+                } ?: return "aucune image décodable"
+                val ratio = frame.height.toFloat() / frame.width.toFloat()
+                val target = minOf(width, frame.width)
+                scaled = Bitmap.createScaledBitmap(frame, target, (target * ratio).toInt(), true)
+                val file = File(dest)
+                file.parentFile?.mkdirs()
+                // Écriture en deux temps : un fichier partiel ne doit jamais être
+                // pris pour une vignette valide si le processus meurt en route.
+                val tmp = File("$dest.part")
+                FileOutputStream(tmp).use { out ->
+                    scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                }
+                MediaTranscoder.moveInto(tmp, file)?.let { return it }
+                null
+            } catch (e: Exception) {
+                e.message ?: e.javaClass.simpleName
+            } finally {
+                try {
+                    retriever.release()
+                } catch (_: Exception) {
+                }
+                if (scaled !== frame) scaled?.recycle()
+                frame?.recycle()
             }
-            MediaTranscoder.moveInto(tmp, file)?.let { return it }
-            null
-        } catch (e: Exception) {
-            e.message ?: e.javaClass.simpleName
-        } finally {
-            try {
-                retriever.release()
-            } catch (_: Exception) {
-            }
-            if (scaled !== frame) scaled?.recycle()
-            frame?.recycle()
         }
     }
 }

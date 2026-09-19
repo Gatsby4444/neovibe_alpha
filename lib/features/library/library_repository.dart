@@ -13,7 +13,6 @@ import '../../core/models/library_item.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
-import 'album_editor/album_draft.dart';
 import '../../core/work_dir.dart';
 
 /// Bibliothèque d'un utilisateur (la RLS applique les droits d'accès :
@@ -59,8 +58,8 @@ class LibraryRepository {
   /// seule transaction serveur (`publish_to_library`).
   ///
   /// [back] null = publication à face unique — le cas d'une Vibe dont le verso
-  /// a été passé à la prise. Une photo importée passe désormais par
-  /// [publishAlbum] (2026-09-15).
+  /// a été passé à la prise. Une photo importée passe par l'éditeur et la
+  /// file native (`PublishPreparer`, 2026-09-19).
   ///
   /// [isPublic] : visible par toute personne accédant au profil par un moyen
   /// légitime. [shareable] : relayable de cercle en cercle.
@@ -87,44 +86,22 @@ class LibraryRepository {
     saveable: saveable,
   );
 
-  /// Publie un **album** : de 1 à 20 médias déjà préparés par l'éditeur
-  /// (photos rendues, vidéos recompressées ≤ 60 s, couvertures extraites),
-  /// tous scellés avec **la même clé**, puis la même transaction serveur.
-  ///
-  /// [onProgress] est appelé après chaque fichier déposé — un album de vingt
-  /// vidéos, c'est une minute d'envoi ; l'écran doit pouvoir le dire.
-  Future<String> publishAlbum(
-    AlbumUpload album, {
-    void Function(int done, int total)? onProgress,
-  }) => _publish(
-    // **La requalification** (Jay, 2026-09-17) : une vidéo publiée seule
-    // n'est pas une publication ordinaire, c'est un Flow. Elle se décide
-    // ici, sur le contenu réel, et pas dans un écran — un autre chemin de
-    // publication ne pourrait pas l'oublier.
-    kind: kindDuContenu(album.media),
-    aspect: album.aspect,
-    media: album.media,
-    caption: album.caption,
-    captionFont: album.captionFont,
-    isPublic: album.isPublic,
-    shareable: album.shareable,
-    saveable: album.saveable,
-    onProgress: onProgress,
-  );
+  /// ⚠️ **Un album ne se publie plus d'ici** (2026-09-19). Il est déposé à
+  /// la file native (`PublishPreparer` → `PublishBridge` → `PublishService`),
+  /// qui transcode, scelle, envoie de façon reprenable et inscrit — avec ou
+  /// sans l'app. Ce qui reste ici, c'est la Vibe (une ou deux faces, petites,
+  /// envoyées sous les yeux de l'utilisateur).
 
   Future<String> _publish({
     required LibraryKind kind,
     required List<_Upload> media,
     CardType cardType = CardType.standard,
-    AlbumAspect? aspect,
     String? caption,
-    String? captionFont,
     required bool isPublic,
     required bool shareable,
     required bool saveable,
-    void Function(int done, int total)? onProgress,
   }) async {
-    assert(media.isNotEmpty && media.length <= kAlbumMaxMedia);
+    assert(media.isNotEmpty && media.length <= 2);
     final me = _client.auth.currentUser!.id;
     final itemId = newUuid();
 
@@ -134,23 +111,16 @@ class LibraryRepository {
     const sealedType = FileOptions(contentType: 'application/octet-stream');
     final temp = await WorkDir.named('seal');
 
-    // Le nombre de fichiers à déposer : un par média, plus une couverture par
-    // vidéo d'album.
-    final total = media.length + media.where((m) => m.poster != null).length;
-    var done = 0;
-
     Future<File> depose(
       File source,
       String path, {
       required bool isVideo,
     }) async {
-      final sealed = File('${temp.path}/seal_${itemId}_$done');
+      final sealed = File('${temp.path}/seal_${itemId}_${path.hashCode}');
       await FaceDelivery.seal(source, sealed, mediaKey, isVideo: isVideo);
       await _client.storage
           .from(_bucket)
           .upload(path, sealed, fileOptions: sealedType);
-      done += 1;
-      onProgress?.call(done, total);
       return sealed;
     }
 
@@ -160,23 +130,13 @@ class LibraryRepository {
       final m = media[slot];
       final path = '$me/${itemId}_$slot.${m.isVideo ? 'mp4' : 'jpg'}';
       sealedFiles.add((slot, await depose(m.file, path, isVideo: m.isVideo)));
-      String? posterPath;
-      if (m.poster != null) {
-        posterPath = '$me/${itemId}_${slot}_poster.jpg';
-        // La couverture est rangée en cache sous sa place fictive : la
-        // vignette de MON album s'affiche depuis l'appareil, comme ses photos.
-        sealedFiles.add((
-          ContentSlot.poster(slot),
-          await depose(m.poster!, posterPath, isVideo: false),
-        ));
-      }
       rows.add({
         'path': path,
         'is_video': m.isVideo,
-        'duration_ms': m.isVideo ? m.durationMs : null,
-        'poster_path': posterPath,
-        'width': m.width,
-        'height': m.height,
+        'duration_ms': null,
+        'poster_path': null,
+        'width': null,
+        'height': null,
       });
     }
 
@@ -188,13 +148,13 @@ class LibraryRepository {
         'p_card_type': cardType.dbValue,
         'p_media': rows,
         'p_caption': caption,
-        'p_caption_font': captionFont,
+        'p_caption_font': null,
         'p_is_public': isPublic,
         'p_shareable': shareable,
         'p_saveable': saveable,
         'p_media_key': mediaKey,
-        'p_aspect_w': aspect?.w,
-        'p_aspect_h': aspect?.h,
+        'p_aspect_w': null,
+        'p_aspect_h': null,
       },
     );
 
@@ -303,26 +263,14 @@ class LibraryRepository {
 
 final libraryRepositoryProvider = Provider((ref) => LibraryRepository(ref));
 
-/// Un fichier à déposer : le média en clair (temporaire, produit par la
-/// capture ou par l'éditeur), et pour une vidéo d'album sa couverture.
+/// Une face de Vibe à déposer : le média en clair, temporaire, produit par
+/// la capture.
 class _Upload {
-  const _Upload(
-    this.file, {
-    required this.isVideo,
-    this.durationMs,
-    this.poster,
-    this.width,
-    this.height,
-  });
+  const _Upload(this.file, {required this.isVideo});
   final File file;
   final bool isVideo;
-  final int? durationMs;
-  final File? poster;
-  final int? width;
-  final int? height;
 }
 
-/// Un média d'album prêt à partir, tel que l'éditeur le rend.
 /// **La requalification, en une règle et un seul endroit** : une vidéo
 /// publiée SEULE est un [LibraryKind.flow] ; tout le reste est une
 /// publication ordinaire (Jay, 2026-09-17 — « comme Insta requalifie en Reel
@@ -331,45 +279,8 @@ class _Upload {
 /// Elle vit ici, sur le contenu réel, et pas dans un écran : un autre chemin
 /// de publication (un partage, un import, demain le feed) ne peut pas
 /// l'oublier. Et le serveur tient la même règle — un Flow à deux médias y est
-/// refusé.
-LibraryKind kindDuContenu(List<AlbumMediaUpload> media) =>
-    media.length == 1 && media.first.isVideo
-    ? LibraryKind.flow
-    : LibraryKind.album;
-
-class AlbumMediaUpload extends _Upload {
-  const AlbumMediaUpload(
-    super.file, {
-    required super.isVideo,
-    super.durationMs,
-    super.poster,
-    super.width,
-    super.height,
-  }) : assert(
-         !isVideo || (durationMs != null && poster != null),
-         "Une vidéo d'album porte sa durée et sa couverture",
-       );
-}
-
-/// Ce que l'éditeur rend à la publication : les médias dans l'ordre, le ratio
-/// commun, la légende et les droits.
-class AlbumUpload {
-  const AlbumUpload({
-    required this.media,
-    required this.aspect,
-    this.caption,
-    this.captionFont,
-    this.isPublic = false,
-    this.shareable = false,
-    this.saveable = false,
-  }) : assert(media.length >= 1 && media.length <= kAlbumMaxMedia);
-  final List<AlbumMediaUpload> media;
-  final AlbumAspect aspect;
-  final String? caption;
-
-  /// Le nom de la police choisie pour la légende (voir [OverlayFont]).
-  final String? captionFont;
-  final bool isPublic;
-  final bool shareable;
-  final bool saveable;
+/// refusé. [isVideo] : la nature de chaque média, dans l'ordre.
+LibraryKind kindDuContenu(Iterable<bool> isVideo) {
+  final list = isVideo.toList();
+  return list.length == 1 && list.first ? LibraryKind.flow : LibraryKind.album;
 }

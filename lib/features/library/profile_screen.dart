@@ -7,8 +7,8 @@ import '../../core/widgets/cover_host.dart';
 import '../connections/friends_list_screen.dart';
 import '../connections/heart_screen.dart';
 import '../settings/settings_screen.dart';
-import 'album_editor/album_publish_banner.dart';
 import 'library_repository.dart';
+import 'pending_publications.dart';
 import 'publications_tabs.dart';
 import 'profile_edit_screen.dart';
 import 'profile_header.dart';
@@ -71,6 +71,16 @@ class ProfileScreen extends ConsumerWidget {
     final me = ref.watch(currentUserIdProvider)!;
     final profile = ref.watch(myProfileProvider).value;
     final items = ref.watch(libraryItemsProvider(me));
+    // Les publications en cours d'envoi, dans la grille avec leur avancement
+    // (2026-09-19). Celles que la liste contient déjà sont acquittées.
+    final pending = ref.watch(pendingPublicationsProvider);
+    if (items.hasValue && pending.any((p) => p.isDone)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        ref
+            .read(pendingPublicationsProvider.notifier)
+            .seen(items.requireValue.map((i) => i.id));
+      });
+    }
 
     // Le fil des publications se pose PAR-DESSUS ce profil (voir
     // [CoverHost]) : la barre de navigation reste, et un balayage vers la
@@ -118,8 +128,6 @@ class ProfileScreen extends ConsumerWidget {
           },
           child: ListView(
             children: [
-              // L'album en cours d'envoi, s'il y en a un : « Publication… n/N ».
-              const AlbumPublishBanner(),
               if (profile != null)
                 ProfileHeader(
                   profile: profile,
@@ -167,6 +175,7 @@ class ProfileScreen extends ConsumerWidget {
                 ),
                 data: (list) => PublicationsTabs(
                   items: list,
+                  pending: pending,
                   feedTitle: 'Publications',
                   emptyMessage:
                       'Ta bibliothèque est vide.\nPublie une Vibe ou ajoute '

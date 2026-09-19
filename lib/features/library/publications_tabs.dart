@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/library_item.dart';
+import '../../core/publish/publish_bridge.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/anchor_scope.dart';
 import '../../core/widgets/vibe_face.dart';
@@ -8,6 +9,7 @@ import 'feed/flows_reel_screen.dart';
 import 'feed/publications_feed_screen.dart';
 import 'feed/vibes_reel_screen.dart';
 import 'mini_card.dart';
+import 'pending_cell.dart';
 import '../../core/widgets/reel_route.dart';
 
 /// **Les deux onglets d'un profil**, comme sur Instagram (Jay, 2026-09-17) :
@@ -34,12 +36,18 @@ class PublicationsTabs extends StatefulWidget {
     required this.items,
     required this.feedTitle,
     required this.emptyMessage,
+    this.pending = const [],
     this.padding = const EdgeInsets.fromLTRB(10, 0, 10, 80),
     this.onLongPress,
   });
 
   /// Toutes les publications du profil, dans l'ordre.
   final List<LibraryItem> items;
+
+  /// **Les publications en cours d'envoi** (mon profil seulement), en tête
+  /// de la grille avec leur avancement — celles qui sont déjà dans [items]
+  /// n'y sont pas montrées deux fois.
+  final List<PendingPublication> pending;
 
   /// Le titre du fil ouvert depuis la grille (le pseudo, chez quelqu'un
   /// d'autre).
@@ -86,6 +94,12 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
       _Onglet.vibes => widget.items.where((i) => !i.isPublication).toList(),
       _Onglet.flows => widget.items.where((i) => i.isFlow).toList(),
     };
+    final ids = {for (final i in widget.items) i.id};
+    final enCours = switch (_onglet) {
+      _Onglet.tout => widget.pending,
+      _Onglet.vibes => const <PendingPublication>[],
+      _Onglet.flows => widget.pending.where((p) => p.isFlow).toList(),
+    }.where((p) => !ids.contains(p.id)).toList();
     // La grille de tout recadre en 4:5 ; l'onglet Vibes montre les cartes à
     // LEUR format — c'est ce qui fait comprendre qu'on n'y trouve que ça.
     // Les Flows gardent le 4:5 : ils sont publiés à leur format, pas au 9:16.
@@ -97,7 +111,7 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
       child: Column(
         children: [
           _Barre(courant: _onglet, onTap: (o) => setState(() => _onglet = o)),
-          if (liste.isEmpty)
+          if (liste.isEmpty && enCours.isEmpty)
             Padding(
               padding: const EdgeInsets.all(32),
               child: Text(
@@ -121,18 +135,25 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
                 crossAxisSpacing: 10,
                 childAspectRatio: ratio,
               ),
-              itemCount: liste.length,
-              itemBuilder: (context, index) => Anchored(
-                id: liste[index].id,
-                child: MiniCard(
-                  item: liste[index],
-                  ratio: ratio,
-                  onTap: () => _ouvrir(liste, index),
-                  onLongPress: widget.onLongPress == null
-                      ? null
-                      : () => widget.onLongPress!(liste[index]),
-                ),
-              ),
+              itemCount: enCours.length + liste.length,
+              itemBuilder: (context, index) {
+                // Les envois en cours d'abord : c'est là qu'ils apparaîtront.
+                if (index < enCours.length) {
+                  return PendingCell(item: enCours[index], ratio: ratio);
+                }
+                final i = index - enCours.length;
+                return Anchored(
+                  id: liste[i].id,
+                  child: MiniCard(
+                    item: liste[i],
+                    ratio: ratio,
+                    onTap: () => _ouvrir(liste, i),
+                    onLongPress: widget.onLongPress == null
+                        ? null
+                        : () => widget.onLongPress!(liste[i]),
+                  ),
+                );
+              },
             ),
         ],
       ),

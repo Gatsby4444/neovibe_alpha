@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/models/library_item.dart';
@@ -18,6 +19,7 @@ import 'gallery/gallery_screen.dart';
 import 'grade_shader.dart';
 import 'media_preview.dart';
 import 'overlay_model.dart';
+import 'publish_preparer.dart';
 import 'sticker_picker.dart';
 
 /// **L'éditeur d'album** — « digne d'Instagram », sans les musiques (Jay,
@@ -277,6 +279,15 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
         return;
       }
     }
+    // **Le travail commence ici, pas à « Publier »** (Jay, 2026-09-19,
+    // « comme les autres ») : pendant que l'utilisateur tape sa légende, le
+    // service natif transcode, scelle et envoie déjà. « Publier » ne fait
+    // que libérer ; revenir en arrière annule.
+    final container = ProviderScope.containerOf(context, listen: false);
+    // `ignore()` : l'erreur, s'il y en a une, est relue à l'`await` plus
+    // bas — sans lui, elle serait aussi rapportée comme non gérée entre-temps.
+    final preparing = container.read(publishPreparerProvider).start(_draft)
+      ..ignore();
     final result = await Navigator.of(context).push<AlbumDraft>(
       MaterialPageRoute(
         builder: (_) => AlbumCaptionScreen(
@@ -285,7 +296,22 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
         ),
       ),
     );
-    if (result != null && mounted) Navigator.of(context).pop(result);
+    final PreparedPublication prepared;
+    try {
+      prepared = await preparing;
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Préparation impossible : $e')));
+      return;
+    }
+    if (result == null) {
+      await prepared.cancel();
+      return;
+    }
+    await prepared.release(result);
+    if (mounted) Navigator.of(context).pop(result);
   }
 
   final _thumbFiles = <String, Future<File?>>{};
