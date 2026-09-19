@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/painting.dart';
 
+import '../../../core/diagnostics/app_log.dart';
 import '../../../core/models/library_item.dart';
 import '../../cards/native_media.dart';
 import '../library_repository.dart';
@@ -193,6 +194,12 @@ abstract final class AlbumExport {
       rotation: m.rotation,
       overlayPath: overlayPath,
       onProgress: onProgress,
+    );
+    // Ce que le transcodeur a fait, dans le journal : c'est là qu'on lira
+    // le décodeur employé et la luminance relue quand une vidéo sort mal.
+    AppLog.instance.app(
+      'Vidéo transcodée — ${m.id.substring(0, 8)} · ${result.durationMs} ms',
+      result.note,
     );
     // La couverture, tirée du fichier PRODUIT : déjà cadrée, corrigée, avec
     // ses calques.

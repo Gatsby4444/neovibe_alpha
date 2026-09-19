@@ -124,6 +124,7 @@ abstract final class NativeMedia {
       return TranscodeResult(
         durationMs: map!['durationMs'] as int,
         hasAudio: map['hasAudio'] as bool,
+        note: map['note'] as String? ?? '',
       );
     } finally {
       _progress.remove(jobId);
@@ -212,10 +213,19 @@ class MediaProbe {
 
 /// Le résultat de [NativeMedia.transcode].
 class TranscodeResult {
-  const TranscodeResult({required this.durationMs, required this.hasAudio});
+  const TranscodeResult({
+    required this.durationMs,
+    required this.hasAudio,
+    this.note = '',
+  });
   final int durationMs;
 
   /// Faux si la source n'avait pas de son, ou un son qui n'était pas de
   /// l'AAC (non recopié) : à dire à l'utilisateur.
   final bool hasAudio;
+
+  /// Le compte rendu du natif : décodeur employé, luminance relue, erreurs
+  /// GL, repli logiciel — pour le journal (2026-09-19 : des vidéos sortaient
+  /// noires sans un mot).
+  final String note;
 }

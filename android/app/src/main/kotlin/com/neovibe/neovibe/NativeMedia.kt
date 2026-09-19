@@ -149,10 +149,11 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
                                 mapOf(
                                     "durationMs" to outcome.durationMs,
                                     "hasAudio" to outcome.hasAudio,
+                                    "note" to outcome.note,
                                 ),
                             )
                         } else {
-                            result.error("TRANSCODE_FAILED", outcome.message, null)
+                            result.error("TRANSCODE_FAILED", outcome.message, outcome.note)
                         }
                     }
                 }

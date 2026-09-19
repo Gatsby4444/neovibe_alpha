@@ -88,13 +88,53 @@ object MediaTranscoder {
         val rotation: Int,
     )
 
-    class Result(val ok: Boolean, val message: String, val durationMs: Int, val hasAudio: Boolean)
+    class Result(
+        val ok: Boolean,
+        val message: String,
+        val durationMs: Int,
+        val hasAudio: Boolean,
+        /** Ce qui s'est passé, pour le journal : décodeur, luminance, erreurs GL. */
+        val note: String = "",
+    )
+
+    /**
+     * En dessous de cette luminance maximale (sur 255), une image rendue est
+     * tenue pour NOIRE. 16 est le noir vidéo ; une image réelle, même sombre,
+     * dépasse largement.
+     */
+    private const val BLACK_MAX = 24
+
+    /** Une image sur N est relue depuis le GPU pour le contrôle. */
+    private const val PROBE_EVERY = 10
 
     private const val BITRATE = NativeCamera.VIDEO_BITRATE
     private const val FRAME_TIMEOUT_MS = 3_000L
     private const val CODEC_TIMEOUT_US = 10_000L
 
+    /**
+     * Transcode, et **vérifie ce qui sort**. Le 2026-09-19, des vidéos
+     * entièrement noires (luminance 16 sur toutes les images, 20 à 170 kbit/s)
+     * sont sorties d'ici sans la moindre erreur, avec le son — publiées,
+     * scellées, servies, lues : noires. Un fichier noir est pire qu'un échec :
+     * il ne dit rien. Désormais, si les images relues du GPU sont toutes
+     * noires, on recommence avec un **décodeur logiciel** (ses images sont
+     * écrites par le processeur, que le GPU sait toujours lire), et si c'est
+     * encore noir, on **échoue** avec le nom du décodeur et les erreurs GL.
+     */
     fun run(p: Params, onProgress: (Float) -> Unit = {}): Result {
+        val first = runOnce(p, softwareDecoder = false, onProgress)
+        if (first.ok || !first.message.startsWith(BLACK_PREFIX)) return first
+        val second = runOnce(p, softwareDecoder = true, onProgress)
+        return if (second.ok) {
+            Result(true, second.message, second.durationMs, second.hasAudio, "${first.note} → repli logiciel : ${second.note}")
+        } else {
+            Result(false, second.message, 0, second.hasAudio, "${first.note} → repli logiciel : ${second.note}")
+        }
+    }
+
+    private const val BLACK_PREFIX = "rendu noir"
+
+    private fun runOnce(p: Params, softwareDecoder: Boolean, onProgress: (Float) -> Unit): Result {
         var extractor: MediaExtractor? = null
         var audioExtractor: MediaExtractor? = null
         var decoder: MediaCodec? = null
@@ -163,11 +203,15 @@ object MediaTranscoder {
             surfaceTexture.setOnFrameAvailableListener { frames.signal() }
             decoderSurface = Surface(surfaceTexture)
 
-            // 3. Le décodeur, qui dessine dans cette surface.
-            decoder = MediaCodec.createDecoderByType(inFormat.getString(MediaFormat.KEY_MIME)!!).apply {
-                configure(inFormat, decoderSurface, null, 0)
-                start()
-            }
+            // 3. Le décodeur, qui dessine dans cette surface — le matériel
+            //    d'abord ; le logiciel au second essai (voir [run]).
+            val mime = inFormat.getString(MediaFormat.KEY_MIME)!!
+            decoder = (if (softwareDecoder) createSoftwareDecoder(mime) else null)
+                ?: MediaCodec.createDecoderByType(mime)
+            decoder.configure(inFormat, decoderSurface, null, 0)
+            decoder.start()
+            val decoderName = decoder.name
+            val glErrorInit = GLES20.glGetError()
             extractor.selectTrack(videoTrack)
             extractor.seekTo(p.startMs * 1000L, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
 
@@ -184,6 +228,9 @@ object MediaTranscoder {
             var outputDone = false
             var lastPtsUs = -1L
             var rendered = 0
+            var lumaMax = 0
+            var probed = 0
+            var glErrorDraw = 0
             val stMatrix = FloatArray(16)
             while (!outputDone) {
                 if (!inputDone) {
@@ -218,6 +265,15 @@ object MediaTranscoder {
                     surfaceTexture.getTransformMatrix(stMatrix)
                     val outPtsUs = ptsUs - startUs
                     gl.draw(stMatrix)
+                    // Le contrôle : une image sur N est relue depuis le GPU,
+                    // AVANT d'être remise à l'encodeur. Ce qu'on mesure est
+                    // ce que l'encodeur reçoit.
+                    if (rendered % PROBE_EVERY == 0) {
+                        lumaMax = maxOf(lumaMax, gl.probeMaxLuma())
+                        probed++
+                        val e = GLES20.glGetError()
+                        if (e != GLES20.GL_NO_ERROR) glErrorDraw = e
+                    }
                     EGLExt.eglPresentationTimeANDROID(gl.display, gl.surface, outPtsUs * 1000L)
                     EGL14.eglSwapBuffers(gl.display, gl.surface)
                     lastPtsUs = outPtsUs
@@ -230,13 +286,20 @@ object MediaTranscoder {
                 }
                 if (eos) outputDone = true
             }
-            if (rendered == 0) return Result(false, "aucune image dans l'intervalle", 0, hasAudio)
+            val note = "décodeur=$decoderName · images=$rendered · sondées=$probed · lumaMax=$lumaMax" +
+                " · glInit=${hex(glErrorInit)} · glDraw=${hex(glErrorDraw)} · egl=${hex(EGL14.eglGetError())}"
+            if (rendered == 0) return Result(false, "aucune image dans l'intervalle", 0, hasAudio, note)
+            if (lumaMax < BLACK_MAX) {
+                // Toutes les images relues sont noires : on ne publie PAS ça.
+                tmp.delete()
+                return Result(false, "$BLACK_PREFIX ($note)", 0, hasAudio, note)
+            }
             drainEncoder(encoder, mux, endOfStream = true)
             audioExtractor?.let { mux.writeAudioUpTo(it, startUs, endUs, Long.MAX_VALUE) }
             mux.finish()
             muxer = null
-            if (!tmp.renameTo(p.dest)) return Result(false, "renommage impossible", 0, hasAudio)
-            return Result(true, "ok", ((lastPtsUs / 1000L) + 1000L / fps).toInt(), hasAudio)
+            if (!tmp.renameTo(p.dest)) return Result(false, "renommage impossible", 0, hasAudio, note)
+            return Result(true, "ok", ((lastPtsUs / 1000L) + 1000L / fps).toInt(), hasAudio, note)
         } catch (e: Exception) {
             return Result(false, e.message ?: e.javaClass.simpleName, 0, hasAudio)
         } finally {
@@ -252,6 +315,31 @@ object MediaTranscoder {
             runCatching { extractor?.release() }
             runCatching { audioExtractor?.release() }
         }
+    }
+
+    private fun hex(e: Int) = if (e == 0) "0" else "0x" + Integer.toHexString(e)
+
+    /**
+     * Un décodeur LOGICIEL pour ce mime (`c2.android.*` ou `OMX.google.*`),
+     * ou null s'il n'y en a pas. Ses images sont écrites par le processeur :
+     * le GPU les lit toujours, là où certaines sorties matérielles lui
+     * restent illisibles (et se rendent en noir, sans erreur).
+     */
+    private fun createSoftwareDecoder(mime: String): MediaCodec? {
+        val list = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS)
+        for (info in list.codecInfos) {
+            if (info.isEncoder) continue
+            val name = info.name
+            val software = if (android.os.Build.VERSION.SDK_INT >= 29) {
+                info.isSoftwareOnly
+            } else {
+                name.startsWith("c2.android.") || name.startsWith("OMX.google.")
+            }
+            if (!software) continue
+            if (info.supportedTypes.none { it.equals(mime, ignoreCase = true) }) continue
+            return runCatching { MediaCodec.createByCodecName(name) }.getOrNull()
+        }
+        return null
     }
 
     private fun findTrack(extractor: MediaExtractor, prefix: String): Int {
@@ -536,6 +624,30 @@ object MediaTranscoder {
             GLES20.glDisableVertexAttribArray(aTexCoord)
         }
 
+        /**
+         * La luminance maximale (0..255) d'une grille de points relus depuis
+         * l'image rendue — ce que l'encodeur va recevoir. 5×5 points suffisent
+         * à distinguer une image d'un noir uniforme, pour quelques centaines
+         * d'octets par relecture.
+         */
+        fun probeMaxLuma(): Int {
+            val px = ByteBuffer.allocateDirect(4).order(ByteOrder.nativeOrder())
+            var max = 0
+            for (i in 0 until 5) {
+                for (j in 0 until 5) {
+                    val x = ((i + 0.5f) / 5f * outW).toInt().coerceIn(0, outW - 1)
+                    val y = ((j + 0.5f) / 5f * outH).toInt().coerceIn(0, outH - 1)
+                    px.position(0)
+                    GLES20.glReadPixels(x, y, 1, 1, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, px)
+                    val r = px.get(0).toInt() and 0xff
+                    val g = px.get(1).toInt() and 0xff
+                    val b = px.get(2).toInt() and 0xff
+                    max = maxOf(max, (r * 299 + g * 587 + b * 114) / 1000)
+                }
+            }
+            return max
+        }
+
         fun release() {
             if (display == EGL14.EGL_NO_DISPLAY) return
             runCatching {
@@ -543,7 +655,13 @@ object MediaTranscoder {
                 EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
                 if (surface != EGL14.EGL_NO_SURFACE) EGL14.eglDestroySurface(display, surface)
                 if (context != EGL14.EGL_NO_CONTEXT) EGL14.eglDestroyContext(display, context)
-                EGL14.eglTerminate(display)
+                // ⚠️ PAS d'eglTerminate (retiré le 2026-09-19) : le display
+                // (EGL_DEFAULT_DISPLAY) est PARTAGÉ par tout le processus — les
+                // deux caméras du double flux, et Flutter lui-même quand il
+                // rend en OpenGL. Le terminer marque tous leurs contextes pour
+                // destruction. `Camera2Gl` l'avait déjà appris ; ici c'était
+                // resté. On ne détruit que NOTRE surface et NOTRE contexte.
+                EGL14.eglReleaseThread()
             }
             display = EGL14.EGL_NO_DISPLAY
         }
