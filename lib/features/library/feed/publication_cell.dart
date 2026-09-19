@@ -238,13 +238,9 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
         actions,
         if (item.caption?.isNotEmpty ?? false)
           PublicationCaption(text: item.caption!, font: item.captionFont),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(NeoSpace.md, NeoSpace.xs, 0, 0),
-          child: Text(
-            timeAgo(item.createdAt),
-            style: TextStyle(color: context.muted, fontSize: 12),
-          ),
-        ),
+        // La date n'est plus ici : elle est SOUS LE PSEUDO, en tête (Jay,
+        // 2026-09-20 — « c'est ça notre élément textuel pour harmoniser la
+        // partie du haut », comme la ligne sous le nom chez Instagram).
         const SizedBox(height: NeoSpace.md),
       ],
     );
@@ -336,11 +332,24 @@ class _Header extends StatelessWidget {
                   color: overlay ? Colors.white : null,
                 ),
               ),
+              // **La date, sous le pseudo** — l'élément textuel de la tête
+              // (Jay, 2026-09-20), à la place où Instagram met « Suggestions ».
+              // Une Vibe y ajoute la pastille de son type.
+              //
               // ⚠️ Mis à l'échelle plutôt que coupé : une cellule de Vibe est
               // étroite, et « One of One » ne rentre pas toujours à côté de la
               // date. Rogner la pastille du type, c'est perdre l'information ;
               // la réduire un peu, non.
-              if (!item.isPublication)
+              if (item.isPublication)
+                Text(
+                  timeAgo(item.createdAt),
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: overlay ? Colors.white70 : context.muted,
+                    fontSize: 12,
+                  ),
+                )
+              else
                 FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
