@@ -188,23 +188,51 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
 
     // Une publication ou un Flow : le modèle d'Instagram — l'en-tête ne porte
     // que le menu ; sous le média, les points du carrousel, la barre
-    // d'actions, la légende, la date.
+    // d'actions, la légende, la date. **Pour un Flow, l'en-tête est DANS le
+    // contenu**, posé en haut de la vidéo sur un voile (Jay, 2026-09-19,
+    // comme un Reel dans le fil d'Instagram) — spécifique aux Flows.
+    final header = _Header(
+      item: item,
+      owner: owner,
+      mine: mine,
+      overlay: item.isFlow,
+      actions: PublicationMenu(
+        item: item,
+        mine: mine,
+        color: item.isFlow
+            ? Colors.white
+            : Theme.of(context).colorScheme.onSurface,
+        onDeleted: widget.onDeleted,
+        onChanged: widget.onChanged,
+      ),
+    );
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _Header(
-          item: item,
-          owner: owner,
-          mine: mine,
-          actions: PublicationMenu(
-            item: item,
-            mine: mine,
-            color: Theme.of(context).colorScheme.onSurface,
-            onDeleted: widget.onDeleted,
-            onChanged: widget.onChanged,
-          ),
-        ),
-        media,
+        if (!item.isFlow) header,
+        if (item.isFlow)
+          Stack(
+            children: [
+              media,
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                child: DecoratedBox(
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0x99000000), Colors.transparent],
+                    ),
+                  ),
+                  child: header,
+                ),
+              ),
+            ],
+          )
+        else
+          media,
         if (item.media.length > 1)
           _Dots(count: item.media.length, current: _page),
         actions,
@@ -271,12 +299,16 @@ class _Header extends StatelessWidget {
     required this.owner,
     required this.mine,
     required this.actions,
+    this.overlay = false,
   });
 
   final LibraryItem item;
   final Profile? owner;
   final bool mine;
   final Widget actions;
+
+  /// Posé SUR le média (un Flow) : encre blanche, voile en dessous.
+  final bool overlay;
 
   @override
   Widget build(BuildContext context) {
@@ -298,9 +330,10 @@ class _Header extends StatelessWidget {
                 name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 14,
+                  color: overlay ? Colors.white : null,
                 ),
               ),
               // ⚠️ Mis à l'échelle plutôt que coupé : une cellule de Vibe est
@@ -351,6 +384,7 @@ class _Header extends StatelessWidget {
           // donc elle ne se voyait pas (Jay, 2026-09-17).
           Expanded(
             child: PressVeil(
+              clair: overlay,
               onTap: owner == null || mine
                   ? null
                   : () => openProfile(context, owner!),

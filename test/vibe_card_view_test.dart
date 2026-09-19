@@ -7,6 +7,7 @@ import 'package:neovibe/core/content/content_face.dart';
 import 'package:neovibe/core/crypto/media_open.dart';
 import 'package:neovibe/core/models/library_item.dart';
 import 'package:neovibe/features/cards/flippable_card.dart';
+import 'package:neovibe/features/library/feed/album_carousel.dart';
 import 'package:neovibe/features/library/feed/vibe_card_view.dart';
 
 /// **La carte retournable existe avant que sa face n'arrive** (Jay,
@@ -95,6 +96,55 @@ void main() {
     );
     await tester.pump();
     await tester.drag(find.byType(VibeCardView), const Offset(200, 0));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(remonte, 0);
+  });
+
+  testWidgets('un Flow (carrousel d\'UNE page) absorbe aussi le balayage', (
+    tester,
+  ) async {
+    // Flutter ne donne aucun geste horizontal à un carrousel qui n'a rien à
+    // feuilleter : sans zone neutre, le balayage remontait à la couverture
+    // (Jay, 2026-09-19 : « tu l'as laissé activé sur les flows »).
+    final flow = LibraryItem(
+      id: 'f1',
+      ownerId: 'moi',
+      kind: LibraryKind.flow,
+      aspect: AlbumAspect.reel,
+      media: const [
+        LibraryMedia(
+          slot: 0,
+          path: 'moi/f1_0.mp4',
+          isVideo: true,
+          durationMs: 5000,
+        ),
+      ],
+      createdAt: DateTime(2026, 9, 19),
+    );
+    final jamais = Completer<OpenedMedia>();
+    var remonte = 0;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          contentFaceProvider.overrideWith((ref, spec) => jamais.future),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: GestureDetector(
+              onHorizontalDragUpdate: (_) => remonte++,
+              child: Center(
+                child: SizedBox(
+                  width: 300,
+                  child: AlbumCarousel(item: flow, active: false),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.drag(find.byType(AlbumCarousel), const Offset(200, 0));
     await tester.pump(const Duration(milliseconds: 300));
     expect(remonte, 0);
   });

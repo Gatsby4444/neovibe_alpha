@@ -95,17 +95,26 @@ class _AlbumCarouselState extends ConsumerState<AlbumCarousel> {
     if (_current + 1 < media.length) {
       ref.watch(contentFaceProvider(_spec(media[_current + 1])));
     }
-    // Dans le fil, rien n'est plus haut que 4:5 : un Flow en 9:16 s'y
-    // recadre comme une Vibe (Jay : « dans le fil pas de bandes noires, le
-    // fil s'adapte au format de la vidéo »). Son plein écran, lui, montre
-    // tout.
+    // Le format dans le fil, sans jamais de bandes noires (Jay, 2026-09-19) :
+    // - un **Flow** s'affiche **à son format** — 9:16 pour un vrai Flow
+    //   (porte « Un Flow »), le format de sa publication (1:1, 4:5, 1,91:1)
+    //   pour une vidéo seule requalifiée ; c'est le plein écran qui force le
+    //   9:16, avec des bandes pour compléter (`contain`) ;
+    // - un **album** ne monte pas plus haut que 4:5.
     final ratio = (item.aspect ?? AlbumAspect.portrait).ratio;
     return AspectRatio(
-      aspectRatio: math.max(ratio, kVibeFeedRatio),
+      aspectRatio: item.isFlow ? ratio : math.max(ratio, kVibeFeedRatio),
       // Le tap enveloppe le carrousel : le bouton du son, DANS une page, est
       // plus profond, et c'est le plus profond qui gagne un tap.
+      //
+      // ⚠️ La zone neutre : un carrousel d'UNE page (un Flow, une photo seule)
+      // n'a rien à feuilleter, et Flutter ne lui donne alors AUCUN geste
+      // horizontal — le balayage remontait à la couverture du fil, qui se
+      // fermait (Jay, 2026-09-19). Le geste est absorbé ici, sans effet ; sur
+      // plusieurs pages, le `PageView`, plus profond, le garde comme avant.
       child: GestureDetector(
         onTap: widget.onTap,
+        onHorizontalDragStart: (_) {},
         child: Stack(
           fit: StackFit.expand,
           children: [
