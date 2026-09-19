@@ -516,6 +516,21 @@ object MediaTranscoder {
             uTexel = GLES20.glGetUniformLocation(program, "uTexel")
             uOverlay = GLES20.glGetUniformLocation(program, "uOverlay")
             uHasOverlay = GLES20.glGetUniformLocation(program, "uHasOverlay")
+            // 🔴 **Deux échantillonneurs, deux unités — TOUJOURS** (2026-09-19).
+            // Le calque (`sampler2D uOverlay`) et la vidéo
+            // (`samplerExternalOES sTexture`) pointaient tous deux sur l'unité 0
+            // tant qu'aucun calque n'était posé — et la spec OpenGL ES 2.0
+            // interdit à deux échantillonneurs de TYPES différents de viser la
+            // même unité : le dessin est refusé (`GL_INVALID_OPERATION`), rien
+            // n'est tracé, il reste la couleur d'effacement : NOIR. Les pilotes
+            // Adreno appliquent la règle. C'est pour ça qu'une vidéo AVEC un
+            // texte sortait bien (le calque fixait l'unité 1) et qu'une vidéo
+            // SANS calque sortait noire — « parfois », selon ce que Jay avait
+            // posé dessus. Les unités sont fixées ici, une fois, pour le
+            // programme entier.
+            GLES20.glUseProgram(program)
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(program, "sTexture"), 0)
+            GLES20.glUniform1i(uOverlay, 1)
 
             val tex = IntArray(1)
             GLES20.glGenTextures(1, tex, 0)
@@ -610,7 +625,6 @@ object MediaTranscoder {
             if (overlayTexId != 0) {
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE1)
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, overlayTexId)
-                GLES20.glUniform1i(uOverlay, 1)
                 GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             }
             vertices.position(0)

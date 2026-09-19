@@ -1,8 +1,10 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../core/diagnostics/app_log.dart';
 import '../library_repository.dart';
 import 'album_draft.dart';
 import 'album_export.dart';
@@ -124,6 +126,14 @@ class AlbumPublishQueue extends Notifier<AlbumPublishState> {
           );
       state = AlbumPublishState(phase: AlbumPublishPhase.done, itemId: id);
     } catch (e) {
+      // ⚠️ Dans le journal AUSSI (2026-09-19) : un échec qui ne vit que dans
+      // le bandeau disparaît avec lui — le diagnostic de Jay n'en gardait
+      // aucune trace, et le natif y avait mis le décodeur et la luminance.
+      final details = e is PlatformException ? e.details : null;
+      AppLog.instance.error(
+        'Publication échouée — ${e is PlatformException ? e.message : e}',
+        details?.toString(),
+      );
       state = AlbumPublishState(phase: AlbumPublishPhase.failed, error: '$e');
     } finally {
       // Les rendus en clair ne survivent pas à la publication : le scellé est

@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/diagnostics/app_log.dart';
 import '../../core/motion.dart';
 import '../../core/utils/ids.dart';
 
@@ -2633,6 +2634,10 @@ class _ShareStepState extends State<_ShareStep> {
         _lastExported = _draft;
       });
     } catch (e) {
+      AppLog.instance.error(
+        'Export de Vibe échoué — ${e is PlatformException ? e.message : e}',
+        e is PlatformException ? e.details?.toString() : null,
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
