@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/library_item.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/anchor_scope.dart';
 import '../../core/widgets/vibe_face.dart';
 import 'feed/flows_reel_screen.dart';
 import 'feed/publications_feed_screen.dart';
@@ -68,6 +69,15 @@ enum _Onglet {
 
 class _PublicationsTabsState extends State<PublicationsTabs> {
   var _onglet = _Onglet.tout;
+  final _anchorsKey = GlobalKey<AnchorScopeState>();
+
+  /// Le plein écran demande à voir ce contenu : la case défile en vue, au
+  /// milieu — c'est là que la rétraction viendra se poser.
+  void _reveal(String id) {
+    final ctx = _anchorsKey.currentState?.contextOf(id);
+    if (ctx == null) return;
+    Scrollable.ensureVisible(ctx, alignment: 0.5);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -81,44 +91,51 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
     // Les Flows gardent le 4:5 : ils sont publiés à leur format, pas au 9:16.
     final ratio = _onglet == _Onglet.vibes ? kVibeFaceRatio : kMiniCardRatio;
 
-    return Column(
-      children: [
-        _Barre(courant: _onglet, onTap: (o) => setState(() => _onglet = o)),
-        if (liste.isEmpty)
-          Padding(
-            padding: const EdgeInsets.all(32),
-            child: Text(
-              switch (_onglet) {
-                _Onglet.tout => widget.emptyMessage,
-                _Onglet.vibes => 'Aucune Vibe publiée pour l\'instant.',
-                _Onglet.flows => 'Aucun Flow publié pour l\'instant.',
-              },
-              textAlign: TextAlign.center,
-              style: TextStyle(color: context.muted),
+    return AnchorScope(
+      key: _anchorsKey,
+      onReveal: _reveal,
+      child: Column(
+        children: [
+          _Barre(courant: _onglet, onTap: (o) => setState(() => _onglet = o)),
+          if (liste.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(32),
+              child: Text(
+                switch (_onglet) {
+                  _Onglet.tout => widget.emptyMessage,
+                  _Onglet.vibes => 'Aucune Vibe publiée pour l\'instant.',
+                  _Onglet.flows => 'Aucun Flow publié pour l\'instant.',
+                },
+                textAlign: TextAlign.center,
+                style: TextStyle(color: context.muted),
+              ),
+            )
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: widget.padding,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: ratio,
+              ),
+              itemCount: liste.length,
+              itemBuilder: (context, index) => Anchored(
+                id: liste[index].id,
+                child: MiniCard(
+                  item: liste[index],
+                  ratio: ratio,
+                  onTap: () => _ouvrir(liste, index),
+                  onLongPress: widget.onLongPress == null
+                      ? null
+                      : () => widget.onLongPress!(liste[index]),
+                ),
+              ),
             ),
-          )
-        else
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: widget.padding,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: ratio,
-            ),
-            itemCount: liste.length,
-            itemBuilder: (context, index) => MiniCard(
-              item: liste[index],
-              ratio: ratio,
-              onTap: () => _ouvrir(liste, index),
-              onLongPress: widget.onLongPress == null
-                  ? null
-                  : () => widget.onLongPress!(liste[index]),
-            ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -137,13 +154,21 @@ class _PublicationsTabsState extends State<PublicationsTabs> {
       case _Onglet.vibes:
         Navigator.of(context).push(
           ReelRoute(
-            builder: (_) => VibesReelScreen(vibes: liste, initialIndex: index),
+            builder: (_) => VibesReelScreen(
+              vibes: liste,
+              initialIndex: index,
+              anchors: _anchorsKey.currentState,
+            ),
           ),
         );
       case _Onglet.flows:
         Navigator.of(context).push(
           ReelRoute(
-            builder: (_) => FlowsReelScreen(flows: liste, initialIndex: index),
+            builder: (_) => FlowsReelScreen(
+              flows: liste,
+              initialIndex: index,
+              anchors: _anchorsKey.currentState,
+            ),
           ),
         );
     }

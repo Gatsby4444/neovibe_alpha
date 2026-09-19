@@ -11,6 +11,7 @@ import '../../../core/typography.dart';
 import '../../../core/video/sealed_video_controller.dart';
 import '../../../core/video/sealed_video_view.dart';
 import '../../../core/video/video_watchdog.dart';
+import '../../../core/widgets/anchor_scope.dart';
 import '../../../core/widgets/like_burst.dart';
 import '../../../core/widgets/pinch_to_close.dart';
 import '../../../core/widgets/system_bars.dart';
@@ -46,10 +47,16 @@ class FlowsReelScreen extends ConsumerStatefulWidget {
     super.key,
     required this.flows,
     required this.initialIndex,
+    this.anchors,
   });
 
   final List<LibraryItem> flows;
   final int initialIndex;
+
+  /// Le registre de positions de l'écran qui nous a ouverts : c'est sur sa
+  /// cellule que la rétraction se referme, et c'est à lui qu'on demande de
+  /// suivre (voir [AnchorScope]). Nul = rétraction au centre.
+  final AnchorScopeState? anchors;
 
   @override
   ConsumerState<FlowsReelScreen> createState() => _FlowsReelScreenState();
@@ -122,6 +129,10 @@ class _FlowsReelScreenState extends ConsumerState<FlowsReelScreen> {
         backgroundColor: Colors.transparent,
         body: PinchToClose(
           onClose: () => Navigator.of(context).maybePop(),
+          // Dès que le pincement commence, le dessous se pose sur ce qu'on
+          // regarde ; puis la forme vise cette cellule, image après image.
+          onStart: () => widget.anchors?.reveal(_flows[_current].id),
+          target: () => widget.anchors?.rectOf(_flows[_current].id),
           child: OverscrollToClose(
             atFirstPage: _current == 0,
             onClose: () => Navigator.of(context).maybePop(),

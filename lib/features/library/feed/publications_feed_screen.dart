@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/content/likes.dart';
 import '../../../core/models/library_item.dart';
 import '../../../core/typography.dart';
+import '../../../core/widgets/anchor_scope.dart';
 import '../../../core/widgets/anchored_list.dart';
 import '../../../core/widgets/cover_host.dart';
 import 'active_item_tracker.dart';
@@ -140,13 +141,20 @@ class _PublicationsFeedScreenState
   /// 2026-09-17). Un carrousel, lui, se lit dans le fil : il n'a pas de plein
   /// écran à lui.
   void _ouvrirEnGrand(LibraryItem item) {
+    // Le plein écran reçoit NOTRE registre de positions : c'est sur nos
+    // cellules qu'il se refermera (voir [AnchorScope]).
+    final anchors = _anchorsKey.currentState;
     if (item.isFlow) {
       final flows = _items.where((i) => i.isFlow).toList();
       final index = flows.indexWhere((i) => i.id == item.id);
       if (index < 0) return;
       Navigator.of(context).push(
         ReelRoute(
-          builder: (_) => FlowsReelScreen(flows: flows, initialIndex: index),
+          builder: (_) => FlowsReelScreen(
+            flows: flows,
+            initialIndex: index,
+            anchors: anchors,
+          ),
         ),
       );
       return;
@@ -156,9 +164,35 @@ class _PublicationsFeedScreenState
     if (index < 0) return;
     Navigator.of(context).push(
       ReelRoute(
-        builder: (_) => VibesReelScreen(vibes: vibes, initialIndex: index),
+        builder: (_) => VibesReelScreen(
+          vibes: vibes,
+          initialIndex: index,
+          anchors: anchors,
+        ),
       ),
     );
+  }
+
+  final _anchorsKey = GlobalKey<AnchorScopeState>();
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// Le plein écran demande à voir ce contenu : le fil se **repose** dessus
+  /// (la cellule devient l'origine du défilement, comme à l'ouverture). C'est
+  /// ce qui fait que la rétraction a une cible, et qu'après fermeture on
+  /// retrouve le fil sur la Vibe qu'on regardait.
+  void _reveal(String id) {
+    final index = _items.indexWhere((i) => i.id == id);
+    if (index < 0 || index == _anchor) return;
+    setState(() => _anchor = index);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _scroll.hasClients) _scroll.jumpTo(0);
+    });
   }
 
   void _removed(LibraryItem item) {
@@ -195,13 +229,18 @@ class _PublicationsFeedScreenState
             Expanded(
               child: NotificationListener<ScrollNotification>(
                 onNotification: _onScroll,
-                child: ActiveItemTracker(
-                  child: _FeedList(
-                    items: _items,
-                    anchor: _anchor,
-                    onOpen: _ouvrirEnGrand,
-                    onDeleted: _removed,
-                    onChanged: _changed,
+                child: AnchorScope(
+                  key: _anchorsKey,
+                  onReveal: _reveal,
+                  child: ActiveItemTracker(
+                    child: _FeedList(
+                      items: _items,
+                      anchor: _anchor,
+                      controller: _scroll,
+                      onOpen: _ouvrirEnGrand,
+                      onDeleted: _removed,
+                      onChanged: _changed,
+                    ),
                   ),
                 ),
               ),
@@ -268,6 +307,7 @@ class _FeedList extends StatelessWidget {
   const _FeedList({
     required this.items,
     required this.anchor,
+    required this.controller,
     required this.onOpen,
     required this.onDeleted,
     required this.onChanged,
@@ -275,6 +315,7 @@ class _FeedList extends StatelessWidget {
 
   final List<LibraryItem> items;
   final int anchor;
+  final ScrollController controller;
   final ValueChanged<LibraryItem> onOpen;
   final ValueChanged<LibraryItem> onDeleted;
   final ValueChanged<LibraryItem> onChanged;
@@ -285,6 +326,7 @@ class _FeedList extends StatelessWidget {
     return AnchoredList(
       itemCount: items.length,
       anchorIndex: anchor,
+      controller: controller,
       // Les cellules voisines sont construites d'avance : leurs médias se
       // déchiffrent avant d'entrer à l'écran.
       scrollCacheExtent: const ScrollCacheExtent.pixels(800),
@@ -294,14 +336,17 @@ class _FeedList extends StatelessWidget {
         return TrackedItem(
           key: ValueKey(item.id),
           id: item.id,
-          child: ValueListenableBuilder<String?>(
-            valueListenable: tracker.active,
-            builder: (context, active, _) => PublicationCell(
-              item: item,
-              active: active == item.id,
-              onOpen: () => onOpen(item),
-              onDeleted: () => onDeleted(item),
-              onChanged: onChanged,
+          child: Anchored(
+            id: item.id,
+            child: ValueListenableBuilder<String?>(
+              valueListenable: tracker.active,
+              builder: (context, active, _) => PublicationCell(
+                item: item,
+                active: active == item.id,
+                onOpen: () => onOpen(item),
+                onDeleted: () => onDeleted(item),
+                onChanged: onChanged,
+              ),
             ),
           ),
         );

@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
@@ -30,12 +31,27 @@ class PinchToClose extends StatefulWidget {
     super.key,
     required this.child,
     required this.onClose,
+    this.target,
+    this.onStart,
     this.course = 0.32,
     this.seuil = 0.45,
   });
 
   final Widget child;
   final VoidCallback onClose;
+
+  /// **Où se refermer** : la boîte, en coordonnées globales, de la cellule
+  /// d'où l'écran est venu — lue à chaque image pendant le pincement. Nulle
+  /// (ou rendant `null`) : la forme se rétracte au centre, comme avant.
+  ///
+  /// ⚠️ Cet écran est supposé occuper **tout** l'écran, à l'origine : les
+  /// coordonnées globales de la cible sont donc les siennes. C'est le cas
+  /// des deux plein-écrans (un `Scaffold` sans barre, sans `SafeArea`).
+  final Rect? Function()? target;
+
+  /// Le pincement commence : l'occasion, pour l'écran, de demander au
+  /// dessous de **montrer** la cellule visée avant qu'on la vise.
+  final VoidCallback? onStart;
 
   /// De combien les doigts doivent se rapprocher pour aller de 0 à 1 : 0,32
   /// = un tiers de l'écart de départ.
@@ -118,7 +134,12 @@ class _PinchToCloseState extends State<PinchToClose>
       behavior: HitTestBehavior.deferToChild,
       onPointerDown: (e) {
         _doigts[e.pointer] = e.position;
-        if (_doigts.length == 2) _ecartInitial = _ecart();
+        if (_doigts.length == 2) {
+          // Deux doigts posés : un pincement peut commencer — le dessous
+          // est prévenu tout de suite, pour avoir le temps de se poser.
+          _ecartInitial = _ecart();
+          widget.onStart?.call();
+        }
       },
       onPointerMove: (e) {
         if (!_doigts.containsKey(e.pointer)) return;
@@ -136,16 +157,38 @@ class _PinchToCloseState extends State<PinchToClose>
       // plein écran avait été ouvert, pas celle qu'on regardait), et le
       // lecteur d'un Flow repartait du début. La structure ne dépend pas
       // d'un état — la même règle que la carte retournable, le même jour.
-      child: Transform.scale(
-        // La forme se rétracte déjà beaucoup : l'échelle n'ajoute qu'un
-        // souffle.
-        scale: 1 - 0.12 * _t,
-        child: ClipPath(
+      child: _vise(
+        ClipPath(
           clipBehavior: _t == 0 ? Clip.none : Clip.antiAlias,
           clipper: RetractionClipper(math.min(_t, 1)),
           child: widget.child,
         ),
       ),
+    );
+  }
+
+  /// La forme **glisse vers la cellule** et prend sa largeur, à mesure du
+  /// pincement (Jay, 2026-09-19 : *« que le plein écran redevienne la card, à
+  /// sa place »*). Sans cible : la rétraction au centre, un souffle d'échelle.
+  Widget _vise(Widget child) {
+    final cible = _t > 0 ? widget.target?.call() : null;
+    if (cible == null) {
+      return Transform.scale(scale: 1 - 0.12 * _t, child: child);
+    }
+    final ecran = MediaQuery.sizeOf(context);
+    final t = math.min(_t, 1.0);
+    final echelle = lerpDouble(1, cible.width / ecran.width, t)!;
+    final centre = Offset.lerp(ecran.center(Offset.zero), cible.center, t)!;
+    // `alignment: center` : l'échelle se fait autour du centre de l'écran, et
+    // la translation amène ce centre sur celui de la cellule.
+    return Transform(
+      alignment: Alignment.center,
+      transform: Matrix4.translationValues(
+        centre.dx - ecran.width / 2,
+        centre.dy - ecran.height / 2,
+        0,
+      )..scaleByDouble(echelle, echelle, 1, 1),
+      child: child,
     );
   }
 }

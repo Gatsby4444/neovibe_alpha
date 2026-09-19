@@ -6,6 +6,7 @@ import '../../../core/content/content_view_reporter.dart';
 import '../../../core/content/likes.dart';
 import '../../../core/models/library_item.dart';
 import '../../../core/supabase_providers.dart';
+import '../../../core/widgets/anchor_scope.dart';
 import '../../../core/widgets/like_burst.dart';
 import '../../../core/widgets/pinch_to_close.dart';
 import '../../../core/widgets/system_bars.dart';
@@ -55,10 +56,16 @@ class VibesReelScreen extends ConsumerStatefulWidget {
     super.key,
     required this.vibes,
     required this.initialIndex,
+    this.anchors,
   });
 
   final List<LibraryItem> vibes;
   final int initialIndex;
+
+  /// Le registre de positions de l'écran qui nous a ouverts : c'est sur sa
+  /// cellule que la rétraction se referme, et c'est à lui qu'on demande de
+  /// suivre (voir [AnchorScope]). Nul = rétraction au centre.
+  final AnchorScopeState? anchors;
 
   @override
   ConsumerState<VibesReelScreen> createState() => _VibesReelScreenState();
@@ -133,6 +140,10 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
         // rétracte, pas la carte.
         body: PinchToClose(
           onClose: () => Navigator.of(context).maybePop(),
+          // Dès que le pincement commence, le dessous se pose sur ce qu'on
+          // regarde ; puis la forme vise cette cellule, image après image.
+          onStart: () => widget.anchors?.reveal(_vibes[_current].id),
+          target: () => widget.anchors?.rectOf(_vibes[_current].id),
           child: OverscrollToClose(
             atFirstPage: _current == 0,
             onClose: () => Navigator.of(context).maybePop(),
