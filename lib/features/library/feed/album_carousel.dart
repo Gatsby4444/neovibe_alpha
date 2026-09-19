@@ -12,10 +12,11 @@ import '../../../core/video/video_watchdog.dart';
 import '../../../core/widgets/vibe_face.dart';
 
 /// **Le carrousel d'un album** : ses médias à son ratio, feuilletés à
-/// l'horizontale, les points, une vidéo qui joue quand la page est visible
+/// l'horizontale, une vidéo qui joue quand la page est visible
 /// et que la cellule est active — muette d'abord, un tap pour le son (comme
 /// dans un fil). Même composant dans le fil du profil et, demain, dans le
-/// feed.
+/// feed. Les **points** ne sont plus dessus : la cellule les pose SOUS le
+/// média, comme Instagram (Jay, 2026-09-19 — il y en avait deux).
 class AlbumCarousel extends ConsumerStatefulWidget {
   const AlbumCarousel({
     super.key,
@@ -138,46 +139,8 @@ class _AlbumCarouselState extends ConsumerState<AlbumCarousel> {
                 ),
               ),
             ),
-          if (media.length > 1)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 10,
-              child: Dots(count: media.length, current: _current),
-            ),
         ],
       ),
-    );
-  }
-}
-
-/// Les points sous un carrousel : le courant en plein, les autres estompés.
-class Dots extends StatelessWidget {
-  const Dots({super.key, required this.count, required this.current});
-
-  final int count;
-  final int current;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        for (var i = 0; i < count; i++)
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            margin: const EdgeInsets.symmetric(horizontal: 3),
-            width: i == current ? 7 : 5,
-            height: i == current ? 7 : 5,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: i == current ? Colors.white : Colors.white54,
-              boxShadow: const [
-                BoxShadow(color: Colors.black38, blurRadius: 2),
-              ],
-            ),
-          ),
-      ],
     );
   }
 }
