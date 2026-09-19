@@ -27,6 +27,12 @@ class PendingPublications extends Notifier<List<PendingPublication>> {
   StreamSubscription<Object>? _sub;
   final _acked = <String>{};
 
+  /// Les publications dont la fin a déjà été annoncée : la liste ne
+  /// s'invalide et le cache ne se balaie qu'UNE fois par publication. Avant
+  /// (2026-09-20), l'annonce se décidait sur l'état affiché — vide à chaque
+  /// ouverture de l'écran — et repartait donc à chaque instantané.
+  final _announced = <String>{};
+
   @override
   List<PendingPublication> build() {
     _sub = PublishBridge.instance.events.listen(_onEvent);
@@ -49,8 +55,7 @@ class PendingPublications extends Notifier<List<PendingPublication>> {
             .toList()
           ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     for (final p in shown) {
-      final wasDone = state.any((b) => b.id == p.id && b.isDone);
-      if (p.isDone && !wasDone) _publiee();
+      if (p.isDone && _announced.add(p.id)) _publiee();
     }
     if (!listEquals(shown, state)) state = shown;
   }

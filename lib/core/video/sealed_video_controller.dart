@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 
 import '../diagnostics/app_log.dart';
 import 'video_open_trace.dart';
@@ -125,6 +125,42 @@ class SealedVideoValue {
 /// vidéo l'utilisaient déjà, il n'y avait aucune raison de leur faire apprendre
 /// un autre vocabulaire.
 class SealedVideoController extends ValueNotifier<SealedVideoValue> {
+  // ─── L'app en arrière-plan : plus aucune vidéo ne joue ────────────────
+  //
+  // Jay, 2026-09-20 : *« lorsque je quitte l'app, la vidéo continue, on
+  // entend toujours le son »* — depuis le début. Aucun lecteur n'écoutait le
+  // cycle de vie de l'app. Ici, un seul veilleur pour tous : quand l'app
+  // n'est plus visible, chaque lecteur vivant est **suspendu** (son coupé,
+  // décodeur rendu, position gardée) ; au retour, ceux qui jouaient
+  // reprennent. Les écrans n'ont rien à faire.
+
+  /// Les lecteurs ouverts et pas encore fermés.
+  static final _live = <SealedVideoController>{};
+  static AppLifecycleListener? _lifecycle;
+  bool _playingBeforeBackground = false;
+
+  static void _watchLifecycle() {
+    _lifecycle ??= AppLifecycleListener(
+      onStateChange: (state) {
+        switch (state) {
+          case AppLifecycleState.hidden:
+            for (final c in _live.toList()) {
+              c._playingBeforeBackground = c.value.isPlaying;
+              unawaited(c.suspend().catchError((_) {}));
+            }
+          case AppLifecycleState.resumed:
+            for (final c in _live.toList()) {
+              if (!c._playingBeforeBackground) continue;
+              c._playingBeforeBackground = false;
+              unawaited(c.resume(play: true).catchError((_) {}));
+            }
+          default:
+            break;
+        }
+      },
+    );
+  }
+
   // Dart interdit `this._champ` sur un paramètre NOMMÉ (un nom de paramètre ne
   // peut pas être privé) : l'affectation explicite est la seule forme possible,
   // et l'analyse ne le sait pas.
@@ -237,6 +273,8 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
     try {
       final id = await _open();
       if (id == null) throw StateError('le lecteur natif n\'a rendu aucun id');
+      _live.add(this);
+      _watchLifecycle();
       if (_disposed) {
         // L'écran s'est fermé pendant l'ouverture : on ne garde pas un lecteur
         // orphelin côté natif.
@@ -463,6 +501,7 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
   @override
   void dispose() {
     _disposed = true;
+    _live.remove(this);
     _events?.cancel();
     _events = null;
     final id = _id;

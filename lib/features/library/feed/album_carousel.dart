@@ -68,6 +68,18 @@ class _AlbumCarouselState extends ConsumerState<AlbumCarousel> {
   /// détruit — un nombre par page, ça ne coûte rien et vaut pour toutes.
   final _positions = <int, int>{};
 
+  /// Les pages déjà rouvertes après un fichier local disparu : une fois.
+  final _recovered = <int>{};
+
+  /// Le fichier de MON média n'est plus sur l'appareil (le cache l'a balayé
+  /// sous le lecteur — 2026-09-20). L'ouverture, mise en cache par le
+  /// fournisseur, pointe encore dessus : on l'invalide, et la page se
+  /// rouvre depuis le serveur, comme pour le média de quelqu'un d'autre.
+  void _lost(int i, ContentFace spec) {
+    if (!_recovered.add(i)) return;
+    ref.invalidate(contentFaceProvider(spec));
+  }
+
   @override
   void dispose() {
     _pages.dispose();
@@ -169,6 +181,7 @@ class _AlbumCarouselState extends ConsumerState<AlbumCarousel> {
                 initialPositionMs: _positions[i] ?? 0,
                 onPlayerCreated: () => _visited.add(i),
                 onPlayerLeft: (ms) => _positions[i] = ms,
+                onLost: () => _lost(i, _spec(media[i])),
                 muted: _muted,
                 onToggleMute: () => setState(() => _muted = !_muted),
               ),
@@ -226,6 +239,7 @@ class _Page extends ConsumerWidget {
     required this.initialPositionMs,
     required this.onPlayerCreated,
     required this.onPlayerLeft,
+    required this.onLost,
     required this.muted,
     required this.onToggleMute,
   });
@@ -244,6 +258,9 @@ class _Page extends ConsumerWidget {
   final int initialPositionMs;
   final VoidCallback onPlayerCreated;
   final ValueChanged<int> onPlayerLeft;
+
+  /// Le fichier local du média a disparu : à rouvrir.
+  final VoidCallback onLost;
   final bool muted;
   final VoidCallback onToggleMute;
 
@@ -273,6 +290,7 @@ class _Page extends ConsumerWidget {
               initialPositionMs: initialPositionMs,
               onCreated: onPlayerCreated,
               onLeft: onPlayerLeft,
+              onLost: onLost,
               muted: muted,
               onToggleMute: onToggleMute,
             )
@@ -344,6 +362,7 @@ class _Video extends StatefulWidget {
     required this.initialPositionMs,
     required this.onCreated,
     required this.onLeft,
+    required this.onLost,
     required this.muted,
     required this.onToggleMute,
   });
@@ -354,6 +373,7 @@ class _Video extends StatefulWidget {
   final int initialPositionMs;
   final VoidCallback onCreated;
   final ValueChanged<int> onLeft;
+  final VoidCallback onLost;
   final bool muted;
   final VoidCallback onToggleMute;
 
@@ -389,14 +409,28 @@ class _VideoState extends State<_Video> {
           setState(() {});
         })
         .catchError((Object e) {
-          if (mounted) setState(() => _error = e);
+          if (!mounted) return;
+          setState(() => _error = e);
+          _siPerdu(e);
         });
+  }
+
+  /// Un média LOCAL qui échoue : le fichier a très probablement disparu
+  /// (« média introuvable », ou « Source error » sous un lecteur suspendu).
+  /// La page le rouvrira depuis le serveur. Un média en flux qui échoue,
+  /// lui, ne cache rien : l'erreur reste affichée.
+  void _siPerdu(Object e) {
+    if (widget.media.sealedVideo == null && widget.media.clearFile == null) {
+      return;
+    }
+    widget.onLost();
   }
 
   void _onValeur() {
     final v = _controller.value;
     if (v.error != null && _error == null && mounted) {
       setState(() => _error = v.error);
+      _siPerdu(v.error!);
     }
     // La couverture se retire à la PREMIÈRE image rendue — c'est le signal
     // du natif, pas « le lecteur est prêt » : entre les deux, la texture est

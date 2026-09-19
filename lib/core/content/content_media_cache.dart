@@ -47,7 +47,25 @@ class ContentMediaCache {
   ///
   /// 200 Mo : plus généreux que `others/`, parce que perdre le cache de MON
   /// contenu coûte un téléchargement de ce que j'ai moi-même publié.
-  static const ownMaxBytes = 200 * 1024 * 1024; // 200 Mo
+  ///
+  /// ## 🔴 Passé à 600 Mo le 2026-09-20, avec une grâce de 24 h
+  ///
+  /// Une publication de 19 vidéos à 3,5 Mbit/s pèse à elle seule plus de
+  /// 200 Mo : le plafond était **plus petit qu'une publication**. Le balai
+  /// tournait juste après l'inscription et effaçait les premières places de
+  /// ce que Jay venait de publier — pendant qu'il les regardait. Deux
+  /// symptômes chez lui : « Source error » (le fichier retiré sous un lecteur
+  /// suspendu) et « média introuvable : …/own/…_front.seal » (l'ouverture,
+  /// mise en cache par le fournisseur, pointait encore sur le fichier
+  /// effacé). Un cache qui efface ce qu'on regarde n'est pas un cache.
+  ///
+  /// Désormais : un fichier touché (copié ou ouvert) depuis moins de
+  /// [ownGrace] n'est **jamais** balayé ; le plafond ne joue que sur le
+  /// reste. Ce qu'on vient de publier reste sur l'appareil au moins un jour.
+  static const ownMaxBytes = 600 * 1024 * 1024; // 600 Mo
+
+  /// Ce qui a été touché depuis moins longtemps que ça est intouchable.
+  static const ownGrace = Duration(hours: 24);
 
   Directory? _root;
   Map<String, dynamic>? _index;
@@ -183,8 +201,11 @@ class ContentMediaCache {
     }
     if (total <= ownMaxBytes) return;
     fichiers.sort((a, b) => a.$2.compareTo(b.$2)); // le plus vieux d'abord
-    for (final (file, _, size) in fichiers) {
+    final limite = DateTime.now().subtract(ownGrace);
+    for (final (file, touche, size) in fichiers) {
       if (total <= ownMaxBytes) break;
+      // Touché récemment : on le regarde peut-être en ce moment même.
+      if (touche.isAfter(limite)) continue;
       try {
         await file.delete();
         total -= size;
