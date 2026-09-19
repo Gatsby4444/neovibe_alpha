@@ -130,6 +130,24 @@ abstract final class NativeMedia {
     }
   }
 
+  /// Le **clair** du média scellé [sealed] (format `NVC1`), en mémoire —
+  /// une photo. Déchiffré par le natif sur un fil de travail (AES matériel) ;
+  /// rien n'est écrit sur le disque. Nul si le natif est absent (tests) :
+  /// l'appelant retombe sur le déchiffrement Dart.
+  static Future<Uint8List?> readAll({
+    required String sealed,
+    required String key,
+  }) async {
+    try {
+      return await _channel.invokeMethod<Uint8List>('readAll', {
+        'sealed': sealed,
+        'key': key,
+      });
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
   /// Écrit dans [dest] le **clair** du média scellé [sealed] (format `NVC1`),
   /// déchiffré par le natif sur un fil de travail — ce que « Enregistrer »
   /// copie dans les Enregistrements.

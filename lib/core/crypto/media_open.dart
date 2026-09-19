@@ -181,11 +181,14 @@ class MediaOpen {
           traceId: cacheId,
         );
       }
-      return OpenedMedia._(
-        photoBytes: await ChunkedSeal.readAll(sealed, key),
-        sealed: sealed,
-        key: key,
-      );
+      // Une photo : par le natif d'abord (AES matériel, fil de travail —
+      // ~2 ms), le Dart seulement là où le natif est absent (tests). Le Dart
+      // tenait ~2,7 Mo/s SUR LE FIL DE L'INTERFACE : chaque vignette du profil
+      // figeait l'écran ~85 ms, l'une après l'autre (2026-09-19).
+      final bytes =
+          await NativeMedia.readAll(sealed: sealed.path, key: key) ??
+          await ChunkedSeal.readAll(sealed, key);
+      return OpenedMedia._(photoBytes: bytes, sealed: sealed, key: key);
     }
 
     // ─── Format hérité (bloc unique) ───────────────────────────────────

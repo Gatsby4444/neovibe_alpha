@@ -28,6 +28,11 @@ import java.util.concurrent.Executors
  *   d'une photo d'album ; `dart:ui` ne sait écrire que du PNG).
  * - `transcode` : une vidéo de la galerie rognée, recadrée, corrigée et
  *   recompressée pour un album ([MediaTranscoder]), avec sa progression.
+ * - `readAll` : le **clair** d'un média scellé `NVC1` rendu en mémoire (une
+ *   photo, une vignette) — jamais sur le disque. Le déchiffrement Dart des
+ *   photos tenait ~2,7 Mo/s sur le fil de l'interface : chaque vignette du
+ *   profil coûtait ~85 ms d'écran figé, l'une après l'autre (les « roues »
+ *   du 2026-09-19).
  * - `unseal` : le **clair** d'un média scellé `NVC1`, écrit dans un fichier
  *   — ce que « Enregistrer » copie dans les Enregistrements. Le déchiffrement
  *   en Dart plafonnait à ~2,7 Mo/s **sur le fil de l'interface** : un Flow de
@@ -152,6 +157,21 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
                     }
                 }
             }
+            "readAll" -> {
+                val sealed = call.argument<String>("sealed")
+                val key = call.argument<String>("key")
+                if (sealed == null || key == null) {
+                    result.error("BAD_ARGS", "sealed et key sont requis", null)
+                    return
+                }
+                worker.execute {
+                    val outcome = runCatching { readAll(File(sealed), key) }
+                    main.post {
+                        outcome.onSuccess { result.success(it) }
+                            .onFailure { result.error("READ_FAILED", it.message, null) }
+                    }
+                }
+            }
             "unseal" -> {
                 val sealed = call.argument<String>("sealed")
                 val key = call.argument<String>("key")
@@ -171,6 +191,19 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
             else -> result.notImplemented()
         }
     }
+
+    /** Le clair de [sealed] en mémoire — réservé aux photos, qui y tiennent. */
+    private fun readAll(sealed: File, key: String): ByteArray =
+        SealedChunkReader(sealed, key).use { reader ->
+            val out = ByteArray(reader.plainLength.toInt())
+            var position = 0L
+            while (position < reader.plainLength) {
+                val n = reader.read(position, out, position.toInt(), (reader.plainLength - position).toInt())
+                if (n <= 0) throw IllegalStateException("clair incomplet : $position / ${reader.plainLength}")
+                position += n
+            }
+            out
+        }
 
     /**
      * Écrit dans [dest] le clair de [sealed], bloc par bloc : la mémoire reste
