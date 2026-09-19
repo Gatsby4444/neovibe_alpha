@@ -36,6 +36,16 @@ abstract final class FaceDelivery {
     if (isVideo) await NativeMedia.fastStart(source.path);
     // Scellé PAR BLOCS et en flux : une face vidéo de 28 Mo n'est jamais montée
     // en mémoire, et se lira sans écrire de clair sur le disque.
-    await ChunkedSeal.sealFile(source, target, key);
+    //
+    // **Par le natif** (2026-09-19) : le scellage Dart tournait sur le fil de
+    // l'interface, ~2,7 Mo/s sur le téléphone — ~9 s d'écran figé par vidéo
+    // de 25 Mo, pour CHAQUE média d'une publication. Le Dart ne sert plus que
+    // là où le natif est absent (tests).
+    final native = await NativeMedia.seal(
+      source: source.path,
+      key: key,
+      dest: target.path,
+    );
+    if (!native) await ChunkedSeal.sealFile(source, target, key);
   }
 }

@@ -148,11 +148,7 @@ class LibraryRepository {
       await FaceDelivery.seal(source, sealed, mediaKey, isVideo: isVideo);
       await _client.storage
           .from(_bucket)
-          .uploadBinary(
-            path,
-            await sealed.readAsBytes(),
-            fileOptions: sealedType,
-          );
+          .upload(path, sealed, fileOptions: sealedType);
       done += 1;
       onProgress?.call(done, total);
       return sealed;

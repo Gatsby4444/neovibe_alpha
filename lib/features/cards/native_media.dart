@@ -149,6 +149,26 @@ abstract final class NativeMedia {
     }
   }
 
+  /// **Scelle** [source] dans [dest] (format `NVC1`), par le natif sur un fil
+  /// de travail — l'équivalent de `ChunkedSeal.sealFile`, AES matériel. Rend
+  /// `false` si le natif est absent (tests) ; lève sur un échec réel.
+  static Future<bool> seal({
+    required String source,
+    required String key,
+    required String dest,
+  }) async {
+    try {
+      await _channel.invokeMethod<String>('seal', {
+        'source': source,
+        'key': key,
+        'dest': dest,
+      });
+      return true;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
   /// Écrit dans [dest] le **clair** du média scellé [sealed] (format `NVC1`),
   /// déchiffré par le natif sur un fil de travail — ce que « Enregistrer »
   /// copie dans les Enregistrements.

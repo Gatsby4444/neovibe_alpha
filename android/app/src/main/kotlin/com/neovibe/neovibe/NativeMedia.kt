@@ -33,6 +33,8 @@ import java.util.concurrent.Executors
  *   photos tenait ~2,7 Mo/s sur le fil de l'interface : chaque vignette du
  *   profil coûtait ~85 ms d'écran figé, l'une après l'autre (les « roues »
  *   du 2026-09-19).
+ * - `seal` : **scelle** un fichier au format `NVC1` ([SealedChunkWriter]) — le
+ *   scellage Dart figeait l'écran ~9 s par vidéo de 25 Mo à l'envoi.
  * - `unseal` : le **clair** d'un média scellé `NVC1`, écrit dans un fichier
  *   — ce que « Enregistrer » copie dans les Enregistrements. Le déchiffrement
  *   en Dart plafonnait à ~2,7 Mo/s **sur le fil de l'interface** : un Flow de
@@ -170,6 +172,22 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
                     main.post {
                         outcome.onSuccess { result.success(it) }
                             .onFailure { result.error("READ_FAILED", it.message, null) }
+                    }
+                }
+            }
+            "seal" -> {
+                val source = call.argument<String>("source")
+                val key = call.argument<String>("key")
+                val dest = call.argument<String>("dest")
+                if (source == null || key == null || dest == null) {
+                    result.error("BAD_ARGS", "source, key et dest sont requis", null)
+                    return
+                }
+                worker.execute {
+                    val outcome = runCatching { SealedChunkWriter.seal(File(source), File(dest), key) }
+                    main.post {
+                        outcome.onSuccess { result.success(dest) }
+                            .onFailure { result.error("SEAL_FAILED", it.message ?: it.javaClass.simpleName, null) }
                     }
                 }
             }

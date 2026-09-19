@@ -132,22 +132,14 @@ class CardsRepository {
     );
     await _client.storage
         .from('cards')
-        .uploadBinary(
-          frontPath,
-          await sealedFront.readAsBytes(),
-          fileOptions: sealedType,
-        );
+        .upload(frontPath, sealedFront, fileOptions: sealedType);
     File? sealedBack;
     if (back != null) {
       sealedBack = File('${temp.path}/seal_card_${stamp}_b');
       await FaceDelivery.seal(back, sealedBack, mediaKey, isVideo: backIsVideo);
       await _client.storage
           .from('cards')
-          .uploadBinary(
-            backPath!,
-            await sealedBack.readAsBytes(),
-            fileOptions: sealedType,
-          );
+          .upload(backPath!, sealedBack, fileOptions: sealedType);
     }
 
     final row = await _client

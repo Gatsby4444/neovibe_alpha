@@ -216,22 +216,14 @@ class StoriesRepository {
     );
     await _client.storage
         .from('stories')
-        .uploadBinary(
-          frontPath,
-          await sealedFront.readAsBytes(),
-          fileOptions: sealedType,
-        );
+        .upload(frontPath, sealedFront, fileOptions: sealedType);
     File? sealedBack;
     if (back != null) {
       sealedBack = File('${temp.path}/seal_${storyId}_b');
       await FaceDelivery.seal(back, sealedBack, mediaKey, isVideo: backIsVideo);
       await _client.storage
           .from('stories')
-          .uploadBinary(
-            backPath!,
-            await sealedBack.readAsBytes(),
-            fileOptions: sealedType,
-          );
+          .upload(backPath!, sealedBack, fileOptions: sealedType);
     }
 
     await _client.rpc(
