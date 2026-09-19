@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app.dart';
 import '../../core/motion.dart';
 import '../../core/prefs.dart';
+import '../../core/widgets/back_guard.dart';
 import '../../core/widgets/gradient.dart';
 import '../cards/card_capture_screen.dart';
 import '../circle/circle_screen.dart';
@@ -232,23 +233,21 @@ class _HomeShellState extends ConsumerState<HomeShell>
     // Pop-up des demandes de connexion entrantes (consigne Jay)
     listenForConnectionRequestPopups(ref, context);
 
-    return PopScope(
-      // La coquille est la RACINE : un retour y fermait l'app sur-le-champ, sans
-      // rien demander (aucun `PopScope` n'existait nulle part dans l'app —
-      // relevé par inventaire le 2026-08-16).
-      //
-      // Sans conséquence tant que Jay testait au bouton retour ; en navigation
-      // par gestes, un glissement parti d'un bord est capté par Android, arrive
-      // comme un retour, et **ferme l'app au milieu d'un changement de section**.
-      // La cause n'est pas le mode gestes : c'est que rien ne protégeait la
-      // racine. Le mode gestes n'a fait que la rendre atteignable par mégarde.
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        _confirmExit();
-      },
-      child: _shell(context),
-    );
+    // La coquille est la RACINE : un retour y fermait l'app sur-le-champ, sans
+    // rien demander (aucun `PopScope` n'existait nulle part dans l'app —
+    // relevé par inventaire le 2026-08-16).
+    //
+    // Sans conséquence tant que Jay testait au bouton retour ; en navigation
+    // par gestes, un glissement parti d'un bord est capté par Android, arrive
+    // comme un retour, et **ferme l'app au milieu d'un changement de section**.
+    // La cause n'est pas le mode gestes : c'est que rien ne protégeait la
+    // racine. Le mode gestes n'a fait que la rendre atteignable par mégarde.
+    //
+    // Depuis le 2026-09-19, ce qui se pose PAR-DESSUS une section (le fil
+    // du profil, une couverture) répond au retour avant la coquille — voir
+    // [BackGuard] : deux `PopScope` sur la même route se seraient tous les
+    // deux déclenchés.
+    return BackGuard(onUnhandled: _confirmExit, child: _shell(context));
   }
 
   /// Instant du dernier retour resté sans suite.
@@ -605,8 +604,16 @@ class _HomeShellState extends ConsumerState<HomeShell>
 
   /// Un onglet n'est construit qu'après sa première ouverture ; ensuite
   /// l'`IndexedStack` le garde monté, donc son état est conservé.
-  Widget _lazy(int index, Widget tab) =>
-      _visited.contains(index) ? tab : const SizedBox.shrink();
+  /// Une section, construite à sa première visite — et **hors horloge** tant
+  /// qu'elle n'est pas celle qu'on montre ([TickerMode]) : un `IndexedStack`
+  /// garde ses sections cachées vivantes ET animées. Depuis que le fil du
+  /// profil est une couverture dans sa section (2026-09-19), on peut changer
+  /// de section par la barre en laissant une vidéo derrière soi ; c'est ce
+  /// signal que `ActiveItemTracker` écoute pour la taire.
+  Widget _lazy(int index, Widget tab) => TickerMode(
+    enabled: index == _shownIndex,
+    child: _visited.contains(index) ? tab : const SizedBox.shrink(),
+  );
 
   // La BeReal n'est plus déclenchable manuellement : elle arrive par
   // notification (consigne Jay) — la capture s'ouvre donc directement.

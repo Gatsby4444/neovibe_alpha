@@ -23,14 +23,18 @@ import '../../connections/connections_repository.dart';
 /// **Les actions d'une publication** — aimer, enregistrer, partager, et le
 /// menu « … ».
 ///
-/// Deux poses, le même contenu :
-/// - **à plat et resserré**, dans l'en-tête d'une cellule du fil, sur la ligne
-///   de l'avatar et du pseudo (Jay, 2026-09-16 : sous la carte, la cellule ne
-///   tenait plus dans un écran) ;
+/// Trois poses, le même contenu :
+/// - **à plat et resserré**, dans l'en-tête d'une cellule de **Vibe** du fil,
+///   sur la ligne de l'avatar et du pseudo (Jay, 2026-09-16 : sous la carte,
+///   la cellule ne tenait plus dans un écran) ;
 /// - **en colonne**, sur la carte en plein écran, à droite — donc *dans* la
 ///   carte : elles s'inclinent et se retournent avec elle, et les deux faces
 ///   portent les mêmes, dans les mêmes états (ces états viennent des
-///   providers, pas du widget : ils ne peuvent pas diverger).
+///   providers, pas du widget : ils ne peuvent pas diverger) ;
+/// - **en barre** ([bar]), sous le média d'une **publication** ou d'un
+///   **Flow** dans le fil, comme sur Instagram (Jay, 2026-09-19) : aimer et
+///   partager à gauche, enregistrer à droite — et **pas de menu**, qui vit
+///   alors dans l'en-tête ([PublicationMenu]).
 ///
 /// ⚠️ **Plus de corbeille dans la barre** : « Retirer » vit dans le menu,
 /// avec les options du même genre à venir (Jay, 2026-09-16).
@@ -46,6 +50,7 @@ class PublicationActions extends ConsumerWidget {
     this.saveBackIsVideo = false,
     this.vertical = false,
     this.dense = false,
+    this.bar = false,
     this.color,
     this.onDeleted,
     this.onChanged,
@@ -68,6 +73,10 @@ class PublicationActions extends ConsumerWidget {
   /// Resserré : l'en-tête d'une cellule du fil (voir [ActionMetrics]).
   final bool dense;
 
+  /// La barre sous le média, façon Instagram : aimer · partager … enregistrer,
+  /// sans menu.
+  final bool bar;
+
   /// La couleur des icônes ; par défaut l'encre du thème.
   final Color? color;
 
@@ -83,54 +92,55 @@ class PublicationActions extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final ink = color ?? Theme.of(context).colorScheme.onSurface;
+    final like = LikeButton(
+      contentId: item.id,
+      color: ink,
+      vertical: vertical,
+      dense: dense,
+    );
+    final save = SaveButton(
+      contentId: saveId,
+      cardType: item.cardType,
+      canSave: item.saveable || mine,
+      front: saveFront,
+      back: saveBack,
+      frontIsVideo: saveFrontIsVideo,
+      backIsVideo: saveBackIsVideo,
+      mine: mine,
+      color: ink,
+      dense: dense,
+    );
+    final share = item.shareable
+        ? ActionIconButton(
+            icon: const Icon(Icons.reply_outlined),
+            color: ink,
+            dense: dense,
+            tooltip: 'Partager dans une conversation',
+            onPressed: () => _share(context, ref),
+          )
+        : null;
+    if (bar) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: NeoSpace.xs),
+        child: Row(children: [like, ?share, const Spacer(), save]),
+      );
+    }
     final children = [
-      LikeButton(
-        contentId: item.id,
-        color: ink,
-        vertical: vertical,
-        dense: dense,
-      ),
-      SaveButton(
-        contentId: saveId,
-        cardType: item.cardType,
-        canSave: item.saveable || mine,
-        front: saveFront,
-        back: saveBack,
-        frontIsVideo: saveFrontIsVideo,
-        backIsVideo: saveBackIsVideo,
+      like,
+      save,
+      ?share,
+      PublicationMenu(
+        item: item,
         mine: mine,
         color: ink,
         dense: dense,
-      ),
-      if (item.shareable)
-        ActionIconButton(
-          icon: const Icon(Icons.reply_outlined),
-          color: ink,
-          dense: dense,
-          tooltip: 'Partager dans une conversation',
-          onPressed: () => _share(context, ref),
-        ),
-      ContentOverflowMenu(
-        contentId: item.id,
-        authorId: item.ownerId,
-        color: ink,
-        dense: dense,
-        mine: mine,
-        onRemove: mine ? () => _confirmDelete(context, ref) : null,
-        // Une Vibe n'a pas de description (Jay, 2026-09-17) : rien à modifier.
-        onEditCaption: mine && item.isPublication
-            ? () => _editCaption(context, ref)
-            : null,
+        onDeleted: onDeleted,
+        onChanged: onChanged,
       ),
     ];
     return vertical
         ? Column(mainAxisSize: MainAxisSize.min, children: children)
         : Row(mainAxisSize: MainAxisSize.min, children: children);
-  }
-
-  Future<void> _editCaption(BuildContext context, WidgetRef ref) async {
-    final updated = await showEditCaptionSheet(context, item);
-    if (updated != null) onChanged?.call(updated);
   }
 
   Future<void> _share(BuildContext context, WidgetRef ref) async {
@@ -160,6 +170,48 @@ class PublicationActions extends ConsumerWidget {
         context,
       ).showSnackBar(SnackBar(content: Text('Erreur : $e')));
     }
+  }
+}
+
+/// **Le menu « … » d'une publication** : Modifier la description / Retirer
+/// pour la mienne, Signaler / Bloquer pour celle d'autrui. À part de la barre
+/// d'actions depuis le 2026-09-19 : dans le fil, il vit dans l'en-tête
+/// (comme sur Instagram) tandis que les actions sont sous le média.
+class PublicationMenu extends ConsumerWidget {
+  const PublicationMenu({
+    super.key,
+    required this.item,
+    required this.mine,
+    required this.color,
+    this.dense = false,
+    this.onDeleted,
+    this.onChanged,
+  });
+
+  final LibraryItem item;
+  final bool mine;
+  final Color color;
+  final bool dense;
+  final VoidCallback? onDeleted;
+  final ValueChanged<LibraryItem>? onChanged;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => ContentOverflowMenu(
+    contentId: item.id,
+    authorId: item.ownerId,
+    color: color,
+    dense: dense,
+    mine: mine,
+    onRemove: mine ? () => _confirmDelete(context, ref) : null,
+    // Une Vibe n'a pas de description (Jay, 2026-09-17) : rien à modifier.
+    onEditCaption: mine && item.isPublication
+        ? () => _editCaption(context, ref)
+        : null,
+  );
+
+  Future<void> _editCaption(BuildContext context, WidgetRef ref) async {
+    final updated = await showEditCaptionSheet(context, item);
+    if (updated != null) onChanged?.call(updated);
   }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {

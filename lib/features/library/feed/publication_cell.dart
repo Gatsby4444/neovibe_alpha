@@ -21,16 +21,18 @@ import 'publication_caption.dart';
 import 'vibe_card_view.dart';
 import '../open_profile.dart';
 
-/// **Une publication dans un fil** — l'en-tête (qui, quand, **et les
-/// actions**), le média, la légende. C'est LA cellule : le fil du profil
-/// aujourd'hui, le feed local demain, même widget.
+/// **Une publication dans un fil** — c'est LA cellule : le fil du profil
+/// aujourd'hui, le feed local demain, même widget. Deux dispositions, selon
+/// ce qu'on montre (Jay, 2026-09-19, sur le modèle du fil d'Instagram) :
 ///
-/// ⚠️ **Les actions sont en HAUT, sur la ligne du pseudo** (Jay, 2026-09-16).
-/// Sous le média, elles ajoutaient une quatrième bande à la cellule et
-/// *« on ne peut pas bien voir toutes les parties du contenu sur l'écran en
-/// une fois, c'est limite »* — une cellule de Vibe dépassait la hauteur utile
-/// d'une cinquantaine de pixels. Remontées, elles ne coûtent plus rien : la
-/// ligne d'identité avait la place.
+/// | | **publication / Flow** | **Vibe** |
+/// |---|---|---|
+/// | en-tête | avatar, pseudo, menu « … » | avatar, pseudo, date, type, **et les actions** |
+/// | sous le média | points du carrousel, **barre** aimer · partager … enregistrer, légende, date | — |
+///
+/// Pour une Vibe, les actions restent en HAUT, sur la ligne du pseudo (Jay,
+/// 2026-09-16 : sous la carte, la cellule ne tenait plus dans un écran) — et
+/// Jay a redit le 2026-09-19 : *« pour les cards on ne touche pas »*.
 ///
 /// Deux formats, deux médias, **la même largeur** : un **album** est un
 /// carrousel au ratio choisi à la publication (4:5, 1:1 ou 1,91:1) ; une
@@ -131,70 +133,133 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
         ? '${item.id}#${item.media[_page].slot}'
         : item.id;
 
-    final cell = Column(
+    final actions = PublicationActions(
+      item: item,
+      mine: mine,
+      saveId: saveId,
+      saveFront: saveFront,
+      saveBack: saveBack,
+      saveFrontIsVideo: item.isPublication
+          ? item.media[_page].isVideo
+          : item.frontIsVideo,
+      saveBackIsVideo: !item.isPublication && item.backIsVideo,
+      dense: !item.isPublication,
+      bar: item.isPublication,
+      onDeleted: widget.onDeleted,
+      onChanged: widget.onChanged,
+    );
+
+    // Aimer au geste : double tap **et** appui long sur une publication,
+    // appui long seul sur une Vibe — le tap y ouvre déjà le plein écran, et
+    // un double tap le retarderait (Jay, 2026-09-17).
+    final media = LikeBurst(
+      contentId: item.id,
+      doubleTap: item.isPublication,
+      child: item.isPublication
+          ? AlbumCarousel(
+              item: item,
+              active: widget.active,
+              onPageChanged: (i) => setState(() => _page = i),
+            )
+          : VibeCardView(
+              item: item,
+              active: widget.active,
+              onTap: widget.onOpen,
+              display: VibeDisplay.feed,
+            ),
+    );
+
+    // Une Vibe : l'en-tête porte tout, la carte suit, rien dessous.
+    if (!item.isPublication) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _Header(item: item, owner: owner, mine: mine, actions: actions),
+          media,
+          const SizedBox(height: NeoSpace.md),
+        ],
+      );
+    }
+
+    // Une publication ou un Flow : le modèle d'Instagram — l'en-tête ne porte
+    // que le menu ; sous le média, les points du carrousel, la barre
+    // d'actions, la légende, la date.
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _Header(
           item: item,
           owner: owner,
           mine: mine,
-          actions: PublicationActions(
+          actions: PublicationMenu(
             item: item,
             mine: mine,
-            saveId: saveId,
-            saveFront: saveFront,
-            saveBack: saveBack,
-            saveFrontIsVideo: item.isPublication
-                ? item.media[_page].isVideo
-                : item.frontIsVideo,
-            saveBackIsVideo: !item.isPublication && item.backIsVideo,
-            dense: true,
+            color: Theme.of(context).colorScheme.onSurface,
             onDeleted: widget.onDeleted,
             onChanged: widget.onChanged,
           ),
         ),
-        // Aimer au geste : double tap **et** appui long sur une
-        // publication, appui long seul sur une Vibe — le tap y ouvre déjà le
-        // plein écran, et un double tap le retarderait (Jay, 2026-09-17).
-        LikeBurst(
-          contentId: item.id,
-          doubleTap: item.isPublication,
-          child: item.isPublication
-              ? AlbumCarousel(
-                  item: item,
-                  active: widget.active,
-                  onPageChanged: (i) => setState(() => _page = i),
-                )
-              : VibeCardView(
-                  item: item,
-                  active: widget.active,
-                  onTap: widget.onOpen,
-                  display: VibeDisplay.feed,
-                ),
-        ),
-        // ⚠️ **Pas de légende sur une Vibe** (Jay, 2026-09-17) : une Vibe
-        // n'est pas une publication qu'on commente, c'est une carte — le
-        // texte y entrera par son propre éditeur, écrit sur l'image.
-        if (item.isPublication && (item.caption?.isNotEmpty ?? false))
+        media,
+        if (item.media.length > 1)
+          _Dots(count: item.media.length, current: _page),
+        actions,
+        if (item.caption?.isNotEmpty ?? false)
           PublicationCaption(text: item.caption!, font: item.captionFont),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(NeoSpace.md, NeoSpace.xs, 0, 0),
+          child: Text(
+            timeAgo(item.createdAt),
+            style: TextStyle(color: context.muted, fontSize: 12),
+          ),
+        ),
         const SizedBox(height: NeoSpace.md),
       ],
     );
-
-    // Album comme Vibe : **toute la largeur**. Depuis que la Vibe est
-    // recadree en 4:5, les deux formats font la meme largeur - la cellule
-    // n'a plus a se caler sur une carte plus etroite que l'ecran, et tout
-    // (en-tete, actions, legende) retrouve le meme bord gauche.
-    return cell;
   }
 }
 
-/// L'en-tête : avatar, pseudo, date et type — et, à droite, les actions.
+/// Les points d'un carrousel, sous le média : celui de l'image courante est
+/// encré, les autres effacés.
+class _Dots extends StatelessWidget {
+  const _Dots({required this.count, required this.current});
+
+  final int count;
+  final int current;
+
+  @override
+  Widget build(BuildContext context) {
+    final ink = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.only(top: NeoSpace.sm),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          for (var i = 0; i < count; i++)
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 160),
+              margin: const EdgeInsets.symmetric(horizontal: 2),
+              width: i == current ? 6 : 5,
+              height: i == current ? 6 : 5,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: i == current ? ink : ink.withValues(alpha: 0.25),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// L'en-tête : avatar, pseudo — et, à droite, [actions] (les quatre boutons
+/// d'une Vibe, le seul menu d'une publication).
 ///
-/// La date et le type passent sur une **deuxième ligne**, sous le pseudo :
-/// une cellule de Vibe ne fait que la largeur de la carte, et la ligne doit
-/// désormais loger quatre boutons. Sur une seule ligne, le pseudo se réduisait
-/// à trois lettres.
+/// Pour une **Vibe**, la date et le type passent sur une **deuxième ligne**,
+/// sous le pseudo : la ligne doit loger quatre boutons, et sur une seule le
+/// pseudo se réduisait à trois lettres. Pour une **publication**, une seule
+/// ligne — la date est sous la légende, comme sur Instagram. Jay note qu'un
+/// élément textuel viendra peut-être un jour sous le pseudo, pour
+/// harmoniser (Instagram y met « Suggestions » ou la musique).
 class _Header extends StatelessWidget {
   const _Header({
     required this.item,
@@ -237,41 +302,41 @@ class _Header extends StatelessWidget {
               // étroite, et « One of One » ne rentre pas toujours à côté de la
               // date. Rogner la pastille du type, c'est perdre l'information ;
               // la réduire un peu, non.
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      timeAgo(item.createdAt),
-                      maxLines: 1,
-                      style: TextStyle(color: context.muted, fontSize: 12),
-                    ),
-                    if (!item.isPublication) ...[
+              if (!item.isPublication)
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        timeAgo(item.createdAt),
+                        maxLines: 1,
+                        style: TextStyle(color: context.muted, fontSize: 12),
+                      ),
                       const SizedBox(width: NeoSpace.xs + 2),
                       CardTypeBadge(type: item.cardType, fontSize: 9),
-                    ] else if (item.isFlow) ...[
-                      // La requalification se voit : l'app a décidé toute
-                      // seule que cette vidéo seule est un Flow.
-                      const SizedBox(width: NeoSpace.xs + 2),
-                      const FlowBadge(),
                     ],
-                  ],
+                  ),
                 ),
-              ),
             ],
           ),
         ),
+        // La requalification se voit : l'app a décidé toute seule que cette
+        // vidéo seule est un Flow.
+        if (item.isFlow) ...[
+          const SizedBox(width: NeoSpace.sm),
+          const FlowBadge(),
+        ],
       ],
     );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(
+      padding: EdgeInsets.fromLTRB(
         NeoSpace.md,
+        item.isPublication ? NeoSpace.sm : NeoSpace.xs,
         NeoSpace.xs,
-        NeoSpace.xs,
-        NeoSpace.xs,
+        item.isPublication ? NeoSpace.sm : NeoSpace.xs,
       ),
       child: Row(
         children: [

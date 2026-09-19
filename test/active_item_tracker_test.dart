@@ -84,4 +84,30 @@ void main() {
     await tester.pumpAndSettle();
     expect(_publies.last, 'a');
   });
+
+  testWidgets('dans une section HORS HORLOGE (TickerMode coupé), le fil se '
+      'tait ; remis, il reprend', (tester) async {
+    // La coquille coupe l'horloge des sections cachées : c'est ce que le
+    // suiveur écoute quand on change de section par la barre en laissant le
+    // fil (une couverture) derrière soi.
+    final enabled = ValueNotifier<bool>(true);
+    await tester.pumpWidget(
+      ValueListenableBuilder<bool>(
+        valueListenable: enabled,
+        builder: (context, on, _) => TickerMode(enabled: on, child: _fil()),
+      ),
+    );
+    await tester.pump();
+    expect(_publies.last, 'a');
+
+    enabled.value = false;
+    await tester.pump();
+    expect(_publies.last, isNull);
+
+    enabled.value = true;
+    await tester.pump();
+    await tester.pump();
+    expect(_publies.last, 'a');
+    enabled.dispose();
+  });
 }

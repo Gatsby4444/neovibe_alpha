@@ -6,6 +6,8 @@ import '../../core/models/connection.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/erreur_serveur.dart';
+import '../../core/widgets/back_guard.dart';
+import '../../core/widgets/cover_host.dart';
 import '../../core/widgets/content_overflow_menu.dart';
 import '../connections/connections_repository.dart';
 import '../conversations/chat_screen.dart';
@@ -32,113 +34,122 @@ class UserLibraryScreen extends ConsumerWidget {
     final isConnected = connections.any((c) => c.peerIdFor(me) == profile.id);
     final inRange = ref.watch(peerInRangeProvider(profile.id));
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(profile.displayName),
-        // Signaler / bloquer une PERSONNE. Sans ce point d'entrée, le
-        // signalement de profil était inatteignable (v0.9.53 → 2026-08-12) : le
-        // menu n'existait que sur les stories et les publications. C'est aussi
-        // le seul recours pour une Vibe reçue en DM, qui n'a pas de Content ID.
-        actions: [
-          // ⚠️ **Retirer un ami n'avait AUCUN bouton** jusqu'au 2026-08-27.
-          // `ConnectionsRepository.remove` existait, la politique RLS aussi —
-          // seule l'entrée manquait. Un geste que le produit autorise mais que
-          // l'interface ne propose pas n'existe pas.
-          if (profile.id != me && isConnected)
-            IconButton(
-              tooltip: 'Retirer de mes amis',
-              icon: const Icon(Icons.person_remove_alt_1_outlined),
-              onPressed: () => _retirer(context, ref, connections, me),
-            ),
-          if (profile.id != me)
-            ContentOverflowMenu(
-              authorId: profile.id,
-              authorName: profile.displayName,
-              color:
-                  Theme.of(context).appBarTheme.foregroundColor ??
-                  Theme.of(context).colorScheme.onSurface,
-            ),
-        ],
-      ),
-      body: ListView(
-        children: [
-          ProfileHeader(profile: profile),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: Row(
-              children: [
-                if (isConnected)
-                  Expanded(
-                    child: FilledButton.icon(
-                      icon: const Icon(Icons.chat_bubble_outline),
-                      label: const Text('Message'),
-                      onPressed: () => _openDirect(context, ref),
-                    ),
-                  )
-                else if (inRange) ...[
-                  // ⚠️ **Les deux boutons BLE ont été retirés le 2026-08-27.**
-                  //
-                  // Ils ouvraient une conversation ping LOCALE et envoyaient une
-                  // demande de connexion co-signée d'appareil à appareil. Les
-                  // deux fonctions passent désormais par le serveur (décision de
-                  // Jay : *« le BLE ne sert qu'à valider et authentifier la
-                  // proximité réelle »*), et le chemin serveur vit sur l'écran
-                  // Ping, sur la personne elle-même.
-                  //
-                  // Les laisser aurait fait **deux boutons « Ajouter » dans
-                  // l'app qui font deux choses différentes** — un chemin, une
-                  // donnée : c'est le défaut que ce projet traque le plus.
-                  Expanded(
-                    child: Text(
-                      "À portée — retrouve-le dans Ping pour lui écrire ou "
-                      "l'ajouter.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: context.muted),
-                    ),
-                  ),
-                ] else
-                  Expanded(
-                    child: Text(
-                      'Hors de portée — recroisez-vous pour échanger.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: context.muted),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 20, 8, 8),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Bibliothèque',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                  ),
+    // Le fil se pose PAR-DESSUS ce profil ([CoverHost]) ; le retour ferme
+    // d'abord la couverture ([BackGuard]).
+    return BackGuard(
+      child: CoverHost(
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(profile.displayName),
+            // Signaler / bloquer une PERSONNE. Sans ce point d'entrée, le
+            // signalement de profil était inatteignable (v0.9.53 → 2026-08-12) : le
+            // menu n'existait que sur les stories et les publications. C'est aussi
+            // le seul recours pour une Vibe reçue en DM, qui n'a pas de Content ID.
+            actions: [
+              // ⚠️ **Retirer un ami n'avait AUCUN bouton** jusqu'au 2026-08-27.
+              // `ConnectionsRepository.remove` existait, la politique RLS aussi —
+              // seule l'entrée manquait. Un geste que le produit autorise mais que
+              // l'interface ne propose pas n'existe pas.
+              if (profile.id != me && isConnected)
+                IconButton(
+                  tooltip: 'Retirer de mes amis',
+                  icon: const Icon(Icons.person_remove_alt_1_outlined),
+                  onPressed: () => _retirer(context, ref, connections, me),
                 ),
-              ],
-            ),
+              if (profile.id != me)
+                ContentOverflowMenu(
+                  authorId: profile.id,
+                  authorName: profile.displayName,
+                  color:
+                      Theme.of(context).appBarTheme.foregroundColor ??
+                      Theme.of(context).colorScheme.onSurface,
+                ),
+            ],
           ),
-          items.when(
-            loading: () => const Padding(
-              padding: EdgeInsets.all(40),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-            error: (e, _) => Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text('Erreur : $e'),
-            ),
-            data: (list) => PublicationsTabs(
-              items: list,
-              feedTitle: profile.displayName,
-              emptyMessage:
-                  'Rien à voir ici — bibliothèque vide ou accès restreint.',
-              padding: const EdgeInsets.all(10),
-            ),
+          body: ListView(
+            children: [
+              ProfileHeader(profile: profile),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: Row(
+                  children: [
+                    if (isConnected)
+                      Expanded(
+                        child: FilledButton.icon(
+                          icon: const Icon(Icons.chat_bubble_outline),
+                          label: const Text('Message'),
+                          onPressed: () => _openDirect(context, ref),
+                        ),
+                      )
+                    else if (inRange) ...[
+                      // ⚠️ **Les deux boutons BLE ont été retirés le 2026-08-27.**
+                      //
+                      // Ils ouvraient une conversation ping LOCALE et envoyaient une
+                      // demande de connexion co-signée d'appareil à appareil. Les
+                      // deux fonctions passent désormais par le serveur (décision de
+                      // Jay : *« le BLE ne sert qu'à valider et authentifier la
+                      // proximité réelle »*), et le chemin serveur vit sur l'écran
+                      // Ping, sur la personne elle-même.
+                      //
+                      // Les laisser aurait fait **deux boutons « Ajouter » dans
+                      // l'app qui font deux choses différentes** — un chemin, une
+                      // donnée : c'est le défaut que ce projet traque le plus.
+                      Expanded(
+                        child: Text(
+                          "À portée — retrouve-le dans Ping pour lui écrire ou "
+                          "l'ajouter.",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: context.muted),
+                        ),
+                      ),
+                    ] else
+                      Expanded(
+                        child: Text(
+                          'Hors de portée — recroisez-vous pour échanger.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: context.muted),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 20, 8, 8),
+                child: Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Bibliothèque',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              items.when(
+                loading: () => const Padding(
+                  padding: EdgeInsets.all(40),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                error: (e, _) => Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Text('Erreur : $e'),
+                ),
+                data: (list) => PublicationsTabs(
+                  items: list,
+                  feedTitle: profile.displayName,
+                  emptyMessage:
+                      'Rien à voir ici — bibliothèque vide ou accès restreint.',
+                  padding: const EdgeInsets.all(10),
+                ),
+              ),
+              const SizedBox(height: 24),
+            ],
           ),
-          const SizedBox(height: 24),
-        ],
+        ),
       ),
     );
   }

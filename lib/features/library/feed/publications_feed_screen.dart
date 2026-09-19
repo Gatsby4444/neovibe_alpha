@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollCacheExtent;
+import 'package:flutter/rendering.dart' show ScrollCacheExtent, ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/content/likes.dart';
 import '../../../core/models/library_item.dart';
 import '../../../core/typography.dart';
 import '../../../core/widgets/anchored_list.dart';
+import '../../../core/widgets/cover_host.dart';
 import 'active_item_tracker.dart';
 import 'flows_reel_screen.dart';
 import 'publication_cell.dart';
@@ -13,12 +14,28 @@ import 'vibes_reel_screen.dart';
 import '../../../core/widgets/reel_route.dart';
 
 /// Ouvre le fil posé sur `items[initialIndex]`.
+///
+/// **En couverture du profil** ([CoverHost]) quand il y en a un : la barre de
+/// navigation reste, et un balayage vers la droite découvre le profil (Jay,
+/// 2026-09-19). Sans hôte, en page — le comportement d'avant.
 void openPublications(
   BuildContext context, {
   required List<LibraryItem> items,
   required int initialIndex,
   String title = 'Publications',
 }) {
+  final host = CoverHost.maybeOf(context);
+  if (host != null) {
+    host.show(
+      PublicationsFeedScreen(
+        items: items,
+        initialIndex: initialIndex,
+        title: title,
+        onClose: host.hide,
+      ),
+    );
+    return;
+  }
   Navigator.of(context).push(
     MaterialPageRoute(
       builder: (_) => PublicationsFeedScreen(
@@ -49,12 +66,16 @@ class PublicationsFeedScreen extends ConsumerStatefulWidget {
     required this.items,
     required this.initialIndex,
     this.title = 'Publications',
+    this.onClose,
   });
 
   /// Les publications, dans l'ordre du profil.
   final List<LibraryItem> items;
   final int initialIndex;
   final String title;
+
+  /// Fermer le fil. Nul = le fil est une page, la flèche la dépile.
+  final VoidCallback? onClose;
 
   @override
   ConsumerState<PublicationsFeedScreen> createState() =>
@@ -68,6 +89,40 @@ class _PublicationsFeedScreenState
   /// La publication sur laquelle le fil est posé — elle suit son élément, pas
   /// son rang : retirer une publication d'avant décale tout le reste.
   late int _anchor = widget.initialIndex;
+
+  /// Le bandeau « ← Publications » : il se cache quand on descend, revient
+  /// dès qu'on remonte un peu, et reste quand on est en haut (Jay,
+  /// 2026-09-19 : *« comme les menus de navigation de certains sites web »*).
+  var _bannerVisible = true;
+
+  bool _onScroll(ScrollNotification n) {
+    // Seul le fil lui-même : les carrousels, dedans, défilent à l'horizontale.
+    if (n.metrics.axis != Axis.vertical) return false;
+    final enHaut = n.metrics.pixels <= n.metrics.minScrollExtent + 1;
+    bool? visible;
+    if (n is UserScrollNotification) {
+      visible = switch (n.direction) {
+        ScrollDirection.reverse => false,
+        ScrollDirection.forward => true,
+        ScrollDirection.idle => enHaut ? true : null,
+      };
+    } else if (n is ScrollUpdateNotification && enHaut) {
+      visible = true;
+    }
+    if (visible != null && visible != _bannerVisible) {
+      setState(() => _bannerVisible = visible!);
+    }
+    return false;
+  }
+
+  void _close() {
+    final onClose = widget.onClose;
+    if (onClose != null) {
+      onClose();
+    } else {
+      Navigator.of(context).maybePop();
+    }
+  }
 
   @override
   void initState() {
@@ -128,14 +183,81 @@ class _PublicationsFeedScreenState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
-      body: ActiveItemTracker(
-        child: _FeedList(
-          items: _items,
-          anchor: _anchor,
-          onOpen: _ouvrirEnGrand,
-          onDeleted: _removed,
-          onChanged: _changed,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            _Banner(
+              title: widget.title,
+              visible: _bannerVisible,
+              onClose: _close,
+            ),
+            Expanded(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: _onScroll,
+                child: ActiveItemTracker(
+                  child: _FeedList(
+                    items: _items,
+                    anchor: _anchor,
+                    onOpen: _ouvrirEnGrand,
+                    onDeleted: _removed,
+                    onChanged: _changed,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Le bandeau du fil : la flèche et le titre, sur une hauteur qui se replie.
+class _Banner extends StatelessWidget {
+  const _Banner({
+    required this.title,
+    required this.visible,
+    required this.onClose,
+  });
+
+  final String title;
+  final bool visible;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      height: visible ? kToolbarHeight : 0,
+      child: ClipRect(
+        child: OverflowBox(
+          maxHeight: kToolbarHeight,
+          alignment: Alignment.bottomCenter,
+          child: SizedBox(
+            height: kToolbarHeight,
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  tooltip: 'Retour',
+                  onPressed: onClose,
+                ),
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        theme.appBarTheme.titleTextStyle ??
+                        theme.textTheme.titleLarge,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

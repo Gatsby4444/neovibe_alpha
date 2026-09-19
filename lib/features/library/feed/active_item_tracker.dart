@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 
 import '../../../app.dart' show routeObserver;
@@ -41,6 +42,11 @@ class ActiveItemTrackerState extends State<ActiveItemTracker> with RouteAware {
   /// Vrai tant qu'un écran est posé par-dessus le fil.
   var _covered = false;
 
+  /// L'horloge du sous-arbre ([TickerMode]) : coupée, le fil n'est pas à
+  /// l'écran — une section cachée de la coquille, par exemple. Deuxième façon
+  /// d'être recouvert, même conséquence : aucun élément actif.
+  ValueListenable<TickerModeData>? _ticking;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -49,6 +55,19 @@ class ActiveItemTrackerState extends State<ActiveItemTracker> with RouteAware {
       if (_route != null) routeObserver.unsubscribe(this);
       _route = route;
       routeObserver.subscribe(this, route);
+    }
+    final ticking = TickerMode.getValuesNotifier(context);
+    if (ticking != _ticking) {
+      _ticking?.removeListener(_onTicking);
+      _ticking = ticking..addListener(_onTicking);
+    }
+  }
+
+  void _onTicking() {
+    if (_ticking?.value.enabled == false) {
+      if (active.value != null) active.value = null;
+    } else {
+      _schedule();
     }
   }
 
@@ -88,7 +107,7 @@ class ActiveItemTrackerState extends State<ActiveItemTracker> with RouteAware {
   }
 
   void _recompute() {
-    if (_covered) {
+    if (_covered || _ticking?.value.enabled == false) {
       if (active.value != null) active.value = null;
       return;
     }
@@ -121,6 +140,7 @@ class ActiveItemTrackerState extends State<ActiveItemTracker> with RouteAware {
   @override
   void dispose() {
     if (_route != null) routeObserver.unsubscribe(this);
+    _ticking?.removeListener(_onTicking);
     active.dispose();
     super.dispose();
   }
