@@ -386,7 +386,9 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
           if (!mounted) return;
           _controller.setLooping(true);
           _controller.setVolume(widget.active ? 1 : 0);
-          if (widget.active) _controller.play();
+          // Pas regardée : le décodeur est rendu tout de suite, l'image
+          // reste (voir `SealedVideoController.suspend`, 2026-09-19).
+          widget.active ? _controller.play() : _controller.suspend();
           setState(() {});
         })
         .catchError((Object e) {
@@ -404,7 +406,7 @@ class _VibeVideoFaceState extends State<VibeVideoFace> {
     super.didUpdateWidget(oldWidget);
     if (!_controller.value.isInitialized) return;
     _controller.setVolume(widget.active ? 1 : 0);
-    widget.active ? _controller.play() : _controller.pause();
+    widget.active ? _controller.resume(play: true) : _controller.suspend();
   }
 
   @override

@@ -89,6 +89,12 @@ class NativePlayer(
         when (call.method) {
             "play" -> player.play()
             "pause" -> player.pause()
+            "suspend" -> player.suspend()
+            "resume" -> player.resume(call.argument<Boolean>("play") ?: false)
+            "stats" -> {
+                result.success(player.stats())
+                return
+            }
             "seekTo" -> player.seekTo((call.argument<Any>("position") as? Number)?.toLong() ?: 0L)
             "setLooping" -> player.setLooping(call.argument<Boolean>("value") ?: false)
             "setVolume" -> player.setVolume((call.argument<Any>("value") as? Number)?.toFloat() ?: 1f)
@@ -402,6 +408,18 @@ class NativePlayer(
             }
 
             exoPlayer.addListener(listener)
+            exoPlayer.addAnalyticsListener(
+                object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+                    override fun onDroppedVideoFrames(
+                        eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime,
+                        droppedFrames: Int,
+                        elapsedMs: Long,
+                    ) {
+                        dropped += droppedFrames
+                        events.send(mapOf("event" to "dropped", "total" to dropped))
+                    }
+                },
+            )
             exoPlayer.setMediaSource(mediaSource())
             exoPlayer.prepare()
             preparedAt = System.nanoTime()
@@ -472,6 +490,50 @@ class NativePlayer(
         fun play() = exoPlayer.play()
 
         fun pause() = exoPlayer.pause()
+
+        /**
+         * **Rend le décodeur** sans jeter le lecteur (2026-09-19, point 2 du
+         * chantier « comme les autres »). Une cellule du fil hors de vue
+         * gardait son décodeur matériel — 4 à 6 en vie pour un téléphone qui
+         * en tient 2 ou 3 : saccades. `stop()` libère le codec, garde la liste
+         * et la position ; la dernière image reste sur la surface, la cellule
+         * la montre. [resume] re-prépare — ~200 ms mesurés.
+         */
+        fun suspend() {
+            stopTicking()
+            suspended = true
+            exoPlayer.stop()
+        }
+
+        fun resume(play: Boolean) {
+            if (!suspended) {
+                if (play) exoPlayer.play()
+                return
+            }
+            suspended = false
+            exoPlayer.prepare()
+            if (play) exoPlayer.play()
+        }
+
+        private var suspended = false
+
+        /** Les images perdues depuis la création, cumulées par l'écouteur. */
+        private var dropped = 0L
+
+        /**
+         * Ce que le lecteur a vraiment fait : images rendues, images perdues.
+         * C'est ce qui départage « décodeur saturé » (perdues) de « octets en
+         * retard » (tampon vide, pas de perte) quand ça saccade.
+         */
+        fun stats(): Map<String, Any> {
+            val counters = exoPlayer.videoDecoderCounters
+            return mapOf(
+                "dropped" to dropped,
+                "rendered" to (counters?.renderedOutputBufferCount ?: 0),
+                "skipped" to (counters?.skippedOutputBufferCount ?: 0),
+                "positionMs" to exoPlayer.currentPosition,
+            )
+        }
 
         fun seekTo(positionMs: Long) {
             exoPlayer.seekTo(positionMs)

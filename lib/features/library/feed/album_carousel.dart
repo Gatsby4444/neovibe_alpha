@@ -303,10 +303,14 @@ class _VideoState extends State<_Video> {
     if (e != null && _error == null && mounted) setState(() => _error = e);
   }
 
+  /// Regardée : le lecteur joue. Pas regardée : il **rend son décodeur**
+  /// (`suspend`, 2026-09-19) et garde sa dernière image à l'écran — le fil
+  /// construit ses cellules 800 px d'avance, et chacune tenait un décodeur
+  /// matériel : 4 à 6 en vie, saccades.
   void _apply() {
     if (!_controller.value.isInitialized) return;
     _controller.setVolume(widget.muted ? 0 : 1);
-    widget.playing ? _controller.play() : _controller.pause();
+    widget.playing ? _controller.resume(play: true) : _controller.suspend();
   }
 
   @override

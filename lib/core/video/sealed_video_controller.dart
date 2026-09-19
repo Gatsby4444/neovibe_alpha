@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../diagnostics/app_log.dart';
 import 'video_open_trace.dart';
 
 /// L'état d'un [SealedVideoController], tel que le natif le rapporte.
@@ -20,6 +21,7 @@ class SealedVideoValue {
     this.isBuffering = false,
     this.isCompleted = false,
     this.hasFirstFrame = false,
+    this.droppedFrames = 0,
     this.error,
   });
 
@@ -35,6 +37,10 @@ class SealedVideoValue {
   final Duration buffered;
   final bool isPlaying;
   final bool isBuffering;
+
+  /// Les images que le décodeur n'a pas eu le temps de rendre, cumulées.
+  /// Non nul = le décodeur est en retard (saturé, ou trop de lecteurs).
+  final int droppedFrames;
 
   /// **Une image a-t-elle été rendue, au moins une ?**
   ///
@@ -71,6 +77,7 @@ class SealedVideoValue {
     bool? isBuffering,
     bool? isCompleted,
     bool? hasFirstFrame,
+    int? droppedFrames,
   }) => SealedVideoValue(
     isInitialized: isInitialized ?? this.isInitialized,
     size: size ?? this.size,
@@ -82,6 +89,7 @@ class SealedVideoValue {
     isBuffering: isBuffering ?? this.isBuffering,
     isCompleted: isCompleted ?? this.isCompleted,
     hasFirstFrame: hasFirstFrame ?? this.hasFirstFrame,
+    droppedFrames: droppedFrames ?? this.droppedFrames,
     error: error,
   );
 
@@ -399,6 +407,8 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
         );
       case 'buffering':
         value = value.copyWith(isBuffering: map['value']! as bool);
+      case 'dropped':
+        value = value.copyWith(droppedFrames: (map['total']! as num).toInt());
       case 'completed':
         value = value.copyWith(isCompleted: true);
       case 'error':
@@ -427,6 +437,14 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
 
   Future<void> pause() => _command('pause');
 
+  /// Rend le décodeur matériel, garde le lecteur et sa dernière image (voir
+  /// le natif). Pour une cellule qui n'est plus celle qu'on regarde.
+  Future<void> suspend() => _command('suspend');
+
+  /// Reprend après [suspend] (~200 ms), et joue si [play].
+  Future<void> resume({required bool play}) =>
+      _command('resume', {'play': play});
+
   Future<void> seekTo(Duration position) =>
       _command('seekTo', {'position': position.inMilliseconds});
 
@@ -450,8 +468,29 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
     final id = _id;
     _id = null;
     // Sans attendre : `dispose` est synchrone, et un lecteur natif se ferme de
-    // toute façon sans que l'interface ait à le savoir.
-    if (id != null) _channel.invokeMethod<void>('dispose', {'id': id});
+    // toute façon sans que l'interface ait à le savoir. Mais AVANT, ce qu'il
+    // a vécu : des images perdues, c'est un décodeur en retard — et c'est
+    // dans le journal qu'on le saura quand Jay dit « ça saccade ».
+    if (id != null) {
+      final trace = _traceId;
+      final dropped = value.droppedFrames;
+      _channel
+          .invokeMapMethod<String, Object?>('stats', {'id': id})
+          .then((stats) {
+            final rendered = (stats?['rendered'] as num?)?.toInt() ?? 0;
+            if (dropped > 0 || (stats?['dropped'] as num? ?? 0) > 0) {
+              AppLog.instance.app(
+                'Lecture — ${trace ?? id} · images rendues=$rendered · '
+                'PERDUES=${stats?['dropped'] ?? dropped} · '
+                'sautées=${stats?['skipped'] ?? 0}',
+              );
+            }
+          })
+          .catchError((_) => null)
+          .whenComplete(
+            () => _channel.invokeMethod<void>('dispose', {'id': id}),
+          );
+    }
     // Le clair du repli hérité meurt avec l'écran. Même raison de ne pas
     // attendre : la suppression d'un fichier temporaire n'intéresse personne,
     // et un échec (fichier déjà parti) ne doit rien casser.
