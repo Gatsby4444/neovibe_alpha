@@ -1291,6 +1291,12 @@ rafraîchit sa session et rappelle `configure`.
 Dépendances ajoutées : `com.google.code.gson:gson:2.11.0` (main, elle n'était
 qu'en test), `com.squareup.okhttp3:okhttp:4.12.0`.
 
+⚠️ **R8 et la réflexion** (v0.9.221, après le test de Jay) : Gson lit ces
+classes **par leur nom** ; en release R8 les renommait (`x7.g`) et le dépôt
+échouait avec « Abstract classes can't be instantiated ». Le paquet `publish`
+est gardé par `android/app/proguard-rules.pro`. Toute classe future lue par
+réflexion s'y ajoute, et se **vérifie dans `mapping.txt`** de l'APK.
+
 **iOS (à faire)** : le même `job.json`, le même pipeline (`AVAssetExportSession`
 pour le transcodage, `CryptoKit` pour le scellage) ; l'envoi par `URLSession`
 en configuration `background` (il continue app tuée, le système rappelle

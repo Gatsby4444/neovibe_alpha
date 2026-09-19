@@ -138,6 +138,13 @@ android {
 
     buildTypes {
         release {
+            // Les classes que Gson lit par réflexion gardent leur nom
+            // (`proguard-rules.pro`) — sans quoi la file de publication
+            // échouait en release seulement (2026-09-19).
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             // ⚠️ **Le repli sur la clé de debug DOIT rester bruyant.** Un APK
             // signé par une clé de debug ressemble en tout point à un APK
             // officiel : même nom, même icône, même numéro de version. Seule
