@@ -106,6 +106,41 @@ void main() {
     });
   });
 
+  testWidgets('une liste encore en mouvement : le balayage ne découvre pas, '
+      'il l\'arrête ; une fois posée, il découvre', (tester) async {
+    // Pendant la lancée, Flutter rend le contenu sourd au doigt : le
+    // balayage n'atteint que la couverture. Sans la règle, elle fermait.
+    await poser(
+      tester,
+      ListView(
+        children: [
+          for (var i = 0; i < 40; i++)
+            SizedBox(
+              height: 120,
+              child: ColoredBox(color: Colors.primaries[i % 18]),
+            ),
+        ],
+      ),
+    );
+    await tester.fling(find.byType(ListView), const Offset(0, -600), 2000);
+    // Quelques images de lancée : la première n'a pas encore bougé.
+    for (var i = 0; i < 4; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    // La liste glisse encore : un balayage vers la droite.
+    await tester.drag(find.byType(ListView), const Offset(400, 0));
+    await tester.pumpAndSettle();
+    expect(host.isCovered, isTrue, reason: 'le fil bougeait : rien à fermer');
+
+    // Posée (le temps d'un souffle, en temps réel : la fenêtre est murale).
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 200)),
+    );
+    await tester.drag(find.byType(ListView), const Offset(400, 0));
+    await tester.pumpAndSettle();
+    expect(host.isCovered, isFalse);
+  });
+
   test('shouldUncover : loin OU vite, jamais pour un souffle', () {
     expect(Uncoverable.shouldUncover(dx: 150, velocity: 0, width: 400), isTrue);
     expect(

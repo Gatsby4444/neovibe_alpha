@@ -122,6 +122,44 @@ class _UncoverableState extends State<Uncoverable>
   /// le `RenderObject` pendant un build.
   var _width = 1.0;
 
+  /// **Une liste de la couverture est en mouvement** (sur sa lancée après un
+  /// geste). Flutter rend alors son contenu sourd au doigt — le prochain
+  /// toucher sert à l'ARRÊTER — si bien qu'un balayage sur une card
+  /// n'atteignait jamais la card, mais bien la couverture, au-dessus, qui
+  /// fermait le fil (Jay, 2026-09-19 : *« comme si l'affichage de la card et
+  /// sa délimitation n'étaient pas coordonnés »*). Un glissement qui commence
+  /// pendant le mouvement est donc **ignoré** : il arrête la liste, rien
+  /// d'autre.
+  ///
+  /// ⚠️ Mesuré par l'**instant du dernier mouvement sur la lancée**, pas par
+  /// un drapeau début/fin : le toucher qui arrête la liste produit la
+  /// notification de fin AVANT que notre geste ne commence (la liste, plus
+  /// profonde, traite le doigt la première) — un drapeau serait déjà
+  /// retombé. Un glissement qui commence moins de [_elan] après le dernier
+  /// mouvement (`dragDetails == null` = sur la lancée, pas sous le doigt) est
+  /// ignoré. L'horloge murale est assumée ici : c'est une fenêtre de geste,
+  /// comme `kDoubleTapTimeout`, et le temps d'image ne court pas quand rien
+  /// ne bouge.
+  DateTime? _dernierElan;
+  static const _elan = Duration(milliseconds: 120);
+
+  /// Le glissement en cours a commencé pendant le mouvement : on n'en fait
+  /// rien jusqu'au relâchement.
+  var _ignore = false;
+
+  bool _onScroll(ScrollNotification n) {
+    if (n.metrics.axis != Axis.vertical) return false;
+    if (n is ScrollUpdateNotification && n.dragDetails == null) {
+      _dernierElan = DateTime.now();
+    }
+    return false;
+  }
+
+  void _dragStart() {
+    final dernier = _dernierElan;
+    _ignore = dernier != null && DateTime.now().difference(dernier) < _elan;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -132,12 +170,16 @@ class _UncoverableState extends State<Uncoverable>
   }
 
   void _move(double delta) {
-    if (_leaving) return;
+    if (_leaving || _ignore) return;
     _anim.stop();
     setState(() => _dx = (_dx + delta).clamp(0.0, _width));
   }
 
   void _release(double velocity) {
+    if (_ignore) {
+      _ignore = false;
+      return;
+    }
     if (_leaving || _dx <= 0) return;
     if (Uncoverable.shouldUncover(dx: _dx, velocity: velocity, width: _width)) {
       _leaving = true;
@@ -196,13 +238,17 @@ class _UncoverableState extends State<Uncoverable>
                   ),
               ],
             ),
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onHorizontalDragUpdate: (d) => _move(d.delta.dx),
-              onHorizontalDragEnd: (d) =>
-                  _release(d.velocity.pixelsPerSecond.dx),
-              onHorizontalDragCancel: () => _release(0),
-              child: widget.child,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _onScroll,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragStart: (_) => _dragStart(),
+                onHorizontalDragUpdate: (d) => _move(d.delta.dx),
+                onHorizontalDragEnd: (d) =>
+                    _release(d.velocity.pixelsPerSecond.dx),
+                onHorizontalDragCancel: () => _release(0),
+                child: widget.child,
+              ),
             ),
           ),
         ),
