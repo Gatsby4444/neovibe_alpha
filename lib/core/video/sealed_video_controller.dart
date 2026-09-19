@@ -286,6 +286,14 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
         'neovibe/player/events/$id',
       ).receiveBroadcastStream().listen(_onEvent, onError: _onError);
     } catch (e) {
+      // ⚠️ Dans le journal AUSSI (2026-09-20) : les trois erreurs de Jay
+      // (« média introuvable », « Source error ») n'y étaient pas — seules
+      // trois boîtes de dialogue ouvertes, sans leur contenu. Un diagnostic
+      // qui ne porte pas l'erreur ne permet pas d'en trouver la cause.
+      AppLog.instance.error(
+        'Lecture — ${_traceId ?? _path} : ouverture impossible',
+        '$e',
+      );
       if (!ready.isCompleted) ready.completeError(e);
       return ready.future;
     }
@@ -466,7 +474,9 @@ class SealedVideoController extends ValueNotifier<SealedVideoValue> {
   void _onError(Object error, [StackTrace? stack]) {
     // Avant l'ouverture, l'échec part par la future. **Après, il entre dans
     // la valeur** : c'est le seul moyen pour que la face l'apprenne — sinon
-    // elle reste noire pendant que le son joue.
+    // elle reste noire pendant que le son joue. Et dans le journal (voir
+    // `initialize`).
+    AppLog.instance.error('Lecture — ${_traceId ?? _path} : erreur', '$error');
     value = value.withError(error);
     if (_ready?.isCompleted == false) _ready!.completeError(error);
   }

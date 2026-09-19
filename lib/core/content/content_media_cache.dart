@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../diagnostics/app_log.dart';
+
 import 'content_face.dart';
 
 /// Cache local des médias du **socle de contenu** (stories et publications) —
@@ -202,6 +204,8 @@ class ContentMediaCache {
     if (total <= ownMaxBytes) return;
     fichiers.sort((a, b) => a.$2.compareTo(b.$2)); // le plus vieux d'abord
     final limite = DateTime.now().subtract(ownGrace);
+    final avant = total;
+    final effaces = <String>[];
     for (final (file, touche, size) in fichiers) {
       if (total <= ownMaxBytes) break;
       // Touché récemment : on le regarde peut-être en ce moment même.
@@ -209,8 +213,16 @@ class ContentMediaCache {
       try {
         await file.delete();
         total -= size;
+        effaces.add(file.uri.pathSegments.last);
       } catch (_) {}
     }
+    // Dans le journal : un fichier qui disparaît sans trace, c'est une
+    // « vidéo introuvable » qu'on ne peut plus expliquer (2026-09-20).
+    AppLog.instance.app(
+      'Cache de mes contenus — balai : ${effaces.length} effacé(s), '
+      '${avant ~/ (1024 * 1024)} → ${total ~/ (1024 * 1024)} Mo',
+      effaces.isEmpty ? null : effaces.join(', '),
+    );
   }
 
   /// Où vit le cache **partiel** d'une face lue en flux.
