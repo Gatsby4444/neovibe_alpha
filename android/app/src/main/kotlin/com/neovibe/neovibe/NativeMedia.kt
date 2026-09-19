@@ -325,7 +325,7 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
             FileOutputStream(tmp).use { out ->
                 bitmap.compress(Bitmap.CompressFormat.JPEG, quality.coerceIn(50, 100), out)
             }
-            if (!tmp.renameTo(file)) return "renommage impossible"
+            MediaTranscoder.moveInto(tmp, file)?.let { return it }
             null
         } catch (e: Exception) {
             e.message ?: e.javaClass.simpleName
@@ -362,7 +362,7 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
             FileOutputStream(tmp).use { out ->
                 scaled.compress(Bitmap.CompressFormat.JPEG, 85, out)
             }
-            if (!tmp.renameTo(file)) return "renommage impossible"
+            MediaTranscoder.moveInto(tmp, file)?.let { return it }
             null
         } catch (e: Exception) {
             e.message ?: e.javaClass.simpleName

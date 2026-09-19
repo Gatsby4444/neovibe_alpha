@@ -298,7 +298,7 @@ object MediaTranscoder {
             audioExtractor?.let { mux.writeAudioUpTo(it, startUs, endUs, Long.MAX_VALUE) }
             mux.finish()
             muxer = null
-            if (!tmp.renameTo(p.dest)) return Result(false, "renommage impossible", 0, hasAudio, note)
+            moveInto(tmp, p.dest)?.let { return Result(false, it, 0, hasAudio, note) }
             return Result(true, "ok", ((lastPtsUs / 1000L) + 1000L / fps).toInt(), hasAudio, note)
         } catch (e: Exception) {
             return Result(false, e.message ?: e.javaClass.simpleName, 0, hasAudio)
@@ -318,6 +318,37 @@ object MediaTranscoder {
     }
 
     private fun hex(e: Int) = if (e == 0) "0" else "0x" + Integer.toHexString(e)
+
+    /**
+     * Le `.part` devient le fichier final. `File.renameTo` rend `false` sans
+     * dire pourquoi (Android avale l'errno) — le 2026-09-19, 24 s de rendu
+     * réussi (1 747 images, luminance 253) ont été perdues sur ce seul
+     * `false`. Deuxième chance par `Files.move` (qui, lui, explique), puis
+     * copie + suppression ; en dernier recours, un message qui dit ce qui
+     * existe et ce qui manque.
+     */
+    fun moveInto(tmp: File, dest: File): String? {
+        if (tmp.renameTo(dest)) return null
+        val etat = "tmp existe=${tmp.exists()} taille=${tmp.length()} · dossier existe=${dest.parentFile?.exists()} · dest existe=${dest.exists()}"
+        try {
+            java.nio.file.Files.move(
+                tmp.toPath(),
+                dest.toPath(),
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+            )
+            return null
+        } catch (e: Exception) {
+            val move = "${e.javaClass.simpleName} ${e.message}"
+            try {
+                if (!tmp.exists()) return "renommage impossible : le rendu a disparu ($move · $etat)"
+                tmp.copyTo(dest, overwrite = true)
+                tmp.delete()
+                return null
+            } catch (e2: Exception) {
+                return "renommage impossible : $move ; copie : ${e2.javaClass.simpleName} ${e2.message} · $etat"
+            }
+        }
+    }
 
     /**
      * Un décodeur LOGICIEL pour ce mime (`c2.android.*` ou `OMX.google.*`),
