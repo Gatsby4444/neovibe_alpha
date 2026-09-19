@@ -144,6 +144,15 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- ⚠️ TEST A/B du 2026-09-19 (vidéos noires avec le son, Xiaomi M2101K6G) :
+             le diagnostic montre des vidéos locales dont le décodeur a livré sa
+             première image, et un écran noir quand même — l'image se perd à
+             l'étage d'affichage. Avec Impeller, ce chemin passe par un
+             ImageReader ; sans, par une SurfaceTexture. Retirer cette ligne
+             rétablit le défaut (Impeller actif). Verdict de Jay attendu. -->
+        <meta-data
+            android:name="io.flutter.embedding.android.EnableImpeller"
+            android:value="false" />
     </application>
     <queries>
         <intent>
