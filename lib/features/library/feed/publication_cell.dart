@@ -149,12 +149,14 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
       onChanged: widget.onChanged,
     );
 
-    // Aimer au geste : double tap **et** appui long sur une publication,
-    // appui long seul sur une Vibe — le tap y ouvre déjà le plein écran, et
-    // un double tap le retarderait (Jay, 2026-09-17).
+    // Aimer au geste : double tap **et** appui long, publication comme Vibe
+    // (Jay, 2026-09-19 : *« rétablis le double tap pour liker sur les cards
+    // du fil »*). Le tap simple — ouvrir en plein écran — attend donc
+    // ~300 ms un éventuel second appui ; Jay l'accepte ICI, dans le fil.
+    // En plein écran, non (RAPPELS #147).
     final media = LikeBurst(
       contentId: item.id,
-      doubleTap: item.isPublication,
+      doubleTap: true,
       child: item.isPublication
           ? AlbumCarousel(
               item: item,

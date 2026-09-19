@@ -136,10 +136,16 @@ class _VibeCardViewState extends ConsumerState<VibeCardView> {
           _face(frontFile, item.frontIsVideo, widget.active && _showFront),
     );
     if (!item.hasBack) {
+      // Une card mono : rien à retourner, mais le réflexe de balayer
+      // existe (Jay, 2026-09-19). Le geste est ABSORBÉ, sans effet — sinon
+      // il remonterait à la couverture du fil et le fermerait.
       return _tappable(
-        widget.control == FlipControl.sides
-            ? frontFace
-            : TiltableCard(child: frontFace),
+        GestureDetector(
+          onHorizontalDragStart: (_) {},
+          child: widget.control == FlipControl.sides
+              ? frontFace
+              : TiltableCard(child: frontFace),
+        ),
       );
     }
     final backFile = back?.value;

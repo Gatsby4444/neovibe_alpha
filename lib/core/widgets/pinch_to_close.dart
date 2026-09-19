@@ -127,17 +127,25 @@ class _PinchToCloseState extends State<PinchToClose>
       },
       onPointerUp: (e) => _leve(e.pointer),
       onPointerCancel: (e) => _leve(e.pointer),
-      child: _t == 0
-          ? widget.child
-          : Transform.scale(
-              // La forme se rétracte déjà beaucoup : l'échelle n'ajoute
-              // qu'un souffle.
-              scale: 1 - 0.12 * _t,
-              child: ClipPath(
-                clipper: RetractionClipper(math.min(_t, 1)),
-                child: widget.child,
-              ),
-            ),
+      // ⚠️ **Les deux enveloppes sont TOUJOURS là** — échelle 1 et découpage
+      // désactivé tant qu'on ne pince pas. Jusqu'au 2026-09-19, l'écran
+      // n'était emballé qu'à partir du premier pincement : pour Flutter,
+      // « l'écran » et « l'écran dans deux enveloppes » sont deux arbres, et
+      // le second était RECONSTRUIT de zéro — la liste des Vibes repartait à
+      // sa page de départ (la forme qui rétrécit montrait la Vibe d'où le
+      // plein écran avait été ouvert, pas celle qu'on regardait), et le
+      // lecteur d'un Flow repartait du début. La structure ne dépend pas
+      // d'un état — la même règle que la carte retournable, le même jour.
+      child: Transform.scale(
+        // La forme se rétracte déjà beaucoup : l'échelle n'ajoute qu'un
+        // souffle.
+        scale: 1 - 0.12 * _t,
+        child: ClipPath(
+          clipBehavior: _t == 0 ? Clip.none : Clip.antiAlias,
+          clipper: RetractionClipper(math.min(_t, 1)),
+          child: widget.child,
+        ),
+      ),
     );
   }
 }

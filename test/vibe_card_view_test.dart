@@ -59,4 +59,43 @@ void main() {
     // Pas d'erreur, pas de vide : la carte a pris le geste.
     expect(find.byType(FlippableCard), findsOneWidget);
   });
+
+  testWidgets('une card MONO absorbe le balayage : rien ne remonte au-dessus', (
+    tester,
+  ) async {
+    // Jay, 2026-09-19 : le réflexe de balayer existe même sans verso ; le
+    // geste ne doit pas atteindre la couverture du fil (qui fermerait).
+    final mono = LibraryItem(
+      id: 'm1',
+      ownerId: 'moi',
+      media: const [LibraryMedia(slot: 0, path: 'moi/m1_0.jpg')],
+      createdAt: DateTime(2026, 9, 19),
+    );
+    final jamais = Completer<OpenedMedia>();
+    var remonte = 0;
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          contentFaceProvider.overrideWith((ref, spec) => jamais.future),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: GestureDetector(
+              onHorizontalDragUpdate: (_) => remonte++,
+              child: Center(
+                child: SizedBox(
+                  width: 300,
+                  child: VibeCardView(item: mono, active: true),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.drag(find.byType(VibeCardView), const Offset(200, 0));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(remonte, 0);
+  });
 }

@@ -9,9 +9,8 @@ import 'package:neovibe/core/widgets/cover_host.dart';
 /// - poser / retirer, et le retour système qui retire avant de quitter ;
 /// - un balayage vers la droite parti d'une zone libre découvre ; un
 ///   balayage court ne découvre pas ;
-/// - un carrousel (`PageView`) sur sa **première** image : balayer vers la
-///   droite découvre ; sur une autre image, le même geste change d'image et
-///   la couverture reste.
+/// - sur un contenu (un carrousel, quelle que soit l'image), le même geste
+///   ne découvre jamais : le contenu le garde.
 void main() {
   var quitte = 0;
   late CoverHostState host;
@@ -83,14 +82,14 @@ void main() {
       ],
     );
 
-    testWidgets('première image : balayer vers la droite découvre', (
-      tester,
-    ) async {
+    testWidgets('première image : balayer vers la droite ne découvre PAS — '
+        'un contenu garde le geste', (tester) async {
+      // Jay, 2026-09-19 : la sortie n'existe qu'en dehors de tout contenu.
       final c = PageController();
       await poser(tester, carrousel(c));
       await tester.drag(find.byType(PageView), const Offset(400, 0));
       await tester.pumpAndSettle();
-      expect(host.isCovered, isFalse);
+      expect(host.isCovered, isTrue);
       c.dispose();
     });
 

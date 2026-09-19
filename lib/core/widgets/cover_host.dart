@@ -78,18 +78,16 @@ class CoverHostState extends State<CoverHost> {
 /// **Le geste de découverte** : la couverture suit le doigt vers la droite,
 /// et se retire si on l'a tirée assez loin ou assez vite.
 ///
-/// Deux sources nourrissent le même déplacement — c'est ce qui rend le geste
-/// possible partout où il n'est pas déjà pris :
-///
-/// - un **glissement** parti d'une zone libre (en-tête, légende, marge…) :
-///   un `HorizontalDragGestureRecognizer` ordinaire. Sur une **card**, c'est
-///   le retournement, plus profond, qui gagne — le geste n'y existe pas, et
-///   c'est voulu ;
-/// - le **sur-défilement** d'un carrousel sur sa **première image** : le
-///   `PageView` tient le doigt, ne peut pas aller plus à gauche, et le dit
-///   (`OverscrollNotification`, axe horizontal) ; on lit ce qu'il rapporte,
-///   comme « tirer vers le bas » des plein-écrans. Sur une autre image, le
-///   même geste change d'image, comme avant.
+/// ⚠️ **Il n'existe qu'en dehors de tout contenu** (Jay, 2026-09-19 : *« le
+/// réflexe de vouloir swiper pour retourner une card existe, mais parfois ce
+/// n'est pas une card ou c'est une card mono »*) : en-tête, légende, marges,
+/// espaces entre les cellules — un `HorizontalDragGestureRecognizer`
+/// ordinaire, que tout contenu, plus profond, bat. Une card à deux faces se
+/// retourne, un carrousel se feuillette (et ne rend pas la main sur sa
+/// première image), une card mono ou une photo seule **absorbent** le geste
+/// sans rien faire (leur zone neutre). Un premier jet lisait aussi le
+/// sur-défilement des carrousels pour découvrir depuis la première image ;
+/// retiré le jour même à sa demande.
 class Uncoverable extends StatefulWidget {
   const Uncoverable({
     super.key,
@@ -156,20 +154,6 @@ class _UncoverableState extends State<Uncoverable>
     return _anim.forward(from: 0);
   }
 
-  bool _onNotification(ScrollNotification n) {
-    if (n.metrics.axis != Axis.horizontal) return false;
-    if (n is OverscrollNotification && n.overscroll < 0) {
-      // Première image, le doigt tire vers la droite : la couverture suit.
-      _move(-n.overscroll);
-    } else if (n is ScrollUpdateNotification && _dx > 0) {
-      // Le doigt repart vers la gauche : la couverture revient d'autant.
-      _move(-(n.scrollDelta ?? 0));
-    } else if (n is ScrollEndNotification && _dx > 0) {
-      _release(n.dragDetails?.velocity.pixelsPerSecond.dx ?? 0);
-    }
-    return false;
-  }
-
   @override
   void dispose() {
     _anim.dispose();
@@ -212,16 +196,13 @@ class _UncoverableState extends State<Uncoverable>
                   ),
               ],
             ),
-            child: NotificationListener<ScrollNotification>(
-              onNotification: _onNotification,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onHorizontalDragUpdate: (d) => _move(d.delta.dx),
-                onHorizontalDragEnd: (d) =>
-                    _release(d.velocity.pixelsPerSecond.dx),
-                onHorizontalDragCancel: () => _release(0),
-                child: widget.child,
-              ),
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onHorizontalDragUpdate: (d) => _move(d.delta.dx),
+              onHorizontalDragEnd: (d) =>
+                  _release(d.velocity.pixelsPerSecond.dx),
+              onHorizontalDragCancel: () => _release(0),
+              child: widget.child,
             ),
           ),
         ),
