@@ -11,12 +11,14 @@ import '../../../core/typography.dart';
 import '../../../core/video/sealed_video_controller.dart';
 import '../../../core/video/sealed_video_view.dart';
 import '../../../core/video/video_watchdog.dart';
+import '../../../core/widgets/action_button.dart';
 import '../../../core/widgets/anchor_scope.dart';
 import '../../../core/widgets/like_burst.dart';
 import '../../../core/widgets/pinch_to_close.dart';
 import '../../../core/widgets/system_bars.dart';
 import '../../../core/widgets/vibe_face.dart';
 import '../../connections/connections_repository.dart';
+import 'flow_frame.dart';
 import 'publication_actions.dart';
 import 'reel_common.dart';
 
@@ -25,8 +27,9 @@ import 'reel_common.dart';
 /// comme sur Insta avec les reels »*).
 ///
 /// Une vidéo par écran, fond noir, on glisse vers le haut pour la suivante.
-/// Par-dessus : l'auteur et sa légende **en haut** à gauche, les actions en
-/// colonne à droite, **au milieu** de la hauteur (Jay, 2026-09-18).
+/// Par-dessus, **dans le cadre de la vidéo** ([FlowFrame]) : l'auteur en
+/// haut à gauche, la légende en bas ; et les actions en colonne à droite,
+/// le cœur **au milieu de l'écran** (Jay, 2026-09-20).
 ///
 /// ⚠️ **Ce n'est pas l'écran des Vibes, et c'est voulu.** Une Vibe est un
 /// objet qu'on manipule — elle se retourne, elle s'incline, son habillage vit
@@ -38,10 +41,6 @@ import 'reel_common.dart';
 /// ⚠️ **Un seul lecteur vit à la fois** : seule la page regardée ouvre le
 /// sien. Un décodeur vidéo est une ressource matérielle comptée — c'est ce
 /// qui rendait des vidéos noires avec le son (v0.9.197).
-/// Où la colonne d'actions se pose sur la hauteur : 0 = le milieu, 1 = le
-/// bas. À mi-chemin des deux — l'entre-deux demandé par Jay.
-const kFlowActionsAlignment = Alignment(1, 0.5);
-
 class FlowsReelScreen extends ConsumerStatefulWidget {
   const FlowsReelScreen({
     super.key,
@@ -221,7 +220,7 @@ class _FlowsReelScreenState extends ConsumerState<FlowsReelScreen> {
 }
 
 /// Un Flow et ce qui flotte dessus.
-class _FlowPage extends ConsumerWidget {
+class _FlowPage extends ConsumerStatefulWidget {
   const _FlowPage({
     super.key,
     required this.item,
@@ -235,6 +234,23 @@ class _FlowPage extends ConsumerWidget {
   final VoidCallback onDeleted;
   final ValueChanged<LibraryItem> onChanged;
 
+  @override
+  ConsumerState<_FlowPage> createState() => _FlowPageState();
+}
+
+class _FlowPageState extends ConsumerState<_FlowPage> {
+  /// La taille réelle de la vidéo, publiée par le lecteur une fois ouvert.
+  /// Avant : le format enregistré à la publication ; à défaut, 9:16.
+  Size? _videoSize;
+
+  LibraryItem get item => widget.item;
+
+  double get _ratio {
+    final v = _videoSize;
+    if (v != null && !v.isEmpty) return v.width / v.height;
+    return item.aspect?.ratio ?? AlbumAspect.reel.ratio;
+  }
+
   ContentFace get _spec => (
     contentId: item.id,
     ownerId: item.ownerId,
@@ -247,95 +263,99 @@ class _FlowPage extends ConsumerWidget {
     expiresAt: null,
   );
 
+  void _onSize(Size size) {
+    if (size == _videoSize || !mounted) return;
+    setState(() => _videoSize = size);
+  }
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final mine = item.ownerId == ref.watch(currentUserIdProvider);
     final owner = ref.watch(profileByIdProvider(item.ownerId)).value;
     final ouvert = ref.watch(contentFaceProvider(_spec));
     final caption = item.caption;
+    final hasCaption = caption != null && caption.isNotEmpty;
+    final safe = MediaQuery.paddingOf(context);
+    final screenHeight = MediaQuery.sizeOf(context).height;
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        // La vidéo, plein cadre. Aimer au geste, comme dans le fil.
-        LikeBurst(
-          contentId: item.id,
-          doubleTap: true,
-          child: ouvert.when(
-            loading: () => const ColoredBox(
-              color: Colors.black,
-              child: Center(
-                child: CircularProgressIndicator(color: Colors.white24),
-              ),
-            ),
-            error: (e, _) => ColoredBox(
-              color: Colors.black,
-              child: VideoFaceError(error: e),
-            ),
-            data: (media) => _Video(media: media, active: active),
-          ),
-        ),
-        // Le voile du haut : du blanc sur une vidéo claire ne se lit pas.
-        const Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: IgnorePointer(
-            child: SizedBox(
-              height: 200,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [Color(0xB3000000), Colors.transparent],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final page = constraints.biggest;
+        final rect = FlowFrame.rectFor(ratio: _ratio, page: page);
+        final top = FlowFrame.topInset(rect: rect, safeTop: safe.top);
+        final bottom = FlowFrame.bottomInset(
+          rect: rect,
+          page: page,
+          safeBottom: safe.bottom,
+        );
+        final close = FlowFrame.closeReserve(
+          rect: rect,
+          page: page,
+          safeTop: safe.top,
+        );
+        final heart = FlowFrame.heartCenter(
+          page: page,
+          screenHeight: screenHeight,
+        );
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            // La vidéo, plein cadre. Aimer au geste, comme dans le fil.
+            LikeBurst(
+              contentId: item.id,
+              doubleTap: true,
+              child: ouvert.when(
+                loading: () => const ColoredBox(
+                  color: Colors.black,
+                  child: Center(
+                    child: CircularProgressIndicator(color: Colors.white24),
                   ),
+                ),
+                error: (e, _) => ColoredBox(
+                  color: Colors.black,
+                  child: VideoFaceError(error: e),
+                ),
+                data: (media) => _Video(
+                  media: media,
+                  active: widget.active,
+                  onSize: _onSize,
                 ),
               ),
             ),
-          ),
-        ),
-        // L'auteur et sa légende : EN HAUT (Jay, 2026-09-18 : « déplace la
-        // partie PP, username, description… tout cela en haut et non plus en
-        // bas »). La droite est laissée au bouton « Fermer ».
-        Positioned(
-          left: 0,
-          right: 56,
-          top: 0,
-          child: SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(
-                NeoSpace.lg,
-                NeoSpace.sm,
-                0,
-                0,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+            // **Dans le cadre de la vidéo** : les voiles, l'auteur en haut,
+            // la légende en bas (Jay, 2026-09-20 : « il doit être dans le
+            // contenu en plein écran » ; « la description en bas du
+            // contenu »). La droite du haut est laissée au bouton « Fermer »
+            // quand la vidéo monte jusqu'à lui ; celle du bas, à la colonne
+            // d'actions.
+            Positioned.fromRect(
+              rect: rect,
+              child: Stack(
                 children: [
-                  ReelIdentity(item: item, owner: owner, mine: mine),
-                  if (caption != null && caption.isNotEmpty) ...[
-                    const SizedBox(height: NeoSpace.xs),
-                    ReelCaption(text: caption),
-                  ],
+                  // Les voiles : du blanc sur une vidéo claire ne se lit pas.
+                  const _Veil(top: true),
+                  if (hasCaption) const _Veil(top: false),
+                  Positioned(
+                    left: NeoSpace.lg,
+                    right: close > NeoSpace.lg ? close : NeoSpace.lg,
+                    top: top + NeoSpace.sm,
+                    child: ReelIdentity(item: item, owner: owner, mine: mine),
+                  ),
+                  if (hasCaption)
+                    Positioned(
+                      left: NeoSpace.lg,
+                      right: _kActionsReserve,
+                      bottom: bottom + NeoSpace.md,
+                      child: ReelCaption(text: caption),
+                    ),
                 ],
               ),
             ),
-          ),
-        ),
-        // La colonne d'actions : à droite, **entre le milieu et le bas** de
-        // l'écran (Jay, 2026-09-18 : d'abord « aligné au milieu, pas en
-        // bas », puis « trop haut, c'est un entre-deux que je veux »).
-        Positioned(
-          right: 0,
-          top: 0,
-          bottom: 0,
-          child: Align(
-            alignment: kFlowActionsAlignment,
-            child: Padding(
-              padding: const EdgeInsets.only(right: 10),
+            // La colonne d'actions : à droite, le cœur centré sur le milieu
+            // de l'écran, le reste dessous.
+            Positioned(
+              right: _kActionsRight,
+              top: heart - ActionMetrics.extent(false) / 2,
               child: PublicationActions(
                 item: item,
                 mine: mine,
@@ -344,23 +364,65 @@ class _FlowPage extends ConsumerWidget {
                 saveFrontIsVideo: true,
                 vertical: true,
                 color: Colors.white,
-                onDeleted: onDeleted,
-                onChanged: onChanged,
+                onDeleted: widget.onDeleted,
+                onChanged: widget.onChanged,
               ),
             ),
-          ),
-        ),
-      ],
+          ],
+        );
+      },
     );
   }
 }
 
+/// La marge de la colonne d'actions au bord droit, et la largeur que la
+/// légende lui laisse (un bouton plein + cette marge + un écart).
+const _kActionsRight = 10.0;
+const _kActionsReserve = 48.0 + _kActionsRight + NeoSpace.sm;
+
+/// Un voile noir dégradé sur un bord de la vidéo, pour que le blanc se lise.
+class _Veil extends StatelessWidget {
+  const _Veil({required this.top});
+
+  final bool top;
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+    left: 0,
+    right: 0,
+    top: top ? 0 : null,
+    bottom: top ? null : 0,
+    child: IgnorePointer(
+      child: SizedBox(
+        height: 160,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: top ? Alignment.topCenter : Alignment.bottomCenter,
+              end: top ? Alignment.bottomCenter : Alignment.topCenter,
+              colors: const [Color(0xB3000000), Colors.transparent],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 /// La vidéo d'un Flow : elle remplit l'écran, en boucle, avec le son.
 class _Video extends StatefulWidget {
-  const _Video({required this.media, required this.active});
+  const _Video({
+    required this.media,
+    required this.active,
+    required this.onSize,
+  });
 
   final OpenedMedia media;
   final bool active;
+
+  /// La taille de la vidéo, une fois connue : c'est elle qui donne le cadre
+  /// à ce qui se pose dessus ([FlowFrame]).
+  final ValueChanged<Size> onSize;
 
   @override
   State<_Video> createState() => _VideoState();
@@ -381,6 +443,7 @@ class _VideoState extends State<_Video> {
           _controller.setLooping(true);
           _apply();
           setState(() {});
+          widget.onSize(_controller.value.size);
         })
         .catchError((Object e) {
           if (mounted) setState(() => _error = e);

@@ -17,6 +17,12 @@ abstract final class ActionMetrics {
   static EdgeInsets padding(bool dense) => EdgeInsets.all(dense ? 6 : 8);
   static BoxConstraints? constraints(bool dense) =>
       dense ? const BoxConstraints(minWidth: 34, minHeight: 34) : null;
+
+  /// La hauteur (et la largeur) qu'un bouton occupe : en pleine taille,
+  /// l'icône et ses marges font 40, mais `IconButton` étend sa cible au
+  /// minimum Material de 48 — **mesuré** par `test/flow_frame_test.dart`,
+  /// pas déduit. C'est ce qui permet de centrer le cœur sur un point.
+  static double extent(bool dense) => dense ? 34 : 48;
 }
 
 /// Un bouton d'action, aux mesures d'[ActionMetrics].
