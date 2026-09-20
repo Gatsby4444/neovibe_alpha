@@ -421,30 +421,65 @@ class _FaceSwitch extends StatelessWidget {
 enum VibeEditorQuit { keep, discard }
 
 /// **La popup de sortie d'une Vibe** — la même partout (éditeur, récap,
-/// « À qui ? ») : rester, supprimer, ou garder en brouillon. Rend `null` si
+/// « À qui ? ») : rester, garder en brouillon, ou supprimer. Rend `null` si
 /// l'utilisateur reste.
-Future<VibeEditorQuit?> askVibeQuit(BuildContext context) =>
-    showDialog<VibeEditorQuit>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Quitter cette Vibe ?'),
-        content: const Text(
-          'Elle n\'a pas été envoyée. Un brouillon la garde 3 jours dans '
-          'Réglages › Brouillons — seulement si tu le demandes.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Rester'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, VibeEditorQuit.discard),
-            child: const Text('Supprimer'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, VibeEditorQuit.keep),
-            child: const Text('Garder en brouillon'),
-          ),
-        ],
-      ),
+///
+/// Trois boutons **de même taille, empilés** (Jay, 2026-09-20) : « Rester »
+/// en premier, plein ; « Garder en brouillon », plein ; « Supprimer » en
+/// bas, encadré de la même couleur mais sans fond — c'est le geste qui ne se
+/// défait pas, il ne doit pas être le plus voyant. [draftPossible] faux
+/// (BeReal, bibliothèque éphémère) : pas de brouillon à proposer.
+Future<VibeEditorQuit?> askVibeQuit(
+  BuildContext context, {
+  bool draftPossible = true,
+}) => showDialog<VibeEditorQuit>(
+  context: context,
+  builder: (context) {
+    final scheme = Theme.of(context).colorScheme;
+    final taille = ButtonStyle(
+      minimumSize: const WidgetStatePropertyAll(Size.fromHeight(44)),
     );
+    return AlertDialog(
+      title: const Text('Quitter cette Vibe ?'),
+      content: Text(
+        draftPossible
+            ? 'Elle n\'a pas été envoyée. Un brouillon la garde 3 jours '
+                  'dans Réglages › Brouillons — seulement si tu le demandes.'
+            : 'Elle n\'a pas été envoyée.',
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+      actions: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            FilledButton(
+              style: taille,
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Rester'),
+            ),
+            if (draftPossible) ...[
+              const SizedBox(height: 8),
+              FilledButton(
+                style: taille,
+                onPressed: () => Navigator.pop(context, VibeEditorQuit.keep),
+                child: const Text('Garder en brouillon'),
+              ),
+            ],
+            const SizedBox(height: 8),
+            OutlinedButton(
+              style: taille.copyWith(
+                foregroundColor: WidgetStatePropertyAll(scheme.primary),
+                side: WidgetStatePropertyAll(
+                  BorderSide(color: scheme.primary, width: 1.4),
+                ),
+              ),
+              onPressed: () => Navigator.pop(context, VibeEditorQuit.discard),
+              child: const Text('Supprimer'),
+            ),
+          ],
+        ),
+      ],
+    );
+  },
+);

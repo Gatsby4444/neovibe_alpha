@@ -405,6 +405,41 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     Navigator.of(context).pop();
   }
 
+  /// Le retour (système, ou la flèche d'une barre, qui passe par `maybePop`)
+  /// sur une prise en cours ou faite. Posé sur LES DEUX arbres que cet écran
+  /// construit : la caméra, et l'étape « À qui ? » — celle-ci était rendue
+  /// avant la garde, et un retour depuis « À qui ? » perdait la Vibe sans un
+  /// mot (Jay, 2026-09-20).
+  Future<void> _onPopInvoked(bool didPop, Object? _) async {
+    if (didPop || !mounted) return;
+    if (!_recording && !_busy && _front != null) {
+      // Trois choix, et le brouillon n'est écrit que sur « Garder » (voir
+      // VibeDraftKeeper). Sans gardien (BeReal, bibliothèque éphémère) :
+      // rien à garder, on demande juste confirmation.
+      final keeper = _keeper;
+      final choix = await askVibeQuit(context, draftPossible: keeper != null);
+      if (choix == null || !mounted) return;
+      _keeper = null;
+      _keptSignature = null;
+      if (keeper != null) {
+        await (choix == VibeEditorQuit.keep ? keeper.flush() : keeper.delete());
+      }
+      if (mounted) _leave();
+      return;
+    }
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            _recording
+                ? 'Enregistrement en cours — relâche pour l\'arrêter.'
+                : 'Capture en cours…',
+          ),
+        ),
+      );
+  }
+
   /// Une face posée rejoint le dossier du brouillon **avant** d'être
   /// affichée — le gardien naît ici s'il n'existe pas.
   Future<File> _adoptFace(File f) async {
@@ -1731,33 +1766,38 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       // Bibliothèque éphémère : PAS de récap. L'auteur ne revoit pas sa prise —
       // il passe directement à l'écran de partage (consigne Jay 2026-08-10).
       final target = widget.libraryTarget;
-      if (target != null) {
-        return LibraryShareScreen(
-          front: _front!,
-          back: _back,
-          type: _cardType,
-          target: target,
-          frontIsVideo: _frontIsVideo,
-          backIsVideo: _backIsVideo,
-        );
-      }
-      return _ShareStep(
-        front: _front!,
-        back: _back,
-        // Type FIGÉ à la prise — surtout pas _type (que le sélecteur peut
-        // encore refléter) : c'est ce qui a produit une Mono à deux faces.
-        type: _cardType,
-        frontImported: _frontImported,
-        backImported: _backImported,
-        frontIsVideo: _frontIsVideo,
-        backIsVideo: _backIsVideo,
-        directConversationId: widget.directConversationId,
-        libraryOnly: widget.publicationOnly,
-        onRetake: _retakeFromRecap,
-        onSent: () => _leaveRecap(sent: true),
-        onAbandon: (keep) => _leaveRecap(sent: false, keepDraft: keep),
-        keeper: _keeper,
-        resumedAt: _resumedStep,
+      // La même garde qu'à la caméra (voir `_onPopInvoked`) : quitter une
+      // Vibe faite demande confirmation, et le brouillon, son accord.
+      return PopScope(
+        canPop: false,
+        onPopInvokedWithResult: _onPopInvoked,
+        child: target != null
+            ? LibraryShareScreen(
+                front: _front!,
+                back: _back,
+                type: _cardType,
+                target: target,
+                frontIsVideo: _frontIsVideo,
+                backIsVideo: _backIsVideo,
+              )
+            : _ShareStep(
+                front: _front!,
+                back: _back,
+                // Type FIGÉ à la prise — surtout pas _type (que le sélecteur peut
+                // encore refléter) : c'est ce qui a produit une Mono à deux faces.
+                type: _cardType,
+                frontImported: _frontImported,
+                backImported: _backImported,
+                frontIsVideo: _frontIsVideo,
+                backIsVideo: _backIsVideo,
+                directConversationId: widget.directConversationId,
+                libraryOnly: widget.publicationOnly,
+                onRetake: _retakeFromRecap,
+                onSent: () => _leaveRecap(sent: true),
+                onAbandon: (keep) => _leaveRecap(sent: false, keepDraft: keep),
+                keeper: _keeper,
+                resumedAt: _resumedStep,
+              ),
       );
     }
 
@@ -1847,37 +1887,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         // (`BackButton` → `maybePop`) comme le retour système passent ici ;
         // l'éditeur avait sa popup, l'écran de partage n'en avait pas.
         canPop: !_recording && !_busy && _front == null,
-        onPopInvokedWithResult: (didPop, _) async {
-          if (didPop || !mounted) return;
-          if (!_recording && !_busy && _front != null) {
-            // Trois choix, et le brouillon n'est écrit que sur « Garder »
-            // (voir VibeDraftKeeper). Sans gardien (BeReal, bibliothèque
-            // éphémère) : rien à garder, on demande juste confirmation.
-            final choix = await askVibeQuit(context);
-            if (choix == null || !mounted) return;
-            final keeper = _keeper;
-            _keeper = null;
-            _keptSignature = null;
-            if (keeper != null) {
-              await (choix == VibeEditorQuit.keep
-                  ? keeper.flush()
-                  : keeper.delete());
-            }
-            if (mounted) _leave();
-            return;
-          }
-          ScaffoldMessenger.of(context)
-            ..hideCurrentSnackBar()
-            ..showSnackBar(
-              SnackBar(
-                content: Text(
-                  _recording
-                      ? 'Enregistrement en cours — relâche pour l\'arrêter.'
-                      : 'Capture en cours…',
-                ),
-              ),
-            );
-        },
+        onPopInvokedWithResult: _onPopInvoked,
         child: GestureDetector(
           behavior: HitTestBehavior.opaque,
           onHorizontalDragStart: _onExitDragStart,
