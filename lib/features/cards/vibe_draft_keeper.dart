@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 
 import '../../core/drafts/draft_store.dart';
@@ -117,8 +116,17 @@ class VibeResume {
 ///
 /// Les faces capturées naissent dans un dossier temporaire du système : à
 /// peine posées, elles sont **déplacées** dans le dossier du brouillon
-/// ([adopt]) — avant que le récap ne les affiche. Le brouillon s'écrit à
-/// chaque changement ([update], regroupé sur 800 ms), s'efface à l'envoi.
+/// ([adopt]) — avant que le récap ne les affiche.
+///
+/// ⚠️ **Rien ne s'écrit sans le consentement de l'utilisateur** (Jay,
+/// 2026-09-20) : une Vibe est un format façon Snap, souvent une prise
+/// privée ; garder à son insu ce qu'il ne veut finalement plus envoyer
+/// serait une trahison de « ce qui se passe sur NeoVibe reste sur
+/// NeoVibe ». L'état vit en mémoire ([update]) et n'est écrit que par
+/// [flush], à « Garder en brouillon ». Si l'app meurt avant, le dossier —
+/// sans `draft.json` — est balayé au prochain démarrage : pas de
+/// consentement, pas de brouillon. Les publications, elles, s'écrivent
+/// seules (`AlbumDraftKeeper`) : ce sont des imports, pas des prises.
 class VibeDraftKeeper {
   VibeDraftKeeper(this._store, {String? id, VibeDraftState? state})
     : id = id ?? newUuid(),
@@ -130,7 +138,6 @@ class VibeDraftKeeper {
   final DraftStore _store;
   final String id;
   VibeDraftState? _state;
-  Timer? _timer;
   Future<void>? _writing;
   var _dirty = false;
   var _deleted = false;
@@ -175,18 +182,17 @@ class VibeDraftKeeper {
     );
   }
 
-  /// Un écran a changé quelque chose : l'état est mis à jour et sera écrit.
+  /// Un écran a changé quelque chose : l'état est mis à jour — en mémoire
+  /// seulement, jusqu'à [flush].
   void update(void Function(VibeDraftState s) change, {CardType? type}) {
     if (_deleted) return;
     final s = _state ??= VibeDraftState(type: type ?? CardType.standard);
     change(s);
     _dirty = true;
-    _timer?.cancel();
-    _timer = Timer(const Duration(milliseconds: 800), () => unawaited(flush()));
   }
 
+  /// « Garder en brouillon » : l'état est écrit, maintenant.
   Future<void> flush() async {
-    _timer?.cancel();
     final s = _state;
     if (s == null || !_dirty || _deleted || s.front == null) return;
     _dirty = false;
@@ -232,7 +238,6 @@ class VibeDraftKeeper {
   /// La Vibe est partie : le brouillon n'a plus lieu d'être.
   Future<void> delete() async {
     _deleted = true;
-    _timer?.cancel();
     await _writing;
     await _store.delete(id);
   }

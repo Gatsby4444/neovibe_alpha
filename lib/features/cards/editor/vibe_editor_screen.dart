@@ -28,7 +28,9 @@ import 'vibe_edit_draft.dart';
 /// appartient à qui l'a ouvert (voir `VibeExport`) — c'est ce qui permet de
 /// rouvrir l'éditeur depuis « À qui ? » avec les réglages encore là.
 ///
-/// Rend le brouillon prêt, ou `null` si l'utilisateur abandonne la Vibe.
+/// Rend le brouillon prêt ([VibeEditDraft]), ou — à la première ouverture —
+/// ce que l'utilisateur a choisi en quittant ([VibeEditorQuit]) ; `null` si
+/// une ouverture ultérieure est simplement annulée.
 class VibeEditorScreen extends StatefulWidget {
   const VibeEditorScreen({
     super.key,
@@ -190,22 +192,19 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
   }
 
   Future<void> _close() async {
+    // Première ouverture : quitter, c'est quitter la Vibe — et c'est à
+    // l'utilisateur de dire si elle reste en brouillon (Jay, 2026-09-20 :
+    // une prise privée ne se garde pas à son insu).
+    if (widget.firstPass) {
+      final choix = await askVibeQuit(context);
+      if (choix != null && mounted) Navigator.of(context).pop(choix);
+      return;
+    }
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(
-          widget.firstPass
-              ? 'Quitter cette Vibe ?'
-              : 'Annuler les modifications ?',
-        ),
-        // Quitter garde le brouillon (Jay, 2026-09-20) : la prise et les
-        // retouches se retrouvent dans Réglages › Brouillons.
-        content: Text(
-          widget.firstPass
-              ? 'Tu la retrouveras dans Réglages › Brouillons pendant '
-                    '3 jours, avec ses retouches.'
-              : 'Les retouches de cette ouverture seront perdues.',
-        ),
+        title: const Text('Annuler les modifications ?'),
+        content: const Text('Les retouches de cette ouverture seront perdues.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -213,7 +212,7 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text(widget.firstPass ? 'Quitter' : 'Annuler'),
+            child: const Text('Annuler'),
           ),
         ],
       ),
@@ -417,3 +416,35 @@ class _FaceSwitch extends StatelessWidget {
     );
   }
 }
+
+/// Ce que l'utilisateur choisit en quittant une Vibe non envoyée.
+enum VibeEditorQuit { keep, discard }
+
+/// **La popup de sortie d'une Vibe** — la même partout (éditeur, récap,
+/// « À qui ? ») : rester, supprimer, ou garder en brouillon. Rend `null` si
+/// l'utilisateur reste.
+Future<VibeEditorQuit?> askVibeQuit(BuildContext context) =>
+    showDialog<VibeEditorQuit>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Quitter cette Vibe ?'),
+        content: const Text(
+          'Elle n\'a pas été envoyée. Un brouillon la garde 3 jours dans '
+          'Réglages › Brouillons — seulement si tu le demandes.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Rester'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, VibeEditorQuit.discard),
+            child: const Text('Supprimer'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, VibeEditorQuit.keep),
+            child: const Text('Garder en brouillon'),
+          ),
+        ],
+      ),
+    );

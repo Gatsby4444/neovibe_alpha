@@ -1345,14 +1345,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// Quitter le récap — après l'envoi, ou quand l'éditeur abandonne la Vibe :
   /// dans les deux cas la prise est finie, on rend la caméra (ou l'écran
   /// d'où on venait).
-  void _leaveRecap({required bool sent}) {
-    // Envoyée : le brouillon n'a plus lieu d'être. Abandonnée : il reste,
-    // tel quel, dans Réglages › Brouillons (Jay, 2026-09-20).
+  void _leaveRecap({required bool sent, bool keepDraft = false}) {
+    // Envoyée : le brouillon n'a plus lieu d'être. Quittée : il n'est écrit
+    // QUE si l'utilisateur l'a demandé (Jay, 2026-09-20 — une prise privée
+    // ne se garde pas à son insu) ; sinon ses fichiers s'effacent.
     final keeper = _keeper;
     _keeper = null;
     _keptSignature = null;
     if (keeper != null) {
-      unawaited(sent ? keeper.delete() : keeper.flush());
+      unawaited(!sent && keepDraft ? keeper.flush() : keeper.delete());
     }
     if (widget.directConversationId != null || widget.publicationOnly) {
       Navigator.of(context).pop();
@@ -1754,7 +1755,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         libraryOnly: widget.publicationOnly,
         onRetake: _retakeFromRecap,
         onSent: () => _leaveRecap(sent: true),
-        onAbandon: () => _leaveRecap(sent: false),
+        onAbandon: (keep) => _leaveRecap(sent: false, keepDraft: keep),
         keeper: _keeper,
         resumedAt: _resumedStep,
       );
@@ -1849,29 +1850,19 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         onPopInvokedWithResult: (didPop, _) async {
           if (didPop || !mounted) return;
           if (!_recording && !_busy && _front != null) {
-            final ok = await showDialog<bool>(
-              context: context,
-              builder: (context) => AlertDialog(
-                title: const Text('Quitter cette Vibe ?'),
-                content: const Text(
-                  'Elle n\'a pas été envoyée. Tu la retrouveras dans '
-                  'Réglages › Brouillons pendant 3 jours.',
-                ),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(context, false),
-                    child: const Text('Rester'),
-                  ),
-                  FilledButton(
-                    onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Quitter'),
-                  ),
-                ],
-              ),
-            );
-            if (ok != true || !mounted) return;
-            // Le brouillon reste : ce qu'on quitte se retrouve dans Réglages.
-            await _keeper?.flush();
+            // Trois choix, et le brouillon n'est écrit que sur « Garder »
+            // (voir VibeDraftKeeper). Sans gardien (BeReal, bibliothèque
+            // éphémère) : rien à garder, on demande juste confirmation.
+            final choix = await askVibeQuit(context);
+            if (choix == null || !mounted) return;
+            final keeper = _keeper;
+            _keeper = null;
+            _keptSignature = null;
+            if (keeper != null) {
+              await (choix == VibeEditorQuit.keep
+                  ? keeper.flush()
+                  : keeper.delete());
+            }
             if (mounted) _leave();
             return;
           }
@@ -2636,8 +2627,9 @@ class _ShareStep extends StatefulWidget {
   /// L'envoi est déposé dans la file : l'écran de capture reprend la main.
   final VoidCallback onSent;
 
-  /// L'éditeur a abandonné la Vibe : la prise est finie, sans envoi.
-  final VoidCallback onAbandon;
+  /// L'éditeur a quitté la Vibe : la prise est finie, sans envoi — gardée
+  /// en brouillon si l'utilisateur l'a demandé.
+  final void Function(bool keepDraft) onAbandon;
   final CardType type;
   final bool frontImported;
   final bool backImported;
@@ -2742,7 +2734,7 @@ class _ShareStepState extends State<_ShareStep> {
     setState(() => _editing = true);
     _keepEdit(draft, step: 'edit');
     final keeper = widget.keeper;
-    final result = await Navigator.of(context).push<VibeEditDraft>(
+    final result = await Navigator.of(context).push<Object>(
       MaterialPageRoute(
         fullscreenDialog: true,
         builder: (_) => VibeEditorScreen(
@@ -2755,15 +2747,16 @@ class _ShareStepState extends State<_ShareStep> {
       ),
     );
     if (!mounted) return;
-    if (result == null) {
-      // Première ouverture : abandonner l'éditeur, c'est abandonner la
-      // prise. Rouvert depuis « À qui ? » : on garde ce qu'on avait.
-      if (firstPass) {
-        widget.onAbandon();
-      } else {
-        _keepEdit(draft, step: 'share');
-        setState(() => _editing = false);
-      }
+    if (result is VibeEditorQuit) {
+      // Première ouverture : quitter l'éditeur, c'est quitter la prise —
+      // et l'utilisateur a dit s'il la garde en brouillon.
+      widget.onAbandon(result == VibeEditorQuit.keep);
+      return;
+    }
+    if (result is! VibeEditDraft) {
+      // Rouvert depuis « À qui ? » et annulé : on garde ce qu'on avait.
+      _keepEdit(draft, step: 'share');
+      setState(() => _editing = false);
       return;
     }
     _draft = result;

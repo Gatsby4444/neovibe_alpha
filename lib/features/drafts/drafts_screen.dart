@@ -32,8 +32,9 @@ class DraftsScreen extends ConsumerWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(NeoSpace.xl),
                   child: Text(
-                    'Aucun brouillon.\nCe que tu commences à publier sans '
-                    'finir se retrouve ici pendant 3 jours.',
+                    'Aucun brouillon.\nUne publication ou un Flow commencé '
+                    'sans être publié se retrouve ici 3 jours. Une Vibe, '
+                    'seulement si tu le demandes en la quittant.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: context.muted),
                   ),
