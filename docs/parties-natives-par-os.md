@@ -1267,7 +1267,7 @@ les paramètres du transcodage, écrit la couverture, tire la clé ; puis il
 | `signOut()` | efface la session |
 | `jobDir(id)` | le dossier de travail `<filesDir>/publish/<id>/` — **pas sous `work/`**, balayé au démarrage de l'app |
 | `enqueue(job)` | dépose le JSON de `PublishJob` et réveille le service |
-| `release(id, caption, captionFont, isPublic, shareable, saveable)` | « Publier » → `release.json` |
+| `release(id, caption, captionFont, isPublic, shareable, saveable, anchorLat?, anchorLng?)` | « Publier » → `release.json` ; **l'ancre** (2026-09-20, Pulse) n'est là que si l'auteur a choisi « Localiser » — déjà gommée à 100 m par le Dart, passée telle quelle à `publish_to_library` |
 | `cancel(id)` | retour en arrière → marqueur `cancel`, le service efface (coffre et dossier) |
 | `retry(id)` | après un échec : repart de ce qui est fait (scellé, déposé) |
 | `ack(id)` | l'app a vu la publication dans sa liste : le dossier s'efface |

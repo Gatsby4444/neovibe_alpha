@@ -9,7 +9,12 @@
 **La section « Jeux » devient Pulse** : LA section des contenus. En haut, les
 stories de mes amis ; au milieu, une galerie de mini-cards (Vibes, Flows,
 publications mêlés — le liseré dit la nature) ; un tap ouvre **le fil de
-cette nature**, avec un sélecteur Tout / Amis / Autour de moi.
+cette nature** — **directement en plein écran** pour une Vibe ou un Flow (les
+écrans du profil), dans le fil des publications pour une publication — avec
+le sélecteur Tout / Amis / Autour de moi **posé sur le contenu, à gauche de
+la croix, sans bandeau** (Jay, 2026-09-20 soir, v0.9.234 → v0.9.236 : un
+bandeau raccourcissait la page sous un 9:16 et rétrécissait les Flows ;
+l'auteur d'un Flow descend sous cette ligne — `FlowFrame`).
 
 ## Les trois sources — toutes humaines, aucun algorithme
 
