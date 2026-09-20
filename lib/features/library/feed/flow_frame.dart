@@ -42,14 +42,15 @@ abstract final class FlowFrame {
 
   /// La place à laisser au bouton Fermer (en haut à droite de l'écran,
   /// [closeWidth] de large et de haut, sous l'encoche) quand l'auteur, posé
-  /// au haut de la vidéo, arrive à sa hauteur. Zéro sinon.
+  /// à [authorTop] (coordonnées de la page), arrive à sa hauteur. Zéro
+  /// sinon — par exemple quand une ligne de boutons l'a déjà fait descendre.
   static double closeReserve({
     required Rect rect,
     required Size page,
     required double safeTop,
+    required double authorTop,
     double closeWidth = 56,
   }) {
-    final authorTop = math.max(rect.top, safeTop);
     if (authorTop >= safeTop + closeWidth) return 0;
     return math.max(0, closeWidth - (page.width - rect.right));
   }

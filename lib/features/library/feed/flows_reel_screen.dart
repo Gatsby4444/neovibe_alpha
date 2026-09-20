@@ -50,9 +50,11 @@ class FlowsReelScreen extends ConsumerStatefulWidget {
     this.header,
   });
 
-  /// **Un bandeau en haut** (le sélecteur d'un fil de Pulse, 2026-09-20) :
-  /// posé sur toute la largeur, le contenu descend d'autant. Nul = rien,
-  /// l'écran d'aujourd'hui.
+  /// **Posé sur la vidéo, à gauche de la croix** (le sélecteur d'un fil de
+  /// Pulse) — **sans bande** : la vidéo garde tout l'écran, et l'auteur d'un
+  /// Flow descend sous cette ligne (Jay, 2026-09-20 : *« comme si les
+  /// boutons étaient par-dessus l'écran, pas de container bandeau »*). Nul =
+  /// rien, l'écran du profil.
   final Widget? header;
 
   final List<LibraryItem> flows;
@@ -138,6 +140,7 @@ class _FlowsReelScreenState extends ConsumerState<FlowsReelScreen> {
           key: ValueKey(_flows[i].id),
           item: _flows[i],
           active: i == _current,
+          topLine: widget.header != null,
           onDeleted: () => _removed(_flows[i]),
           onChanged: _changed,
         ),
@@ -164,49 +167,28 @@ class _FlowsReelScreenState extends ConsumerState<FlowsReelScreen> {
             child: Stack(
               children: [
                 const Positioned.fill(child: ColoredBox(color: Colors.black)),
-                // Sous le bandeau, s'il y en a un : la page ne connaît plus
-                // l'encoche du haut (le bandeau l'a prise), et commence
-                // juste en dessous.
-                if (widget.header != null)
-                  Positioned(
-                    top: MediaQuery.paddingOf(context).top + kToolbarHeight,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: MediaQuery.removePadding(
-                      context: context,
-                      removeTop: true,
-                      child: _pageView(context),
-                    ),
-                  )
-                else
-                  _pageView(context),
-                if (widget.header != null)
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: SafeArea(
-                      bottom: false,
-                      child: SizedBox(
-                        height: kToolbarHeight,
-                        // La place du bouton Fermer, à droite, reste libre.
-                        child: Padding(
-                          padding: const EdgeInsets.only(left: 56, right: 56),
-                          child: Center(child: widget.header),
-                        ),
-                      ),
-                    ),
-                  ),
+                _pageView(context),
+                // La ligne du haut, posée SUR la vidéo : le sélecteur s'il y
+                // en a un, puis la croix, alignés à droite.
                 Positioned(
                   top: 0,
                   right: 0,
                   child: SafeArea(
-                    child: IconButton(
-                      icon: const Icon(Icons.close),
-                      color: Colors.white,
-                      tooltip: 'Fermer',
-                      onPressed: () => Navigator.of(context).maybePop(),
+                    bottom: false,
+                    child: SizedBox(
+                      height: kToolbarHeight,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ?widget.header,
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            color: Colors.white,
+                            tooltip: 'Fermer',
+                            onPressed: () => Navigator.of(context).maybePop(),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -225,12 +207,17 @@ class _FlowPage extends ConsumerStatefulWidget {
     super.key,
     required this.item,
     required this.active,
+    required this.topLine,
     required this.onDeleted,
     required this.onChanged,
   });
 
   final LibraryItem item;
   final bool active;
+
+  /// Une ligne de boutons flotte en haut de l'écran (le sélecteur de Pulse) :
+  /// l'auteur descend dessous.
+  final bool topLine;
   final VoidCallback onDeleted;
   final ValueChanged<LibraryItem> onChanged;
 
@@ -282,7 +269,12 @@ class _FlowPageState extends ConsumerState<_FlowPage> {
       builder: (context, constraints) {
         final page = constraints.biggest;
         final rect = FlowFrame.rectFor(ratio: _ratio, page: page);
-        final top = FlowFrame.topInset(rect: rect, safeTop: safe.top);
+        // Ce que le haut de la vidéo rend : l'encoche, et la ligne de
+        // boutons quand elle est là.
+        final top = FlowFrame.topInset(
+          rect: rect,
+          safeTop: safe.top + (widget.topLine ? kToolbarHeight : 0),
+        );
         final bottom = FlowFrame.bottomInset(
           rect: rect,
           page: page,
@@ -292,6 +284,7 @@ class _FlowPageState extends ConsumerState<_FlowPage> {
           rect: rect,
           page: page,
           safeTop: safe.top,
+          authorTop: rect.top + top,
         );
         final heart = FlowFrame.heartCenter(
           page: page,

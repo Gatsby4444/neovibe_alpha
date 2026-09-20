@@ -67,13 +67,56 @@ void main() {
 
     test('la place du bouton Fermer : seulement si l\'auteur y arrive', () {
       final plein = FlowFrame.rectFor(ratio: 1 / 2, page: page);
-      expect(FlowFrame.closeReserve(rect: plein, page: page, safeTop: 40), 56);
+      // L'auteur au bord de la vidéo, sous l'encoche : à la hauteur du bouton.
+      expect(
+        FlowFrame.closeReserve(
+          rect: plein,
+          page: page,
+          safeTop: 40,
+          authorTop: 40,
+        ),
+        56,
+      );
+      // Une ligne de boutons l'a fait descendre à 40 + 56 : plus de réserve.
+      expect(
+        FlowFrame.closeReserve(
+          rect: plein,
+          page: page,
+          safeTop: 40,
+          authorTop: 96,
+        ),
+        0,
+      );
       // Une vidéo carrée commence à 200 : bien sous le bouton (40 + 56).
       final carre = FlowFrame.rectFor(ratio: 1, page: page);
-      expect(FlowFrame.closeReserve(rect: carre, page: page, safeTop: 40), 0);
+      expect(
+        FlowFrame.closeReserve(
+          rect: carre,
+          page: page,
+          safeTop: 40,
+          authorTop: carre.top,
+        ),
+        0,
+      );
       // Une vidéo étroite, en hauteur : le bouton n'empiète que de 56 - 100.
       final etroite = FlowFrame.rectFor(ratio: 1 / 4, page: page);
-      expect(FlowFrame.closeReserve(rect: etroite, page: page, safeTop: 40), 0);
+      expect(
+        FlowFrame.closeReserve(
+          rect: etroite,
+          page: page,
+          safeTop: 40,
+          authorTop: 40,
+        ),
+        0,
+      );
+    });
+
+    test('sous une ligne de boutons, l\'auteur descend d\'autant', () {
+      final plein = FlowFrame.rectFor(ratio: 1 / 2, page: page);
+      expect(FlowFrame.topInset(rect: plein, safeTop: 40 + 56), 96);
+      // Une vidéo carrée (dès 200) reste sous la ligne : rien à rendre.
+      final carre = FlowFrame.rectFor(ratio: 1, page: page);
+      expect(FlowFrame.topInset(rect: carre, safeTop: 40 + 56), 0);
     });
   });
 

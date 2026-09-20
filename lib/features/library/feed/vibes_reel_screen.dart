@@ -60,9 +60,10 @@ class VibesReelScreen extends ConsumerStatefulWidget {
     this.header,
   });
 
-  /// **Un bandeau en haut** (le sélecteur d'un fil de Pulse, 2026-09-20) :
-  /// posé sur toute la largeur, le contenu descend d'autant. Nul = rien,
-  /// l'écran d'aujourd'hui.
+  /// **Une ligne en haut, à gauche de la croix** (le sélecteur d'un fil de
+  /// Pulse, 2026-09-20) : la carte descend d'autant — sur cet écran noir, la
+  /// ligne est invisible, seule la carte se voit. Nul = rien, l'écran du
+  /// profil. (Jay : *« pour les Vibes l'interface est bien »*.)
   final Widget? header;
 
   final List<LibraryItem> vibes;
@@ -211,10 +212,13 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
                       bottom: false,
                       child: SizedBox(
                         height: kToolbarHeight,
-                        // La place du bouton Fermer, à droite, reste libre.
+                        // À gauche de la croix, comme sur les Flows.
                         child: Padding(
-                          padding: const EdgeInsets.only(left: 56, right: 56),
-                          child: Center(child: widget.header),
+                          padding: const EdgeInsets.only(right: 48),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: widget.header,
+                          ),
                         ),
                       ),
                     ),

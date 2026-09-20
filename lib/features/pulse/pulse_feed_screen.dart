@@ -210,8 +210,9 @@ class _PulseFeedScreenState extends ConsumerState<PulseFeedScreen> {
   }
 }
 
-/// Le même bandeau, quand il n'y a pas encore de fil à montrer : noir en
-/// plein écran, clair dans le fil des publications.
+/// La même ligne du haut, quand il n'y a pas encore de fil à montrer : en
+/// plein écran, noir, le sélecteur à gauche de la croix (comme sur le fil) ;
+/// clair, avec une flèche et un titre, dans le fil des publications.
 class _Attente extends StatelessWidget {
   const _Attente({
     required this.reel,
@@ -229,17 +230,29 @@ class _Attente extends StatelessWidget {
   Widget build(BuildContext context) {
     final scaffold = Scaffold(
       backgroundColor: reel ? Colors.black : null,
-      appBar: AppBar(
-        backgroundColor: reel ? Colors.black : null,
-        foregroundColor: reel ? Colors.white : null,
-        leading: IconButton(
-          icon: Icon(reel ? Icons.close : Icons.arrow_back),
-          tooltip: 'Fermer',
-          onPressed: onClose,
-        ),
-        centerTitle: true,
-        title: selector,
-      ),
+      appBar: reel
+          ? AppBar(
+              backgroundColor: Colors.black,
+              foregroundColor: Colors.white,
+              automaticallyImplyLeading: false,
+              actions: [
+                selector,
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: 'Fermer',
+                  onPressed: onClose,
+                ),
+              ],
+            )
+          : AppBar(
+              leading: IconButton(
+                icon: const Icon(Icons.arrow_back),
+                tooltip: 'Retour',
+                onPressed: onClose,
+              ),
+              centerTitle: true,
+              title: selector,
+            ),
       body: child,
     );
     return reel ? DarkSystemBars(child: scaffold) : scaffold;
