@@ -331,6 +331,11 @@ grant execute on function public.feed_adders(uuid[]) to authenticated;
 -- La même fonction, deux paramètres de plus, gommés ICI avant l'écriture :
 -- le point exact n'est jamais stocké, quoi que l'app envoie.
 
+-- ⚠️ Deux paramètres de plus = une AUTRE signature : `create or replace` ne
+-- remplace pas, il AJOUTE une surcharge, et PostgREST ne sait plus choisir
+-- (PGRST203, constaté le 2026-09-20 avec l'outil de seed). L'ancienne part.
+drop function if exists public.publish_to_library(uuid, public.library_kind, public.card_type, jsonb, text, boolean, boolean, boolean, text, smallint, smallint, text);
+
 CREATE OR REPLACE FUNCTION public.publish_to_library(p_item_id uuid, p_kind library_kind, p_card_type card_type, p_media jsonb, p_caption text, p_is_public boolean, p_shareable boolean, p_saveable boolean, p_media_key text, p_aspect_w smallint DEFAULT NULL::smallint, p_aspect_h smallint DEFAULT NULL::smallint, p_caption_font text DEFAULT NULL::text, p_anchor_lat double precision DEFAULT NULL, p_anchor_lng double precision DEFAULT NULL)
  RETURNS uuid
  LANGUAGE plpgsql
