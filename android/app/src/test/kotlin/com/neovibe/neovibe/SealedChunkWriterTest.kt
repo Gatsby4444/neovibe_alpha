@@ -62,4 +62,24 @@ class SealedChunkWriterTest {
     @Test fun `un bloc partiel`() = roundTrip(1000)
     @Test fun `un bloc exact`() = roundTrip(256 * 1024)
     @Test fun `plusieurs blocs, le dernier partiel`() = roundTrip(3 * 256 * 1024 + 777)
+
+    @Test
+    fun `des octets en memoire se scellent comme un fichier`() {
+        val dir = java.nio.file.Files.createTempDirectory("sealb").toFile()
+        try {
+            val clear = ByteArray(300_000).also { SecureRandom().nextBytes(it) }
+            val sealed = File(dir, "poster.seal")
+            val k = key()
+            SealedChunkWriter.sealBytes(clear, sealed, k)
+            SealedChunkReader(sealed, k).use { reader ->
+                assertEquals(clear.size.toLong(), reader.plainLength)
+                val out = ByteArray(clear.size)
+                var pos = 0
+                while (pos < clear.size) pos += reader.read(pos.toLong(), out, pos, clear.size - pos)
+                assertArrayEquals(clear, out)
+            }
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
 }

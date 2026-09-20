@@ -156,6 +156,21 @@ class ContentMediaCache {
   Future<String> ownPath(String contentId, {required int slot}) async =>
       _faceFile(await _dir('own'), contentId, slot).path;
 
+  /// **Où** vit la couverture GÉNÉRÉE d'une face vidéo (`video_poster.dart`) :
+  /// la place de couverture du média, dans `own/` ou `others/` selon à qui
+  /// est le contenu. Nommée `<contenu>_…` comme les faces : [purge] et
+  /// l'éviction l'emportent avec elles. Pas d'entrée d'index — ce n'est pas
+  /// un téléchargement, c'est un dérivé qu'on sait refaire.
+  Future<File> generatedPosterFile(
+    String contentId, {
+    required int slot,
+    required bool own,
+  }) async => _faceFile(
+    await _dir(own ? 'own' : 'others'),
+    contentId,
+    ContentSlot.poster(slot),
+  );
+
   /// Dépose le scellé d'une de MES faces, à la publication.
   Future<void> storeOwn(
     String contentId,

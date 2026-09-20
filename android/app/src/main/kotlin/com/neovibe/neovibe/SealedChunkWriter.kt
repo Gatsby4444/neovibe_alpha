@@ -47,29 +47,49 @@ object SealedChunkWriter {
      * passer pour un scellé valide.
      */
     fun seal(source: File, target: File, keyBase64: String) {
+        RandomAccessFile(source, "r").use { input ->
+            seal(target, keyBase64, source.length()) { buf, len -> input.readFully(buf, 0, len) }
+        }
+    }
+
+    /**
+     * Scelle des octets **en mémoire** (une couverture extraite d'une vidéo
+     * scellée, 2026-09-20) : rien de clair ne passe par le disque.
+     */
+    fun sealBytes(bytes: ByteArray, target: File, keyBase64: String) {
+        var cursor = 0
+        seal(target, keyBase64, bytes.size.toLong()) { buf, len ->
+            System.arraycopy(bytes, cursor, buf, 0, len)
+            cursor += len
+        }
+    }
+
+    private inline fun seal(
+        target: File,
+        keyBase64: String,
+        plainLength: Long,
+        readFully: (ByteArray, Int) -> Unit,
+    ) {
         val key = SecretKeySpec(Base64.getDecoder().decode(keyBase64), "AES")
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        val plainLength = source.length()
         val tmp = File(target.path + ".part")
         target.parentFile?.mkdirs()
-        RandomAccessFile(source, "r").use { input ->
-            DataOutputStream(FileOutputStream(tmp).buffered(1 shl 20)).use { out ->
-                out.writeInt(MAGIC)
-                out.writeInt(CHUNK_SIZE)
-                out.writeLong(plainLength)
-                val clear = ByteArray(CHUNK_SIZE)
-                val nonce = ByteArray(NONCE_SIZE)
-                var remaining = plainLength
-                while (remaining > 0) {
-                    val take = minOf(remaining, CHUNK_SIZE.toLong()).toInt()
-                    input.readFully(clear, 0, take)
-                    random.nextBytes(nonce)
-                    cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(MAC_BITS, nonce))
-                    val sealed = cipher.doFinal(clear, 0, take)
-                    out.write(nonce)
-                    out.write(sealed)
-                    remaining -= take
-                }
+        DataOutputStream(FileOutputStream(tmp).buffered(1 shl 20)).use { out ->
+            out.writeInt(MAGIC)
+            out.writeInt(CHUNK_SIZE)
+            out.writeLong(plainLength)
+            val clear = ByteArray(CHUNK_SIZE)
+            val nonce = ByteArray(NONCE_SIZE)
+            var remaining = plainLength
+            while (remaining > 0) {
+                val take = minOf(remaining, CHUNK_SIZE.toLong()).toInt()
+                readFully(clear, take)
+                random.nextBytes(nonce)
+                cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(MAC_BITS, nonce))
+                val sealed = cipher.doFinal(clear, 0, take)
+                out.write(nonce)
+                out.write(sealed)
+                remaining -= take
             }
         }
         MediaTranscoder.moveInto(tmp, target)?.let { throw IllegalStateException(it) }

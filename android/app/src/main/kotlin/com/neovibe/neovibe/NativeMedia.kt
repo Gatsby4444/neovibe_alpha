@@ -35,6 +35,11 @@ import java.util.concurrent.Executors
  *   du 2026-09-19).
  * - `seal` : **scelle** un fichier au format `NVC1` ([SealedChunkWriter]) — le
  *   scellage Dart figeait l'écran ~9 s par vidéo de 25 Mo à l'envoi.
+ * - `sealedPoster` : **une image d'une vidéo scellée**, rescellée avec la
+ *   même clé (2026-09-20, les vignettes des Vibes vidéo dans la grille). Le
+ *   lecteur de blocs sert de source au `MediaMetadataRetriever` — locale ou
+ *   en flux (les blocs viennent du réseau, comme pour le lecteur) — et la
+ *   JPEG ne passe jamais en clair par le disque.
  * - `unseal` : le **clair** d'un média scellé `NVC1`, écrit dans un fichier
  *   — ce que « Enregistrer » copie dans les Enregistrements. Le déchiffrement
  *   en Dart plafonnait à ~2,7 Mo/s **sur le fil de l'interface** : un Flow de
@@ -172,6 +177,41 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
                     main.post {
                         outcome.onSuccess { result.success(it) }
                             .onFailure { result.error("READ_FAILED", it.message, null) }
+                    }
+                }
+            }
+            "sealedPoster" -> {
+                val sealed = call.argument<String>("sealed")
+                val url = call.argument<String>("url")
+                val cachePath = call.argument<String>("cachePath")
+                val key = call.argument<String>("key")
+                val dest = call.argument<String>("dest")
+                val width = call.argument<Int>("width") ?: 480
+                if (key == null || dest == null || (sealed == null && (url == null || cachePath == null))) {
+                    result.error("BAD_ARGS", "key, dest et (sealed ou url+cachePath) sont requis", null)
+                    return
+                }
+                worker.execute {
+                    val outcome = runCatching {
+                        val reader = if (sealed != null) {
+                            SealedChunkReader(File(sealed), key)
+                        } else {
+                            SealedChunkReader(
+                                RemoteChunkStore(
+                                    File(cachePath!!),
+                                    File("$cachePath.map"),
+                                    HttpRangeFetcher(url!!),
+                                    readAhead = RemoteChunkStore.READ_AHEAD,
+                                    prefetchExecutor = RemoteChunkStore.prefetchPool,
+                                ),
+                                key,
+                            )
+                        }
+                        reader.use { sealedPoster(it, File(dest), key, width) }
+                    }
+                    main.post {
+                        outcome.onSuccess { result.success(dest) }
+                            .onFailure { result.error("POSTER_FAILED", it.message ?: it.javaClass.simpleName, null) }
                     }
                 }
             }
@@ -349,6 +389,43 @@ class NativeMedia(messenger: BinaryMessenger) : MethodChannel.MethodCallHandler 
             e.message ?: e.javaClass.simpleName
         } finally {
             bitmap?.recycle()
+        }
+    }
+
+    /**
+     * Une image de la vidéo scellée que lit [reader], mise à [width] de large,
+     * scellée dans [dest] avec [key]. La première image-clé : la moins chère.
+     */
+    private fun sealedPoster(reader: SealedChunkReader, dest: File, key: String, width: Int) {
+        val retriever = MediaMetadataRetriever()
+        var frame: Bitmap? = null
+        var scaled: Bitmap? = null
+        try {
+            retriever.setDataSource(
+                object : android.media.MediaDataSource() {
+                    override fun readAt(position: Long, buffer: ByteArray, offset: Int, size: Int): Int {
+                        if (position >= reader.plainLength) return -1
+                        return reader.read(position, buffer, offset, size)
+                    }
+
+                    override fun getSize(): Long = reader.plainLength
+
+                    override fun close() {}
+                },
+            )
+            frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: throw IllegalStateException("aucune image décodable")
+            val ratio = frame.height.toFloat() / frame.width.toFloat()
+            val target = minOf(width, frame.width)
+            scaled = Bitmap.createScaledBitmap(frame, target, (target * ratio).toInt(), true)
+            val jpeg = java.io.ByteArrayOutputStream().also {
+                scaled.compress(Bitmap.CompressFormat.JPEG, 85, it)
+            }.toByteArray()
+            SealedChunkWriter.sealBytes(jpeg, dest, key)
+        } finally {
+            runCatching { retriever.release() }
+            if (scaled !== frame) scaled?.recycle()
+            frame?.recycle()
         }
     }
 

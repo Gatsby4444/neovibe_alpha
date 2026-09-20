@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/content/content_face.dart';
+import '../../core/content/video_poster.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
@@ -219,23 +220,23 @@ class _PublicationThumb extends ConsumerWidget {
   final bool isVideo;
   final int decodeWidth;
 
+  ContentFace get _spec => (
+    contentId: item.id,
+    ownerId: item.ownerId,
+    bucket: 'library',
+    path: path,
+    slot: slot,
+    isVideo: isVideo,
+    encrypted: item.encrypted,
+    // Une grille : les clés viennent du lot, pas une par vignette.
+    batchOwner: item.ownerId,
+    // Permanente (décision de Jay, 2026-08-11) : rien à faire expirer.
+    expiresAt: null,
+  );
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final face = ref.watch(
-      contentFaceProvider((
-        contentId: item.id,
-        ownerId: item.ownerId,
-        bucket: 'library',
-        path: path,
-        slot: slot,
-        isVideo: isVideo,
-        encrypted: item.encrypted,
-        // Une grille : les clés viennent du lot, pas une par vignette.
-        batchOwner: item.ownerId,
-        // Permanente (décision de Jay, 2026-08-11) : rien à faire expirer.
-        expiresAt: null,
-      )),
-    );
+    final face = ref.watch(contentFaceProvider(_spec));
     // Trois états, trois rendus DISTINCTS. Un chargement qui ressemble à un
     // échec est le défaut qui a rendu la panne du 2026-08-11 illisible : des
     // tuiles grises, impossible de dire si ça charge ou si c'est cassé.
@@ -260,10 +261,10 @@ class _PublicationThumb extends ConsumerWidget {
         child: const _ThumbPlaceholder(icon: Icons.error_outline),
       ),
       data: (media) => isVideo
-          // Une vignette de vidéo de CARD demanderait d'extraire une image du
-          // flux : c'est le chantier « vignettes vidéo » (RAPPELS #4), pas
-          // celui-ci. Une vidéo d'ALBUM a sa couverture (`posterPath`).
-          ? const _ThumbPlaceholder(icon: Icons.videocam)
+          // Une vidéo de CARD : sa couverture est extraite sur l'appareil,
+          // une fois, de la vidéo scellée (`video_poster.dart`, 2026-09-20).
+          // Une vidéo d'ALBUM, elle, a la sienne dès la publication.
+          ? _VideoPoster(spec: _spec, decodeWidth: decodeWidth)
           // `cacheWidth` : les fichiers font 720×1280 et les vignettes
           // quelques centaines de pixels — décoder en pleine résolution
           // coûtait de la mémoire et du temps pour rien.
@@ -379,6 +380,53 @@ class _Chip extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// La couverture d'une face vidéo, extraite et rescellée sur l'appareil.
+class _VideoPoster extends ConsumerWidget {
+  const _VideoPoster({required this.spec, required this.decodeWidth});
+
+  final ContentFace spec;
+  final int decodeWidth;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final poster = ref.watch(videoPosterProvider(spec));
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        poster.when(
+          loading: () => ColoredBox(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          ),
+          // Une vidéo dont on ne tire pas d'image : l'icône d'avant.
+          error: (e, _) => Tooltip(
+            message: '$e',
+            child: const _ThumbPlaceholder(icon: Icons.videocam),
+          ),
+          data: (bytes) => Image.memory(
+            bytes,
+            fit: BoxFit.cover,
+            cacheWidth: decodeWidth,
+            gaplessPlayback: true,
+            errorBuilder: (_, _, _) =>
+                const _ThumbPlaceholder(icon: Icons.broken_image),
+          ),
+        ),
+        // Le signe « vidéo », discret, en bas à gauche.
+        const Positioned(
+          left: 6,
+          bottom: 6,
+          child: Icon(
+            Icons.play_arrow_rounded,
+            size: 18,
+            color: Colors.white,
+            shadows: [Shadow(color: Colors.black54, blurRadius: 4)],
+          ),
+        ),
+      ],
     );
   }
 }

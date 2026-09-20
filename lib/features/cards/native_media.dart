@@ -149,6 +149,34 @@ abstract final class NativeMedia {
     }
   }
 
+  /// **Une image d'une vidéo scellée**, rescellée avec la même clé dans
+  /// [dest] (2026-09-20, les vignettes des Vibes vidéo). Source locale
+  /// ([sealed]) ou en flux ([url] + [cachePath], les blocs arrivent du réseau
+  /// comme pour le lecteur). Jamais de clair sur le disque. Rend `false` sans
+  /// natif (tests) ; lève sur un échec réel.
+  static Future<bool> sealedPoster({
+    String? sealed,
+    String? url,
+    String? cachePath,
+    required String key,
+    required String dest,
+    int width = 480,
+  }) async {
+    try {
+      await _channel.invokeMethod<String>('sealedPoster', {
+        'sealed': sealed,
+        'url': url,
+        'cachePath': cachePath,
+        'key': key,
+        'dest': dest,
+        'width': width,
+      });
+      return true;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
   /// **Scelle** [source] dans [dest] (format `NVC1`), par le natif sur un fil
   /// de travail — l'équivalent de `ChunkedSeal.sealFile`, AES matériel. Rend
   /// `false` si le natif est absent (tests) ; lève sur un échec réel.

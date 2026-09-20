@@ -87,6 +87,10 @@ class OpenedMedia {
 
   bool get isVideo => sealedVideo != null || videoUrl != null;
 
+  /// La clé du contenu — pour resceller ce qu'on en tire (une couverture
+  /// extraite d'une vidéo, `video_poster.dart`). Nulle pour un clair.
+  String? get mediaKey => _key;
+
   /// Le lecteur à donner à une face vidéo.
   ///
   /// **C'est ici, et nulle part ailleurs, que se choisit le chemin** : média
