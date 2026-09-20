@@ -1743,9 +1743,35 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         //
         // Posé DANS l'arbre et non autour du `Scaffold` : `PopScope` s'enregistre
         // auprès de la route qui l'englobe, sa position exacte est indifférente.
-        canPop: !_recording && !_busy,
-        onPopInvokedWithResult: (didPop, _) {
+        //
+        // **Et une prise capturée ne se perd plus sans confirmation** (Jay,
+        // 2026-09-20) : au récap et sur « À qui ? », la flèche de la barre
+        // (`BackButton` → `maybePop`) comme le retour système passent ici ;
+        // l'éditeur avait sa popup, l'écran de partage n'en avait pas.
+        canPop: !_recording && !_busy && _front == null,
+        onPopInvokedWithResult: (didPop, _) async {
           if (didPop || !mounted) return;
+          if (!_recording && !_busy && _front != null) {
+            final ok = await showDialog<bool>(
+              context: context,
+              builder: (context) => AlertDialog(
+                title: const Text('Abandonner cette Vibe ?'),
+                content: const Text('Elle n\'a pas été envoyée.'),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Rester'),
+                  ),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Abandonner'),
+                  ),
+                ],
+              ),
+            );
+            if (ok == true && mounted) _leave();
+            return;
+          }
           ScaffoldMessenger.of(context)
             ..hideCurrentSnackBar()
             ..showSnackBar(

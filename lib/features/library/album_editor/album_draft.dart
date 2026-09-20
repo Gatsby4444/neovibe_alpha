@@ -260,6 +260,24 @@ class AlbumDraftMedia {
       (trim ?? VideoTrim(startMs: 0, endMs: math.max(1000, durationMs ?? 1000)))
           .normalized(durationMs ?? 1000);
 
+  /// Le même média, lu depuis un autre fichier : quand un brouillon
+  /// **adopte** la source (la déplace dans son dossier, 2026-09-20).
+  AlbumDraftMedia withSource(File source) => AlbumDraftMedia(
+    id: id,
+    source: source,
+    isVideo: isVideo,
+    srcWidth: srcWidth,
+    srcHeight: srcHeight,
+    rotation: rotation,
+    durationMs: durationMs,
+    crop: crop,
+    filter: filter,
+    filterStrength: filterStrength,
+    adjust: adjust,
+    overlays: overlays,
+    trim: trim,
+  );
+
   AlbumDraftMedia copyWith({
     CropSpec? crop,
     AlbumFilter? filter,

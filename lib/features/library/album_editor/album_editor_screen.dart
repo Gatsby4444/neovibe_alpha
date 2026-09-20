@@ -11,6 +11,7 @@ import '../../../core/utils/ids.dart';
 import '../../cards/native_media.dart';
 import 'album_caption_screen.dart';
 import 'album_draft.dart';
+import 'album_draft_keeper.dart';
 import 'editor_images.dart';
 import 'editor_panels.dart';
 import 'editor_theme.dart';
@@ -40,9 +41,21 @@ import 'sticker_picker.dart';
 ///
 /// Rend le brouillon prêt à publier, ou `null` si l'utilisateur renonce.
 class AlbumEditorScreen extends StatefulWidget {
-  const AlbumEditorScreen({super.key, required this.draft});
+  const AlbumEditorScreen({
+    super.key,
+    required this.draft,
+    required this.keeper,
+    this.openCaption = false,
+  });
 
   final AlbumDraft draft;
+
+  /// Le gardien du brouillon : chaque retouche y est écrite, la publication
+  /// l'efface (Brouillons, 2026-09-20).
+  final AlbumDraftKeeper keeper;
+
+  /// Reprise d'un brouillon laissé à la légende : on y va tout de suite.
+  final bool openCaption;
 
   @override
   State<AlbumEditorScreen> createState() => _AlbumEditorScreenState();
@@ -68,6 +81,9 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
 
   final _images = EditorImages();
 
+  /// Le dernier brouillon confié au gardien : tout autre est une retouche.
+  AlbumDraft? _kept;
+
   AlbumDraftMedia get _media => _draft.media[_current];
 
   @override
@@ -77,6 +93,19 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
     GradeShader.load().then((_) {
       if (mounted) setState(() {});
     });
+    if (widget.openCaption) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _next();
+      });
+    }
+  }
+
+  /// Chaque brouillon différent du dernier confié part au gardien — appelé
+  /// à la construction, donc après chaque `setState` qui l'a changé.
+  void _keep() {
+    if (identical(_draft, _kept)) return;
+    _kept = _draft;
+    widget.keeper.schedule(_draft, step: 'edit');
   }
 
   @override
@@ -96,8 +125,14 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
       case EditorTool.texte:
         _startText(null);
       case EditorTool.sticker:
-        final s = await pickSticker(context);
-        if (s != null && mounted) {
+        final picked = await pickSticker(context);
+        if (picked != null && mounted) {
+          // L'image de l'autocollant rejoint le dossier du brouillon avant
+          // d'être décodée (voir AlbumDraftKeeper).
+          final s = picked.isEmoji
+              ? picked
+              : await widget.keeper.adoptSticker(picked);
+          if (!mounted) return;
           if (!s.isEmoji) await _images.sticker(s.imagePath!);
           if (!mounted) return;
           _update((m) => m.withOverlay(s));
@@ -198,8 +233,10 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
             freeSlots: _draft.freeSlots,
           );
     if (more.isEmpty || !mounted) return;
+    final adopted = await widget.keeper.adoptMedia(more);
+    if (!mounted) return;
     setState(() {
-      _draft = _draft.add(more);
+      _draft = _draft.add(adopted);
       _current = _draft.media.length - 1;
     });
   }
@@ -220,8 +257,13 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Abandonner cette publication ?'),
-        content: const Text('Les retouches seront perdues.'),
+        title: const Text('Quitter cette publication ?'),
+        // « Abandonner » garde le brouillon : c'est lui, la sécurité
+        // (Jay, 2026-09-20).
+        content: const Text(
+          'Tu la retrouveras dans Réglages › Brouillons pendant 3 jours, '
+          'telle que tu la laisses.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -229,12 +271,14 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Abandonner'),
+            child: const Text('Quitter'),
           ),
         ],
       ),
     );
-    if (ok == true && mounted) Navigator.of(context).pop();
+    if (ok != true || !mounted) return;
+    await widget.keeper.flush();
+    if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _next() async {
@@ -293,6 +337,9 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
         builder: (_) => AlbumCaptionScreen(
           draft: _draft,
           coverThumb: _thumbFile(_draft.media.first),
+          // La légende en train de s'écrire va au brouillon, comme une
+          // retouche.
+          onChanged: (d) => widget.keeper.schedule(d, step: 'caption'),
         ),
       ),
     );
@@ -308,9 +355,13 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
     }
     if (result == null) {
       await prepared.cancel();
+      // Retour à l'édition : le brouillon le dit.
+      widget.keeper.schedule(_draft, step: 'edit');
       return;
     }
     await prepared.release(result);
+    // Publiée : le brouillon n'a plus lieu d'être.
+    await widget.keeper.delete();
     if (mounted) Navigator.of(context).pop(result);
   }
 
@@ -335,6 +386,7 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _keep();
     final media = _media;
     final tool = _tool;
     final editing = _editingText;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/supabase_providers.dart';
+import '../drafts/drafts_screen.dart';
 import 'sections/appearance_settings_screen.dart';
 import 'sections/camera_settings_screen.dart';
 import 'sections/developer_screen.dart';
@@ -68,6 +69,14 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: 'Story, bibliothèque, sauvegardable — et par ami',
             builder: _shareDefaults,
           ),
+          // Le casier des brouillons (Jay, 2026-09-20) : ce qui a été
+          // commencé sans être publié, repris là où on l'a laissé, 3 jours.
+          const SettingsCategoryTile(
+            icon: Icons.edit_note,
+            title: 'Brouillons',
+            subtitle: 'Ce que tu as commencé sans publier — 3 jours',
+            builder: _drafts,
+          ),
           const SettingsCategoryTile(
             icon: Icons.shield_outlined,
             title: 'Sécurité et confidentialité',
@@ -105,4 +114,5 @@ class SettingsScreen extends ConsumerWidget {
   static Widget _shareDefaults(BuildContext _) => const ShareDefaultsScreen();
   static Widget _privacy(BuildContext _) => const PrivacySettingsScreen();
   static Widget _developer(BuildContext _) => const DeveloperScreen();
+  static Widget _drafts(BuildContext _) => const DraftsScreen();
 }

@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/drafts/draft_store.dart';
 import '../../../core/models/library_item.dart';
 import 'album_draft.dart';
+import 'album_draft_codec.dart';
+import 'album_draft_keeper.dart';
 import 'album_editor_screen.dart';
 import 'gallery/gallery_import.dart';
 import 'gallery/gallery_screen.dart';
@@ -43,6 +47,13 @@ abstract final class AlbumFlow {
             maxVideoMs: maxVideoMs,
           );
     if (picked.isEmpty || !context.mounted) return;
+    // **Le brouillon existe dès ici** (Brouillons, 2026-09-20) : les
+    // fichiers importés sont déplacés dans son dossier avant que l'éditeur
+    // ne les décode, et chaque retouche l'écrira.
+    final container = ProviderScope.containerOf(context, listen: false);
+    final keeper = AlbumDraftKeeper(container.read(draftStoreProvider));
+    final adopted = await keeper.adoptMedia(picked);
+    if (!context.mounted) return;
     await Navigator.of(context).push<AlbumDraft>(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -54,10 +65,32 @@ abstract final class AlbumFlow {
               ? const AlbumDraft(
                   aspect: AlbumAspect.reel,
                   flow: true,
-                ).add(picked)
+                ).add(adopted)
               : AlbumDraft(
-                  aspect: AlbumDraft.aspectFor(picked.first),
-                ).add(picked),
+                  aspect: AlbumDraft.aspectFor(adopted.first),
+                ).add(adopted),
+          keeper: keeper,
+        ),
+      ),
+    );
+  }
+
+  /// **Reprendre un brouillon** là où il a été laissé : l'éditeur, et la
+  /// légende tout de suite si c'est là qu'on en était.
+  static Future<void> resume(BuildContext context, Draft draft) async {
+    final container = ProviderScope.containerOf(context, listen: false);
+    final keeper = AlbumDraftKeeper(
+      container.read(draftStoreProvider),
+      id: draft.id,
+    );
+    final album = AlbumDraftCodec.fromJson(draft.payload);
+    await Navigator.of(context).push<AlbumDraft>(
+      MaterialPageRoute(
+        fullscreenDialog: true,
+        builder: (_) => AlbumEditorScreen(
+          draft: album,
+          keeper: keeper,
+          openCaption: draft.step == 'caption',
         ),
       ),
     );

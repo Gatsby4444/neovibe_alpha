@@ -160,6 +160,13 @@ class PublishBridge(
                 }
             }
             "pending" -> io.execute {
+                // Une publication jamais libérée depuis un jour : le service
+                // l'annulera (voir PublishService.UNRELEASED_TTL_MS) — on le
+                // réveille pour qu'il le fasse, même sans autre travail.
+                val stale = System.currentTimeMillis() - PublishService.UNRELEASED_TTL_MS
+                if (store.active().any { store.release(it.id) == null && it.createdAt < stale }) {
+                    PublishService.kick(context)
+                }
                 val list = current()
                 main.post { result.success(list) }
             }

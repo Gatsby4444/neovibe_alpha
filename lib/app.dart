@@ -18,6 +18,7 @@ import 'features/proximity/net/friend_book_watcher.dart';
 import 'features/proximity/net/ping_beacon_service.dart';
 import 'features/proximity/net/proximity_controller.dart';
 import 'features/proximity/net/proximity_supervisor.dart';
+import 'core/drafts/draft_store.dart';
 import 'core/work_dir.dart';
 
 /// Clé de navigation globale : permet aux notifications (ex. BeReal)
@@ -142,6 +143,8 @@ class _RootGateState extends ConsumerState<RootGate> {
       await ref.read(savedStoreProvider).purgeRevoked();
       // Les restes d'un export ou d'un envoi interrompu (voir [WorkDir]).
       await WorkDir.sweep();
+      // Les brouillons de plus de trois jours (voir [DraftStore]).
+      await ref.read(draftStoreProvider).sweep();
 
       // Les octets des contenus qui n'existent plus côté serveur. Le serveur
       // dit lesquels ; l'API Storage est le seul chemin qui les supprime

@@ -154,6 +154,16 @@ class PublishService : Service() {
         try {
             while (true) {
                 synchronized(lock) { poked = false }
+                // Déposée à « Suivant » mais jamais « Publiée » depuis un jour :
+                // l'utilisateur ne reviendra pas la libérer. On l'annule — ce
+                // qui est au coffre et sur le téléphone s'efface. Sans cela,
+                // chaque légende abandonnée laisserait des fichiers pour
+                // toujours (Jay, 2026-09-20 : « cela peut créer une faille qui
+                // fasse grossir un stockage énorme »).
+                val stale = System.currentTimeMillis() - UNRELEASED_TTL_MS
+                for (j in store.active()) {
+                    if (store.release(j.id) == null && j.createdAt < stale) store.markCancelled(j.id)
+                }
                 val jobs = store.active()
                 if (jobs.isEmpty()) break
                 var shortest = Long.MAX_VALUE
@@ -278,6 +288,9 @@ class PublishService : Service() {
     }
 
     companion object {
+        /** Une publication jamais libérée est annulée passé ce délai. */
+        const val UNRELEASED_TTL_MS = 24 * 3600_000L
+
         private const val CHANNEL_ID = "neovibe_publish"
         private const val NOTIFICATION_ID = 2001
         private const val FAILED_ID = 2002

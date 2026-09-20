@@ -19,9 +19,13 @@ class AlbumCaptionScreen extends StatefulWidget {
     super.key,
     required this.draft,
     required this.coverThumb,
+    this.onChanged,
   });
 
   final AlbumDraft draft;
+
+  /// Le brouillon à chaque frappe et chaque réglage (Brouillons, 2026-09-20).
+  final ValueChanged<AlbumDraft>? onChanged;
 
   /// La couverture (le premier média), pour rappeler ce qu'on publie.
   final Future<File?> coverThumb;
@@ -32,7 +36,18 @@ class AlbumCaptionScreen extends StatefulWidget {
 
 class _AlbumCaptionScreenState extends State<AlbumCaptionScreen> {
   late AlbumDraft _draft = widget.draft;
-  late final _caption = TextEditingController(text: widget.draft.caption);
+  late final _caption = TextEditingController(text: widget.draft.caption)
+    ..addListener(_changed);
+
+  void _changed() =>
+      widget.onChanged?.call(_draft.copyWith(caption: _caption.text));
+
+  @override
+  void initState() {
+    super.initState();
+    // Arriver ici est déjà une étape : le brouillon le note.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _changed());
+  }
 
   @override
   void dispose() {
@@ -56,6 +71,8 @@ class _AlbumCaptionScreenState extends State<AlbumCaptionScreen> {
             font: _draft.captionFont,
             onFontChanged: (f) =>
                 setState(() => _draft = _draft.copyWith(captionFont: f)),
+
+            // (le brouillon suit)
             leading: Container(
               width: 72,
               height: 72 / _draft.aspect.ratio.clamp(0.8, 1.25),
