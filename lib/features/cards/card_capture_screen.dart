@@ -1388,7 +1388,14 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     _keeper = null;
     _keptSignature = null;
     if (keeper != null) {
-      unawaited(!sent && keepDraft ? keeper.flush() : keeper.delete());
+      // Envoyée : les fichiers restent pour l'envoi qui tourne (release).
+      unawaited(
+        sent
+            ? keeper.release()
+            : keepDraft
+            ? keeper.flush()
+            : keeper.delete(),
+      );
     }
     if (widget.directConversationId != null || widget.publicationOnly) {
       Navigator.of(context).pop();

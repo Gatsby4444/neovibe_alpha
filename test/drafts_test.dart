@@ -179,6 +179,19 @@ void main() {
       },
     );
 
+    test('oublier retire le brouillon de la liste, pas ses fichiers', () async {
+      final store = DraftStore(root: root);
+      await store.save(brouillon('a', DateTime(2026, 9, 20)));
+      final face = File('${(await store.dir('a')).path}/face.jpg');
+      await face.writeAsString('…');
+      await store.forget('a');
+      expect(await store.list(), isEmpty);
+      expect(face.existsSync(), isTrue, reason: 'l\'envoi la lit encore');
+      // …et le balai emporte le dossier orphelin au prochain démarrage.
+      await store.sweep();
+      expect(face.existsSync(), isFalse);
+    });
+
     test('supprimer emporte le dossier et ses fichiers', () async {
       final store = DraftStore(root: root);
       await store.save(brouillon('a', DateTime(2026, 9, 20)));

@@ -235,10 +235,23 @@ class VibeDraftKeeper {
     return ok ? file.path : null;
   }
 
-  /// La Vibe est partie : le brouillon n'a plus lieu d'être.
+  /// « Supprimer » : le brouillon et ses fichiers s'effacent.
   Future<void> delete() async {
     _deleted = true;
     await _writing;
     await _store.delete(id);
+  }
+
+  /// **La Vibe est partie** : le brouillon n'a plus lieu d'être — mais ses
+  /// fichiers, si. L'envoi tourne en arrière-plan, et il lit les faces DANS
+  /// ce dossier : les effacer ici, c'était les effacer sous lui
+  /// (2026-09-20, chez Jay : « SEAL_FAILED », « Cannot open file » sur les
+  /// douze destinations d'une Vibe). On retire seulement `draft.json` ; le
+  /// dossier, sans lui, est balayé au prochain démarrage de l'app — quand
+  /// plus aucun envoi de cette session ne peut le lire.
+  Future<void> release() async {
+    _deleted = true;
+    await _writing;
+    await _store.forget(id);
   }
 }

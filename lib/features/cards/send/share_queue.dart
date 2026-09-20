@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/diagnostics/app_log.dart';
 import 'share_plan.dart';
 import 'share_publisher.dart';
 import 'vibe_draft.dart';
@@ -168,6 +169,11 @@ class ShareQueue extends Notifier<List<ShareJob>> {
     // afficher reste le plan entier, porté par l'état.
     final aExecuter = job.plan;
     void progress(ShareOutcome o) {
+      // Dans le journal AUSSI (2026-09-20) : les douze échecs de Jay ne
+      // vivaient que dans le bandeau, le diagnostic n'en portait rien.
+      if (o.erreur != null) {
+        AppLog.instance.error('Envoi — ${o.label} : échec', '${o.erreur}');
+      }
       final courant = state.where((j) => j.id == job.id).firstOrNull;
       if (courant == null) return;
       _replace(courant.copyWith(outcomes: [...courant.outcomes, o]));

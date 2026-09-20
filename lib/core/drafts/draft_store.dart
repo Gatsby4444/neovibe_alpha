@@ -142,6 +142,17 @@ class DraftStore {
     return out;
   }
 
+  /// Retire le brouillon de la liste **sans toucher à ses fichiers** : un
+  /// envoi en cours peut encore les lire. Le dossier orphelin part au
+  /// prochain [sweep].
+  Future<void> forget(String id) async {
+    try {
+      final f = await _file(id);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
+    onChanged?.call();
+  }
+
   /// Efface le brouillon **et ses fichiers**.
   Future<void> delete(String id) async {
     final d = Directory('${(await root()).path}${Platform.pathSeparator}$id');
