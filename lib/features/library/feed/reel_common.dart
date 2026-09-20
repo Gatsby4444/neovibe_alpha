@@ -49,25 +49,43 @@ class ReelIdentity extends StatelessWidget {
             fallback: Text(name.isEmpty ? '?' : name[0].toUpperCase()),
           ),
           const SizedBox(width: NeoSpace.sm),
+          // **La date sous le pseudo** — la même tête que dans le fil (Jay,
+          // 2026-09-20 : « condenser et harmoniser l'espace du haut »).
           Flexible(
-            child: Text(
-              name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w700,
-                fontSize: 14,
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      timeAgo(item.createdAt),
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                      ),
+                    ),
+                    // Une Vibe dit son type ; un Flow n'en a pas.
+                    if (!item.isPublication) ...[
+                      const SizedBox(width: NeoSpace.xs + 2),
+                      CardTypeBadge(type: item.cardType, fontSize: 9),
+                    ],
+                  ],
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: NeoSpace.sm),
-          Text(
-            timeAgo(item.createdAt),
-            style: const TextStyle(color: Colors.white70, fontSize: 12),
-          ),
-          const SizedBox(width: NeoSpace.sm),
-          CardTypeBadge(type: item.cardType, fontSize: 10),
         ],
       ),
     );

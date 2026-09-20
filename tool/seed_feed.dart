@@ -12,6 +12,7 @@
 //   dart run tool/seed_feed.dart <mot-de-passe-des-bots> [--media docdev/seed-feed]
 //
 // Ensuite, `tool/seed_feed.sql` pose les croisements et les ajouts au feed.
+// ignore_for_file: curly_braces_in_flow_control_structures
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';

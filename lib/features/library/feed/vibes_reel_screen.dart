@@ -57,7 +57,13 @@ class VibesReelScreen extends ConsumerStatefulWidget {
     required this.vibes,
     required this.initialIndex,
     this.anchors,
+    this.header,
   });
+
+  /// **Un bandeau en haut** (le sélecteur d'un fil de Pulse, 2026-09-20) :
+  /// posé sur toute la largeur, le contenu descend d'autant. Nul = rien,
+  /// l'écran d'aujourd'hui.
+  final Widget? header;
 
   final List<LibraryItem> vibes;
   final int initialIndex;
@@ -126,6 +132,33 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
     _reporter.watching(_vibes[_current].id);
   }
 
+  /// Les pages, verticales — le même bloc avec ou sans bandeau.
+  Widget _pageView(BuildContext context) {
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(overscroll: false),
+      // ⚠️ **Pas de seuil élargi ici.** On a essayé (v0.9.194) :
+      // la carte gagnait alors trop souvent — Jay a tranché,
+      // *« le nouveau système est pire »*. Ce qui départage n'est
+      // pas la distance mais le **temps de pose**
+      // (`HeldPanGestureRecognizer`), et il vit dans la carte,
+      // donc partout à la fois.
+      child: Builder(
+        builder: (context) => PageView.builder(
+          controller: _pages,
+          scrollDirection: Axis.vertical,
+          onPageChanged: _onPage,
+          itemCount: _vibes.length,
+          itemBuilder: (context, i) => _ReelPage(
+            key: ValueKey(_vibes[i].id),
+            item: _vibes[i],
+            active: i == _current,
+            onDeleted: () => _removed(_vibes[i]),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return DarkSystemBars(
@@ -150,33 +183,42 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
             child: Stack(
               children: [
                 const Positioned.fill(child: ColoredBox(color: Colors.black)),
+                // Sous le bandeau, s'il y en a un : la page ne connaît plus
+                // l'encoche du haut (le bandeau l'a prise), et commence
+                // juste en dessous.
+                if (widget.header != null)
+                  Positioned(
+                    top: MediaQuery.paddingOf(context).top + kToolbarHeight,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: MediaQuery.removePadding(
+                      context: context,
+                      removeTop: true,
+                      child: _pageView(context),
+                    ),
+                  )
+                else
+                  _pageView(context),
                 // Sans la lueur de bord : le sur-défilement du haut est un
                 // geste (fermer), pas une butée à signaler.
-                ScrollConfiguration(
-                  behavior: ScrollConfiguration.of(
-                    context,
-                  ).copyWith(overscroll: false),
-                  // ⚠️ **Pas de seuil élargi ici.** On a essayé (v0.9.194) :
-                  // la carte gagnait alors trop souvent — Jay a tranché,
-                  // *« le nouveau système est pire »*. Ce qui départage n'est
-                  // pas la distance mais le **temps de pose**
-                  // (`HeldPanGestureRecognizer`), et il vit dans la carte,
-                  // donc partout à la fois.
-                  child: Builder(
-                    builder: (context) => PageView.builder(
-                      controller: _pages,
-                      scrollDirection: Axis.vertical,
-                      onPageChanged: _onPage,
-                      itemCount: _vibes.length,
-                      itemBuilder: (context, i) => _ReelPage(
-                        key: ValueKey(_vibes[i].id),
-                        item: _vibes[i],
-                        active: i == _current,
-                        onDeleted: () => _removed(_vibes[i]),
+                if (widget.header != null)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: SafeArea(
+                      bottom: false,
+                      child: SizedBox(
+                        height: kToolbarHeight,
+                        // La place du bouton Fermer, à droite, reste libre.
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 56, right: 56),
+                          child: Center(child: widget.header),
+                        ),
                       ),
                     ),
                   ),
-                ),
                 // En haut à DROITE : le haut-gauche de la carte porte
                 // désormais la photo et le pseudo.
                 Positioned(

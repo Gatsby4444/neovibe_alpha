@@ -48,7 +48,13 @@ class FlowsReelScreen extends ConsumerStatefulWidget {
     required this.flows,
     required this.initialIndex,
     this.anchors,
+    this.header,
   });
+
+  /// **Un bandeau en haut** (le sélecteur d'un fil de Pulse, 2026-09-20) :
+  /// posé sur toute la largeur, le contenu descend d'autant. Nul = rien,
+  /// l'écran d'aujourd'hui.
+  final Widget? header;
 
   final List<LibraryItem> flows;
   final int initialIndex;
@@ -120,6 +126,26 @@ class _FlowsReelScreenState extends ConsumerState<FlowsReelScreen> {
     setState(() => _flows = List.of(_flows)..[index] = item);
   }
 
+  /// Les pages, verticales — le même bloc avec ou sans bandeau.
+  Widget _pageView(BuildContext context) {
+    return ScrollConfiguration(
+      behavior: ScrollConfiguration.of(context).copyWith(overscroll: false),
+      child: PageView.builder(
+        controller: _pages,
+        scrollDirection: Axis.vertical,
+        onPageChanged: _onPage,
+        itemCount: _flows.length,
+        itemBuilder: (context, i) => _FlowPage(
+          key: ValueKey(_flows[i].id),
+          item: _flows[i],
+          active: i == _current,
+          onDeleted: () => _removed(_flows[i]),
+          onChanged: _changed,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return DarkSystemBars(
@@ -139,24 +165,40 @@ class _FlowsReelScreenState extends ConsumerState<FlowsReelScreen> {
             child: Stack(
               children: [
                 const Positioned.fill(child: ColoredBox(color: Colors.black)),
-                ScrollConfiguration(
-                  behavior: ScrollConfiguration.of(
-                    context,
-                  ).copyWith(overscroll: false),
-                  child: PageView.builder(
-                    controller: _pages,
-                    scrollDirection: Axis.vertical,
-                    onPageChanged: _onPage,
-                    itemCount: _flows.length,
-                    itemBuilder: (context, i) => _FlowPage(
-                      key: ValueKey(_flows[i].id),
-                      item: _flows[i],
-                      active: i == _current,
-                      onDeleted: () => _removed(_flows[i]),
-                      onChanged: _changed,
+                // Sous le bandeau, s'il y en a un : la page ne connaît plus
+                // l'encoche du haut (le bandeau l'a prise), et commence
+                // juste en dessous.
+                if (widget.header != null)
+                  Positioned(
+                    top: MediaQuery.paddingOf(context).top + kToolbarHeight,
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: MediaQuery.removePadding(
+                      context: context,
+                      removeTop: true,
+                      child: _pageView(context),
+                    ),
+                  )
+                else
+                  _pageView(context),
+                if (widget.header != null)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    child: SafeArea(
+                      bottom: false,
+                      child: SizedBox(
+                        height: kToolbarHeight,
+                        // La place du bouton Fermer, à droite, reste libre.
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 56, right: 56),
+                          child: Center(child: widget.header),
+                        ),
+                      ),
                     ),
                   ),
-                ),
                 Positioned(
                   top: 0,
                   right: 0,

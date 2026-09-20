@@ -6,40 +6,58 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/location/anchor.dart';
 import '../../core/models/library_item.dart';
 import '../../core/widgets/cover_host.dart';
-import '../../core/widgets/kind_colors.dart';
+import '../../core/widgets/reel_route.dart';
+import '../../core/widgets/system_bars.dart';
+import '../library/feed/flows_reel_screen.dart';
 import '../library/feed/publications_feed_screen.dart';
+import '../library/feed/vibes_reel_screen.dart';
+import 'feed_mode_selector.dart';
 import 'pulse_repository.dart';
 
-/// Ouvre le fil d'une nature depuis la galerie, posé sur [initial] — en
-/// couverture de l'onglet (comme le fil du profil), sinon en page.
+/// Ouvre **directement le plein écran** de la nature touchée (Jay,
+/// 2026-09-20 : *« le seul fil qui doit exister est le plein écran »*) : une
+/// Vibe ou un Flow en plein écran façon Reels (une route superposée, qui se
+/// rétracte), une publication dans le fil des publications, en couverture
+/// de l'onglet — les mêmes écrans que le profil, avec un bandeau en plus :
+/// le sélecteur.
 void openPulseFeed(
   BuildContext context, {
   required LibraryKind kind,
   required LibraryItem initial,
   required ContentAnchor? at,
 }) {
-  final host = CoverHost.maybeOf(context);
-  if (host != null) {
-    host.show(
-      PulseFeedScreen(kind: kind, initial: initial, at: at, onClose: host.hide),
+  if (kind == LibraryKind.album) {
+    final host = CoverHost.maybeOf(context);
+    if (host != null) {
+      host.show(
+        PulseFeedScreen(
+          kind: kind,
+          initial: initial,
+          at: at,
+          onClose: host.hide,
+        ),
+      );
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PulseFeedScreen(kind: kind, initial: initial, at: at),
+      ),
     );
     return;
   }
   Navigator.of(context).push(
-    MaterialPageRoute(
+    ReelRoute(
       builder: (_) => PulseFeedScreen(kind: kind, initial: initial, at: at),
     ),
   );
 }
 
-/// **Un des trois fils de Pulse** — rien que des Vibes, rien que des Flows,
-/// ou rien que des publications (Jay, 2026-09-20). En haut, à la place du
-/// titre, **le sélecteur** : Tout / Amis / Autour de moi, un menu qui se
-/// déroule sous le titre (comme le choix d'album de la galerie, mais sans
-/// panneau du bas). En mode « Autour de moi », un bouton relit ma position.
-///
-/// Le fil lui-même est celui du profil ([PublicationsFeedScreen]) : mêmes
-/// cellules, mêmes gestes. Ce qui change, c'est d'où viennent les contenus.
+/// **Un des trois fils de Pulse**, en plein écran, avec en haut **le
+/// sélecteur** Tout / Amis / Autour de moi — rien d'autre : ni titre, ni
+/// nature (Jay, 2026-09-20). Vibes → `VibesReelScreen`, Flows →
+/// `FlowsReelScreen`, publications → `PublicationsFeedScreen` : les écrans
+/// du profil, à qui on tend un bandeau. Changer de mode recharge le fil.
 class PulseFeedScreen extends ConsumerStatefulWidget {
   const PulseFeedScreen({
     super.key,
@@ -67,6 +85,8 @@ class _PulseFeedScreenState extends ConsumerState<PulseFeedScreen> {
   late ContentAnchor? _at = widget.at;
   var _locating = false;
 
+  bool get _reel => widget.kind != LibraryKind.album;
+
   FeedQuery get _query => (kind: widget.kind, mode: _mode, at: _at);
 
   Future<void> _relocate() async {
@@ -80,136 +100,102 @@ class _PulseFeedScreenState extends ConsumerState<PulseFeedScreen> {
     ref.invalidate(feedItemsProvider(_query));
   }
 
-  Future<void> _choisir(BuildContext anchorContext) async {
-    // Le menu se déroule SOUS le titre, là où on a appuyé.
-    final box = anchorContext.findRenderObject() as RenderBox;
-    final origin = box.localToGlobal(Offset(0, box.size.height));
-    final choix = await showMenu<FeedMode>(
-      context: context,
-      position: RelativeRect.fromLTRB(origin.dx, origin.dy, origin.dx, 0),
-      items: [
-        for (final m in FeedMode.values)
-          PopupMenuItem(
-            value: m,
-            child: Row(
-              children: [
-                Icon(
-                  m == _mode
-                      ? Icons.radio_button_checked
-                      : Icons.radio_button_off,
-                  size: 18,
-                ),
-                const SizedBox(width: 10),
-                Text(m.label),
-              ],
-            ),
-          ),
-      ],
-    );
-    if (choix == null || !mounted || choix == _mode) return;
-    setState(() => _mode = choix);
-    if (choix == FeedMode.autour && _at == null) unawaited(_relocate());
+  void _setMode(FeedMode m) {
+    setState(() => _mode = m);
+    if (m == FeedMode.autour && _at == null) unawaited(_relocate());
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final items = ref.watch(feedItemsProvider(_query));
-    final titre = Builder(
-      builder: (ctx) => InkWell(
-        borderRadius: BorderRadius.circular(8),
-        onTap: () => _choisir(ctx),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 10,
-                height: 10,
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: KindColors.of(widget.kind),
-                    width: 2,
-                  ),
-                ),
-              ),
-              Text(
-                '${KindColors.label(widget.kind)}s · ${_mode.label}',
-                style:
-                    Theme.of(context).appBarTheme.titleTextStyle ??
-                    Theme.of(context).textTheme.titleLarge,
-              ),
-              const Icon(Icons.expand_more, size: 20),
-            ],
-          ),
-        ),
-      ),
-    );
-    final actions = <Widget>[
+  /// Le sélecteur, et le bouton de position en mode Autour de moi.
+  Widget _selector() => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      FeedModeSelector(mode: _mode, onChanged: _setMode, light: _reel),
       if (_mode == FeedMode.autour)
         _locating
             ? const Padding(
-                padding: EdgeInsets.all(14),
+                padding: EdgeInsets.all(12),
                 child: SizedBox(
-                  width: 18,
-                  height: 18,
+                  width: 16,
+                  height: 16,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               )
             : IconButton(
-                icon: const Icon(Icons.my_location),
+                icon: const Icon(Icons.my_location, size: 20),
+                color: _reel ? Colors.white : null,
                 tooltip: 'Relire ma position',
                 onPressed: _relocate,
               ),
-    ];
+    ],
+  );
 
+  String get _vide => switch (_mode) {
+    FeedMode.tout => 'Rien pour l\'instant.',
+    FeedMode.amis => 'Aucun ami ne t\'a encore rien ajouté.',
+    FeedMode.autour =>
+      _at == null
+          ? 'Position indisponible.'
+          : 'Rien de localisé à moins d\'un kilomètre.',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final items = ref.watch(feedItemsProvider(_query));
     return items.when(
-      loading: () => _Cadre(
-        titre: titre,
-        actions: actions,
+      loading: () => _Attente(
+        reel: _reel,
+        selector: _selector(),
         onClose: _close,
         child: const Center(child: CircularProgressIndicator()),
       ),
-      error: (e, _) => _Cadre(
-        titre: titre,
-        actions: actions,
+      error: (e, _) => _Attente(
+        reel: _reel,
+        selector: _selector(),
         onClose: _close,
         child: Center(child: Text('Erreur : $e')),
       ),
       data: (list) {
         if (list.isEmpty) {
-          return _Cadre(
-            titre: titre,
-            actions: actions,
+          return _Attente(
+            reel: _reel,
+            selector: _selector(),
             onClose: _close,
             child: Center(
               child: Padding(
                 padding: const EdgeInsets.all(32),
-                child: Text(switch (_mode) {
-                  FeedMode.tout => 'Rien pour l\'instant.',
-                  FeedMode.amis => 'Aucun ami ne t\'a encore rien ajouté.',
-                  FeedMode.autour =>
-                    _at == null
-                        ? 'Position indisponible.'
-                        : 'Rien de localisé à moins d\'un kilomètre.',
-                }, textAlign: TextAlign.center),
+                child: Text(
+                  _vide,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: _reel ? Colors.white70 : null),
+                ),
               ),
             ),
           );
         }
         final index = list.indexWhere((i) => i.id == widget.initial.id);
-        return PublicationsFeedScreen(
-          // Un autre mode = un autre fil, reposé sur son début.
-          key: ValueKey(_mode),
-          items: list,
-          initialIndex: index < 0 ? 0 : index,
-          titleWidget: titre,
-          actions: actions,
-          revealAdders: true,
-          onClose: _close,
-        );
+        final start = index < 0 ? 0 : index;
+        return switch (widget.kind) {
+          LibraryKind.card => VibesReelScreen(
+            key: ValueKey(_mode),
+            vibes: list,
+            initialIndex: start,
+            header: _selector(),
+          ),
+          LibraryKind.flow => FlowsReelScreen(
+            key: ValueKey(_mode),
+            flows: list,
+            initialIndex: start,
+            header: _selector(),
+          ),
+          LibraryKind.album => PublicationsFeedScreen(
+            key: ValueKey(_mode),
+            items: list,
+            initialIndex: start,
+            titleWidget: Center(child: _selector()),
+            revealAdders: true,
+            onClose: _close,
+          ),
+        };
       },
     );
   }
@@ -224,31 +210,38 @@ class _PulseFeedScreenState extends ConsumerState<PulseFeedScreen> {
   }
 }
 
-/// Le même bandeau que le fil, quand il n'y a pas encore de fil à montrer.
-class _Cadre extends StatelessWidget {
-  const _Cadre({
-    required this.titre,
-    required this.actions,
+/// Le même bandeau, quand il n'y a pas encore de fil à montrer : noir en
+/// plein écran, clair dans le fil des publications.
+class _Attente extends StatelessWidget {
+  const _Attente({
+    required this.reel,
+    required this.selector,
     required this.onClose,
     required this.child,
   });
 
-  final Widget titre;
-  final List<Widget> actions;
+  final bool reel;
+  final Widget selector;
   final VoidCallback onClose;
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back),
-        tooltip: 'Retour',
-        onPressed: onClose,
+  Widget build(BuildContext context) {
+    final scaffold = Scaffold(
+      backgroundColor: reel ? Colors.black : null,
+      appBar: AppBar(
+        backgroundColor: reel ? Colors.black : null,
+        foregroundColor: reel ? Colors.white : null,
+        leading: IconButton(
+          icon: Icon(reel ? Icons.close : Icons.arrow_back),
+          tooltip: 'Fermer',
+          onPressed: onClose,
+        ),
+        centerTitle: true,
+        title: selector,
       ),
-      title: titre,
-      actions: actions,
-    ),
-    body: child,
-  );
+      body: child,
+    );
+    return reel ? DarkSystemBars(child: scaffold) : scaffold;
+  }
 }
