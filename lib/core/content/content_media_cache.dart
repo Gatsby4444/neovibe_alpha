@@ -171,6 +171,37 @@ class ContentMediaCache {
     ContentSlot.poster(slot),
   );
 
+  /// Les faces de MES contenus en train de revenir sur l'appareil.
+  final _restoring = <String>{};
+
+  /// **Une face de MON contenu manque sur l'appareil : elle y revient**
+  /// (2026-09-20). Le cache `own/` n'était rempli qu'à la publication ; une
+  /// face balayée (le plafond de 200 Mo, avant la v0.9.223) ou publiée depuis
+  /// un autre appareil n'y revenait JAMAIS — et chez Jay, mode avion, ses
+  /// propres vidéos échouaient sur « Unable to resolve host ». Ici, dès
+  /// qu'on la lit en ligne, elle est **téléchargée en entier en arrière-plan**
+  /// dans `own/` : la prochaine lecture est locale. Une seule fois par face à
+  /// la fois ; un échec n'est pas une panne, on réessaiera à la prochaine
+  /// lecture.
+  Future<void> restoreOwn(
+    String contentId, {
+    required int slot,
+    required Future<String> Function() signedUrl,
+  }) async {
+    final id = ContentSlot.cacheId(contentId, slot);
+    if (!_restoring.add(id)) return;
+    try {
+      final target = _faceFile(await _dir('own'), contentId, slot);
+      if (await target.exists()) return;
+      await _download(await signedUrl(), target);
+      await enforceOwnLimit();
+    } catch (_) {
+      // Sans réseau, ou réseau lent : rien à faire, ce n'est qu'un cache.
+    } finally {
+      _restoring.remove(id);
+    }
+  }
+
   /// Dépose le scellé d'une de MES faces, à la publication.
   Future<void> storeOwn(
     String contentId,

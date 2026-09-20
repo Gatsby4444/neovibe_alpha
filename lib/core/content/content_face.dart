@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -159,6 +160,13 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   File? sealed;
   if (spec.ownerId == me) {
     sealed = await cache.tryOwn(spec.contentId, slot: spec.slot);
+    // MA face, pas sur l'appareil : elle est servie depuis le serveur cette
+    // fois, et **revient en local** en arrière-plan (voir `restoreOwn`).
+    if (sealed == null) {
+      unawaited(
+        cache.restoreOwn(spec.contentId, slot: spec.slot, signedUrl: signedUrl),
+      );
+    }
   }
   // Le classement de la mesure (complet / partiel / froid) n'est PAS fait ici :
   // le Dart ne peut pas le connaître. Le cache par blocs donne au fichier sa

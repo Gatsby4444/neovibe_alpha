@@ -1,6 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/content/content_face.dart';
@@ -21,18 +24,43 @@ import '../../core/work_dir.dart';
 ///
 /// Plus de jointure `cards(*)` : une publication n'est plus une Card, elle
 /// porte ses propres fichiers.
+///
+/// **MA bibliothèque a une copie sur l'appareil** (2026-09-20) : la liste
+/// reçue du serveur est écrite dans un fichier ; sans réseau, c'est elle qui
+/// sert — avec les faces déjà en cache, mes publications s'affichent en
+/// mode avion. Jay : *« l'affichage de MES contenus ne doit jamais attendre
+/// le réseau »*. La bibliothèque de quelqu'un d'autre, elle, vient du
+/// serveur ou pas du tout.
 final libraryItemsProvider = FutureProvider.family<List<LibraryItem>, String>((
   ref,
   ownerId,
 ) async {
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('library_items')
-      .select(LibraryItem.select)
-      .eq('owner_id', ownerId)
-      .order('created_at', ascending: false);
-  return rows.map(LibraryItem.fromJson).toList();
+  final me = ref.watch(currentUserIdProvider);
+  final copie = ownerId == me ? await _copieLocale(ownerId) : null;
+  try {
+    final rows = await ref
+        .watch(supabaseProvider)
+        .from('library_items')
+        .select(LibraryItem.select)
+        .eq('owner_id', ownerId)
+        .order('created_at', ascending: false);
+    if (copie != null) {
+      unawaited(copie.writeAsString(jsonEncode(rows)).catchError((_) => copie));
+    }
+    return rows.map(LibraryItem.fromJson).toList();
+  } catch (e) {
+    if (copie == null || !await copie.exists()) rethrow;
+    final rows = jsonDecode(await copie.readAsString()) as List;
+    return [
+      for (final r in rows) LibraryItem.fromJson(r as Map<String, dynamic>),
+    ];
+  }
 });
+
+Future<File> _copieLocale(String ownerId) async {
+  final base = await getApplicationSupportDirectory();
+  return File('${base.path}${Platform.pathSeparator}library_$ownerId.json');
+}
 
 /// Liste d'accès restreint à MA bibliothèque.
 final libraryAccessProvider = FutureProvider<List<String>>((ref) async {
