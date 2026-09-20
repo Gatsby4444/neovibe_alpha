@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../../../core/content/saved_store.dart';
+import '../../../core/location/anchor.dart';
 import '../../../core/models/card.dart';
 import '../../../core/utils/ids.dart';
 
@@ -24,8 +25,14 @@ class VibeDraft {
     required this.imported,
     required this.frontIsVideo,
     required this.backIsVideo,
+    this.anchor,
     String? localId,
   }) : localId = localId ?? newLocalId();
+
+  /// Où la prise a été faite, gommée à 100 m ([ContentAnchor]) ; nulle si la
+  /// position n'était pas disponible. Publiée SEULEMENT si l'utilisateur
+  /// coche « Localiser » dans les réglages de la bibliothèque.
+  final ContentAnchor? anchor;
 
   final File front;
 
@@ -69,6 +76,7 @@ class VibeDraft {
     imported: imported,
     frontIsVideo: frontIsVideo,
     backIsVideo: backIsVideo,
+    anchor: anchor,
     localId: localId,
   );
 

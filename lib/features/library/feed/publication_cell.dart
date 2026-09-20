@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/content/content_face.dart';
 import '../../../core/content/content_view_reporter.dart';
 import '../../../core/models/library_item.dart';
+import '../../pulse/pulse_repository.dart';
 import '../../../core/models/profile.dart';
 import '../../../core/supabase_providers.dart';
 import '../../../core/theme.dart';
@@ -54,6 +55,7 @@ class PublicationCell extends ConsumerStatefulWidget {
     required this.onOpen,
     this.onDeleted,
     this.onChanged,
+    this.revealAdder = false,
   });
 
   final LibraryItem item;
@@ -63,6 +65,11 @@ class PublicationCell extends ConsumerStatefulWidget {
 
   /// La publication a changé (sa légende) : l'écran remplace son exemplaire.
   final ValueChanged<LibraryItem>? onChanged;
+
+  /// Dans un fil de Pulse : qui m'a ajouté ce contenu, dit sous le pseudo
+  /// dès que je l'ai liké (Jay, 2026-09-11 : l'ajout est anonyme, *« sauf si
+  /// cet ami like le contenu »*).
+  final bool revealAdder;
 
   @override
   ConsumerState<PublicationCell> createState() => _PublicationCellState();
@@ -191,11 +198,15 @@ class _PublicationCellState extends ConsumerState<PublicationCell> {
     // d'actions, la légende, la date. **Pour un Flow, l'en-tête est DANS le
     // contenu**, posé en haut de la vidéo sur un voile (Jay, 2026-09-19,
     // comme un Reel dans le fil d'Instagram) — spécifique aux Flows.
+    final adder = widget.revealAdder
+        ? ref.watch(revealedAdderProvider(item.id)).asData?.value
+        : null;
     final header = _Header(
       item: item,
       owner: owner,
       mine: mine,
       overlay: item.isFlow,
+      addedBy: adder,
       actions: PublicationMenu(
         item: item,
         mine: mine,
@@ -296,6 +307,7 @@ class _Header extends StatelessWidget {
     required this.mine,
     required this.actions,
     this.overlay = false,
+    this.addedBy,
   });
 
   final LibraryItem item;
@@ -305,6 +317,9 @@ class _Header extends StatelessWidget {
 
   /// Posé SUR le média (un Flow) : encre blanche, voile en dessous.
   final bool overlay;
+
+  /// « Ajouté par X » — révélé par le like, dans un fil de Pulse.
+  final String? addedBy;
 
   @override
   Widget build(BuildContext context) {
@@ -342,7 +357,9 @@ class _Header extends StatelessWidget {
               // la réduire un peu, non.
               if (item.isPublication)
                 Text(
-                  timeAgo(item.createdAt),
+                  addedBy == null
+                      ? timeAgo(item.createdAt)
+                      : 'Ajouté par $addedBy · ${timeAgo(item.createdAt)}',
                   maxLines: 1,
                   style: TextStyle(
                     color: overlay ? Colors.white70 : context.muted,

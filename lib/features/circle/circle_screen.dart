@@ -12,7 +12,6 @@ import '../conversations/create_group_screen.dart';
 import 'constellation_screen.dart';
 import '../events/event_banner.dart';
 import '../events/events_screen.dart';
-import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
 import 'categories_repository.dart';
 
@@ -88,14 +87,8 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
           // Le mode événement n'apparaît QUE si j'ai rejoint un événement :
           // ce bandeau est vide le reste du temps (2026-09-12).
           const EventBanner(),
-          // Emplacement réservé depuis le 2026-07-12, occupé le 2026-08-02 :
-          // les stories de mes amis, en haut du hub.
-          StoriesBar(
-            provider: friendStoriesProvider,
-            emptyHint:
-                'Pas de story pour l\'instant. Publie une Vibe en story '
-                'depuis l\'écran d\'envoi.',
-          ),
+          // Les stories de mes amis vivaient ici (2026-08-02) : elles sont
+          // dans Pulse depuis le 2026-09-20 (Jay), en tête du feed.
           SizedBox(
             height: 44,
             child: ListView(

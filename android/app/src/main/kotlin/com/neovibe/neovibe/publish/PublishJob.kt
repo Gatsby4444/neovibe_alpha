@@ -106,6 +106,9 @@ data class Release(
     val isPublic: Boolean = false,
     val shareable: Boolean = false,
     val saveable: Boolean = false,
+    /** L'ancre, déjà gommée par l'app ; le serveur la gomme encore. Nulle = pas localisée. */
+    val anchorLat: Double? = null,
+    val anchorLng: Double? = null,
 ) {
     fun toJson(): String = gson.toJson(this)
 

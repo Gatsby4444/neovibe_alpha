@@ -157,6 +157,8 @@ class SharePublisher {
                 isPublic: library.isPublic,
                 shareable: library.shareable,
                 saveable: library.saveable && draft.type.canBeSaveable,
+                // L'ancre ne part que si « Localisée » est cochée.
+                anchor: library.anchored ? draft.anchor : null,
               );
           await rekey(id);
         }),

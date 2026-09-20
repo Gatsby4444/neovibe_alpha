@@ -106,6 +106,8 @@ class PublishBridge(
                             isPublic = call.argument<Boolean>("isPublic") ?: false,
                             shareable = call.argument<Boolean>("shareable") ?: false,
                             saveable = call.argument<Boolean>("saveable") ?: false,
+                            anchorLat = call.argument<Double>("anchorLat"),
+                            anchorLng = call.argument<Double>("anchorLng"),
                         ),
                     )
                     PublishService.kick(context)

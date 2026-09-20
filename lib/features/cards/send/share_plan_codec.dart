@@ -21,6 +21,7 @@ abstract final class SharePlanCodec {
             'shareable': p.library!.shareable,
             'saveable': p.library!.saveable,
             'caption': p.library!.caption,
+            'anchored': p.library!.anchored,
           },
     'conversations': [
       for (final c in p.conversations)
@@ -63,6 +64,7 @@ abstract final class SharePlanCodec {
               shareable: library['shareable'] as bool? ?? false,
               saveable: library['saveable'] as bool? ?? false,
               caption: library['caption'] as String?,
+              anchored: library['anchored'] as bool? ?? false,
             ),
       conversations: [
         for (final raw in j['conversations'] as List? ?? const [])

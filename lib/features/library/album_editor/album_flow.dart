@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/drafts/draft_store.dart';
+import '../../../core/location/anchor.dart';
 import '../../../core/models/library_item.dart';
 import 'album_draft.dart';
 import 'album_draft_codec.dart';
@@ -25,6 +26,12 @@ abstract final class AlbumFlow {
   static Future<void> start(BuildContext context, {bool flow = false}) async {
     final places = flow ? 1 : kAlbumMaxMedia;
     final maxVideoMs = flow ? kFlowMaxVideoMs : kAlbumMaxVideoMs;
+    // Où on est, relevé dès maintenant et sans attendre : l'éditeur le
+    // recevra quand il arrivera (l'ancre, gommée — voir ContentAnchor).
+    final anchor = ProviderScope.containerOf(
+      context,
+      listen: false,
+    ).read(anchorSourceProvider).current();
     final pick = await Navigator.of(context).push<GalleryPick>(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -70,6 +77,7 @@ abstract final class AlbumFlow {
                   aspect: AlbumDraft.aspectFor(adopted.first),
                 ).add(adopted),
           keeper: keeper,
+          anchor: anchor,
         ),
       ),
     );

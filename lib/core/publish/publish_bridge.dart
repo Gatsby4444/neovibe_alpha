@@ -157,12 +157,16 @@ class PublishBridge {
     required bool isPublic,
     required bool shareable,
     required bool saveable,
+    double? anchorLat,
+    double? anchorLng,
   }) => _call('release', {
     'id': id,
     'caption': caption,
     'captionFont': captionFont,
     'isPublic': isPublic,
     'shareable': shareable,
+    'anchorLat': anchorLat,
+    'anchorLng': anchorLng,
     'saveable': saveable,
   });
 

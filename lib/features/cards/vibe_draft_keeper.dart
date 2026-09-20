@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../../core/drafts/draft_store.dart';
+import '../../core/location/anchor.dart';
 import '../../core/models/card.dart';
 import '../../core/utils/ids.dart';
 import '../library/album_editor/album_draft_codec.dart';
@@ -26,6 +27,7 @@ class VibeDraftState {
     this.step = 'capture',
     this.edit,
     this.plan,
+    this.anchor,
   });
 
   factory VibeDraftState.fromJson(Map<String, dynamic> j) {
@@ -40,6 +42,11 @@ class VibeDraftState {
       frontImported: j['frontImported'] as bool? ?? false,
       backImported: j['backImported'] as bool? ?? false,
       step: j['step'] as String? ?? 'capture',
+      anchor: j['anchor'] == null
+          ? null
+          : ContentAnchor.fromJson(
+              (j['anchor'] as Map).cast<String, dynamic>(),
+            ),
       edit: edit == null
           ? null
           : VibeEditDraft(
@@ -70,6 +77,9 @@ class VibeDraftState {
   VibeEditDraft? edit;
   SharePlan? plan;
 
+  /// Où la prise a été faite (gommée), si la position était disponible.
+  ContentAnchor? anchor;
+
   Map<String, dynamic> toJson() => {
     'type': type.name,
     'front': front?.path,
@@ -79,6 +89,7 @@ class VibeDraftState {
     'frontImported': frontImported,
     'backImported': backImported,
     'step': step,
+    'anchor': anchor?.toJson(),
     'edit': edit == null
         ? null
         : {

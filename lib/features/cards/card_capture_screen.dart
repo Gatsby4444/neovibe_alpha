@@ -11,6 +11,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/diagnostics/app_log.dart';
 import '../../core/drafts/draft_store.dart';
+import '../../core/location/anchor.dart';
 import '../../core/motion.dart';
 import '../../core/utils/ids.dart';
 
@@ -167,6 +168,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// L'étape d'un brouillon repris, consommée par le premier récap : une
   /// face refaite ensuite repasse par l'éditeur comme une prise neuve.
   String? _resumedStep;
+
+  /// Où la prise a été faite — relevée à la première face, gommée à 100 m,
+  /// publiée seulement si l'utilisateur coche « Localisée » (2026-09-20).
+  ContentAnchor? _anchor;
+  Future<void>? _anchorLookup;
   var _frontImported = false; // face issue de la galerie
   var _backImported = false;
   var _frontIsVideo = false; // face vidéo (mode vidéo, consigne Jay)
@@ -324,6 +330,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       _lockedType = s.type;
       _step = s.step == 'capture' ? (s.front == null ? 0 : 1) : 2;
       _resumedStep = s.step;
+      _anchor = s.anchor;
       _keeper = VibeDraftKeeper(
         ProviderScope.containerOf(
           context,
@@ -443,6 +450,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// Une face posée rejoint le dossier du brouillon **avant** d'être
   /// affichée — le gardien naît ici s'il n'existe pas.
   Future<File> _adoptFace(File f) async {
+    // La position, une fois par prise, sans attendre : elle sera là pour
+    // « À qui ? » — ou pas, et la puce « Localisée » le dira.
+    _anchorLookup ??= ref.read(anchorSourceProvider).current().then((a) {
+      if (mounted && a != null) setState(() => _anchor = a);
+    });
     if (widget.bereal || widget.libraryTarget != null) return f;
     _keeper ??= VibeDraftKeeper(ref.read(draftStoreProvider));
     return _keeper!.adopt(f);
@@ -455,7 +467,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     if (keeper == null || _front == null) return;
     final signature =
         '${_front?.path}|${_back?.path}|$_frontIsVideo|$_backIsVideo|'
-        '$_frontImported|$_backImported|${_cardType.name}|$_step';
+        '$_frontImported|$_backImported|${_cardType.name}|$_step|'
+        '${_anchor?.lat},${_anchor?.lng}';
     if (signature == _keptSignature) return;
     _keptSignature = signature;
     keeper.update((s) {
@@ -466,7 +479,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         ..frontIsVideo = _frontIsVideo
         ..backIsVideo = _backIsVideo
         ..frontImported = _frontImported
-        ..backImported = _backImported;
+        ..backImported = _backImported
+        ..anchor = _anchor;
       // Le récap dit lui-même « edit » ou « share » ; ici on ne sait que
       // « une face manque » ou « tout est là ».
       if (_step < 2) {
@@ -1804,6 +1818,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                 onAbandon: (keep) => _leaveRecap(sent: false, keepDraft: keep),
                 keeper: _keeper,
                 resumedAt: _resumedStep,
+                anchor: _anchor,
               ),
       );
     }
@@ -2628,9 +2643,13 @@ class _ShareStep extends StatefulWidget {
     required this.onAbandon,
     this.keeper,
     this.resumedAt,
+    this.anchor,
   });
   final File front;
   final File? back; // null = face unique
+
+  /// Où la prise a été faite (gommée), pour « Localisée ».
+  final ContentAnchor? anchor;
 
   /// Le gardien du brouillon (retouches et plan de partage y vont).
   final VibeDraftKeeper? keeper;
@@ -2872,6 +2891,7 @@ class _ShareStepState extends State<_ShareStep> {
       imported: widget.frontImported || widget.backImported,
       frontIsVideo: widget.frontIsVideo,
       backIsVideo: widget.backIsVideo,
+      anchor: widget.anchor,
       localId: _localId,
     );
     return RecipientPickerScreen(

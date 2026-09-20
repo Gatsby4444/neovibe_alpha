@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/content/content_face.dart';
 import '../../core/content/video_poster.dart';
+import '../../core/widgets/kind_colors.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
@@ -80,9 +81,11 @@ class MiniCard extends ConsumerWidget {
     // à une ou deux faces : la distinction « card » / « photo » a disparu avec
     // la colonne `kind`. Une photo importée est simplement une publication à
     // face unique — même stockage, même règle, même chemin d'affichage.
-    // `displayColor` : la vignette se pose sur l'habillage de l'app, pas sur
-    // une photo. En thème clair, `color` y est illisible pour la standard.
-    final borderColor = item.cardType.displayColor(context);
+    // **Le liseré dit la NATURE** — Vibe, Flow, publication (Jay,
+    // 2026-09-20), dans le feed comme ici. Le type d'une Vibe (Standard,
+    // Oneshot, BeReal) ne se dit plus que par sa pastille : deux codes sur
+    // le même trait, c'est zéro code.
+    final borderColor = KindColors.of(item.kind);
 
     Widget face(Widget child) => _MiniFrame(
       borderColor: borderColor,

@@ -12,7 +12,7 @@ import '../circle/circle_screen.dart';
 import '../connections/request_popup.dart';
 import '../library/profile_screen.dart';
 import '../notifications/fomo_listener.dart';
-import '../play/play_screen.dart';
+import '../pulse/pulse_screen.dart';
 import '../proximity/ping_screen.dart';
 import 'section_cursor.dart';
 
@@ -319,7 +319,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
               const SizedBox.shrink(), // emplacement du bouton capture
               _lazy(_ping, const PingScreen()),
               _lazy(_circle, const CircleScreen()),
-              _lazy(_play, const PlayScreen()),
+              _lazy(_play, const PulseScreen()),
               _lazy(_profile, const ProfileScreen()),
             ],
           ),
@@ -413,15 +413,18 @@ class _HomeShellState extends ConsumerState<HomeShell>
               animation: _barEntrance,
               index: 3,
               total: _tabCount,
-              child: const Icon(Icons.sports_esports_outlined),
+              child: const Icon(Icons.explore_outlined),
             ),
             selectedIcon: NeoBuildIn(
               animation: _barEntrance,
               index: 3,
               total: _tabCount,
-              child: const GradientIcon(Icons.sports_esports),
+              child: const GradientIcon(Icons.explore),
             ),
-            label: 'Jeux',
+            // « Pulse » (2026-09-20, nom temporaire) : LA section des
+            // contenus — le feed. L'onglet « Jeux » lui laisse la place ;
+            // les jeux et défis viendront avec la couche serveur.
+            label: 'Pulse',
           ),
           NavigationDestination(
             icon: NeoBuildIn(

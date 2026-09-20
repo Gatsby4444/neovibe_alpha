@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../../../core/location/anchor.dart';
 import '../../../core/models/library_item.dart';
 import '../../../core/typography.dart';
 import '../../../core/utils/ids.dart';
@@ -46,7 +47,12 @@ class AlbumEditorScreen extends StatefulWidget {
     required this.draft,
     required this.keeper,
     this.openCaption = false,
+    this.anchor,
   });
+
+  /// La position relevée au départ, quand elle arrive ; nulle pour un
+  /// brouillon repris (il porte déjà la sienne).
+  final Future<ContentAnchor?>? anchor;
 
   final AlbumDraft draft;
 
@@ -98,6 +104,11 @@ class _AlbumEditorScreenState extends State<AlbumEditorScreen> {
         if (mounted) _next();
       });
     }
+    widget.anchor?.then((a) {
+      if (a != null && mounted && _draft.anchor == null) {
+        setState(() => _draft = _draft.copyWith(anchor: a));
+      }
+    });
   }
 
   /// Chaque brouillon différent du dernier confié part au gardien — appelé

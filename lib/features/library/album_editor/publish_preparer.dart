@@ -30,6 +30,7 @@ class PreparedPublication {
   /// montre avec son avancement.
   Future<void> release(AlbumDraft draft) {
     final caption = draft.caption.trim();
+    final anchor = draft.anchorToPublish;
     return PublishBridge.instance.release(
       id,
       caption: caption.isEmpty ? null : caption,
@@ -37,6 +38,8 @@ class PreparedPublication {
       isPublic: draft.isPublic,
       shareable: draft.shareable,
       saveable: draft.saveable,
+      anchorLat: anchor?.lat,
+      anchorLng: anchor?.lng,
     );
   }
 

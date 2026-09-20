@@ -299,6 +299,7 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
         library: _plan.library ?? _libraryReglee ?? defauts.library,
         typeAccepteSauvegarde: draft.type.canBeSaveable,
         libraryOnly: _ctx.libraryOnly,
+        anchorAvailable: draft.anchor != null,
         // La feuille règle sans cocher : une ligne décochée garde son
         // réglage pour le jour où on la coche.
         onChanged: (s) => setState(() {

@@ -280,6 +280,8 @@ class PublishPipeline(
             "p_media_key" to job.mediaKey,
             "p_aspect_w" to job.aspectW,
             "p_aspect_h" to job.aspectH,
+            "p_anchor_lat" to release.anchorLat,
+            "p_anchor_lng" to release.anchorLng,
         )
         remote(s).rpc("publish_to_library", gson.toJson(body))
     }

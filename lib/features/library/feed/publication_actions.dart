@@ -159,7 +159,7 @@ class PublicationActions extends ConsumerWidget {
     try {
       final resultat = await ref
           .read(contentRepostProvider)
-          .toPlan(item.id, plan);
+          .toPlan(item.id, plan, isPublication: true);
       if (!context.mounted) return;
       ScaffoldMessenger.of(
         context,

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:ui';
 
+import '../../../core/location/anchor.dart';
 import '../../../core/models/library_item.dart';
 import 'album_draft.dart';
 import 'color_grade.dart';
@@ -23,6 +24,8 @@ abstract final class AlbumDraftCodec {
     'isPublic': d.isPublic,
     'shareable': d.shareable,
     'saveable': d.saveable,
+    'anchor': d.anchor?.toJson(),
+    'anchored': d.anchored,
     'media': [for (final m in d.media) mediaToJson(m)],
   };
 
@@ -34,6 +37,10 @@ abstract final class AlbumDraftCodec {
     isPublic: j['isPublic'] as bool? ?? false,
     shareable: j['shareable'] as bool? ?? false,
     saveable: j['saveable'] as bool? ?? false,
+    anchor: j['anchor'] == null
+        ? null
+        : ContentAnchor.fromJson((j['anchor'] as Map).cast<String, dynamic>()),
+    anchored: j['anchored'] as bool? ?? false,
     media: [
       for (final m in j['media'] as List)
         mediaFromJson((m as Map).cast<String, dynamic>()),

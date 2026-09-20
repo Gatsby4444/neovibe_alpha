@@ -7,6 +7,7 @@ import '../../core/content/content_face.dart';
 import '../../core/content/content_media_cache.dart';
 import '../../core/content/own_keys.dart';
 import '../../core/crypto/chunked_seal.dart';
+import '../../core/location/anchor.dart';
 import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
 import '../../core/models/library_item.dart';
@@ -73,6 +74,7 @@ class LibraryRepository {
     bool isPublic = false,
     bool shareable = false,
     bool saveable = false,
+    ContentAnchor? anchor,
   }) => _publish(
     kind: LibraryKind.card,
     cardType: type,
@@ -84,6 +86,7 @@ class LibraryRepository {
     isPublic: isPublic,
     shareable: shareable,
     saveable: saveable,
+    anchor: anchor,
   );
 
   /// ⚠️ **Un album ne se publie plus d'ici** (2026-09-19). Il est déposé à
@@ -100,6 +103,7 @@ class LibraryRepository {
     required bool isPublic,
     required bool shareable,
     required bool saveable,
+    ContentAnchor? anchor,
   }) async {
     assert(media.isNotEmpty && media.length <= 2);
     final me = _client.auth.currentUser!.id;
@@ -155,6 +159,9 @@ class LibraryRepository {
         'p_media_key': mediaKey,
         'p_aspect_w': null,
         'p_aspect_h': null,
+        // Déjà gommée à 100 m ; le serveur la gomme encore avant d'écrire.
+        'p_anchor_lat': anchor?.lat,
+        'p_anchor_lng': anchor?.lng,
       },
     );
 

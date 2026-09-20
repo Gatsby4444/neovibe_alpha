@@ -178,11 +178,15 @@ class PublicationSettingsSheet extends ConsumerStatefulWidget {
     required this.typeAccepteSauvegarde,
     required this.onChanged,
     this.libraryOnly = false,
+    this.anchorAvailable = false,
   });
 
   final StoryShare story;
   final LibraryShare library;
   final bool typeAccepteSauvegarde;
+
+  /// La prise a une position : « Localisée » peut être cochée.
+  final bool anchorAvailable;
   final ValueChanged<PublicationSettings> onChanged;
 
   /// Publication seulement (« Publier » depuis le profil, 2026-09-15) : la
@@ -302,6 +306,25 @@ class _PublicationSettingsSheetState
                       setState(
                         () => _library = _library.copyWith(
                           isPublic: !_library.isPublic,
+                        ),
+                      );
+                      _push();
+                    },
+                  ),
+                  // Un consentement à part de « Visible » (Jay, 2026-09-20) :
+                  // l'ancre, gommée à 100 m, jamais l'adresse. Grisée sans
+                  // position.
+                  SettingChip(
+                    label: widget.anchorAvailable
+                        ? 'Localisée (à 100 m près)'
+                        : 'Localisée — position indisponible',
+                    actif: _library.anchored && widget.anchorAvailable,
+                    desactivee: !widget.anchorAvailable,
+                    onTap: () {
+                      if (!widget.anchorAvailable) return;
+                      setState(
+                        () => _library = _library.copyWith(
+                          anchored: !_library.anchored,
                         ),
                       );
                       _push();

@@ -165,6 +165,24 @@ class _AlbumCaptionScreenState extends State<AlbumCaptionScreen> {
             onChanged: (v) =>
                 setState(() => _draft = _draft.copyWith(saveable: v)),
           ),
+          // **Localiser** — un consentement à part de « Public », non par
+          // défaut (Jay, 2026-09-20 : « c'est parfois chez quelqu'un »). Ce
+          // qui est retenu : la case de 100 m, jamais le point.
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Localiser'),
+            subtitle: Text(
+              _draft.anchor == null
+                  ? 'Position indisponible — autorise la localisation '
+                        'dans les réglages du téléphone.'
+                  : 'À 100 m près, là où elle a été prise. Visible par ceux '
+                        'qui passent là. Jamais l\'adresse exacte.',
+            ),
+            value: _draft.anchored && _draft.anchor != null,
+            onChanged: _draft.anchor == null
+                ? null
+                : (v) => setState(() => _draft = _draft.copyWith(anchored: v)),
+          ),
           const SizedBox(height: NeoSpace.xl),
           FilledButton.icon(
             onPressed: _publish,

@@ -401,7 +401,7 @@ class _StoryViewerScreenState extends ConsumerState<StoryViewerScreen> {
     if (plan == null || !mounted) return;
     final resultat = await ref
         .read(contentRepostProvider)
-        .toPlan(storyId, plan);
+        .toPlan(storyId, plan, isPublication: false);
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,

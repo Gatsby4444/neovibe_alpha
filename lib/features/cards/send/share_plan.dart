@@ -79,12 +79,17 @@ class LibraryShare extends ShareDestination {
     this.shareable = false,
     this.saveable = false,
     this.caption,
+    this.anchored = false,
   });
 
   final bool isPublic;
   final bool shareable;
   final bool saveable;
   final String? caption;
+
+  /// **Localiser** : publier l'ancre (gommée) de la prise. Non par défaut
+  /// (Jay, 2026-09-20).
+  final bool anchored;
 
   @override
   String get contexte => 'bibliotheque';
@@ -94,11 +99,13 @@ class LibraryShare extends ShareDestination {
     bool? shareable,
     bool? saveable,
     String? caption,
+    bool? anchored,
   }) => LibraryShare(
     isPublic: isPublic ?? this.isPublic,
     shareable: shareable ?? this.shareable,
     saveable: saveable ?? this.saveable,
     caption: caption ?? this.caption,
+    anchored: anchored ?? this.anchored,
   );
 }
 

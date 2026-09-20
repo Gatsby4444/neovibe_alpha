@@ -67,6 +67,9 @@ class PublicationsFeedScreen extends ConsumerStatefulWidget {
     required this.items,
     required this.initialIndex,
     this.title = 'Publications',
+    this.titleWidget,
+    this.actions = const [],
+    this.revealAdders = false,
     this.onClose,
   });
 
@@ -74,6 +77,15 @@ class PublicationsFeedScreen extends ConsumerStatefulWidget {
   final List<LibraryItem> items;
   final int initialIndex;
   final String title;
+
+  /// À la place du titre : le sélecteur d'un fil de Pulse (2026-09-20).
+  final Widget? titleWidget;
+
+  /// À droite du bandeau (le bouton « relire ma position »).
+  final List<Widget> actions;
+
+  /// Un fil de Pulse : sous le pseudo, « Ajouté par X » une fois liké.
+  final bool revealAdders;
 
   /// Fermer le fil. Nul = le fil est une page, la flèche la dépile.
   final VoidCallback? onClose;
@@ -223,6 +235,8 @@ class _PublicationsFeedScreenState
           children: [
             _Banner(
               title: widget.title,
+              titleWidget: widget.titleWidget,
+              actions: widget.actions,
               visible: _bannerVisible,
               onClose: _close,
             ),
@@ -240,6 +254,7 @@ class _PublicationsFeedScreenState
                       onOpen: _ouvrirEnGrand,
                       onDeleted: _removed,
                       onChanged: _changed,
+                      revealAdders: widget.revealAdders,
                     ),
                   ),
                 ),
@@ -258,9 +273,13 @@ class _Banner extends StatelessWidget {
     required this.title,
     required this.visible,
     required this.onClose,
+    this.titleWidget,
+    this.actions = const [],
   });
 
   final String title;
+  final Widget? titleWidget;
+  final List<Widget> actions;
   final bool visible;
   final VoidCallback onClose;
 
@@ -285,15 +304,18 @@ class _Banner extends StatelessWidget {
                   onPressed: onClose,
                 ),
                 Expanded(
-                  child: Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style:
-                        theme.appBarTheme.titleTextStyle ??
-                        theme.textTheme.titleLarge,
-                  ),
+                  child:
+                      titleWidget ??
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            theme.appBarTheme.titleTextStyle ??
+                            theme.textTheme.titleLarge,
+                      ),
                 ),
+                ...actions,
               ],
             ),
           ),
@@ -311,6 +333,7 @@ class _FeedList extends StatelessWidget {
     required this.onOpen,
     required this.onDeleted,
     required this.onChanged,
+    this.revealAdders = false,
   });
 
   final List<LibraryItem> items;
@@ -319,6 +342,7 @@ class _FeedList extends StatelessWidget {
   final ValueChanged<LibraryItem> onOpen;
   final ValueChanged<LibraryItem> onDeleted;
   final ValueChanged<LibraryItem> onChanged;
+  final bool revealAdders;
 
   @override
   Widget build(BuildContext context) {
@@ -346,6 +370,7 @@ class _FeedList extends StatelessWidget {
                 onOpen: () => onOpen(item),
                 onDeleted: () => onDeleted(item),
                 onChanged: onChanged,
+                revealAdder: revealAdders,
               ),
             ),
           ),

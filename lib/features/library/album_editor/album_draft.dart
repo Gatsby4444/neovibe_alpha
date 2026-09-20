@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' show Rect;
 
+import '../../../core/location/anchor.dart';
 import '../../../core/models/library_item.dart';
 import 'color_grade.dart';
 import 'overlay_model.dart';
@@ -368,9 +369,24 @@ class AlbumDraft {
     this.isPublic = false,
     this.shareable = false,
     this.saveable = false,
+    this.anchor,
+    this.anchored = false,
   });
 
   final List<AlbumDraftMedia> media;
+
+  /// Où l'appareil était quand la publication a été commencée — déjà
+  /// gommée à 100 m ([ContentAnchor]). Nulle si la position n'était pas
+  /// disponible. Ce n'est pas encore un consentement : voir [anchored].
+  final ContentAnchor? anchor;
+
+  /// **L'auteur a demandé à localiser** sa publication (Jay, 2026-09-20 :
+  /// non par défaut — c'est parfois chez quelqu'un). Sans [anchor], sans
+  /// effet.
+  final bool anchored;
+
+  /// L'ancre à publier, ou rien.
+  ContentAnchor? get anchorToPublish => anchored ? anchor : null;
 
   /// **C'est un Flow, édité comme tel** (Jay, 2026-09-18) : une seule vidéo,
   /// le format [AlbumAspect.reel] imposé, jusqu'à [kFlowMaxVideoMs]. La
@@ -418,6 +434,8 @@ class AlbumDraft {
     isPublic: isPublic,
     shareable: shareable,
     saveable: saveable,
+    anchor: anchor,
+    anchored: anchored,
   );
   bool get isFull => freeSlots <= 0;
   bool get isEmpty => media.isEmpty;
@@ -430,6 +448,8 @@ class AlbumDraft {
     bool? isPublic,
     bool? shareable,
     bool? saveable,
+    ContentAnchor? anchor,
+    bool? anchored,
   }) => AlbumDraft(
     media: media ?? this.media,
     aspect: aspect ?? this.aspect,
@@ -439,6 +459,8 @@ class AlbumDraft {
     isPublic: isPublic ?? this.isPublic,
     shareable: shareable ?? this.shareable,
     saveable: saveable ?? this.saveable,
+    anchor: anchor ?? this.anchor,
+    anchored: anchored ?? this.anchored,
   );
 
   /// Ajoute autant de [items] que la place le permet ; le reste est ignoré
