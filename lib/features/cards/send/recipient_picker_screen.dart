@@ -58,6 +58,8 @@ class RecipientPickerScreen extends ConsumerStatefulWidget {
     required this.shareContext,
     this.header,
     this.onSent,
+    this.initialPlan,
+    this.onPlanChanged,
   });
 
   final ShareContext shareContext;
@@ -71,13 +73,23 @@ class RecipientPickerScreen extends ConsumerStatefulWidget {
   /// `Navigator.pop` à la place.
   final VoidCallback? onSent;
 
+  /// Un plan repris d'un brouillon (Brouillons, 2026-09-20) : les cases
+  /// cochées et les réglages tels qu'ils avaient été laissés.
+  final SharePlan? initialPlan;
+
+  /// Le plan, à chaque changement — pour le brouillon.
+  final ValueChanged<SharePlan>? onPlanChanged;
+
   @override
   ConsumerState<RecipientPickerScreen> createState() =>
       _RecipientPickerScreenState();
 }
 
 class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
-  var _plan = const SharePlan();
+  late SharePlan _plan = widget.initialPlan ?? const SharePlan();
+
+  /// Le dernier plan annoncé au brouillon.
+  SharePlan? _announced;
   var _recherche = '';
 
   /// Ce que pilote la grille des plus proches : le 💬 ou le Drop de chaque
@@ -103,7 +115,7 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
     }
     // Publication seulement : la bibliothèque est cochée d'office, avec les
     // réglages par défaut — c'est la destination, pas une proposition.
-    if (_ctx.libraryOnly) {
+    if (_ctx.libraryOnly && widget.initialPlan == null) {
       _plan = _plan.copyWith(library: ref.read(shareDefaultsProvider).library);
     }
   }
@@ -375,6 +387,10 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
   Widget build(BuildContext context) {
     final catalogue = ref.watch(recipientsProvider);
     if (catalogue != null) _preselectionne(catalogue);
+    if (!identical(_plan, _announced)) {
+      _announced = _plan;
+      widget.onPlanChanged?.call(_plan);
+    }
     final visible = catalogue?.filter(_recherche) ?? RecipientCatalog.empty;
     final p = context.palette;
     final vibe = _vibe;

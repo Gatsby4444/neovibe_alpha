@@ -7,6 +7,9 @@ import '../../core/drafts/draft_store.dart';
 import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/utils/formats.dart';
+import '../../core/motion.dart';
+import '../cards/card_capture_screen.dart';
+import '../cards/vibe_draft_keeper.dart';
 import '../library/album_editor/album_flow.dart';
 
 /// **Le casier des brouillons** (Réglages › Brouillons — Jay, 2026-09-20 :
@@ -106,9 +109,10 @@ class _DraftTile extends ConsumerWidget {
       case DraftKind.publication || DraftKind.flow:
         await AlbumFlow.resume(context, draft);
       case DraftKind.vibe:
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('La reprise d\'une Vibe arrive bientôt.'),
+        await Navigator.of(context).push(
+          NeoFadeRoute(
+            builder: (_) =>
+                CardCaptureScreen(resume: VibeResume.fromDraft(draft)),
           ),
         );
     }

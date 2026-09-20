@@ -35,9 +35,18 @@ class VibeEditorScreen extends StatefulWidget {
     required this.draft,
     this.startFront = true,
     this.firstPass = true,
+    this.onChanged,
+    this.adoptSticker,
   });
 
   final VibeEditDraft draft;
+
+  /// Chaque retouche, pour le brouillon (Brouillons, 2026-09-20).
+  final ValueChanged<VibeEditDraft>? onChanged;
+
+  /// L'image d'un autocollant rejoint le dossier du brouillon avant d'être
+  /// décodée.
+  final Future<StickerOverlay> Function(StickerOverlay)? adoptSticker;
 
   /// La face ouverte d'abord (« Modifier » le verso depuis « À qui ? »).
   final bool startFront;
@@ -53,6 +62,9 @@ class VibeEditorScreen extends StatefulWidget {
 class _VibeEditorScreenState extends State<VibeEditorScreen> {
   late VibeEditDraft _draft = widget.draft;
   late var _front = widget.startFront || !widget.draft.hasBack;
+
+  /// Le dernier brouillon annoncé : tout autre est une retouche.
+  VibeEditDraft? _kept;
   EditorTool? _tool;
 
   /// La face telle qu'elle était à l'ouverture du panneau : « Annuler » la rend.
@@ -92,8 +104,13 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
       case EditorTool.texte:
         _startText(null);
       case EditorTool.sticker:
-        final s = await pickSticker(context);
-        if (s != null && mounted) {
+        final picked = await pickSticker(context);
+        if (picked != null && mounted) {
+          final adopt = widget.adoptSticker;
+          final s = picked.isEmoji || adopt == null
+              ? picked
+              : await adopt(picked);
+          if (!mounted) return;
           if (!s.isEmoji) await _images.sticker(s.imagePath!);
           if (!mounted) return;
           _update((m) => m.withOverlay(s));
@@ -178,12 +195,15 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
       builder: (context) => AlertDialog(
         title: Text(
           widget.firstPass
-              ? 'Abandonner cette Vibe ?'
+              ? 'Quitter cette Vibe ?'
               : 'Annuler les modifications ?',
         ),
+        // Quitter garde le brouillon (Jay, 2026-09-20) : la prise et les
+        // retouches se retrouvent dans Réglages › Brouillons.
         content: Text(
           widget.firstPass
-              ? 'La prise et les retouches seront perdues.'
+              ? 'Tu la retrouveras dans Réglages › Brouillons pendant '
+                    '3 jours, avec ses retouches.'
               : 'Les retouches de cette ouverture seront perdues.',
         ),
         actions: [
@@ -193,7 +213,7 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: Text(widget.firstPass ? 'Abandonner' : 'Annuler'),
+            child: Text(widget.firstPass ? 'Quitter' : 'Annuler'),
           ),
         ],
       ),
@@ -205,6 +225,10 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!identical(_draft, _kept)) {
+      _kept = _draft;
+      widget.onChanged?.call(_draft);
+    }
     final media = _media;
     final tool = _tool;
     final editing = _editingText;

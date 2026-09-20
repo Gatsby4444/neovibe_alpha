@@ -4,7 +4,13 @@ import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/drafts/draft_store.dart';
+import 'package:neovibe/core/models/card.dart';
 import 'package:neovibe/core/models/library_item.dart';
+import 'package:neovibe/features/cards/editor/vibe_edit_draft.dart';
+import 'package:neovibe/features/cards/send/share_plan.dart';
+import 'package:neovibe/features/cards/send/share_plan_codec.dart';
+import 'package:neovibe/features/cards/vibe_draft_keeper.dart';
+import 'package:neovibe/features/connections/friendship.dart';
 import 'package:neovibe/features/library/album_editor/album_draft.dart';
 import 'package:neovibe/features/library/album_editor/album_draft_codec.dart';
 import 'package:neovibe/features/library/album_editor/color_grade.dart';
@@ -182,6 +188,105 @@ void main() {
       await store.delete('a');
       expect(Directory('${root.path}/a').existsSync(), isFalse);
       expect(await store.list(), isEmpty);
+    });
+  });
+
+  group('SharePlanCodec', () {
+    test('un plan complet fait le va-et-vient', () {
+      const plan = SharePlan(
+        story: StoryShare(
+          tier: FriendshipTier.close,
+          shareable: true,
+          saveable: false,
+        ),
+        library: LibraryShare(isPublic: true, saveable: true, caption: 'Yo'),
+        conversations: [
+          ConversationShare(
+            conversationId: 'c1',
+            memberIds: ['u1', 'u2'],
+            label: 'Les potes',
+            saveable: true,
+            dansLeChat: true,
+            aussiDansLaBibliotheque: true,
+          ),
+          ConversationShare(
+            peerId: 'u3',
+            memberIds: ['u3'],
+            label: 'Léa',
+            dansLeChat: false,
+            aussiDansLaBibliotheque: true,
+          ),
+        ],
+        crossed: [CrossedShare(userId: 'u9', label: 'Croisé')],
+        regles: ViewingRules(
+          maxViews: 2,
+          viewDurationSeconds: 7,
+          scrubbable: true,
+        ),
+      );
+      final back = SharePlanCodec.fromJson(
+        jsonDecode(jsonEncode(SharePlanCodec.toJson(plan)))
+            as Map<String, dynamic>,
+      );
+      expect(back.story!.tier, FriendshipTier.close);
+      expect(back.story!.shareable, isTrue);
+      expect(back.library!.isPublic, isTrue);
+      expect(back.library!.caption, 'Yo');
+      expect(back.conversations.length, 2);
+      expect(back.conversations[0], plan.conversations[0]);
+      expect(back.conversations[0].memberIds, ['u1', 'u2']);
+      expect(back.conversations[0].label, 'Les potes');
+      expect(back.conversations[1].key, 'peer:u3');
+      expect(back.conversations[1].dansLeChat, isFalse);
+      expect(back.crossed, [const CrossedShare(userId: 'u9', label: 'Croisé')]);
+      expect(back.regles, plan.regles);
+    });
+
+    test('un plan vide reste vide', () {
+      final back = SharePlanCodec.fromJson(
+        SharePlanCodec.toJson(const SharePlan()),
+      );
+      expect(back.isEmpty, isTrue);
+      expect(back.regles, const ViewingRules());
+    });
+  });
+
+  group('VibeDraftState', () {
+    test('la prise, les retouches et le plan se relisent tels quels', () {
+      final state = VibeDraftState(
+        type: CardType.oneshot,
+        front: File('/drafts/v/a_front.mp4'),
+        back: File('/drafts/v/b_back.mp4'),
+        frontIsVideo: true,
+        backIsVideo: true,
+        frontImported: false,
+        backImported: true,
+        step: 'share',
+        edit: VibeEditDraft(
+          front: AlbumDraftMedia(
+            id: 'f',
+            source: File('/drafts/v/a_front.mp4'),
+            isVideo: true,
+            srcWidth: 1080,
+            srcHeight: 1920,
+            durationMs: 9000,
+            filter: AlbumFilter.clarendon,
+          ),
+        ),
+        plan: const SharePlan(story: StoryShare()),
+      );
+      final back = VibeDraftState.fromJson(
+        jsonDecode(jsonEncode(state.toJson())) as Map<String, dynamic>,
+      );
+      expect(back.type, CardType.oneshot);
+      expect(back.front!.path, '/drafts/v/a_front.mp4');
+      expect(back.back!.path, '/drafts/v/b_back.mp4');
+      expect(back.backImported, isTrue);
+      expect(back.step, 'share');
+      expect(back.edit!.front.filter, AlbumFilter.clarendon);
+      expect(back.edit!.back, isNull);
+      expect(back.plan!.story, isNotNull);
+      expect(back.summary, 'recto vidéo, verso vidéo');
     });
   });
 }

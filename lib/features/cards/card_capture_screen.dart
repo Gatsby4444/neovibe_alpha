@@ -10,6 +10,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../core/diagnostics/app_log.dart';
+import '../../core/drafts/draft_store.dart';
 import '../../core/motion.dart';
 import '../../core/utils/ids.dart';
 
@@ -31,8 +32,10 @@ import 'native_camera.dart';
 import 'send/recipient_picker_screen.dart';
 import 'send/share_context.dart';
 import 'send/share_progress_banner.dart';
+import 'send/share_plan.dart';
 import 'send/vibe_draft.dart';
 import 'send/vibe_draft_header.dart';
+import 'vibe_draft_keeper.dart';
 
 /// Flux de création d'une Card.
 /// Le TYPE se choisit AVANT la première photo, dans un sélecteur horizontal
@@ -50,7 +53,13 @@ class CardCaptureScreen extends ConsumerStatefulWidget {
     this.directConversationId,
     this.libraryTarget,
     this.publicationOnly = false,
+    this.resume,
   });
+
+  /// **Reprendre un brouillon** (Brouillons, 2026-09-20) : les faces déjà
+  /// capturées, le type, les retouches et le plan de partage, là où on les
+  /// avait laissés. Nul = une prise neuve.
+  final VibeResume? resume;
 
   /// **Publication seulement** (Jay, 2026-09-15) : ouverte depuis « Publier »
   /// sur le profil. La Vibe ira dans la bibliothèque et nulle part ailleurs ;
@@ -145,6 +154,19 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
 
   File? _front; // recto = caméra arrière (ce que je vois)
   File? _back; // verso = caméra avant (ma réaction) — null en Mono
+
+  /// **Le gardien du brouillon de cette prise** (Brouillons, 2026-09-20).
+  /// Naît avec la première face posée, meurt à l'envoi ; « abandonner » le
+  /// laisse vivre — c'est lui, la sécurité. Nul en BeReal et en bibliothèque
+  /// éphémère : l'un est daté, l'autre ne se revoit pas.
+  VibeDraftKeeper? _keeper;
+
+  /// Ce que le gardien a vu en dernier : toute différence est un changement.
+  String? _keptSignature;
+
+  /// L'étape d'un brouillon repris, consommée par le premier récap : une
+  /// face refaite ensuite repasse par l'éditeur comme une prise neuve.
+  String? _resumedStep;
   var _frontImported = false; // face issue de la galerie
   var _backImported = false;
   var _frontIsVideo = false; // face vidéo (mode vidéo, consigne Jay)
@@ -284,8 +306,33 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     // premier ACCÈS — c'est ce décalage qui avalait le premier passage en
     // Oneshot (voir [CaptureTypeState]).
     _types = CaptureTypeState.ouvertSur(
-      widget.bereal ? CardType.bereal : CardType.standard,
+      widget.bereal
+          ? CardType.bereal
+          : widget.resume?.state.type ?? CardType.standard,
     );
+    // Un brouillon repris : les faces sont déjà là, le type est figé, et
+    // on repart de l'étape où on en était.
+    final resume = widget.resume;
+    if (resume != null) {
+      final s = resume.state;
+      _front = s.front;
+      _back = s.back;
+      _frontIsVideo = s.frontIsVideo;
+      _backIsVideo = s.backIsVideo;
+      _frontImported = s.frontImported;
+      _backImported = s.backImported;
+      _lockedType = s.type;
+      _step = s.step == 'capture' ? (s.front == null ? 0 : 1) : 2;
+      _resumedStep = s.step;
+      _keeper = VibeDraftKeeper(
+        ProviderScope.containerOf(
+          context,
+          listen: false,
+        ).read(draftStoreProvider),
+        id: resume.id,
+        state: s,
+      );
+    }
     // Le bord à bord n'est PLUS basculé ici : il est posé une fois pour toutes
     // au démarrage (`main.dart`). Le basculer changeait la taille utile de la
     // fenêtre en pleine transition, donc remettait tout l'arbre en page —
@@ -356,6 +403,43 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     if (_leaving || !mounted) return;
     _leaving = true;
     Navigator.of(context).pop();
+  }
+
+  /// Une face posée rejoint le dossier du brouillon **avant** d'être
+  /// affichée — le gardien naît ici s'il n'existe pas.
+  Future<File> _adoptFace(File f) async {
+    if (widget.bereal || widget.libraryTarget != null) return f;
+    _keeper ??= VibeDraftKeeper(ref.read(draftStoreProvider));
+    return _keeper!.adopt(f);
+  }
+
+  /// Ce que le gardien doit savoir de la prise : les faces, le type, l'étape.
+  /// Appelé à la construction — donc après chaque `setState` qui les change.
+  void _keepCapture() {
+    final keeper = _keeper;
+    if (keeper == null || _front == null) return;
+    final signature =
+        '${_front?.path}|${_back?.path}|$_frontIsVideo|$_backIsVideo|'
+        '$_frontImported|$_backImported|${_cardType.name}|$_step';
+    if (signature == _keptSignature) return;
+    _keptSignature = signature;
+    keeper.update((s) {
+      s
+        ..type = _cardType
+        ..front = _front
+        ..back = _back
+        ..frontIsVideo = _frontIsVideo
+        ..backIsVideo = _backIsVideo
+        ..frontImported = _frontImported
+        ..backImported = _backImported;
+      // Le récap dit lui-même « edit » ou « share » ; ici on ne sait que
+      // « une face manque » ou « tout est là ».
+      if (_step < 2) {
+        s.step = 'capture';
+      } else if (s.step == 'capture') {
+        s.step = 'share';
+      }
+    }, type: _cardType);
   }
 
   /// Le glissement depuis le **bord droit** ferme la caméra (consigne de Jay,
@@ -943,10 +1027,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       if (dualVideo) {
         // Arrière = recto, avant = verso (ordre inchangé, consigne Jay).
         final shots = await _camera.stopGlDualVideo();
-        _front = shots.back;
+        _front = await _adoptFace(shots.back);
         _frontIsVideo = true;
         _frontImported = false;
-        _back = shots.front;
+        _back = await _adoptFace(shots.front);
         _backIsVideo = true;
         _backImported = false;
         _berealTimer?.cancel();
@@ -1085,8 +1169,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       'Oneshot séquentiel : écart entre les deux faces $gap ms '
       '(total ${DateTime.now().difference(started).inMilliseconds} ms)',
     );
-    _front = await _cropTo916(backShot, hd: _hd);
-    _back = await _cropTo916(frontShot, hd: _hd);
+    _front = await _adoptFace(await _cropTo916(backShot, hd: _hd));
+    _back = await _adoptFace(await _cropTo916(frontShot, hd: _hd));
   }
 
   /// Dernier rempart avant le récap : **le contenu doit correspondre au type**.
@@ -1134,8 +1218,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
             // de chaque caméra → instantané, vraiment simultané). Arrière =
             // recto, avant = verso. Recadrage 9:16 / format card comme d'hab.
             final shots = await _camera.captureGlDual();
-            _front = await _cropTo916(shots.back, hd: _hd);
-            _back = await _cropTo916(shots.front, hd: _hd);
+            _front = await _adoptFace(await _cropTo916(shots.back, hd: _hd));
+            _back = await _adoptFace(await _cropTo916(shots.front, hd: _hd));
             shot = true;
           } catch (e) {
             // Échec de la capture GPU : on ferme le double flux GPU et on
@@ -1158,7 +1242,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         return;
       }
       final shot = await _camera.takePicture();
-      final cropped = await _cropTo916(shot, hd: _hd);
+      final cropped = await _adoptFace(await _cropTo916(shot, hd: _hd));
       if (_step == 0) {
         _front = cropped;
         // Reprise d'une seule face depuis le récap : l'autre face existe déjà,
@@ -1196,6 +1280,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     bool isVideo = false,
   }) async {
     _lockType(); // une face posée = le type de la card est décidé
+    file = await _adoptFace(file);
     if (_step != 0) {
       // On est au verso.
       _back = file;
@@ -1260,7 +1345,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// Quitter le récap — après l'envoi, ou quand l'éditeur abandonne la Vibe :
   /// dans les deux cas la prise est finie, on rend la caméra (ou l'écran
   /// d'où on venait).
-  void _leaveRecap() {
+  void _leaveRecap({required bool sent}) {
+    // Envoyée : le brouillon n'a plus lieu d'être. Abandonnée : il reste,
+    // tel quel, dans Réglages › Brouillons (Jay, 2026-09-20).
+    final keeper = _keeper;
+    _keeper = null;
+    _keptSignature = null;
+    if (keeper != null) {
+      unawaited(sent ? keeper.delete() : keeper.flush());
+    }
     if (widget.directConversationId != null || widget.publicationOnly) {
       Navigator.of(context).pop();
       return;
@@ -1284,6 +1377,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// même instant, on ne peut pas en refaire une seule — on relance la prise.
   Future<void> _retakeFromRecap(bool isFront) async {
     if (_busy) return;
+    _resumedStep = null;
     if (_cardType == CardType.oneshot) {
       setState(() {
         _front = null;
@@ -1625,6 +1719,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
 
   @override
   Widget build(BuildContext context) {
+    _keepCapture();
     if (_error.isNotEmpty) {
       return Scaffold(
         appBar: AppBar(),
@@ -1658,8 +1753,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         directConversationId: widget.directConversationId,
         libraryOnly: widget.publicationOnly,
         onRetake: _retakeFromRecap,
-        onSent: _leaveRecap,
-        onAbandon: _leaveRecap,
+        onSent: () => _leaveRecap(sent: true),
+        onAbandon: () => _leaveRecap(sent: false),
+        keeper: _keeper,
+        resumedAt: _resumedStep,
       );
     }
 
@@ -1755,8 +1852,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
             final ok = await showDialog<bool>(
               context: context,
               builder: (context) => AlertDialog(
-                title: const Text('Abandonner cette Vibe ?'),
-                content: const Text('Elle n\'a pas été envoyée.'),
+                title: const Text('Quitter cette Vibe ?'),
+                content: const Text(
+                  'Elle n\'a pas été envoyée. Tu la retrouveras dans '
+                  'Réglages › Brouillons pendant 3 jours.',
+                ),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.pop(context, false),
@@ -1764,12 +1864,15 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                   ),
                   FilledButton(
                     onPressed: () => Navigator.pop(context, true),
-                    child: const Text('Abandonner'),
+                    child: const Text('Quitter'),
                   ),
                 ],
               ),
             );
-            if (ok == true && mounted) _leave();
+            if (ok != true || !mounted) return;
+            // Le brouillon reste : ce qu'on quitte se retrouve dans Réglages.
+            await _keeper?.flush();
+            if (mounted) _leave();
             return;
           }
           ScaffoldMessenger.of(context)
@@ -2515,9 +2618,17 @@ class _ShareStep extends StatefulWidget {
     required this.onRetake,
     required this.onSent,
     required this.onAbandon,
+    this.keeper,
+    this.resumedAt,
   });
   final File front;
   final File? back; // null = face unique
+
+  /// Le gardien du brouillon (retouches et plan de partage y vont).
+  final VibeDraftKeeper? keeper;
+
+  /// Un brouillon repris : l'étape où il avait été laissé (`edit`, `share`).
+  final String? resumedAt;
 
   /// Refaire une face (true = recto) sans perdre l'autre.
   final void Function(bool isFront) onRetake;
@@ -2559,8 +2670,9 @@ class _ShareStepState extends State<_ShareStep> {
   bool get _editable => widget.type == CardType.standard;
 
   /// Les réglages de retouche, gardés entre deux ouvertures de l'éditeur.
-  /// Nul tant que les faces n'ont pas été sondées.
-  VibeEditDraft? _draft;
+  /// Nul tant que les faces n'ont pas été sondées. Un brouillon repris les
+  /// apporte avec lui.
+  late VibeEditDraft? _draft = widget.keeper?.state?.edit;
 
   /// L'éditeur est ouvert par-dessus : en dessous, rien à montrer.
   var _editing = false;
@@ -2575,13 +2687,31 @@ class _ShareStepState extends State<_ShareStep> {
   @override
   void initState() {
     super.initState();
-    if (_editable) {
-      _editing = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _openEditor(startFront: true, firstPass: true);
-      });
+    if (!_editable) return;
+    // Un brouillon repris sur « À qui ? » : on ne rouvre pas l'éditeur ; si
+    // des retouches avaient été faites, on les rend d'abord (les faces
+    // exportées vivaient sous `work/`, balayé au démarrage).
+    if (widget.resumedAt == 'share') {
+      final d = _draft;
+      if (d != null && (d.frontEdited || d.backEdited)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _export();
+        });
+      }
+      return;
     }
+    _editing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _openEditor(startFront: true, firstPass: true);
+    });
   }
+
+  void _keepEdit(VibeEditDraft d, {required String step}) =>
+      widget.keeper?.update((s) {
+        s
+          ..edit = d
+          ..step = step;
+      });
 
   Future<void> _openEditor({
     required bool startFront,
@@ -2610,6 +2740,8 @@ class _ShareStepState extends State<_ShareStep> {
     }
     if (!mounted) return;
     setState(() => _editing = true);
+    _keepEdit(draft, step: 'edit');
+    final keeper = widget.keeper;
     final result = await Navigator.of(context).push<VibeEditDraft>(
       MaterialPageRoute(
         fullscreenDialog: true,
@@ -2617,6 +2749,8 @@ class _ShareStepState extends State<_ShareStep> {
           draft: draft!,
           startFront: startFront,
           firstPass: firstPass,
+          onChanged: (d) => _keepEdit(d, step: 'edit'),
+          adoptSticker: keeper?.adoptSticker,
         ),
       ),
     );
@@ -2627,11 +2761,13 @@ class _ShareStepState extends State<_ShareStep> {
       if (firstPass) {
         widget.onAbandon();
       } else {
+        _keepEdit(draft, step: 'share');
         setState(() => _editing = false);
       }
       return;
     }
     _draft = result;
+    _keepEdit(result, step: 'share');
     final last = _lastExported;
     if (last != null &&
         last.front == result.front &&
@@ -2734,6 +2870,12 @@ class _ShareStepState extends State<_ShareStep> {
         presetConversationId: widget.directConversationId,
         libraryOnly: widget.libraryOnly,
       ),
+      initialPlan: widget.keeper?.state?.plan,
+      onPlanChanged: (SharePlan p) => widget.keeper?.update((s) {
+        s
+          ..plan = p
+          ..step = 'share';
+      }),
       header: VibeDraftHeader(
         front: _front,
         back: _back,

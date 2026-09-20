@@ -23,7 +23,7 @@ abstract final class AlbumDraftCodec {
     'isPublic': d.isPublic,
     'shareable': d.shareable,
     'saveable': d.saveable,
-    'media': [for (final m in d.media) _media(m)],
+    'media': [for (final m in d.media) mediaToJson(m)],
   };
 
   static AlbumDraft fromJson(Map<String, dynamic> j) => AlbumDraft(
@@ -36,11 +36,12 @@ abstract final class AlbumDraftCodec {
     saveable: j['saveable'] as bool? ?? false,
     media: [
       for (final m in j['media'] as List)
-        _mediaFrom((m as Map).cast<String, dynamic>()),
+        mediaFromJson((m as Map).cast<String, dynamic>()),
     ],
   );
 
-  static Map<String, dynamic> _media(AlbumDraftMedia m) => {
+  /// Un média seul — une face de Vibe s'écrit avec le même code.
+  static Map<String, dynamic> mediaToJson(AlbumDraftMedia m) => {
     'id': m.id,
     'source': m.source.path,
     'isVideo': m.isVideo,
@@ -68,7 +69,7 @@ abstract final class AlbumDraftCodec {
           },
   };
 
-  static AlbumDraftMedia _mediaFrom(Map<String, dynamic> j) {
+  static AlbumDraftMedia mediaFromJson(Map<String, dynamic> j) {
     final crop = (j['crop'] as Map).cast<String, dynamic>();
     final trim = (j['trim'] as Map?)?.cast<String, dynamic>();
     return AlbumDraftMedia(
