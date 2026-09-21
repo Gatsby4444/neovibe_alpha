@@ -145,7 +145,8 @@ class _PulseFeedScreenState extends ConsumerState<PulseFeedScreen> {
 }
 
 /// La même ligne du haut, quand il n'y a pas encore de fil à montrer : en
-/// plein écran, noir, le sélecteur à gauche de la croix (comme sur le fil).
+/// plein écran, noir, le sélecteur au centre, la croix à droite (comme sur
+/// le fil).
 class _Attente extends StatelessWidget {
   const _Attente({required this.selector, required this.child});
 
@@ -161,8 +162,10 @@ class _Attente extends StatelessWidget {
           backgroundColor: Colors.black,
           foregroundColor: Colors.white,
           automaticallyImplyLeading: false,
+          // Comme sur le fil : le sélecteur au centre, la croix à droite.
+          centerTitle: true,
+          title: selector,
           actions: [
-            selector,
             IconButton(
               icon: const Icon(Icons.close),
               tooltip: 'Fermer',

@@ -12,8 +12,9 @@ rien d'autre** (Jay, 2026-09-21 : *« le feed reste mais ce sera que des
 vibes »* ; les Flows et les publications qui s'y mêlaient du 2026-09-20 au
 2026-09-21 sont sortis du MVP, `docs/formats-mis-de-cote.md`) ; un tap ouvre
 **directement le plein écran** (`VibesReelScreen`, l'écran du profil) avec
-le sélecteur Tout / Amis / Autour de moi **posé sur le contenu, à gauche de
-la croix, sans bandeau** (Jay, 2026-09-20 soir).
+le sélecteur Tout / Amis / Autour de moi **posé sur le contenu, au centre
+de la ligne du haut, sans bandeau, fond transparent** — la croix à droite
+(Jay, 2026-09-21 : *« comme on avait fait pour les Flows »*).
 
 Dans ce plein écran, une Vibe qu'un ami m'a ajoutée dit **« Ajouté par X »**
 sous le pseudo de l'auteur **une fois que je l'ai likée** (`ReelIdentity`,

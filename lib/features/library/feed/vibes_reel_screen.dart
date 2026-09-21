@@ -67,10 +67,11 @@ class VibesReelScreen extends ConsumerStatefulWidget {
   /// profil) : personne n'a rien ajouté.
   final bool revealAdders;
 
-  /// **Une ligne en haut, à gauche de la croix** (le sélecteur d'un fil de
-  /// Pulse, 2026-09-20) : la carte descend d'autant — sur cet écran noir, la
-  /// ligne est invisible, seule la carte se voit. Nul = rien, l'écran du
-  /// profil. (Jay : *« pour les Vibes l'interface est bien »*.)
+  /// **Le sélecteur d'un fil de Pulse, au centre de la ligne du haut**,
+  /// posé SUR le contenu — pas de bandeau, fond transparent, comme sur les
+  /// Flows (Jay, 2026-09-21 : *« le bouton de tri au centre […] fond
+  /// transparent et tout »*). La page prend tout l'écran ; la croix reste
+  /// à droite. Nul = rien, l'écran du profil.
   final Widget? header;
 
   final List<LibraryItem> vibes;
@@ -192,56 +193,36 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
             child: Stack(
               children: [
                 const Positioned.fill(child: ColoredBox(color: Colors.black)),
-                // Sous le bandeau, s'il y en a un : la page ne connaît plus
-                // l'encoche du haut (le bandeau l'a prise), et commence
-                // juste en dessous.
-                if (widget.header != null)
-                  Positioned(
-                    top: MediaQuery.paddingOf(context).top + kToolbarHeight,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: MediaQuery.removePadding(
-                      context: context,
-                      removeTop: true,
-                      child: _pageView(context),
-                    ),
-                  )
-                else
-                  _pageView(context),
-                // Sans la lueur de bord : le sur-défilement du haut est un
-                // geste (fermer), pas une butée à signaler.
-                if (widget.header != null)
-                  Positioned(
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    child: SafeArea(
-                      bottom: false,
-                      child: SizedBox(
-                        height: kToolbarHeight,
-                        // À gauche de la croix, comme sur les Flows.
-                        child: Padding(
-                          padding: const EdgeInsets.only(right: 48),
-                          child: Align(
-                            alignment: Alignment.centerRight,
-                            child: widget.header,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                // En haut à DROITE : le haut-gauche de la carte porte
-                // désormais la photo et le pseudo.
+                // La page prend tout l'écran, avec ou sans sélecteur : la
+                // ligne du haut est posée DESSUS, sans bandeau (2026-09-21 ;
+                // jusque-là un bandeau de kToolbarHeight repoussait la carte).
+                _pageView(context),
+                // La ligne du haut, sur le contenu : le sélecteur AU CENTRE,
+                // la croix à droite — le haut-gauche de la carte porte la
+                // photo et le pseudo, le centre reste libre.
                 Positioned(
                   top: 0,
+                  left: 0,
                   right: 0,
                   child: SafeArea(
-                    child: IconButton(
-                      icon: const Icon(Icons.close),
-                      color: Colors.white,
-                      tooltip: 'Fermer',
-                      onPressed: () => Navigator.of(context).maybePop(),
+                    bottom: false,
+                    child: SizedBox(
+                      height: kToolbarHeight,
+                      child: Stack(
+                        children: [
+                          if (widget.header != null)
+                            Center(child: widget.header),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: IconButton(
+                              icon: const Icon(Icons.close),
+                              color: Colors.white,
+                              tooltip: 'Fermer',
+                              onPressed: () => Navigator.of(context).maybePop(),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
