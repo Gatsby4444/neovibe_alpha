@@ -245,3 +245,131 @@ propriétés, **plus une cinquième** : elle respecte les deux portes d'entrée
 et la symétrie du croisement — ou Jay décide explicitement de les rouvrir.
 Et elle se teste d'abord à voix haute (« installe, on fait X »), à deux
 téléphones, avant toute ligne de code.
+
+---
+
+## 4. Deuxième tour (2026-09-21, soir) — Jay propose de rouvrir le ping
+
+### 4.1 Le scénario de Jay (ses mots)
+
+> « Moi je pense qu'on devrait rouvrir le fonctionnement du ping et les
+> décisions prises. Parce qu'on doit maintenant penser avant tout en cas
+> concrets. Donc si je me balade dans la rue je veux savoir quels sont les
+> événements ou soirées ouvertes que je peux rejoindre, les soirées
+> exclusives NeoVibe ou autres événements ; si je rejoins avec NeoVibe
+> j'aurais accès aux participants, à une bibliothèque commune donc je
+> pourrais publier et voir ce qui a été publié uniquement par et pour les
+> participants de l'événement au cours de la soirée. Et le lendemain je
+> pourrais voir cette bibliothèque et dans les jours qui suivent je pourrais
+> voir dans mon feed les contenus de cette bibliothèque. D'autre part dans
+> l'événement je pourrais avoir dans mes suggestions les gens que j'ai
+> croisés et donc plus tard les gens que j'ai croisés à cet événement je
+> pourrais les retrouver dans mes suggestions, savoir où je les ai croisés
+> etc. et accéder à leur profil restreint (leurs publications publiques
+> uniquement, et stories publiques s'il y en a). »
+
+### 4.2 La suite de ChatGPT (résumé fidèle ; Jay a le texte intégral)
+
+- Le scénario donne enfin **une chaîne de valeur complète à PING** :
+  découverte → événement → présence → participants → interaction →
+  bibliothèque (mémoire collective, live puis historique puis Pulse) →
+  rencontres mémorisées → retrouver ces personnes. Le feed n'a plus besoin
+  d'être la raison de venir : il est la façon dont les événements
+  continuent à vivre.
+- Pousser loin **« personnes rencontrées »** avec le contexte (« Thomas —
+  rencontré à Soirée X, 21 septembre ») ; six mois plus tard, « vous vous
+  êtes croisés à la soirée Y, puis recroisés au festival Z » : une **mémoire
+  des rencontres physiques**. Présenter ça comme « personnes rencontrées »,
+  jamais « croisé 17 fois » (sensation de surveillance).
+- **Profil restreint** par niveau de relation réelle : cohérent.
+- Jay : *« cela ne suffit pas encore, Snap fait déjà cela non ? »* → oui
+  pour une bonne part (carte, lieux, amis autour, stories de lieu). La
+  différence possible : Snap utilise le réel comme *contexte* ; NeoVibe
+  ferait du réel **la structure** du réseau — l'événement comme **graphe
+  social temporaire** qui laisse des traces dans le graphe permanent, et
+  **l'accumulation** (présence, croisement, co-présence, événement partagé
+  enregistrés avant toute relation numérique).
+- Huit situations (seul en ville ; soirée où je ne connais personne ;
+  quelqu'un que je n'ose pas aborder → « Vibe » anonyme, l'autre accepte ;
+  rencontre sans échange de pseudo ; recroiser des semaines plus tard ;
+  savoir ce qui se passe dans l'événement ; groupe d'amis → espace
+  temporaire automatique ; quitter la soirée → continuité) et une neuvième
+  (festival de 10 000 : micro-contextes, zones, groupes). Quatre
+  comportements : **découvrir / rencontrer / retrouver / se souvenir**.
+  Trois expériences à prototyper : « qu'est-ce qui se passe autour de moi
+  maintenant ? », « qui ai-je rencontré ici / qui puis-je rencontrer ? »,
+  « retrouver une personne rencontrée dans la vraie vie ». *« Si aucune ne
+  provoque un "putain, c'est pratique", continuer à chercher avant de
+  construire. »*
+
+### 4.3 Réponse de Claude — vérifiée dans le code
+
+**Le scénario de Jay est déjà construit aux trois quarts, et ne rouvre
+aucune décision.**
+
+| Étape du scénario | État réel (code, `docs/evenements.md`) |
+|---|---|
+| Voir les soirées ouvertes autour de moi | ✅ onglet « Autour de moi » des événements (2 km). ⚠️ Vide en pratique : pas de plateforme commerçant, une soirée ne s'ouvre qu'en base (`tool/ouvrir_une_soiree.sql`) ; pas de carte |
+| Rejoindre → participants | ✅ présence ping + position, présents « comme présents, jamais comme amis » |
+| Bibliothèque commune pendant la soirée | ✅ mais **retardée** : dépôt pendant, lecture à la fermeture + 10 h |
+| Le lendemain, la bibliothèque | ✅ survit 5 jours |
+| Les jours suivants, dans mon feed | ❌ Pulse lit les publications de profil des croisés, pas la bibliothèque d'événement (deux objets) |
+| Suggestions des croisés, avec où | ✅ « Croisé(e) à Soirée … » (`event_crossings`, origine portée) ; 30 min de présence commune |
+| Profil restreint des croisés | ✅ publications publiques (`publication_audience`) et stories publiques |
+| Les retrouver « plus tard » | ⚠️ **3 jours**, puis le croisement expire — le vrai point |
+
+Le scénario découvre des **événements**, pas des personnes ; les présents se
+voient parce qu'on est sur place ; les croisés arrivent par le croisement :
+c'est la chaîne des 11–12 septembre, mot pour mot.
+
+**Ce que « rouvrir » voudrait dire, idée par idée** (celles de ChatGPT, pas
+celles de Jay) :
+
+- **a) Compter les inconnus présents hors événement** (« 23 NeoVibe dans ce
+  bar », « 18 personnes à 400 m ») : position de tous en arrière-plan,
+  agrégée en permanence sur le serveur = le clustering géographique sorti
+  du scope, et le risque n° 6 du pré-mortem. Dans un **événement**, la même
+  information existe déjà et ne choque pas — on a choisi d'y entrer.
+- **b) La « Vibe » anonyme à un inconnu détecté, qui accepte ou ignore** :
+  aujourd'hui une Vibe à un **croisé** vaut demande d'ami — mais un
+  croisement exige que les deux téléphones se soient vus, et n'est pas
+  anonyme. Sa version = premier contact anonyme vers quelqu'un qui ne vous
+  a pas vu : l'asymétrie interdite le 2026-08-20, parce que celui qui
+  reçoit ne sait pas qui le regarde.
+- **c) La mémoire qui s'accumule** (« croisés à la soirée X il y a six
+  mois ») : **la vraie décision à rouvrir.** Un croisement est aujourd'hui
+  un fait daté qui expire (3 jours), pour ne pas fabriquer un journal de
+  qui était où avec qui. La « mémoire sociale du réel » = garder ce
+  journal. Arbitrage valeur (retrouver quelqu'un des mois plus tard) contre
+  non-traçabilité ; ChatGPT le sent lui-même. Se règle par une ligne dans
+  `crossing_windows`, pas par une refonte — mais se tranche en
+  connaissance de cause.
+
+**Avis.** Méthode : d'accord (situations, comportements, ne pas empiler) ;
+les quatre comportements recouvrent la chaîne construite — l'architecture
+n'est pas à refaire. « Snap fait déjà ça » : Snap n'a ni la présence
+physique comme condition d'entrée, ni le croisement comme fait, ni
+l'événement comme réseau temporaire ; la différence est *ce qui donne le
+droit de voir quelqu'un*, et Snap ne peut pas la copier sans casser son
+modèle. **Le trou n'est pas dans les décisions, il est dans trois manques
+concrets** : (1) aucune soirée à découvrir (pas de plateforme, pas
+d'événement *ouvert* créable par un utilisateur) ; (2) la bibliothèque
+d'événement ne coule pas dans Pulse ; (3) la présence tient au BLE hors
+premier plan, et le BLE meurt la nuit sur le Xiaomi.
+
+**Proposition, dans l'ordre :**
+
+1. **Vivre le scénario tel qu'il existe, à 3–4, ce week-end** : soirée
+   ouverte en base, rejoindre, déposer des Vibes, rester 30 min, regarder le
+   lendemain la bibliothèque et « Croisé(e) à … ». C'est le test des trois
+   expériences de ChatGPT — deux existent.
+2. **Trancher la seule décision qui le mérite : la durée de vie d'un
+   croisement** (3 jours, ou des mois), avec sa contrepartie écrite.
+3. **Garder les deux portes et la symétrie** ; faire vivre les idées de
+   découverte **dans l'événement** (lieu, durée).
+4. Après le test seulement : un **événement ouvert** créable sans
+   commerçant, et **la bibliothèque d'événement dans Pulse**.
+
+Rouvrir *une décision nommée, avec son coût* — pas « le fonctionnement du
+ping » en bloc, sinon les arbitrages du 20 août et du 11 septembre se
+rejoueront dans un mois sans qu'on se souvienne pourquoi ils ont été pris.
