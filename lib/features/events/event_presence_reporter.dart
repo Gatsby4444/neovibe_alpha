@@ -1,23 +1,29 @@
 import 'dart:async';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/diagnostics/app_log.dart';
-import '../proximity/geo/coarse_location.dart';
 import 'events_providers.dart';
-import 'events_repository.dart';
 
-/// **L'ACQUISITION de ma position pendant un événement.**
+/// **L'ACQUISITION de ma position pendant un événement — côté app.**
 ///
 /// ## Ce que ce service fait, en une phrase
 ///
-/// Tant que je suis dans un événement et que l'app est au premier plan, il
-/// dépose ma position au serveur **une fois par minute**, tout de suite au
-/// retour au premier plan, et tout de suite quand j'entre dans l'événement.
-/// C'est tout. Il ne décide ni si je suis loin, ni si je suis sorti : c'est
-/// le serveur qui compare aux points chauds (`report_event_position`) et
-/// qui répond `away` — la réponse est transmise, pas interprétée.
+/// Tant que je suis dans un événement, il fait tourner le **service natif de
+/// présence** (`EventPresenceService`, type `location`) — qui relève ma
+/// position une fois par minute et la dépose au serveur, écran éteint, app
+/// fermée — et il lit ce que le natif constate. Dès que je n'y suis plus, il
+/// l'arrête. C'est tout.
+///
+/// ## Un seul relevé, une seule écriture (2026-09-21)
+///
+/// Jusqu'au 2026-09-21, le Dart relevait et déposait lui-même, au premier
+/// plan seulement ; le natif est venu pour l'arrière-plan. Deux écrivains
+/// pour la même ligne serveur, ç'aurait été un chemin de trop : **le natif
+/// dépose, au premier plan aussi**, et ce fichier ne fait que le démarrer,
+/// l'arrêter, et l'écouter. Un chemin, une donnée.
 ///
 /// ## Pourquoi c'est un objet à part
 ///
@@ -28,24 +34,26 @@ import 'events_repository.dart';
 /// l'usage », point 3). Ici la position est précise, et elle ne sert QU'À
 /// l'événement.
 ///
-/// ## ⚠️ Premier plan seulement — la limite, dite
+/// ## La limite, dite
 ///
-/// Android exige un service de premier plan de type « location » pour
-/// relever une position app fermée ; ce n'est pas construit (consigné dans
-/// `RAPPELS.md`). Entre deux relevés, c'est l'autre preuve du système mixte
-/// qui tient : le BLE en arrière-plan entend les co-participants
-/// (`report_sightings` → `last_ping_at`). Sans aucune des deux pendant
-/// `away_after`, le serveur nous sort — c'est voulu, et c'est réglable.
+/// Le natif ne renouvelle pas le jeton : s'il expire pendant que l'app est
+/// fermée, le service s'arrête (`auth`) et le BLE tient la présence via
+/// `report_sightings`. Au retour de l'app, ce notifier le relance avec la
+/// session fraîche (`main.dart` a rappelé `configure` du pont de
+/// publication, dont le natif lit la session).
 class EventPresenceReporter extends Notifier<EventReporterState> {
-  static const every = Duration(seconds: 60);
+  static const _channel = MethodChannel('neovibe/event_presence');
+  static const _events = EventChannel('neovibe/event_presence/events');
 
-  Timer? _timer;
-  AppLifecycleListener? _lifecycle;
-  bool _busy = false;
+  StreamSubscription<dynamic>? _sub;
+  String? _started;
 
   @override
   EventReporterState build() {
     final eventId = ref.watch(currentEventIdProvider);
+    final title = eventId == null
+        ? null
+        : ref.watch(eventByIdProvider(eventId))?.title;
 
     ref.onDispose(_stop);
 
@@ -54,42 +62,47 @@ class EventPresenceReporter extends Notifier<EventReporterState> {
       return const EventReporterState.idle();
     }
 
-    _lifecycle ??= AppLifecycleListener(onResume: () => unawaited(_report()));
-    _timer?.cancel();
-    _timer = Timer.periodic(every, (_) => unawaited(_report()));
-    Future.microtask(_report);
+    _sub ??= _events.receiveBroadcastStream().listen(
+      _onNative,
+      onError: (_) {},
+    );
+    if (_started != eventId) {
+      _started = eventId;
+      unawaited(_start(eventId, title ?? 'Événement'));
+    }
     return EventReporterState.watching(eventId);
   }
 
-  void _stop() {
-    _timer?.cancel();
-    _timer = null;
-    _lifecycle?.dispose();
-    _lifecycle = null;
+  Future<void> _start(String eventId, String title) async {
+    try {
+      await _channel.invokeMethod('start', {
+        'eventId': eventId,
+        'title': title,
+      });
+    } on MissingPluginException {
+      // Tests : pas de natif.
+    } catch (e) {
+      AppLog.instance.error('event_presence', 'démarrage refusé : $e');
+    }
   }
 
-  Future<void> _report() async {
-    if (_busy) return;
-    _busy = true;
-    try {
-      final fix = await ref.read(coarseLocationProvider).current();
-      if (fix == null) {
-        state = state.copyWith(lastOutcome: 'no_fix', lastAt: DateTime.now());
-        return;
-      }
-      final outcome = await ref
-          .read(eventsRepositoryProvider)
-          .reportPosition(
-            lat: fix.latitude,
-            lon: fix.longitude,
-            accuracy: fix.accuracy,
-          );
-      state = state.copyWith(lastOutcome: outcome, lastAt: DateTime.now());
-    } catch (e) {
-      AppLog.instance.error('event_position', 'dépôt refusé : $e');
-      state = state.copyWith(lastOutcome: 'error', lastAt: DateTime.now());
-    } finally {
-      _busy = false;
+  void _stop() {
+    if (_started != null) {
+      _started = null;
+      unawaited(_channel.invokeMethod('stop').catchError((_) => null));
+    }
+    _sub?.cancel();
+    _sub = null;
+  }
+
+  void _onNative(dynamic raw) {
+    final m = raw as Map<Object?, Object?>;
+    final outcome = m['outcome'] as String?;
+    if (outcome == null || outcome == 'stopped') return;
+    state = state.copyWith(lastOutcome: outcome, lastAt: DateTime.now());
+    if (outcome == 'away') {
+      // Le serveur m'a sorti : les vues doivent le dire tout de suite.
+      ref.invalidate(myEventsProvider);
     }
   }
 }
@@ -108,7 +121,7 @@ class EventReporterState {
 
   final String? eventId;
 
-  /// `present`, `away`, `none`, `no_fix` ou `error`.
+  /// `present`, `away`, `none`, `no_fix`, `offline`, `auth` ou `error`.
   final String? lastOutcome;
   final DateTime? lastAt;
 

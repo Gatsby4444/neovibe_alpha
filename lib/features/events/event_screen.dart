@@ -12,6 +12,7 @@ import '../../core/widgets/avatar.dart';
 import '../../core/widgets/top_banner.dart';
 import '../conversations/chat_screen.dart';
 import '../library_vibes/conversation_library_screen.dart';
+import 'event_challenges_screen.dart';
 import 'event_invite_screen.dart';
 import 'event_settings_screen.dart';
 import 'events_providers.dart';
@@ -40,7 +41,7 @@ class EventScreen extends ConsumerWidget {
   const EventScreen({super.key, required this.eventId, this.preview});
 
   final String eventId;
-  final NearbyVenueEvent? preview;
+  final NearbyEvent? preview;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -98,6 +99,7 @@ class EventScreen extends ConsumerWidget {
             if (event.iAmPresent)
               _PointsChauds(spots: hotSpots.value ?? const []),
             if (event.iAmPresent || event.isClosed) _Outils(event: event),
+            if (event.isClosed) _Recap(eventId: event.id),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
               child: Row(
@@ -154,6 +156,56 @@ class EventScreen extends ConsumerWidget {
   }
 }
 
+/// **Le récap du lendemain** (Jay, 2026-09-21) : ce qu'on y a vécu, en
+/// nombres — présents, Vibes, gens rencontrés, nouveaux amis.
+class _Recap extends ConsumerWidget {
+  const _Recap({required this.eventId});
+  final String eventId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recap = ref.watch(eventRecapProvider(eventId)).value;
+    if (recap == null) return const SizedBox.shrink();
+    final p = context.palette;
+    Widget chiffre(int n, String mot, String pluriel) => Expanded(
+      child: Column(
+        children: [
+          Text(
+            '$n',
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          Text(
+            n > 1 ? pluriel : mot,
+            style: TextStyle(color: context.muted, fontSize: 12),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: Container(
+        decoration: BoxDecoration(
+          color: p.surface,
+          borderRadius: BorderRadius.circular(NeoRadius.md),
+          border: Border.all(color: p.line),
+        ),
+        padding: const EdgeInsets.all(NeoSpace.lg),
+        child: Row(
+          children: [
+            chiffre(recap.presentCount, 'présent', 'présents'),
+            chiffre(recap.vibeCount, 'Vibe', 'Vibes'),
+            chiffre(recap.metCount, 'rencontré', 'rencontrés'),
+            chiffre(recap.newFriendCount, 'nouvel ami', 'nouveaux amis'),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// L'état, et le geste : entrer ou sortir.
 class _Etat extends ConsumerWidget {
   const _Etat({required this.event, required this.now});
@@ -168,13 +220,9 @@ class _Etat extends ConsumerWidget {
     final String detail;
     if (event.isClosed) {
       titre = 'Terminé';
-      final reveal = event.libraryRevealAt;
-      detail = reveal == null
-          ? 'Le groupe reste ouvert cinq jours.'
-          : reveal.isAfter(now)
-          ? 'Le Drop se révèle ${dayAndTime(reveal)}. Le groupe '
-                'reste ouvert cinq jours.'
-          : 'Drop révélé. Le groupe reste ouvert cinq jours.';
+      // Depuis le 2026-09-21 le Drop est visible dès le dépôt : rien ne se
+      // « révèle » plus à la fermeture.
+      detail = 'Le Drop et le chat restent ouverts cinq jours.';
     } else if (event.notStartedAt(now)) {
       titre = 'Commence ${dayAndTime(event.startsAt)}';
       detail = event.kind == EventKind.private
@@ -374,13 +422,14 @@ class _Outils extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: _Outil(
-              icon: Icons.sports_esports_outlined,
-              label: 'Jeux',
-              // La place est réservée ; le contenu est la question 16 du §12.
-              onTap: () => TopBanner.show(
-                context,
-                'Les jeux et défis arrivent — ils se décident avec Jay.',
-                tone: TopBannerTone.already,
+              icon: Icons.flag_outlined,
+              label: 'Défis',
+              // Le premier « jeu » (2026-09-21) : un défi en une phrase, des
+              // Vibes en réponse dans le Drop.
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => EventChallengesScreen(eventId: event.id),
+                ),
               ),
             ),
           ),
@@ -548,7 +597,7 @@ class _Personne extends ConsumerWidget {
 class _Apercu extends ConsumerWidget {
   const _Apercu({required this.eventId, required this.preview});
   final String eventId;
-  final NearbyVenueEvent? preview;
+  final NearbyEvent? preview;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -566,7 +615,10 @@ class _Apercu extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    v.venueName,
+                    v.venueName ??
+                        (v.kind == EventKind.open
+                            ? 'Soirée ouverte à tous ceux qui sont là'
+                            : 'Un lieu'),
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   if (v.venueAddress != null)
@@ -576,7 +628,7 @@ class _Apercu extends ConsumerWidget {
                     ),
                   const SizedBox(height: 8),
                   Text(
-                    '${v.presentCount} présent${v.presentCount > 1 ? 's' : ''}'
+                    '${v.presentCount} connecté${v.presentCount > 1 ? 's' : ''} ici'
                     ' · à ${v.distanceM} m'
                     '${v.scheduledEndAt == null ? '' : ' · ferme ${dayAndTime(v.scheduledEndAt!)}'}',
                     style: TextStyle(color: context.muted),

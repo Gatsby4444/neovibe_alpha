@@ -23,8 +23,9 @@ import 'events_repository.dart';
 /// 1. **où je suis** — l'événement en cours, s'il y en a un ;
 /// 2. **mes événements** — ceux où je suis invité, ceux où je suis allé,
 ///    ceux que je gère ;
-/// 3. **autour de moi** — les soirées d'établissement ouvertes à portée, avec
-///    la distance. C'est le « on passe devant un bar » de la vision.
+/// 3. **autour de moi** — les soirées à portée, d'établissement ou ouvertes
+///    par quelqu'un (2026-09-21), avec la distance et **« N personnes
+///    connectées ici »**. C'est le « je me balade dans la rue » de Jay.
 ///
 /// ⚠️ Cet écran ne parle à aucun serveur : il lit des vues
 /// (`events_providers.dart`) et demande à la cuisine (`events_repository.dart`).
@@ -35,7 +36,7 @@ class EventsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final me = ref.watch(currentUserIdProvider)!;
     final events = ref.watch(myEventsProvider);
-    final nearby = ref.watch(nearbyVenueEventsProvider);
+    final nearby = ref.watch(nearbyEventsProvider);
     final currentId = ref.watch(currentEventIdProvider);
 
     return Scaffold(
@@ -55,7 +56,7 @@ class EventsScreen extends ConsumerWidget {
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(myEventsProvider);
-          ref.invalidate(nearbyVenueEventsProvider);
+          ref.invalidate(nearbyEventsProvider);
         },
         child: ListView(
           padding: const EdgeInsets.only(bottom: 32),
@@ -92,15 +93,16 @@ class EventsScreen extends ConsumerWidget {
                           'de toi.'
                     : messageServeur(e),
                 action: TextButton(
-                  onPressed: () => ref.invalidate(nearbyVenueEventsProvider),
+                  onPressed: () => ref.invalidate(nearbyEventsProvider),
                   child: const Text('Réessayer'),
                 ),
               ),
               data: (list) {
                 if (list.isEmpty) {
                   return const _Message(
-                    'Aucune soirée ouverte à moins de 2 km. Reviens quand tu '
-                    'passes devant un lieu partenaire.',
+                    'Aucune soirée à moins de 2 km. Ouvre la tienne là où tu '
+                    'es (« + »), ou reviens quand tu passes devant un lieu '
+                    'partenaire.',
                   );
                 }
                 return Column(
@@ -180,10 +182,12 @@ class _TuileEvenement extends StatelessWidget {
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: p.field,
-        child: Icon(
-          event.kind == EventKind.venue ? Icons.storefront : Icons.group,
-          color: p.ink,
-        ),
+        child: Icon(switch (event.kind) {
+          EventKind.venue => Icons.storefront,
+          EventKind.open => Icons.celebration,
+          EventKind.private =>
+            event.autoCreated ? Icons.auto_awesome : Icons.group,
+        }, color: p.ink),
       ),
       title: Text(event.title),
       subtitle: Text(eventStatusLabel(event, DateTime.now())),
@@ -199,21 +203,27 @@ class _TuileEvenement extends StatelessWidget {
 
 class _TuileAutour extends ConsumerWidget {
   const _TuileAutour({required this.venue});
-  final NearbyVenueEvent venue;
+  final NearbyEvent venue;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
     final presents = venue.presentCount;
+    final ouvert = venue.kind == EventKind.open;
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: p.field,
-        child: Icon(Icons.storefront, color: p.ink),
+        child: Icon(
+          ouvert ? Icons.celebration : Icons.storefront,
+          color: p.ink,
+        ),
       ),
       title: Text(venue.title),
+      // « Tel événement, N personnes connectées ici » (Jay, 2026-09-21) —
+      // vérifié par le serveur à chaque relevé de présence.
       subtitle: Text(
-        '${venue.venueName} · à ${venue.distanceM} m · '
-        '$presents présent${presents > 1 ? 's' : ''}',
+        '${venue.venueName ?? 'Soirée ouverte'} · à ${venue.distanceM} m · '
+        '$presents connecté${presents > 1 ? 's' : ''} ici',
       ),
       trailing: venue.withinReach
           ? FilledButton(

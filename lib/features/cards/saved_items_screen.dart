@@ -103,7 +103,7 @@ class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
                     childAspectRatio: kVibeFaceRatio,
                   ),
                   itemCount: list.length,
-                  itemBuilder: (context, i) => _SavedTile(item: list[i]),
+                  itemBuilder: (context, i) => SavedTile(item: list[i]),
                 );
               },
             ),
@@ -116,8 +116,8 @@ class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
 
 /// Vignette d'un Enregistrement : le fichier est en clair sur l'appareil,
 /// donc rien à déchiffrer ni à télécharger.
-class _SavedTile extends ConsumerWidget {
-  const _SavedTile({required this.item});
+class SavedTile extends ConsumerWidget {
+  const SavedTile({super.key, required this.item});
   final SavedItem item;
 
   @override
@@ -125,7 +125,7 @@ class _SavedTile extends ConsumerWidget {
     return GestureDetector(
       onTap: () => Navigator.of(
         context,
-      ).push(MaterialPageRoute(builder: (_) => _SavedViewerScreen(item: item))),
+      ).push(MaterialPageRoute(builder: (_) => SavedViewerScreen(item: item))),
       onLongPress: () => _confirmRemove(context, ref),
       child: Container(
         decoration: BoxDecoration(
@@ -205,15 +205,17 @@ class _SavedTile extends ConsumerWidget {
 }
 
 /// Lecture d'un Enregistrement. Aucun réseau, aucune clé : le fichier est là.
-class _SavedViewerScreen extends StatefulWidget {
-  const _SavedViewerScreen({required this.item});
+/// Public depuis le 2026-09-21 : la galerie (`gallery_screen.dart`) ouvre
+/// les Vibes gardées d'un moment par ce même lecteur.
+class SavedViewerScreen extends StatefulWidget {
+  const SavedViewerScreen({super.key, required this.item});
   final SavedItem item;
 
   @override
-  State<_SavedViewerScreen> createState() => _SavedViewerScreenState();
+  State<SavedViewerScreen> createState() => SavedViewerScreenState();
 }
 
-class _SavedViewerScreenState extends State<_SavedViewerScreen> {
+class SavedViewerScreenState extends State<SavedViewerScreen> {
   var _showFront = true;
 
   @override

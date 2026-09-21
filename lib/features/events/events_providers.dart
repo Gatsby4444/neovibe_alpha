@@ -162,9 +162,7 @@ final eventHotSpotsProvider = FutureProvider.family<List<HotSpot>, String>((
 
 /// Les soirées d'établissement autour de moi. Demande une position : sans
 /// elle, l'erreur le dit — l'écran n'a pas à deviner.
-final nearbyVenueEventsProvider = FutureProvider<List<NearbyVenueEvent>>((
-  ref,
-) async {
+final nearbyEventsProvider = FutureProvider<List<NearbyEvent>>((ref) async {
   if (ref.watch(currentUserIdProvider) == null) return const [];
   final fix = await ref.watch(coarseLocationProvider).current();
   if (fix == null) {
@@ -208,4 +206,37 @@ class _EventPeerIds extends Notifier<Set<String>> with DerivedSet<String> {
 
 final eventPeerIdsProvider = NotifierProvider<_EventPeerIds, Set<String>>(
   _EventPeerIds.new,
+);
+
+/// Le récap d'un événement : relu à chaque changement de présence.
+final eventRecapProvider = FutureProvider.family<EventRecap, String>((
+  ref,
+  eventId,
+) {
+  ref.watch(realtimeEpochProvider);
+  ref.watch(eventPresencesStreamProvider(eventId));
+  return ref.watch(eventsRepositoryProvider).recap(eventId);
+});
+
+/// Les défis d'un événement ; la cuisine l'invalide quand elle en pose un.
+final eventChallengesProvider =
+    FutureProvider.family<List<EventChallenge>, String>(
+      (ref, eventId) => ref.watch(eventsRepositoryProvider).challenges(eventId),
+    );
+
+/// Ma mémoire des rencontres (2 ans).
+final myMeetingsProvider = FutureProvider<List<Meeting>>((ref) {
+  ref.watch(realtimeEpochProvider);
+  if (ref.watch(currentUserIdProvider) == null) return const [];
+  return ref.watch(eventsRepositoryProvider).myMeetings();
+});
+
+/// « Déjà rencontré(e) » pour un lot de personnes — une requête pour la liste.
+/// ⚠️ La clé est une liste : deux listes égales élément par élément ne sont
+/// pas `==` en Dart ; l'appelant passe une liste TRIÉE et la garde stable.
+final metBeforeProvider = FutureProvider.family<Map<String, MetBefore>, String>(
+  (ref, joinedIds) {
+    final ids = joinedIds.isEmpty ? const <String>[] : joinedIds.split(',');
+    return ref.watch(eventsRepositoryProvider).metBefore(ids);
+  },
 );

@@ -139,6 +139,15 @@
             android:foregroundServiceType="connectedDevice|location"
             android:exported="false" />
 
+        <!-- Ma présence à un événement, app fermée (2026-09-21) : type
+             `location` — l'app compte alors « au premier plan » pour la
+             localisation, la permission « pendant l'utilisation » suffit ;
+             démarré depuis l'interface, quand on rejoint. -->
+        <service
+            android:name=".events.EventPresenceService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+
         <!-- La file de publication : transcode, scelle, envoie (reprenable) et
              inscrit une publication — avec ou sans l'app (Jay, 2026-09-19). -->
         <service

@@ -195,3 +195,37 @@ Tests : `test/events_providers_test.dart` (ce qui se compte),
    « Jeux »), le contenu est la question 16 du §12.
 4. **Une carte.** Les points chauds s'affichent en nombres, pas sur un plan.
 5. **Les notifications** (« Alice est arrivée », « l'événement se ferme »).
+
+---
+
+## 10. Le 2026-09-21 — le scénario de bout en bout (v0.9.239)
+
+Décisions de Jay (`docs/raison-d-entrer-2026-09-21.md` §5). Ce qui est
+**construit** ce jour-là, vérifié en base sous identité
+(`scratchpad/t_scenario.sql`, annulé par exception) :
+
+| Brique | Ce qui existe |
+|---|---|
+| **Événement ouvert** (`kind = 'open'`) | `create_open_event(titre, lat, lon, fin, rayon)` : n'importe qui, là où il est, ≤ 24 h ; l'organisateur est admin du groupe et présent d'office. Entrée = **sur place** (la règle d'un établissement). `nearby_events(lat, lon)` remplace `nearby_venue_events` : établissements **et** ouverts, avec `present_count` — « tel événement, N personnes connectées ici » (Jay). Fermeture à l'horaire (`sweep_events`) ou par l'organisateur. App : `EventKind.open`, `NearbyEvent`, l'interrupteur « Ouverte à tous ceux qui sont là » dans `create_event_screen.dart` |
+| **Bibliothèque visible PENDANT** | `add_vibe_to_library` : `reveal_at = now()` pour une conversation d'événement ; `close_event` ne date plus rien (`library_reveal_at` = « depuis »). Les Vibes déjà déposées à reveal « jamais » ont été révélées par la migration |
+| **La mémoire des rencontres** — `meetings` | Une ligne par personne et par rencontre (`origin` ping / event, `event_id`, `event_title`, lieu **gommé à 100 m**, `met_at`, `last_at`). Écrite par déclencheur quand un `ping_pairs` NAÎT (`on_ping_pair_born`) et quand un `event_crossings` naît à la fermeture (`on_event_crossing_born`) — donc **jamais sans croisement symétrique**. RLS : lecture et suppression de MES lignes seulement. **2 ans** (`crossing_windows.origin = 'meeting'`, Jay), balai `neovibe_purge_meetings` (04:23). RPC `my_meetings()`, `met_before(uuid[])`. App : onglet **Rencontres** du cœur (`meetings_tab.dart`, glisser = oublier), « Déjà rencontré(e) à … » sur les tuiles d'inconnus du Ping (`metBeforeProvider`, une requête par grille) |
+| **Le récap** | `event_recap(event)` : présents (passés), Vibes, gens rencontrés là, nouveaux amis depuis le début, amis présents. App : `_Recap` sur l'écran d'un événement fermé, et la galerie |
+| **Les moments** (3.7) | `private.form_moments()`, appelée par `sweep_events` chaque minute : deux **amis** (`are_connected`, dit positivement) avec des vues **mutuelles** (`sightings`) sur `moment_min_slots` créneaux consécutifs (2 × 15 min) et sans événement ouvert commun → un événement **privé `auto_created`** s'ouvre (« Moment du 21/09 à 19:10 »), les deux y sont membres admin et présents (preuve = le ping, `last_ping_at` rafraîchi tant qu'ils se voient). Un troisième ami vu par un membre rejoint. Se ferme par les règles existantes (30 min sans preuve → sorti ; 80 % partis → fermé). Vérifié : pas de moment entre non-amis, pas de doublon au passage suivant. Paramètres : `event_rules.moment_enabled / moment_min_slots / moment_min_friends` |
+| **Les défis** (premier « jeu ») | `event_challenges` (une phrase, par un **présent** : `post_challenge`), `library_vibes.challenge_id`, `add_vibe_to_library(…, p_challenge_id)`. App : bouton **Défis** de l'événement (`event_challenges_screen.dart`), « Répondre par une Vibe » → la caméra en mode Drop avec `LibraryTarget.challengeId` |
+| **La position en arrière-plan** (§0) | `EventPresenceService` (Kotlin, premier plan type **`location`**) démarré depuis l'interface quand je rejoins : une position par minute → `report_event_position` par `SupabaseHttp.rpcText` avec la session du pont de publication ; s'arrête sur `away` / `none` / jeton refusé. **Un seul écrivain** : le Dart (`event_presence_reporter.dart`) ne relève plus rien, il démarre, arrête et écoute (`neovibe/event_presence`). Sans « Autoriser tout le temps » — le type `location` suffit, démarré depuis l'app |
+| **Pulse — « Mes soirées »** | Une rangée au-dessus de la galerie : les événements où j'ai été, en cours ou fermés depuis < 5 jours → leur Drop. Le Drop d'un événement est **un autre objet** que les publications du feed : il n'y est pas mêlé, il y est tendu |
+| **Ma galerie** (sur le téléphone) | `lib/features/gallery/` : `Moment` + `MomentStore` (`<support>/gallery/moments.json`), `GalleryKeeper` (observe `my_events`, copie titre / quand / où / amis présents / récap ; à la fermeture, **garde dans les Enregistrements** les Vibes du Drop que leur auteur a laissées **sauvegardables**, et les miennes — la règle de sauvegarde existante, telle quelle), `GalleryScreen` / `MomentScreen`. Entrée : Profil › « Ma galerie ». Test : `test/moment_store_test.dart` |
+
+### Ce qui n'est PAS fait (2026-09-21 soir)
+
+- **La plateforme des établissements** : inchangé (§9.1).
+- **Une carte** : les événements et points chauds restent en liste (étape 5).
+- **Les notifications** « Alice est arrivée », « une soirée s'ouvre près de
+  toi » : pas de push serveur (aucun FCM) — étape 5, en partie.
+- **Les Vibes non sauvegardables** du Drop d'un moment ne survivent pas à la
+  purge (5 jours) : c'est la règle de sauvegarde existante ; la galerie garde
+  l'album (où, quand, avec qui) sans elles. À trancher par Jay si la galerie
+  doit garder plus.
+- **Le compteur « N connectés ici » n'est vérifié que par ce qui est
+  déposé** : position (natif, 1/min) et vues BLE (`report_sightings`). Un
+  téléphone sans l'un ni l'autre sort au bout de 30 min.

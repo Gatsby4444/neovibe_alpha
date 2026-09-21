@@ -26,6 +26,8 @@ import 'ping_store.dart';
 import 'presence_feed.dart';
 import 'proximity_identity.dart';
 import '../library/open_profile.dart';
+import '../events/events_providers.dart';
+import '../../core/models/event.dart';
 
 /// Le Ping — découverte 100 % locale, chiffrée d'appareil à appareil.
 ///
@@ -782,9 +784,18 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
 /// — avec une information meilleure, sa distance. Les afficher ici produisait le
 /// même profil deux fois, et un bouton de chat qui ne pouvait qu'échouer.
 class _TuileInconnu extends ConsumerWidget {
-  const _TuileInconnu({required this.personne, this.aPortee = true});
+  const _TuileInconnu({
+    required this.personne,
+    this.aPortee = true,
+    this.souvenir,
+  });
 
   final NearbyPerson personne;
+
+  /// **« Déjà rencontré(e) à Soirée X »** (la mémoire des rencontres,
+  /// 2026-09-21) : ce que ma mémoire garde de cette personne, s'il y a quelque
+  /// chose. Nul = jamais rencontré(e) avant.
+  final MetBefore? souvenir;
 
   /// Faux dans « Croisés récemment » : la personne est partie.
   ///
@@ -813,7 +824,11 @@ class _TuileInconnu extends ConsumerWidget {
         fallback: Text(initiale),
       ),
       nom: personne.displayName,
-      situation: aPortee
+      // La mémoire passe avant l'instant : « déjà rencontré(e) à … » dit
+      // plus que « à portée ».
+      situation: souvenir != null
+          ? souvenir!.label
+          : aPortee
           ? (personne.tagName == null ? "À portée" : "@${personne.tagName}")
           : "Croisé ${vagueTimeAgo(personne.lastSeenAt)}",
       // La MENTION SPÉCIALE — la deuxième bio, écrite pour les gens qu'on
@@ -849,19 +864,30 @@ class _TuileInconnu extends ConsumerWidget {
 /// étroit, la tuile déborderait ; le débordement s'affiche en rayures jaunes en
 /// debug et **se voit à peine en release**. Une hauteur fixe se calcule une
 /// fois et tient sur tous les écrans.
-class _GrilleInconnus extends StatelessWidget {
+class _GrilleInconnus extends ConsumerWidget {
   const _GrilleInconnus({required this.gens, required this.aPortee});
 
   final List<NearbyPerson> gens;
   final bool aPortee;
 
   @override
-  Widget build(BuildContext context) => _GrilleDeTuiles(
-    enfants: [
-      for (final personne in gens)
-        _TuileInconnu(personne: personne, aPortee: aPortee),
-    ],
-  );
+  Widget build(BuildContext context, WidgetRef ref) {
+    // UNE requête pour toute la grille (clé triée et stable), pas une par
+    // tuile : la mémoire dit qui, parmi ces gens, on a déjà rencontré.
+    final ids = [for (final p in gens) p.userId]..sort();
+    final souvenirs =
+        ref.watch(metBeforeProvider(ids.join(','))).value ?? const {};
+    return _GrilleDeTuiles(
+      enfants: [
+        for (final personne in gens)
+          _TuileInconnu(
+            personne: personne,
+            aPortee: aPortee,
+            souvenir: souvenirs[personne.userId],
+          ),
+      ],
+    );
+  }
 }
 
 /// **Deux tuiles par ligne**, la même grille pour les amis et les inconnus.

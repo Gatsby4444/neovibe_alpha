@@ -10,7 +10,7 @@ import 'package:flutter/foundation.dart';
 /// | [NeoEvent] | l'événement — ce qui est COMMUN aux deux origines | jusqu'à la purge, 5 jours après la fermeture |
 /// | [EventPerson] | quelqu'un de l'événement : invité et/ou présent | le temps de l'événement |
 /// | [HotSpot] | une case de la carte de chaleur — une VUE DÉRIVÉE | l'instant |
-/// | [NearbyVenueEvent] | une soirée d'établissement autour de moi | tant qu'elle est ouverte |
+/// | [NearbyEvent] | une soirée d'établissement autour de moi | tant qu'elle est ouverte |
 ///
 /// ⚠️ **Tous portent leur `==`.** Les vues dérivées (`DerivedList`,
 /// `select`) ne réveillent leurs lecteurs que si la valeur change — et pour
@@ -19,17 +19,27 @@ import 'package:flutter/foundation.dart';
 
 /// D'où vient un événement — et donc **qui a le droit d'y entrer**.
 ///
-/// Les deux règles d'entrée ne partagent rien (règle 2 de `CLAUDE.md`) :
-/// - **privé** : être invité au groupe d'événement **et** sur place ;
-/// - **établissement** : être sur place.
+/// Les règles d'entrée ne partagent rien (règle 2 de `CLAUDE.md`) :
+/// - **privé** : être invité au groupe d'événement **et** sur place — un
+///   **moment** (`NeoEvent.autoCreated`) est un privé ouvert par le serveur
+///   quand des amis sont ensemble ;
+/// - **établissement** : être sur place ;
+/// - **ouvert** (2026-09-21) : être sur place — la règle d'un établissement,
+///   ouvert par un utilisateur, visible de qui passe à portée. On découvre
+///   une SOIRÉE, jamais une personne.
 enum EventKind {
   private,
-  venue;
+  venue,
+  open;
 
   static EventKind fromDb(String value) => switch (value) {
     'venue' => EventKind.venue,
+    'open' => EventKind.open,
     _ => EventKind.private,
   };
+
+  /// On y entre en étant sur place, sans invitation.
+  bool get joinOnPlace => this != EventKind.private;
 }
 
 /// Le rôle dans un groupe d'événement privé. **Tous admin par défaut**
@@ -73,6 +83,7 @@ class NeoEvent {
   const NeoEvent({
     required this.id,
     required this.kind,
+    this.autoCreated = false,
     required this.title,
     this.venueName,
     required this.createdBy,
@@ -96,6 +107,11 @@ class NeoEvent {
 
   final String id;
   final EventKind kind;
+
+  /// **Un moment** : ouvert par le serveur parce que des amis étaient
+  /// ensemble (Jay, 2026-09-21 : « peut-être essentiel »). Privé, sans lieu ;
+  /// sa preuve de présence est la vue mutuelle par le ping.
+  final bool autoCreated;
   final String title;
 
   /// Le nom du lieu — établissement seulement.
@@ -135,9 +151,10 @@ class NeoEvent {
   /// Pas encore commencé : on ne peut pas encore le rejoindre.
   bool notStartedAt(DateTime now) => startsAt.isAfter(now);
 
-  /// Ce que je peux régler : créateur d'un privé, gérant d'un établissement.
+  /// Ce que je peux régler : créateur d'un privé ou d'un ouvert, gérant
+  /// d'un établissement.
   bool canSettings(String me) =>
-      isOpen && ((kind == EventKind.private && createdBy == me) || iManage);
+      isOpen && ((kind != EventKind.venue && createdBy == me) || iManage);
 
   /// Fermer à la main : le créateur (privé) ou le gérant (établissement).
   bool canClose(String me) => canSettings(me);
@@ -156,6 +173,7 @@ class NeoEvent {
   factory NeoEvent.fromJson(Map<String, dynamic> json) => NeoEvent(
     id: json['id'] as String,
     kind: EventKind.fromDb(json['kind'] as String),
+    autoCreated: json['auto_created'] as bool? ?? false,
     title: json['title'] as String,
     venueName: json['venue_name'] as String?,
     createdBy: json['created_by'] as String,
@@ -185,6 +203,7 @@ class NeoEvent {
       other is NeoEvent &&
       other.id == id &&
       other.kind == kind &&
+      other.autoCreated == autoCreated &&
       other.title == title &&
       other.venueName == venueName &&
       other.createdBy == createdBy &&
@@ -325,11 +344,15 @@ class HotSpot {
 
 /// Une soirée d'établissement autour de moi.
 @immutable
-class NearbyVenueEvent {
-  const NearbyVenueEvent({
+/// Une soirée à portée — d'un établissement ou ouverte par quelqu'un —
+/// avec **« N personnes connectées ici »** ([presentCount], Jay 2026-09-21),
+/// vérifié par le serveur à chaque relevé de présence.
+class NearbyEvent {
+  const NearbyEvent({
     required this.id,
+    required this.kind,
     required this.title,
-    required this.venueName,
+    this.venueName,
     this.venueAddress,
     required this.lat,
     required this.lon,
@@ -341,8 +364,11 @@ class NearbyVenueEvent {
   });
 
   final String id;
+  final EventKind kind;
   final String title;
-  final String venueName;
+
+  /// Nul pour un événement ouvert : il n'a pas d'établissement.
+  final String? venueName;
   final String? venueAddress;
   final double lat;
   final double lon;
@@ -356,26 +382,26 @@ class NearbyVenueEvent {
   /// dire à l'utilisateur ce qui va se passer.
   bool get withinReach => distanceM <= radiusM + 100;
 
-  factory NearbyVenueEvent.fromJson(Map<String, dynamic> json) =>
-      NearbyVenueEvent(
-        id: json['id'] as String,
-        title: json['title'] as String,
-        venueName: json['venue_name'] as String? ?? 'Un lieu',
-        venueAddress: json['venue_address'] as String?,
-        lat: (json['lat'] as num).toDouble(),
-        lon: (json['lon'] as num).toDouble(),
-        radiusM: (json['radius_m'] as num?)?.toInt() ?? 60,
-        startsAt: DateTime.parse(json['starts_at'] as String),
-        scheduledEndAt: json['scheduled_end_at'] == null
-            ? null
-            : DateTime.parse(json['scheduled_end_at'] as String),
-        presentCount: (json['present_count'] as num?)?.toInt() ?? 0,
-        distanceM: (json['distance_m'] as num?)?.toInt() ?? 0,
-      );
+  factory NearbyEvent.fromJson(Map<String, dynamic> json) => NearbyEvent(
+    id: json['id'] as String,
+    kind: EventKind.fromDb(json['kind'] as String? ?? 'venue'),
+    title: json['title'] as String,
+    venueName: json['venue_name'] as String?,
+    venueAddress: json['venue_address'] as String?,
+    lat: (json['lat'] as num).toDouble(),
+    lon: (json['lon'] as num).toDouble(),
+    radiusM: (json['radius_m'] as num?)?.toInt() ?? 60,
+    startsAt: DateTime.parse(json['starts_at'] as String),
+    scheduledEndAt: json['scheduled_end_at'] == null
+        ? null
+        : DateTime.parse(json['scheduled_end_at'] as String),
+    presentCount: (json['present_count'] as num?)?.toInt() ?? 0,
+    distanceM: (json['distance_m'] as num?)?.toInt() ?? 0,
+  );
 
   @override
   bool operator ==(Object other) =>
-      other is NearbyVenueEvent &&
+      other is NearbyEvent &&
       other.id == id &&
       other.title == title &&
       other.venueName == venueName &&
@@ -402,4 +428,236 @@ class NearbyVenueEvent {
     presentCount,
     distanceM,
   );
+}
+
+/// Le récap d'un événement (`event_recap`, 2026-09-21) : ce qu'on y a vécu,
+/// en nombres — la matière du « lendemain » et de la galerie.
+class EventRecap {
+  const EventRecap({
+    required this.presentCount,
+    required this.vibeCount,
+    required this.metCount,
+    required this.newFriendCount,
+    required this.friendsPresent,
+  });
+
+  /// Tous ceux qui sont passés, pas seulement ceux qui restent.
+  final int presentCount;
+  final int vibeCount;
+
+  /// Les gens que J'Y ai rencontrés (présence commune ≥ 30 min).
+  final int metCount;
+
+  /// Les amitiés nouées depuis le début de l'événement avec quelqu'un qui y était.
+  final int newFriendCount;
+
+  /// Mes amis qui y étaient.
+  final List<String> friendsPresent;
+
+  factory EventRecap.fromJson(Map<String, dynamic> json) => EventRecap(
+    presentCount: (json['present_count'] as num?)?.toInt() ?? 0,
+    vibeCount: (json['vibe_count'] as num?)?.toInt() ?? 0,
+    metCount: (json['met_count'] as num?)?.toInt() ?? 0,
+    newFriendCount: (json['new_friend_count'] as num?)?.toInt() ?? 0,
+    friendsPresent: [
+      for (final id in json['friends_present'] as List? ?? const [])
+        id as String,
+    ],
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is EventRecap &&
+      other.presentCount == presentCount &&
+      other.vibeCount == vibeCount &&
+      other.metCount == metCount &&
+      other.newFriendCount == newFriendCount &&
+      _sameIds(other.friendsPresent, friendsPresent);
+
+  static bool _sameIds(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => Object.hash(
+    presentCount,
+    vibeCount,
+    metCount,
+    newFriendCount,
+    Object.hashAll(friendsPresent),
+  );
+}
+
+/// Un défi posé dans un événement (le premier « jeu », 2026-09-21) : une
+/// phrase, à laquelle on répond par une Vibe dans la bibliothèque.
+class EventChallenge {
+  const EventChallenge({
+    required this.id,
+    required this.eventId,
+    required this.authorId,
+    required this.text,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String eventId;
+  final String authorId;
+  final String text;
+  final DateTime createdAt;
+
+  factory EventChallenge.fromJson(Map<String, dynamic> json) => EventChallenge(
+    id: json['id'] as String,
+    eventId: json['event_id'] as String,
+    authorId: json['author_id'] as String,
+    text: json['text'] as String,
+    createdAt: DateTime.parse(json['created_at'] as String),
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is EventChallenge &&
+      other.id == id &&
+      other.eventId == eventId &&
+      other.authorId == authorId &&
+      other.text == text &&
+      other.createdAt == createdAt;
+
+  @override
+  int get hashCode => Object.hash(id, eventId, authorId, text, createdAt);
+}
+
+/// **Une rencontre gardée** (`meetings`, 2026-09-21) : qui, où, quand — et
+/// ce qu'on est devenus. Deux ans, effaçable.
+class Meeting {
+  const Meeting({
+    required this.id,
+    required this.userId,
+    required this.displayName,
+    this.tagName,
+    this.avatarUrl,
+    required this.origin,
+    this.eventId,
+    this.eventTitle,
+    this.lat,
+    this.lon,
+    required this.metAt,
+    required this.lastAt,
+    required this.connected,
+    required this.times,
+  });
+
+  final String id;
+  final String userId;
+  final String displayName;
+  final String? tagName;
+  final String? avatarUrl;
+
+  /// `ping` (la rue, le bus) ou `event`.
+  final String origin;
+  final String? eventId;
+  final String? eventTitle;
+
+  /// Le lieu, gommé à 100 m ; nul pour un ping.
+  final double? lat;
+  final double? lon;
+  final DateTime metAt;
+  final DateTime lastAt;
+
+  /// Amis aujourd'hui.
+  final bool connected;
+
+  /// Combien de fois on s'est rencontrés, toutes rencontres gardées.
+  final int times;
+
+  /// « Rencontré(e) à Soirée X » ou « Croisé(e) ».
+  String get where => switch (origin) {
+    'event' =>
+      eventTitle == null
+          ? 'Rencontré(e) à un événement'
+          : 'Rencontré(e) à $eventTitle',
+    _ => 'Croisé(e)',
+  };
+
+  factory Meeting.fromJson(Map<String, dynamic> json) => Meeting(
+    id: json['id'] as String,
+    userId: json['user_id'] as String,
+    displayName: json['display_name'] as String? ?? '',
+    tagName: json['tag_name'] as String?,
+    avatarUrl: json['avatar_url'] as String?,
+    origin: json['origin'] as String,
+    eventId: json['event_id'] as String?,
+    eventTitle: json['event_title'] as String?,
+    lat: (json['lat'] as num?)?.toDouble(),
+    lon: (json['lon'] as num?)?.toDouble(),
+    metAt: DateTime.parse(json['met_at'] as String),
+    lastAt: DateTime.parse(json['last_at'] as String),
+    connected: json['connected'] as bool? ?? false,
+    times: (json['times'] as num?)?.toInt() ?? 1,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is Meeting &&
+      other.id == id &&
+      other.userId == userId &&
+      other.displayName == displayName &&
+      other.tagName == tagName &&
+      other.avatarUrl == avatarUrl &&
+      other.origin == origin &&
+      other.eventId == eventId &&
+      other.eventTitle == eventTitle &&
+      other.lat == lat &&
+      other.lon == lon &&
+      other.metAt == metAt &&
+      other.lastAt == lastAt &&
+      other.connected == connected &&
+      other.times == times;
+
+  @override
+  int get hashCode => Object.hash(id, userId, lastAt, connected, times);
+}
+
+/// « Vous vous êtes déjà rencontrés » (`met_before`) : la dernière rencontre
+/// gardée avec quelqu'un qui est en face de moi.
+class MetBefore {
+  const MetBefore({
+    required this.origin,
+    this.eventTitle,
+    required this.metAt,
+    required this.times,
+  });
+
+  final String origin;
+  final String? eventTitle;
+  final DateTime metAt;
+  final int times;
+
+  /// « Déjà rencontré(e) à Soirée X » / « Déjà croisé(e) ».
+  String get label => switch (origin) {
+    'event' when eventTitle != null => 'Déjà rencontré(e) à $eventTitle',
+    'event' => 'Déjà rencontré(e) à un événement',
+    _ => 'Déjà croisé(e)',
+  };
+
+  factory MetBefore.fromJson(Map<String, dynamic> json) => MetBefore(
+    origin: json['origin'] as String,
+    eventTitle: json['event_title'] as String?,
+    metAt: DateTime.parse(json['met_at'] as String),
+    times: (json['times'] as num?)?.toInt() ?? 1,
+  );
+
+  @override
+  bool operator ==(Object other) =>
+      other is MetBefore &&
+      other.origin == origin &&
+      other.eventTitle == eventTitle &&
+      other.metAt == metAt &&
+      other.times == times;
+
+  @override
+  int get hashCode => Object.hash(origin, eventTitle, metAt, times);
 }

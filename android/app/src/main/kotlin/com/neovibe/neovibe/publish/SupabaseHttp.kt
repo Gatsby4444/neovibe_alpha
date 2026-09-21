@@ -198,6 +198,19 @@ class SupabaseHttp(private val session: Session) : Remote {
         client.newCall(req).execute().use { r -> check(r, "inscription") }
     }
 
+    /**
+     * Un appel RPC dont on lit la réponse (`report_event_position` rend
+     * `present` / `away` / `none`, 2026-09-21). Mêmes trois sortes d'erreurs.
+     */
+    fun rpcText(name: String, jsonBody: String): String {
+        val req = Request.Builder()
+            .url("${session.url}/rest/v1/rpc/$name")
+            .auth()
+            .post(jsonBody.toRequestBody(JSON_TYPE))
+            .build()
+        client.newCall(req).execute().use { r -> return check(r, name).bodyText() }
+    }
+
     companion object {
         /** Supabase exige des blocs de 6 Mo exactement, sauf le dernier. */
         const val CHUNK = 6 * 1024 * 1024

@@ -14,6 +14,7 @@ import 'profile_edit_screen.dart';
 import 'profile_header.dart';
 import '../../core/motion.dart';
 import '../cards/card_capture_screen.dart';
+import '../gallery/gallery_screen.dart';
 
 /// Mon profil (consigne Jay 2026-07-12) : PP + username en haut, stats, bio,
 /// puis la bibliothèque PUBLIQUE (partagée avec les amis). La bibliothèque
@@ -58,12 +59,24 @@ class ProfileScreen extends ConsumerWidget {
               title: const Text('Modifier la bio'),
               onTap: () => Navigator.pop(context, 'bio'),
             ),
+            ListTile(
+              leading: const Icon(Icons.auto_awesome_motion_outlined),
+              title: const Text('Ma galerie'),
+              subtitle: const Text('Mes moments : où, quand, avec qui'),
+              onTap: () => Navigator.pop(context, 'galerie'),
+            ),
             const SizedBox(height: 8),
           ],
         ),
       ),
     );
     if (choix == null || !context.mounted) return;
+    if (choix == 'galerie') {
+      await Navigator.of(
+        context,
+      ).push(MaterialPageRoute(builder: (_) => const GalleryScreen()));
+      return;
+    }
     await _editer(context, ref, profile, bio: choix == 'bio');
   }
 
@@ -140,6 +153,16 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+              // Ma galerie (2026-09-21) : les moments, en albums.
+              ListTile(
+                leading: const Icon(Icons.auto_awesome_motion_outlined),
+                title: const Text('Ma galerie'),
+                subtitle: const Text('Mes moments : où, quand, avec qui'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const GalleryScreen()),
+                ),
+              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 20, 8, 8),
                 child: Row(

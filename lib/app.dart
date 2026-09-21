@@ -14,6 +14,7 @@ import 'features/auth/auth_screen.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/home/home_shell.dart';
 import 'features/events/event_presence_reporter.dart';
+import 'features/gallery/gallery_keeper.dart';
 import 'features/proximity/net/friend_book_watcher.dart';
 import 'features/proximity/net/ping_beacon_service.dart';
 import 'features/proximity/net/proximity_controller.dart';
@@ -195,6 +196,10 @@ class _RootGateState extends ConsumerState<RootGate> {
     // dépose parce que je suis dans un événement, pas parce qu'un écran
     // l'observe.
     ref.watch(eventPresenceReporterProvider);
+    // Ma galerie (2026-09-21) : elle copie sur le téléphone ce que le
+    // serveur va purger — elle tourne parce que j'ai des événements, pas
+    // parce qu'un écran la regarde.
+    ref.watch(galleryKeeperProvider);
 
     // 🔴 **À QUI APPARTIENT CE QUI EST SUR CET APPAREIL — 2026-08-31.**
     //

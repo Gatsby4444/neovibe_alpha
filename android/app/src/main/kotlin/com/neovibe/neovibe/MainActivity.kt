@@ -1,6 +1,7 @@
 package com.neovibe.neovibe
 
 import com.neovibe.neovibe.ble.ProximityBridge
+import com.neovibe.neovibe.events.EventPresenceBridge
 import com.neovibe.neovibe.publish.PublishBridge
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -23,6 +24,7 @@ class MainActivity : FlutterFragmentActivity() {
     /// Pont vers la file de publication — jetable comme celui de la proximité :
     /// le service et ses fichiers survivent à l'activité (2026-09-19).
     private var publish: PublishBridge? = null
+    private var eventPresence: EventPresenceBridge? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -77,6 +79,12 @@ class MainActivity : FlutterFragmentActivity() {
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
+        // Ma présence à un événement, app fermée (2026-09-21) : le pont est
+        // jetable, le service survit.
+        eventPresence = EventPresenceBridge(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
     }
 
     override fun onDestroy() {
@@ -90,6 +98,8 @@ class MainActivity : FlutterFragmentActivity() {
         nativeGallery = null
         publish?.dispose()
         publish = null
+        eventPresence?.dispose()
+        eventPresence = null
         // Le pont s'en va, le service reste : c'est tout l'intérêt.
         proximity?.dispose()
         proximity = null

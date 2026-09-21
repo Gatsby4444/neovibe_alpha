@@ -202,6 +202,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             conversationId: conversation.id,
             label: conversation.displayName(me),
             isGroup: conversation.type.isCollective,
+            isEvent: conversation.type == ConversationType.event,
           ),
         ),
       ),

@@ -16,6 +16,14 @@ le sélecteur Tout / Amis / Autour de moi **posé sur le contenu, au centre
 de la ligne du haut, sans bandeau, fond transparent** — la croix à droite
 (Jay, 2026-09-21 : *« comme on avait fait pour les Flows »*).
 
+Au-dessus de la galerie, **« Mes soirées »** (2026-09-21) : les événements
+où j'ai été, en cours ou fermés depuis moins de cinq jours — un tap ouvre
+leur Drop. Le Drop d'un événement est un autre objet que les publications
+du feed (bibliothèque éphémère, clés tenues par le serveur, purge à 5
+jours) : il n'y est pas mêlé, il y est tendu (Jay : *« les jours qui
+suivent je pourrais voir dans mon feed les contenus de cette
+bibliothèque »*).
+
 Dans ce plein écran, une Vibe qu'un ami m'a ajoutée dit **« Ajouté par X »**
 sous le pseudo de l'auteur **une fois que je l'ai likée** (`ReelIdentity`,
 `revealedAdderProvider`) — l'ajout est anonyme jusque-là.

@@ -34,6 +34,7 @@
 | Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise + scan) | CoreBluetooth, **mode dégradé à concevoir** |
 | ~~Transport GATT (liens, trames)~~ | — | **SUPPRIMÉ le 2026-08-27** — le BLE ne fait plus que prouver la proximité | *sans objet* |
 | ~~Transfert média proximité~~ | — | **ABANDONNÉ le 2026-08-27** — tout le contenu passe par le serveur | *sans objet* |
+| **Présence à un événement, app fermée** *(2026-09-21)* | `neovibe/event_presence` + `/events` | `events/` : `EventPresenceService` (premier plan type **`location`**, une position par minute → `report_event_position` par `SupabaseHttp.rpcText`, s'arrête sur `away` / `none` / jeton refusé), `EventPresenceBridge`, `EventPresenceHub` | `CLLocationManager` avec `allowsBackgroundLocationUpdates` + mode d'arrière-plan « location » ; même RPC |
 | **File de publication** *(2026-09-19 ; **les Vibes y passent depuis le 2026-09-21**)* | `neovibe/publish` + `/events` | `publish/` : `PublishService` (premier plan `dataSync`), `PublishPipeline`, `PublishStore`, `SessionStore`, `SupabaseHttp` (TUS par OkHttp), `PublishBridge`, `BootReceiver` | `BGProcessingTask` + `URLSession` en arrière-plan (`background` configuration, reprise par `Range`/TUS), même `job.json`, même pipeline — voir § 10 |
 | Hôte / cycle de vie | — | `MainActivity : FlutterFragmentActivity` | `AppDelegate` / `FlutterViewController` |
 | Journal caméra (dev) | (dans `neovibe/camera`) | `CamLog` (fichier disque) | fichier disque (trivial) |
@@ -1316,3 +1317,40 @@ en configuration `background` (il continue app tuée, le système rappelle
 l'app à la fin), TUS identique ; la reprise après relance par
 `BGProcessingTask`. Pas de service de premier plan sur iOS : c'est la session
 d'arrière-plan qui porte « survit à la fermeture ».
+
+---
+
+## 11. La présence à un événement, app fermée — `events/` *(2026-09-21)*
+
+**Rôle** : le prérequis §0 du programme du 2026-09-21 (« la position en
+arrière-plan »). Tant que je suis dans un événement, relever ma position une
+fois par minute et la déposer (`report_event_position`) — écran éteint, app
+fermée. Le serveur répond `present` / `away` / `none` ; sur `away` ou
+`none` le service s'arrête.
+
+**Pourquoi sans `ACCESS_BACKGROUND_LOCATION`** : un service de premier plan
+de type `location` fait compter l'app « au premier plan » pour la
+localisation (le raisonnement de `ProximityService`, 2026-08-25) ; il suffit
+de le **démarrer depuis l'interface** — ce qui est toujours le cas : on
+rejoint un événement dans l'app. Android 14 exige que `ACCESS_FINE_LOCATION`
+soit accordée au démarrage : elle l'est dès que le ping fonctionne.
+
+**Un seul écrivain** : depuis ce jour, le Dart ne dépose plus de position
+d'événement, même au premier plan (`event_presence_reporter.dart` démarre,
+arrête, écoute). La session (url, clé publique, jeton) est celle du pont de
+publication (`SessionStore`) ; le natif ne renouvelle pas le jeton — sur
+refus, il s'arrête, le BLE tient la présence (`report_sightings`), et l'app
+relance à son retour.
+
+| Fichier | Rôle |
+|---|---|
+| `events/EventPresenceService.kt` | le service : `LocationManager` (GPS + réseau, mise à jour toutes les 30 s), un tick par minute, dépôt sur un fil de travail, notification « Présent à … » (canal `neovibe_event_presence`, importance basse). `START_STICKY` ; relancé sans intention, il s'arrête |
+| `events/EventPresenceBridge.kt` | `start(eventId, title)`, `stop()`, `running` ; événements `{eventId, outcome}` (`present`, `away`, `none`, `no_fix`, `offline`, `auth`, `rejected`, `error`, `stopped`) |
+| `EventPresenceHub` (même fichier) | l'`object` par lequel le service publie, que le pont soit là ou non |
+| `publish/SupabaseHttp.rpcText` | un appel RPC dont on lit la réponse (ajouté pour ce service) |
+
+Manifeste : `<service android:name=".events.EventPresenceService"
+android:foregroundServiceType="location">` ; la permission
+`FOREGROUND_SERVICE_LOCATION` était déjà déclarée (§ProximityService).
+Aucun test JVM : la logique est le tick et l'appel ; la mesure se fait sur
+l'appareil (ligne `report_event_position` dans `event_presences.last_position_at`).

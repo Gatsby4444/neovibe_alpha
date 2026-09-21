@@ -52,17 +52,117 @@ class EventsRepository {
     ];
   }
 
-  Future<List<NearbyVenueEvent>> nearby(double lat, double lon) async {
+  /// Les soirées à portée : d'établissement et ouvertes (2026-09-21), avec
+  /// leur nombre de présents.
+  Future<List<NearbyEvent>> nearby(double lat, double lon) async {
     final rows =
-        await _client.rpc(
-              'nearby_venue_events',
-              params: {'p_lat': lat, 'p_lon': lon},
-            )
+        await _client.rpc('nearby_events', params: {'p_lat': lat, 'p_lon': lon})
             as List;
     return [
       for (final r in rows)
-        NearbyVenueEvent.fromJson((r as Map).cast<String, dynamic>()),
+        NearbyEvent.fromJson((r as Map).cast<String, dynamic>()),
     ];
+  }
+
+  /// Y ai-je été un jour ? (Une présence, même finie.) Pour la galerie :
+  /// un événement privé où j'étais invité sans venir n'est pas un moment.
+  Future<bool> wasThere(String eventId) async {
+    final me = _client.auth.currentUser!.id;
+    final rows = await _client
+        .from('event_presences')
+        .select('id')
+        .eq('event_id', eventId)
+        .eq('user_id', me)
+        .limit(1);
+    return rows.isNotEmpty;
+  }
+
+  /// Le récap d'un événement (fini ou en cours) : présents, Vibes, gens
+  /// rencontrés, nouveaux amis, amis présents.
+  Future<EventRecap> recap(String eventId) async {
+    final rows =
+        await _client.rpc('event_recap', params: {'p_event': eventId}) as List;
+    return EventRecap.fromJson((rows.first as Map).cast<String, dynamic>());
+  }
+
+  /// Les défis posés dans un événement, le plus récent d'abord.
+  Future<List<EventChallenge>> challenges(String eventId) async {
+    final rows = await _client
+        .from('event_challenges')
+        .select('id, event_id, author_id, text, created_at')
+        .eq('event_id', eventId)
+        .order('created_at', ascending: false);
+    return [for (final r in rows) EventChallenge.fromJson(r)];
+  }
+
+  /// Poser un défi : il faut être sur place — le serveur vérifie.
+  Future<String> postChallenge(String eventId, String text) async {
+    final id =
+        await _client.rpc(
+              'post_challenge',
+              params: {'p_event': eventId, 'p_text': text},
+            )
+            as String;
+    ref.invalidate(eventChallengesProvider(eventId));
+    return id;
+  }
+
+  // ─── La mémoire des rencontres (2026-09-21) ─────────────────────────────
+
+  /// Qui j'ai rencontré, où, quand — 2 ans, la plus récente d'abord.
+  Future<List<Meeting>> myMeetings() async {
+    final rows = await _client.rpc('my_meetings') as List;
+    return [
+      for (final r in rows)
+        Meeting.fromJson((r as Map).cast<String, dynamic>()),
+    ];
+  }
+
+  /// « Vous vous êtes déjà rencontrés » pour ces personnes : la dernière
+  /// rencontre gardée, par personne. Vide = jamais.
+  Future<Map<String, MetBefore>> metBefore(Iterable<String> userIds) async {
+    final ids = userIds.toSet().toList();
+    if (ids.isEmpty) return const {};
+    final rows =
+        await _client.rpc('met_before', params: {'p_users': ids}) as List;
+    return {
+      for (final r in rows)
+        (r as Map)['user_id'] as String: MetBefore.fromJson(
+          r.cast<String, dynamic>(),
+        ),
+    };
+  }
+
+  /// Effacer une rencontre de MA mémoire (l'autre garde la sienne).
+  Future<void> forgetMeeting(String meetingId) async {
+    await _client.from('meetings').delete().eq('id', meetingId);
+    ref.invalidate(myMeetingsProvider);
+  }
+
+  // ─── L'événement ouvert (2026-09-21) ────────────────────────────────────
+
+  /// Ouvrir une soirée là où je suis, visible de qui passe à portée. On y
+  /// entre sur place, comme chez un établissement. Je suis présent d'office.
+  Future<String> createOpen({
+    required String title,
+    required double lat,
+    required double lon,
+    required DateTime endsAt,
+  }) async {
+    final id =
+        await _client.rpc(
+              'create_open_event',
+              params: {
+                'p_title': title,
+                'p_lat': lat,
+                'p_lon': lon,
+                'p_ends_at': endsAt.toUtc().toIso8601String(),
+              },
+            )
+            as String;
+    _eventsChanged();
+    ref.invalidate(nearbyEventsProvider);
+    return id;
   }
 
   // ─── Le groupe d'événement privé ────────────────────────────────────────
@@ -179,23 +279,9 @@ class EventsRepository {
     _peopleChanged(eventId);
   }
 
-  /// Dépose ma position pendant l'événement. Rend `present`, `away` (le
-  /// serveur m'a sorti : trop loin de tout point chaud) ou `none` (je ne suis
-  /// dans aucun événement).
-  Future<String> reportPosition({
-    required double lat,
-    required double lon,
-    double? accuracy,
-  }) async {
-    final result =
-        await _client.rpc(
-              'report_event_position',
-              params: {'p_lat': lat, 'p_lon': lon, 'p_acc': accuracy},
-            )
-            as String?;
-    if (result == 'away') _eventsChanged();
-    return result ?? 'none';
-  }
+  // La position pendant l'événement se dépose depuis le NATIF
+  // (`EventPresenceService`, 2026-09-21) — un seul écrivain ; l'app ne
+  // l'appelle plus d'ici.
 
   // ─── L'établissement — le contrat de la plateforme ──────────────────────
 

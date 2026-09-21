@@ -75,6 +75,7 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
             backIsVideo: widget.backIsVideo,
             saveableByOthers: _saveableByOthers,
             ephemeral: _ephemeral,
+            challengeId: widget.target.challengeId,
           );
 
       ref.invalidate(conversationLibraryProvider(widget.target.conversationId));
@@ -102,19 +103,27 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
         children: [
           Icon(
-            Icons.lock_clock_outlined,
+            target.isEvent
+                ? Icons.celebration_outlined
+                : Icons.lock_clock_outlined,
             size: 44,
             color: Theme.of(context).colorScheme.primary,
           ),
           const SizedBox(height: 14),
           Text(
-            'Personne ne la verra avant 18h30 — toi non plus.',
+            target.challengeText != null
+                ? 'Ta réponse au défi : « ${target.challengeText} »'
+                : target.isEvent
+                ? 'Les participants la verront tout de suite.'
+                : 'Personne ne la verra avant 18h30 — toi non plus.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 6),
           Text(
-            'C\'est pour ça qu\'il n\'y a pas d\'aperçu.',
+            target.isEvent
+                ? 'Dans le Drop de ${target.label}, pour ceux qui y sont.'
+                : 'C\'est pour ça qu\'il n\'y a pas d\'aperçu.',
             textAlign: TextAlign.center,
             style: Theme.of(
               context,

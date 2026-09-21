@@ -12,16 +12,18 @@ import '../proximity/proximity_repository.dart';
 import '../recommendations/recommendation_screens.dart';
 import '../recommendations/recommendations_repository.dart';
 import 'connections_repository.dart';
+import 'meetings_tab.dart';
 
 /// Section « cœur » du Profil (consigne Jay 2026-07-12) : historique des
-/// demandes de connexion, des recommandations A→B→C et des Waves.
+/// demandes de connexion, des recommandations A→B→C, des Waves — et, depuis
+/// le 2026-09-21, **les personnes rencontrées** (la mémoire des rencontres).
 class HeartScreen extends ConsumerWidget {
   const HeartScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return DefaultTabController(
-      length: 3,
+      length: 4,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Demandes & rencontres'),
@@ -30,11 +32,17 @@ class HeartScreen extends ConsumerWidget {
               Tab(text: 'Demandes'),
               Tab(text: 'Recos'),
               Tab(text: 'Waves'),
+              Tab(text: 'Rencontres'),
             ],
           ),
         ),
         body: const TabBarView(
-          children: [_RequestsTab(), _RecommendationsTab(), _WavesTab()],
+          children: [
+            _RequestsTab(),
+            _RecommendationsTab(),
+            _WavesTab(),
+            MeetingsTab(),
+          ],
         ),
       ),
     );
