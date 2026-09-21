@@ -11,6 +11,7 @@ import '../cards/card_capture_screen.dart';
 import '../circle/circle_screen.dart';
 import '../connections/request_popup.dart';
 import '../library/profile_screen.dart';
+import '../events/event_notifier.dart';
 import '../notifications/fomo_listener.dart';
 import '../pulse/pulse_screen.dart';
 import '../proximity/ping_screen.dart';
@@ -230,6 +231,9 @@ class _HomeShellState extends ConsumerState<HomeShell>
   Widget build(BuildContext context) {
     // Active l'écouteur FOMO tant que la session est ouverte
     ref.watch(fomoListenerProvider);
+    // Les notifications d'événement (2026-09-21) : arrivées d'amis,
+    // fermeture, moment ouvert — app vivante seulement.
+    ref.watch(eventNotifierProvider);
     // Pop-up des demandes de connexion entrantes (consigne Jay)
     listenForConnectionRequestPopups(ref, context);
 

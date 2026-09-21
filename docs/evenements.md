@@ -216,12 +216,18 @@ Décisions de Jay (`docs/raison-d-entrer-2026-09-21.md` §5). Ce qui est
 | **Pulse — « Mes soirées »** | Une rangée au-dessus de la galerie : les événements où j'ai été, en cours ou fermés depuis < 5 jours → leur Drop. Le Drop d'un événement est **un autre objet** que les publications du feed : il n'y est pas mêlé, il y est tendu |
 | **Ma galerie** (sur le téléphone) | `lib/features/gallery/` : `Moment` + `MomentStore` (`<support>/gallery/moments.json`), `GalleryKeeper` (observe `my_events`, copie titre / quand / où / amis présents / récap ; à la fermeture, **garde dans les Enregistrements** les Vibes du Drop que leur auteur a laissées **sauvegardables**, et les miennes — la règle de sauvegarde existante, telle quelle), `GalleryScreen` / `MomentScreen`. Entrée : Profil › « Ma galerie ». Test : `test/moment_store_test.dart` |
 
+| **La carte** (étape 5, v0.9.240) | `events_map_screen.dart` : les soirées à portée (épingles « nom · N »), ma position, et — pour l'événement où je suis — ses points chauds en cercles. Fond **OpenStreetMap** (`flutter_map` + `latlong2`, `User-Agent` = le paquet). ⚠️ Fond gratuit et limité : pour tester, pas pour la production (RAPPELS #157). Entrées : icône carte de l'écran Événements, puce « Carte » des points chauds |
+| **Les notifications** (étape 5) | `event_notifier.dart` : « X est là » (un AMI arrive dans l'événement où je suis — jamais un inconnu, états de relation #99), « … c'est fini » (récap et Drop), « Un moment s'est ouvert ». **Locales, app vivante, hors premier plan seulement** (au premier plan l'écran le montre). Pas de push serveur : app tuée, rien — dit et assumé |
+
 ### Ce qui n'est PAS fait (2026-09-21 soir)
 
 - **La plateforme des établissements** : inchangé (§9.1).
-- **Une carte** : les événements et points chauds restent en liste (étape 5).
-- **Les notifications** « Alice est arrivée », « une soirée s'ouvre près de
-  toi » : pas de push serveur (aucun FCM) — étape 5, en partie.
+- **« Une soirée s'ouvre près de toi »** : exigerait un push serveur (aucun
+  FCM) ET la position en continu hors événement (sorti du scope, 3.4).
+- **Les micro-contextes d'un festival** (zones, sous-groupes rejoignables) :
+  non construits — les points chauds existent en nombres et sur la carte,
+  pas comme des sous-événements. Dépend d'une présence fiable à grande
+  échelle, à mesurer d'abord (§0).
 - **Les Vibes non sauvegardables** du Drop d'un moment ne survivent pas à la
   purge (5 jours) : c'est la règle de sauvegarde existante ; la galerie garde
   l'album (où, quand, avec qui) sans elles. À trancher par Jay si la galerie

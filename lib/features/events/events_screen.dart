@@ -11,6 +11,7 @@ import '../../core/widgets/top_banner.dart';
 import '../proximity/geo/coarse_location.dart';
 import 'create_event_screen.dart';
 import 'event_screen.dart';
+import 'events_map_screen.dart';
 import 'events_providers.dart';
 import 'events_repository.dart';
 
@@ -44,6 +45,14 @@ class EventsScreen extends ConsumerWidget {
         centerTitle: true,
         title: const Text('Événements'),
         actions: [
+          // La carte (2026-09-21) : les soirées à portée, posées sur un plan.
+          IconButton(
+            icon: const Icon(Icons.map_outlined),
+            tooltip: 'Carte',
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const EventsMapScreen())),
+          ),
           IconButton(
             icon: const Icon(Icons.add),
             tooltip: 'Créer un événement',

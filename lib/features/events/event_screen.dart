@@ -17,6 +17,7 @@ import 'event_invite_screen.dart';
 import 'event_settings_screen.dart';
 import 'events_providers.dart';
 import 'events_repository.dart';
+import 'events_map_screen.dart';
 import 'events_screen.dart';
 
 /// **Le mode événement** — « toute une autre partie » de l'app (Jay,
@@ -97,7 +98,10 @@ class EventScreen extends ConsumerWidget {
           children: [
             _Etat(event: event, now: now),
             if (event.iAmPresent)
-              _PointsChauds(spots: hotSpots.value ?? const []),
+              _PointsChauds(
+                spots: hotSpots.value ?? const [],
+                eventId: event.id,
+              ),
             if (event.iAmPresent || event.isClosed) _Outils(event: event),
             if (event.isClosed) _Recap(eventId: event.id),
             Padding(
@@ -347,8 +351,9 @@ class _Etat extends ConsumerWidget {
 /// « Comme sur Snap » : où sont les gens, en nombre. Une case = un point
 /// chaud ; le lieu déclaré compte 0 et n'est pas listé.
 class _PointsChauds extends StatelessWidget {
-  const _PointsChauds({required this.spots});
+  const _PointsChauds({required this.spots, required this.eventId});
   final List<HotSpot> spots;
+  final String eventId;
 
   @override
   Widget build(BuildContext context) {
@@ -375,6 +380,16 @@ class _PointsChauds extends StatelessWidget {
                 '${s.headcount} ${s.headcount > 1 ? 'personnes' : 'personne'}',
               ),
             ),
+          // Sur un plan (2026-09-21) : les mêmes points chauds, posés.
+          ActionChip(
+            avatar: const Icon(Icons.map_outlined, size: 16),
+            label: const Text('Carte'),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => EventsMapScreen(eventId: eventId),
+              ),
+            ),
+          ),
         ],
       ),
     );

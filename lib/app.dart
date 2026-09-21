@@ -13,6 +13,7 @@ import 'core/theme.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/home/home_shell.dart';
+import 'features/auth/suspended_screen.dart';
 import 'features/events/event_presence_reporter.dart';
 import 'features/gallery/gallery_keeper.dart';
 import 'features/proximity/net/friend_book_watcher.dart';
@@ -246,7 +247,19 @@ class _RootGateState extends ConsumerState<RootGate> {
           ),
         ),
       ),
-      data: (p) => p == null ? const OnboardingScreen() : const HomeShell(),
+      data: (p) {
+        if (p == null) return const OnboardingScreen();
+        // Un compte suspendu par l'administration (2026-09-21) ne va pas
+        // plus loin : le serveur refuse déjà ses gestes, l'écran le dit.
+        final suspension = ref.watch(mySuspensionProvider).value;
+        if (suspension != null) {
+          return SuspendedScreen(
+            since: suspension.since,
+            reason: suspension.reason,
+          );
+        }
+        return const HomeShell();
+      },
     );
   }
 }
