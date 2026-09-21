@@ -373,3 +373,85 @@ premier plan, et le BLE meurt la nuit sur le Xiaomi.
 Rouvrir *une décision nommée, avec son coût* — pas « le fonctionnement du
 ping » en bloc, sinon les arbitrages du 20 août et du 11 septembre se
 rejoueront dans un mois sans qu'on se souvienne pourquoi ils ont été pris.
+
+---
+
+## 5. Troisième tour — la liste des fonctionnalités, et les décisions de Jay
+
+Jay : *« liste-moi les nouvelles fonctionnalités proposées et qu'est-ce que
+cela impliquerait de les mettre en place ? »* Liste donnée (prérequis §0,
+briques sans décision §2, briques qui rouvrent une décision §3), puis ses
+décisions :
+
+> *« Pour moi tout est bon sauf juste pour la 3.5 et la 3.6. On ne fait pas
+> la 3.6 pour le moment et pour la 3.5 il faut toujours une symétrie de
+> croisement, c'est-à-dire qu'on demande toujours à chaque appareil de
+> certifier qu'il voit l'autre avant de créer une connexion. Mais oui de
+> manière générale il faudra de la modération sur l'app, et on construira
+> toute une plateforme d'administration complète avant la première release
+> de production. Et la 3.7 peut être une idée essentielle de NeoVibe : on
+> voit plus tard en rentrant chez nous les Vibes partagées dans une
+> bibliothèque partagée de NeoVibe créée automatiquement. On devrait
+> d'ailleurs créer un espace galerie qui regrouperait en albums les
+> différents moments passés, où et quand et avec qui, et les événements
+> auxquels on a participé (avec quels amis…) etc., NeoVibe serait un peu
+> comme une super galerie. Pour la 3.4 pour moi c'est bien mais on devrait
+> plutôt faire quelque chose du genre : il y a tel événement avec N
+> personnes connectées à NeoVibe ici. Et on vérifie de temps en temps que
+> les gens sont vraiment dans l'événement et s'il y a de nouvelles
+> personnes etc. avec la techno ping. »*
+
+### 5.1 La liste (résumé ; durées = ordres de grandeur, Claude seul)
+
+**§0 Prérequis** — le PING fiable dans un bar plein et toute une nuit
+(#113, #130 : 2–4 j de mesure et correctifs) ; la position en arrière-plan
+(service « localisation », permission « Toujours », batterie : 3–5 j).
+
+**§1 Déjà construit** — soirées autour de moi (liste, 2 km ; vide faute de
+soirées), rejoindre et voir les présents, déposer dans la bibliothèque de la
+soirée, la revoir le lendemain (fermeture + 10 h, 5 jours), « Croisé(e) à
+Soirée X » (à afficher aussi dans les suggestions : ½ j), profil restreint
+d'un croisé.
+
+**§2 Sans décision** — 2.1 événement *ouvert* créable par un utilisateur
+(3–4 j ; qui peut, visible de qui) ; 2.2 la bibliothèque d'événement comme
+quatrième source de Pulse (2–3 j) ; 2.3 récap du lendemain (1–2 j) ; 2.4
+notifications d'événement (1–2 j, « près de toi » exige §0) ; 2.5 une carte
+(2–3 j) ; 2.6 interactions collectives / jeux (3–10 j chacune) ; 2.7
+micro-contextes de festival (4–6 j).
+
+**§3 Rouvrent une décision** — 3.1 bibliothèque visible pendant la soirée
+(un autre objet que la bibliothèque retardée : 3–5 j) ; 3.2 la mémoire des
+rencontres (durée de vie du croisement ; historique par occurrence : 2–3 j)
+; 3.3 « vous vous êtes déjà rencontrés » (1 j après 3.2) ; 3.4 compter les
+inconnus hors événement (1–2 sem. + §0, clustering hors scope, risque n° 6)
+; 3.5 contact anonyme vers un inconnu détecté (asymétrie, modération) ; 3.6
+« fais connaissance » structuré dans l'événement (3–5 j) ; 3.7 espace
+automatique pour un groupe d'amis co-présents (5–7 j).
+
+### 5.2 Les décisions (2026-09-21)
+
+| # | Décision | Conséquence |
+|---|---|---|
+| 3.5 | **Symétrie absolue, reconfirmée** : chaque appareil certifie qu'il voit l'autre avant toute connexion | Pas de contact anonyme. Ce qui existe (Vibe à un croisé = demande d'ami) est la forme retenue. Rien à construire |
+| 3.6 | **Pas pour le moment** | Idée gardée, hors programme |
+| Modération | **Plateforme d'administration complète avant la première release de production** | Chantier web à part : signalements, blocages, suppression, comptes, journal. En tête de « Avant la mise en production » (RAPPELS) |
+| 3.7 | **Peut-être essentiel** : bibliothèque partagée créée automatiquement quand des amis sont ensemble ; on y retrouve les Vibes en rentrant | À construire après que la présence est éprouvée (§0, scénario vécu). Paramètres : début, fermeture, qui retire |
+| Super galerie | **Nouveau** : un espace qui regroupe en albums les moments (où, quand, avec qui) et les événements (avec quels amis) — « NeoVibe serait un peu comme une super galerie » | La mémoire sociale du réel, à la première personne. Où elle vit (téléphone / serveur) : question ouverte, recommandation téléphone d'abord |
+| 3.4 | **Pas hors événement.** Dans un événement : « tel événement, N personnes connectées ici », vérifié régulièrement par le ping | Le compteur de présents (existant) rendu visible sur la tuile « Autour de moi », rafraîchi. Sans nouvelle porte |
+| 3.2 | **Accepté** : la mémoire des rencontres | Décision la plus lourde : NeoVibe garde un journal de qui, où, quand. Deux durées proposées à confirmer : **suggestion 3 jours**, **rencontre 1 an** (paramètre, effaçable par l'utilisateur) |
+| 3.1, §2, §0 | **Acceptés** | — |
+
+### 5.3 Ordre proposé par Claude
+
+1. §0 — PING mesuré à deux téléphones ; position en arrière-plan.
+2. Le scénario de bout en bout : 2.1, 3.4 (compteur), 3.1, 2.2, « croisé
+   à… » dans les suggestions, 2.3 — **puis le vivre à 3–4**.
+3. La mémoire : 3.2, 3.3, puis la super galerie (téléphone).
+4. 3.7, une fois la présence éprouvée.
+5. Carte, notifications, jeux, micro-contextes — au fil de l'eau.
+6. La plateforme d'administration, avant toute release de production, après
+   que le produit a trouvé sa forme.
+
+**Questions ouvertes à Jay** : les deux durées de 3.2 ; où vit la super
+galerie.
