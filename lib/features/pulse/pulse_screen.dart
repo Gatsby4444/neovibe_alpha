@@ -7,7 +7,7 @@ import '../../core/location/anchor.dart';
 import '../../core/models/library_item.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/cover_host.dart';
-import '../../core/widgets/kind_colors.dart';
+import '../../core/widgets/vibe_face.dart';
 import '../library/mini_card.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
@@ -19,10 +19,11 @@ import 'pulse_repository.dart';
 ///
 /// Trois étages :
 /// 1. les **stories** de mes amis, en bandeau (venues du Cercle) ;
-/// 2. une **galerie** de mini-cards, comme une bibliothèque : Vibes, Flows et
-///    publications mêlés, le liseré disant la nature ([KindColors]) ;
-/// 3. un tap ouvre **le fil de cette nature** ([PulseFeedScreen]), posé sur
-///    la case touchée, avec son sélecteur Tout / Amis / Autour de moi.
+/// 2. une **galerie** de mini-cards, comme une bibliothèque : **des Vibes,
+///    rien d'autre** (Jay, 2026-09-21 — les Flows et les publications qui
+///    s'y mêlaient sont sortis du MVP) ;
+/// 3. un tap ouvre **le plein écran** ([PulseFeedScreen]), posé sur la case
+///    touchée, avec son sélecteur Tout / Amis / Autour de moi.
 ///
 /// Pas de scroll infini ici : une grille de ce qui est là (le serveur borne).
 /// Ce qui est là : les croisés des 3 derniers jours, ce que mes amis m'ont
@@ -52,7 +53,7 @@ class _PulseScreenState extends ConsumerState<PulseScreen> {
     if (mounted && a != null && a != _at) setState(() => _at = a);
   }
 
-  FeedQuery get _query => (kind: null, mode: FeedMode.tout, at: _at);
+  FeedQuery get _query => (mode: FeedMode.tout, at: _at);
 
   Future<void> _refresh() async {
     await _locate();
@@ -74,7 +75,6 @@ class _PulseScreenState extends ConsumerState<PulseScreen> {
                 provider: friendStoriesProvider,
                 emptyHint: 'Pas de story pour l\'instant.',
               ),
-              const _Legende(),
               items.when(
                 loading: () => const Padding(
                   padding: EdgeInsets.all(40),
@@ -105,7 +105,7 @@ class _PulseScreenState extends ConsumerState<PulseScreen> {
   }
 }
 
-/// La grille : mêmes cases que le profil, le liseré en plus.
+/// La grille : les mêmes cases que le profil.
 class _Grille extends StatelessWidget {
   const _Grille({required this.items, required this.at});
 
@@ -122,50 +122,13 @@ class _Grille extends StatelessWidget {
         crossAxisCount: 3,
         mainAxisSpacing: 10,
         crossAxisSpacing: 10,
-        childAspectRatio: kMiniCardRatio,
+        childAspectRatio: kVibeFaceRatio,
       ),
       itemCount: items.length,
       itemBuilder: (context, i) => MiniCard(
         item: items[i],
-        // Un tap ouvre le fil de CETTE nature, posé sur cette case.
-        onTap: () => openPulseFeed(
-          context,
-          kind: items[i].kind,
-          initial: items[i],
-          at: at,
-        ),
-      ),
-    );
-  }
-}
-
-/// La légende des liserés : trois pastilles, une ligne.
-class _Legende extends StatelessWidget {
-  const _Legende();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 10),
-      child: Row(
-        children: [
-          for (final k in LibraryKind.values) ...[
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                border: Border.all(color: KindColors.of(k), width: 2),
-              ),
-            ),
-            const SizedBox(width: 5),
-            Text(
-              KindColors.label(k),
-              style: TextStyle(fontSize: 12, color: context.muted),
-            ),
-            const SizedBox(width: 14),
-          ],
-        ],
+        // Un tap ouvre le plein écran, posé sur cette case.
+        onTap: () => openPulseFeed(context, initial: items[i], at: at),
       ),
     );
   }

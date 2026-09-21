@@ -11,7 +11,7 @@ import '../../core/widgets/avatar.dart';
 import '../../core/models/card.dart';
 import '../../core/models/message.dart';
 import '../stories/story_viewer_screen.dart';
-import '../library/feed/publications_feed_screen.dart';
+import '../library/feed/vibes_reel_screen.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../../core/widgets/card_type_badge.dart';
 import '../../core/models/story.dart';
@@ -1273,7 +1273,7 @@ class _SharedContentTile extends ConsumerWidget {
                         StoryRing(owner: story.owner!, stories: [story]),
                       ],
                     )
-                  : PublicationsFeedScreen(items: [item!], initialIndex: 0),
+                  : VibesReelScreen(vibes: [item!], initialIndex: 0),
             ),
           ),
           child: _SharedShell(

@@ -336,7 +336,7 @@ class ColorGrade {
 /// Les filtres nommés — des réglages tout faits, dans l'esprit de ceux
 /// d'Instagram. Chacun n'est **qu'un [ColorGrade]** : l'utilisateur peut
 /// ensuite le retoucher, et l'export n'a qu'une matrice à appliquer.
-enum AlbumFilter {
+enum MediaFilter {
   normal('Normal', ColorGrade.none),
   clarendon(
     'Clarendon',
@@ -386,7 +386,7 @@ enum AlbumFilter {
     ColorGrade(warmth: -0.25, contrast: 0.1, brightness: 0.05, vignette: 0.3),
   );
 
-  const AlbumFilter(this.label, this.grade);
+  const MediaFilter(this.label, this.grade);
 
   final String label;
   final ColorGrade grade;

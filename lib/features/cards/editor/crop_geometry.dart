@@ -3,12 +3,12 @@ import 'dart:ui' show Offset, Rect;
 
 import 'package:vector_math/vector_math_64.dart' show Matrix4;
 
-import 'album_draft.dart';
+import 'media_edit.dart';
 
 /// **La géométrie du cadrage, une seule fois** — pour l'aperçu, l'export
 /// photo et le transcodeur vidéo.
 ///
-/// Le cadre est fixe (le ratio de l'album). Sous lui, l'image peut être
+/// Le cadre est fixe (le 9:16 d'une Vibe). Sous lui, l'image peut être
 /// **tournée** (quarts de tour + redressement fin) et **déplacée / zoomée**.
 /// Pour qu'aucun coin vide n'apparaisse jamais, le cadrage se choisit dans le
 /// **plus grand rectangle droit inscrit dans l'image tournée** : tourner
@@ -47,7 +47,7 @@ abstract final class CropGeometry {
   }
 
   /// Le rectangle du cadre dans F, pour un média et un ratio.
-  static Rect frameRect(AlbumDraftMedia m, double aspect) {
+  static Rect frameRect(MediaEdit m, double aspect) {
     final theta = m.crop.radians;
     final (wr, hr) = inscribed(
       m.srcWidth.toDouble(),
@@ -59,7 +59,7 @@ abstract final class CropGeometry {
   }
 
   /// Un point de F → le pixel source correspondant.
-  static Offset toSource(Offset p, AlbumDraftMedia m) {
+  static Offset toSource(Offset p, MediaEdit m) {
     final t = -m.crop.radians;
     final c = math.cos(t);
     final s = math.sin(t);
@@ -72,7 +72,7 @@ abstract final class CropGeometry {
   /// Les quatre coins du cadre — **haut-gauche, haut-droit, bas-gauche,
   /// bas-droit** — en coordonnées source normalisées (0..1 de l'image
   /// affichée). Toujours dans l'image : le cadre vit dans le rectangle inscrit.
-  static List<Offset> corners(AlbumDraftMedia m, double aspect) {
+  static List<Offset> corners(MediaEdit m, double aspect) {
     final f = frameRect(m, aspect);
     Offset n(Offset p) {
       final s = toSource(p, m);
@@ -86,7 +86,7 @@ abstract final class CropGeometry {
   /// `srcWidth`×`srcHeight`) sous un cadre de [frameW]×[frameH] pixels
   /// d'écran, pour ce cadrage : translation, échelle, rotation.
   static Matrix4 matrix(
-    AlbumDraftMedia m,
+    MediaEdit m,
     double aspect, {
     required double frameW,
     required double frameH,
@@ -106,7 +106,7 @@ abstract final class CropGeometry {
   /// étiré sur `frameW`, un pixel d'écran vaut donc `f.width / frameW` unités
   /// de F.
   static CropSpec panned(
-    AlbumDraftMedia m,
+    MediaEdit m,
     double aspect,
     double dx,
     double dy, {
@@ -129,7 +129,7 @@ abstract final class CropGeometry {
   }
 
   /// Le zoom « adapter » de ce média : l'image entière dans le cadre.
-  static double fitZoom(AlbumDraftMedia m, double aspect) {
+  static double fitZoom(MediaEdit m, double aspect) {
     final (wr, hr) = inscribed(
       m.srcWidth.toDouble(),
       m.srcHeight.toDouble(),
@@ -139,11 +139,11 @@ abstract final class CropGeometry {
   }
 
   /// L'image est-elle vue entière (« adaptée ») ?
-  static bool isFitted(AlbumDraftMedia m, double aspect) =>
+  static bool isFitted(MediaEdit m, double aspect) =>
       m.crop.zoom <= fitZoom(m, aspect) + 1e-6;
 
   /// Adapter ↔ Remplir : l'image entière avec des bandes, ou le cadre plein.
-  static CropSpec toggleFit(AlbumDraftMedia m, double aspect) {
+  static CropSpec toggleFit(MediaEdit m, double aspect) {
     final (wr, hr) = inscribed(
       m.srcWidth.toDouble(),
       m.srcHeight.toDouble(),
@@ -156,7 +156,7 @@ abstract final class CropGeometry {
         .clampedWithin(wr, hr, aspect);
   }
 
-  static CropSpec zoomed(AlbumDraftMedia m, double aspect, double factor) {
+  static CropSpec zoomed(MediaEdit m, double aspect, double factor) {
     final (wr, hr) = inscribed(
       m.srcWidth.toDouble(),
       m.srcHeight.toDouble(),

@@ -2,26 +2,26 @@ import 'package:flutter/material.dart';
 
 import '../../../core/typography.dart';
 import '../../../core/utils/ids.dart';
-import '../../library/album_editor/album_draft.dart';
-import '../../library/album_editor/editor_images.dart';
-import '../../library/album_editor/editor_panels.dart';
-import '../../library/album_editor/editor_theme.dart';
-import '../../library/album_editor/grade_shader.dart';
-import '../../library/album_editor/media_preview.dart';
-import '../../library/album_editor/overlay_model.dart';
-import '../../library/album_editor/sticker_picker.dart';
+import 'media_edit.dart';
+import 'editor_images.dart';
+import 'editor_panels.dart';
+import 'editor_theme.dart';
+import 'grade_shader.dart';
+import 'media_preview.dart';
+import 'overlay_model.dart';
+import 'sticker_picker.dart';
 import 'vibe_edit_draft.dart';
 
-/// **L'éditeur d'une Vibe** — le même que celui des Flows, adapté (Jay,
-/// 2026-09-18 : *« l'actuel est vraiment trop basique […] inspire-toi de
-/// celui qu'on a créé pour les Flows »*).
+/// **L'éditeur d'une Vibe** (Jay, 2026-09-18 : *« l'actuel est vraiment
+/// trop basique […] inspire-toi de celui qu'on a créé pour les Flows »*).
+/// Le moteur vient de l'éditeur d'album, sorti du MVP le 2026-09-21.
 ///
 /// En haut, l'aperçu de la face courante dans son cadre 9:16
 /// (`MediaPreview`) : cadrage au doigt, zoom à deux doigts, textes et
 /// autocollants posés dessus, un texte tapé directement sur l'image. En
 /// dessous, à la place de la bande des médias, la bascule **Recto / Verso**.
-/// En bas, les outils des Flows **sans Format** — une Vibe est un 9:16,
-/// point — et sans « + » ni « retirer » : les faces viennent de la prise.
+/// En bas, les outils — pas de Format, une Vibe est un 9:16, point — et
+/// sans « + » ni « retirer » : les faces viennent de la prise.
 ///
 /// L'écran ne calcule rien : il lit et modifie un [VibeEditDraft] (pur). Il
 /// ne rend pas de fichier non plus : « Suivant » rend le brouillon, l'export
@@ -70,7 +70,7 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
   EditorTool? _tool;
 
   /// La face telle qu'elle était à l'ouverture du panneau : « Annuler » la rend.
-  AlbumDraftMedia? _snapshot;
+  MediaEdit? _snapshot;
   String? _selectedOverlay;
 
   /// Le texte en cours d'écriture, tapé sur l'image ; nul sinon.
@@ -79,7 +79,7 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
 
   final _images = EditorImages();
 
-  AlbumDraftMedia get _media => _draft.face(front: _front);
+  MediaEdit get _media => _draft.face(front: _front);
 
   @override
   void initState() {
@@ -96,7 +96,7 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
     super.dispose();
   }
 
-  void _update(AlbumDraftMedia Function(AlbumDraftMedia) f) =>
+  void _update(MediaEdit Function(MediaEdit) f) =>
       setState(() => _draft = _draft.update(_front, f));
 
   // ── Les panneaux ────────────────────────────────────────────────────
@@ -124,9 +124,6 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
           _tool = tool;
           _selectedOverlay = null;
         });
-      case EditorTool.cadrer:
-        // Pas de Format sur une Vibe : la barre ne le propose pas.
-        break;
     }
   }
 
@@ -301,7 +298,7 @@ class _VibeEditorScreenState extends State<VibeEditorScreen> {
                   backEdited: _draft.backEdited,
                   onSelect: _switchFace,
                 ),
-              EditorToolbar(video: media.isVideo, format: false, onTool: _open),
+              EditorToolbar(video: media.isVideo, onTool: _open),
             ] else
               EditorPanel(
                 title: switch (tool) {

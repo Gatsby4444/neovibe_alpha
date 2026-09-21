@@ -3,27 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/content/content_face.dart';
 import '../../core/content/video_poster.dart';
-import '../../core/widgets/kind_colors.dart';
 import '../../core/models/library_item.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/vibe_face.dart';
+import '../../core/widgets/reel_route.dart';
 import '../cards/flippable_card.dart';
-import 'feed/publications_feed_screen.dart';
-
-/// **Le format d'une vignette de la grille du profil : 4:5.**
-///
-/// Choisi par Jay le 2026-09-17, « comme Instagram aujourd'hui ». Avant, la
-/// grille était au format de la Card (9:16) — cohérent tant que tout était une
-/// Card, brutal depuis qu'une publication peut être un paysage 1,91:1 : il
-/// n'en serait resté qu'une lame verticale. Une Vibe y est **recadrée**, comme
-/// elle l'est dans le fil ([kVibeFeedRatio]) et comme Instagram recadre un
-/// Reel dans sa grille.
-///
-/// ⚠️ Ce n'est PAS le format d'une Card. Une vignette de Card (les
-/// Enregistrements, l'aperçu d'un partage dans le chat) reste en
-/// [kVibeFaceRatio] : là, l'objet montré est la carte elle-même.
-const kMiniCardRatio = kVibeFeedRatio;
+import 'feed/vibes_reel_screen.dart';
 
 class _ThumbPlaceholder extends StatelessWidget {
   const _ThumbPlaceholder({required this.icon});
@@ -49,8 +35,8 @@ class _ThumbPlaceholder extends StatelessWidget {
 /// geste qui ouvre c'est le clic ».
 /// - **swipe** (horizontal par défaut) → retourne la mini-card sur place ;
 /// - **clic** → [onTap] ; la grille qui nous contient décide où ça mène
-///   (le fil du profil, posé sur cette publication — 2026-09-15). Sans
-///   [onTap], la publication s'ouvre seule dans ce même fil.
+///   (le plein écran, posé sur cette Vibe). Sans [onTap], la Vibe s'ouvre
+///   seule en plein écran.
 class MiniCard extends ConsumerWidget {
   const MiniCard({
     super.key,
@@ -58,15 +44,14 @@ class MiniCard extends ConsumerWidget {
     this.onTap,
     this.onLongPress,
     this.decodeWidth = 400,
-    this.ratio = kMiniCardRatio,
+    this.ratio = kVibeFaceRatio,
   });
 
   final LibraryItem item;
 
-  /// Le format de la vignette. [kMiniCardRatio] (4:5) dans la grille de
-  /// tout ; **[kVibeFaceRatio] (9:16) dans l'onglet Vibes** — là, on ne
-  /// montre que des cartes, et les voir à leur vrai format est ce qui le dit
-  /// (Jay, 2026-09-17).
+  /// Le format de la vignette : celui de la Vibe, 9:16 — *« les voir à leur
+  /// vrai format est ce qui le dit »* (Jay, 2026-09-17). Le 4:5 de la grille
+  /// mêlée est parti avec les albums (2026-09-21).
   final double ratio;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
@@ -78,14 +63,12 @@ class MiniCard extends ConsumerWidget {
     final mine = item.ownerId == me;
 
     // Depuis la refonte du 2026-08-11, une publication est TOUJOURS un contenu
-    // à une ou deux faces : la distinction « card » / « photo » a disparu avec
-    // la colonne `kind`. Une photo importée est simplement une publication à
-    // face unique — même stockage, même règle, même chemin d'affichage.
-    // **Le liseré dit la NATURE** — Vibe, Flow, publication (Jay,
-    // 2026-09-20), dans le feed comme ici. Le type d'une Vibe (Standard,
-    // Oneshot, BeReal) ne se dit plus que par sa pastille : deux codes sur
-    // le même trait, c'est zéro code.
-    final borderColor = KindColors.of(item.kind);
+    // à une ou deux faces. Le liseré dit le TYPE (standard, oneshot, bereal),
+    // comme avant le feed mêlé du 2026-09-20 — où il disait la nature ; il
+    // n'y en a plus qu'une. `displayColor` : la vignette se pose sur
+    // l'habillage de l'app, pas sur une photo. En thème clair, `color` y est
+    // illisible pour la standard.
+    final borderColor = item.cardType.displayColor(context);
 
     Widget face(Widget child) => _MiniFrame(
       borderColor: borderColor,
@@ -94,49 +77,6 @@ class MiniCard extends ConsumerWidget {
       showPublic: item.isPublic && mine,
       child: child,
     );
-
-    // Un ALBUM (2026-09-15) : même cadre, même liseré, même format — Jay :
-    // « tout dans l'affichage de la bibliothèque doit être identique ». Ce qui
-    // change : la couverture est le premier média (l'image de couverture pour
-    // une vidéo) et la pastille dit combien il y en a.
-    if (item.isPublication) {
-      final cover = item.media.first;
-      final thumb = cover.isVideo && cover.posterPath != null
-          ? _PublicationThumb(
-              item: item,
-              slot: ContentSlot.poster(cover.slot),
-              path: cover.posterPath!,
-              isVideo: false,
-              decodeWidth: decodeWidth,
-            )
-          : _PublicationThumb(
-              item: item,
-              slot: cover.slot,
-              path: cover.path,
-              isVideo: cover.isVideo,
-              decodeWidth: decodeWidth,
-            );
-      return AspectRatio(
-        aspectRatio: ratio,
-        child: GestureDetector(
-          onLongPress: onLongPress,
-          onTap: () => _open(context),
-          onHorizontalDragStart: _zoneNeutre,
-          child: _MiniFrame(
-            borderColor: borderColor,
-            badgeIcon: item.media.length > 1
-                ? Icons.collections_outlined
-                : cover.isVideo
-                ? Icons.play_arrow_rounded
-                : null,
-            badge: item.media.length > 1 ? '${item.media.length}' : null,
-            badgeColor: Colors.white,
-            showPublic: item.isPublic && mine,
-            child: thumb,
-          ),
-        ),
-      );
-    }
 
     final front = face(
       _PublicationThumb(
@@ -187,8 +127,8 @@ class MiniCard extends ConsumerWidget {
   }
 
   /// **Une zone neutre sous chaque mini** (Jay, 2026-09-18) : balayer une
-  /// vignette qui n'a pas de verso — une face unique, une publication, un
-  /// Flow — ne fait **rien**, au lieu de remonter au balayage de l'écran et
+  /// vignette qui n'a pas de verso — une face unique — ne fait **rien**, au
+  /// lieu de remonter au balayage de l'écran et
   /// de changer de section. Une mini à deux faces absorbe déjà ce geste pour
   /// se retourner ; celles-ci l'absorbent pour ne rien faire, et la grille
   /// se comporte pareil sous le doigt quelle que soit la case.
@@ -199,7 +139,11 @@ class MiniCard extends ConsumerWidget {
       onTap!();
       return;
     }
-    openPublications(context, items: [item], initialIndex: 0);
+    Navigator.of(context).push(
+      ReelRoute(
+        builder: (_) => VibesReelScreen(vibes: [item], initialIndex: 0),
+      ),
+    );
   }
 }
 
@@ -264,9 +208,8 @@ class _PublicationThumb extends ConsumerWidget {
         child: const _ThumbPlaceholder(icon: Icons.error_outline),
       ),
       data: (media) => isVideo
-          // Une vidéo de CARD : sa couverture est extraite sur l'appareil,
-          // une fois, de la vidéo scellée (`video_poster.dart`, 2026-09-20).
-          // Une vidéo d'ALBUM, elle, a la sienne dès la publication.
+          // Une vidéo : sa couverture est extraite sur l'appareil, une
+          // fois, de la vidéo scellée (`video_poster.dart`, 2026-09-20).
           ? _VideoPoster(spec: _spec, decodeWidth: decodeWidth)
           // `cacheWidth` : les fichiers font 720×1280 et les vignettes
           // quelques centaines de pixels — décoder en pleine résolution
@@ -289,7 +232,6 @@ class _MiniFrame extends StatelessWidget {
     required this.child,
     required this.borderColor,
     this.badge,
-    this.badgeIcon,
     this.badgeColor,
     this.showPublic = false,
   });
@@ -297,9 +239,6 @@ class _MiniFrame extends StatelessWidget {
   final Widget child;
   final Color borderColor;
   final String? badge;
-
-  /// Album : l'icône « plusieurs » ou « vidéo » devant le compte.
-  final IconData? badgeIcon;
   final Color? badgeColor;
   final bool showPublic;
 
@@ -330,15 +269,11 @@ class _MiniFrame extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             child,
-            if (badge != null || badgeIcon != null)
+            if (badge != null)
               Positioned(
                 left: 4,
                 bottom: 4,
-                child: _Chip(
-                  text: badge,
-                  icon: badgeIcon,
-                  color: badgeColor ?? Colors.white,
-                ),
+                child: _Chip(text: badge!, color: badgeColor ?? Colors.white),
               ),
             if (showPublic)
               const Positioned(
@@ -354,9 +289,8 @@ class _MiniFrame extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({this.text, this.icon, required this.color});
-  final String? text;
-  final IconData? icon;
+  const _Chip({required this.text, required this.color});
+  final String text;
   final Color color;
 
   @override
@@ -367,21 +301,13 @@ class _Chip extends StatelessWidget {
         color: Colors.black.withValues(alpha: .72),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (icon != null) Icon(icon, size: 11, color: color),
-          if (icon != null && text != null) const SizedBox(width: 2),
-          if (text != null)
-            Text(
-              text!,
-              style: TextStyle(
-                color: color,
-                fontSize: 9,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-        ],
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }

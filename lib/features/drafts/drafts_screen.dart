@@ -10,11 +10,10 @@ import '../../core/utils/formats.dart';
 import '../../core/motion.dart';
 import '../cards/card_capture_screen.dart';
 import '../cards/vibe_draft_keeper.dart';
-import '../library/album_editor/album_flow.dart';
 
 /// **Le casier des brouillons** (Réglages › Brouillons — Jay, 2026-09-20 :
-/// *« comme sur les mails »*) : tout ce qui a été commencé et pas publié,
-/// repris **à l'étape et à la retouche près** où il a été laissé. Trois
+/// *« comme sur les mails »*) : les Vibes gardées en brouillon, reprises
+/// **à l'étape et à la retouche près** où elles ont été laissées. Trois
 /// jours, puis purgé.
 class DraftsScreen extends ConsumerWidget {
   const DraftsScreen({super.key});
@@ -32,9 +31,8 @@ class DraftsScreen extends ConsumerWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(NeoSpace.xl),
                   child: Text(
-                    'Aucun brouillon.\nUne publication ou un Flow commencé '
-                    'sans être publié se retrouve ici 3 jours. Une Vibe, '
-                    'seulement si tu le demandes en la quittant.',
+                    'Aucun brouillon.\nUne Vibe gardée en brouillon en la '
+                    'quittant se retrouve ici 3 jours.',
                     textAlign: TextAlign.center,
                     style: TextStyle(color: context.muted),
                   ),
@@ -56,13 +54,10 @@ class _DraftTile extends ConsumerWidget {
   final Draft draft;
 
   String get _kind => switch (draft.kind) {
-    DraftKind.publication => 'Publication',
-    DraftKind.flow => 'Flow',
     DraftKind.vibe => 'Vibe',
   };
 
   String get _step => switch (draft.step) {
-    'caption' => 'à la légende',
     'share' => 'au partage',
     'capture' => 'à la prise',
     _ => 'à l\'édition',
@@ -107,8 +102,6 @@ class _DraftTile extends ConsumerWidget {
 
   Future<void> _reprendre(BuildContext context) async {
     switch (draft.kind) {
-      case DraftKind.publication || DraftKind.flow:
-        await AlbumFlow.resume(context, draft);
       case DraftKind.vibe:
         await Navigator.of(context).push(
           NeoFadeRoute(

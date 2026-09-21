@@ -15,6 +15,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.neovibe.neovibe.MainActivity
 import com.neovibe.neovibe.MediaTranscoder
+import com.neovibe.neovibe.Mp4FastStart
 import com.neovibe.neovibe.NativeMedia
 import com.neovibe.neovibe.SealedChunkWriter
 import java.io.File
@@ -23,6 +24,8 @@ import java.util.concurrent.Executors
 /**
  * **Le service qui publie** — la file native et persistante tranchée par Jay
  * le 2026-09-19 : *« la publication est une file NATIVE et persistante »*.
+ * Les Vibes y passent depuis le 2026-09-21 (*« on fait la file native
+ * maintenant pour les vibes »*).
  *
  * Il ne fait qu'une chose : tant qu'il reste une publication à faire
  * avancer, il la fait avancer ([PublishPipeline]), et il le dit dans sa
@@ -39,8 +42,9 @@ import java.util.concurrent.Executors
  * ## Ce qu'il ne fait pas
  *
  * Il ne renouvelle pas le jeton (voir [SessionStore]) : quand le serveur le
- * refuse, il demande à l'app et attend. Il ne rend pas de photo : le rendu
- * d'une photo passe par le shader de l'aperçu, en Dart, à « Suivant ».
+ * refuse, il demande à l'app et attend. Il ne rend pas les faces : l'éditeur
+ * de Vibes les rend en Dart, à « Suivant » — le même rendu sert toutes les
+ * destinations d'un envoi.
  *
  * Service de premier plan de type `dataSync` : c'est le type prévu pour un
  * envoi qui doit finir même si l'utilisateur quitte l'app ; Android 15 le
@@ -89,6 +93,10 @@ class PublishService : Service() {
 
         override fun poster(source: File, dest: File, width: Int, atMs: Int): String? =
             NativeMedia.extract(source.path, dest.path, width, atMs)
+
+        override fun fastStart(file: File) {
+            Mp4FastStart.apply(file)
+        }
 
         override fun seal(source: File, dest: File, keyBase64: String) =
             SealedChunkWriter.seal(source, dest, keyBase64)
@@ -246,7 +254,7 @@ class PublishService : Service() {
         if (manager.getNotificationChannel(CHANNEL_ID) != null) return
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ID, "Publications", NotificationManager.IMPORTANCE_LOW).apply {
-                description = "L'envoi de tes publications"
+                description = "L'envoi de tes Vibes"
                 setShowBadge(false)
             },
         )

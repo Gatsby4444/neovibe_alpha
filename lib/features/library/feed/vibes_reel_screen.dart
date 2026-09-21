@@ -13,6 +13,7 @@ import '../../../core/widgets/system_bars.dart';
 import '../../../core/widgets/vibe_face.dart';
 import '../../cards/flippable_card.dart' show FlipControl;
 import '../../connections/connections_repository.dart';
+import '../../pulse/pulse_repository.dart';
 import 'publication_actions.dart';
 import 'reel_common.dart';
 import 'vibe_card_chrome.dart';
@@ -58,7 +59,13 @@ class VibesReelScreen extends ConsumerStatefulWidget {
     required this.initialIndex,
     this.anchors,
     this.header,
+    this.revealAdders = false,
   });
+
+  /// Dans un fil de Pulse : « Ajouté par X » sur les Vibes qu'un ami m'a
+  /// ajoutées, une fois likées (`revealedAdderProvider`). Faux ailleurs (le
+  /// profil) : personne n'a rien ajouté.
+  final bool revealAdders;
 
   /// **Une ligne en haut, à gauche de la croix** (le sélecteur d'un fil de
   /// Pulse, 2026-09-20) : la carte descend d'autant — sur cet écran noir, la
@@ -153,6 +160,7 @@ class _VibesReelScreenState extends ConsumerState<VibesReelScreen> {
             key: ValueKey(_vibes[i].id),
             item: _vibes[i],
             active: i == _current,
+            revealAdder: widget.revealAdders,
             onDeleted: () => _removed(_vibes[i]),
           ),
         ),
@@ -253,11 +261,13 @@ class _ReelPage extends ConsumerWidget {
     super.key,
     required this.item,
     required this.active,
+    required this.revealAdder,
     required this.onDeleted,
   });
 
   final LibraryItem item;
   final bool active;
+  final bool revealAdder;
   final VoidCallback onDeleted;
 
   ContentFace _spec(bool front) => (
@@ -280,6 +290,9 @@ class _ReelPage extends ConsumerWidget {
     final back = item.hasBack
         ? ref.watch(contentFaceProvider(_spec(false))).value
         : null;
+    final adder = revealAdder
+        ? ref.watch(revealedAdderProvider(item.id)).asData?.value
+        : null;
 
     return SafeArea(
       child: Center(
@@ -300,7 +313,12 @@ class _ReelPage extends ConsumerWidget {
             control: FlipControl.sides,
             // Tout est DANS la carte : elle reste centrée et prend l'écran.
             overlay: VibeCardChrome(
-              header: ReelIdentity(item: item, owner: owner, mine: mine),
+              header: ReelIdentity(
+                item: item,
+                owner: owner,
+                mine: mine,
+                addedBy: adder,
+              ),
               actions: PublicationActions(
                 item: item,
                 mine: mine,

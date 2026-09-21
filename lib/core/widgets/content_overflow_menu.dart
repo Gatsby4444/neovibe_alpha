@@ -46,7 +46,6 @@ class ContentOverflowMenu extends ConsumerWidget {
     this.color = Colors.white,
     this.mine = false,
     this.onRemove,
-    this.onEditCaption,
     this.dense = false,
   });
 
@@ -63,19 +62,13 @@ class ContentOverflowMenu extends ConsumerWidget {
   /// « Retirer », quand c'est le mien. Nul = l'option n'existe pas ici.
   final VoidCallback? onRemove;
 
-  /// « Modifier la description », quand c'est le mien et que le contenu en a
-  /// une (une publication, un Flow — pas une Vibe). Nul = pas d'option.
-  /// Jay, 2026-09-18 : elle n'existait pas ; la légende ne se saisissait
-  /// qu'à la publication.
-  final VoidCallback? onEditCaption;
-
   /// Resserré, pour l'en-tête d'une cellule du fil (voir [ActionMetrics]).
   final bool dense;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Mon contenu sans aucune option de propriétaire : pas de menu vide.
-    if (mine && onRemove == null && onEditCaption == null) {
+    if (mine && onRemove == null) {
       return const SizedBox.shrink();
     }
     // ⚠️ Lu ICI, pas seulement dans la feuille : un `read` sur un provider
@@ -114,12 +107,6 @@ class ContentOverflowMenu extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (mine) ...[
-              if (onEditCaption != null)
-                _Option(
-                  icon: Icons.edit_outlined,
-                  label: 'Modifier la description',
-                  onTap: () => Navigator.pop(context, 'caption'),
-                ),
               if (onRemove != null)
                 _Option(
                   icon: Icons.delete_outline,
@@ -157,8 +144,6 @@ class ContentOverflowMenu extends ConsumerWidget {
   Future<void> _appliquer(BuildContext context, WidgetRef ref, String v) async {
     final repo = ref.read(moderationRepositoryProvider);
     switch (v) {
-      case 'caption':
-        onEditCaption?.call();
       case 'remove':
         onRemove?.call();
       case 'report':

@@ -1,44 +1,38 @@
 import 'dart:io';
 
-import '../../../core/models/library_item.dart';
 import '../../../core/utils/ids.dart';
-import '../../library/album_editor/album_draft.dart';
-import '../../library/album_editor/color_grade.dart';
+import 'media_edit.dart';
+import 'color_grade.dart';
 import '../native_media.dart';
 
-/// **Ce que l'éditeur d'une Vibe manipule** — pur, comme [AlbumDraft] : pas
-/// de widget, pas de réseau. Le recto, le verso s'il existe, chacun avec ses
-/// réglages ([AlbumDraftMedia] : cadrage, filtre, corrections, calques,
-/// découpe). L'éditeur l'affiche, l'export le lit.
+/// **Ce que l'éditeur d'une Vibe manipule** — pur : pas de widget, pas de
+/// réseau. Le recto, le verso s'il existe, chacun avec ses réglages
+/// ([MediaEdit] : cadrage, filtre, corrections, calques, découpe).
+/// L'éditeur l'affiche, l'export le lit.
 ///
 /// Jay, 2026-09-18 : *« refais-moi l'éditeur des Vibes, l'actuel est vraiment
 /// trop basique, inspire-toi de celui qu'on a créé pour les Flows »*. Le
-/// modèle d'un média retouché est donc **le même** que celui des Flows —
-/// c'est ce qui permet aux deux éditeurs de partager panneaux, aperçu et
-/// export. Ce qui change, c'est le contenant : deux faces au lieu d'une
-/// bande, et un format qui ne se choisit pas.
+/// moteur (panneaux, aperçu, export, [MediaEdit]) vient de là ; les Flows
+/// et les albums sont sortis du MVP le 2026-09-21, le moteur est resté.
 class VibeEditDraft {
   const VibeEditDraft({required this.front, this.back});
 
-  final AlbumDraftMedia front;
+  final MediaEdit front;
 
   /// Nul = Vibe à face unique (verso passé à la prise).
-  final AlbumDraftMedia? back;
+  final MediaEdit? back;
 
   /// Une Vibe est un 9:16, point — pas d'outil Format.
-  static const aspect = AlbumAspect.reel;
+  static const aspect = MediaAspect.reel;
 
   /// Une face vidéo dure au plus une minute (la règle de la capture).
-  static const maxVideoMs = kAlbumMaxVideoMs;
+  static const maxVideoMs = kMaxFaceVideoMs;
 
   bool get hasBack => back != null;
 
-  AlbumDraftMedia face({required bool front}) => front ? this.front : back!;
+  MediaEdit face({required bool front}) => front ? this.front : back!;
 
-  VibeEditDraft update(
-    bool isFront,
-    AlbumDraftMedia Function(AlbumDraftMedia) f,
-  ) => isFront
+  VibeEditDraft update(bool isFront, MediaEdit Function(MediaEdit) f) => isFront
       ? VibeEditDraft(front: f(front), back: back)
       : VibeEditDraft(front: front, back: f(back!));
 
@@ -46,9 +40,9 @@ class VibeEditDraft {
   /// rend, et ce qui permet à l'export de **ne pas retranscoder** une vidéo
   /// qu'on n'a pas touchée — une génération de compression et vingt secondes
   /// de moins.
-  static bool isPristine(AlbumDraftMedia m) =>
+  static bool isPristine(MediaEdit m) =>
       m.crop == CropSpec.none &&
-      m.filter == AlbumFilter.normal &&
+      m.filter == MediaFilter.normal &&
       m.filterStrength == 1 &&
       m.adjust == ColorGrade.none &&
       m.overlays.isEmpty &&
@@ -58,7 +52,7 @@ class VibeEditDraft {
   bool get backEdited => back != null && !isPristine(back!);
 
   /// La même face, sans aucun réglage.
-  static AlbumDraftMedia pristine(AlbumDraftMedia m) => AlbumDraftMedia(
+  static MediaEdit pristine(MediaEdit m) => MediaEdit(
     id: m.id,
     source: m.source,
     isVideo: m.isVideo,
@@ -79,9 +73,9 @@ class VibeEditDraft {
     required bool frontIsVideo,
     required bool backIsVideo,
   }) async {
-    Future<AlbumDraftMedia> face(File f, bool isVideo) async {
+    Future<MediaEdit> face(File f, bool isVideo) async {
       final probe = await NativeMedia.probe(f.path);
-      return AlbumDraftMedia(
+      return MediaEdit(
         id: newUuid(),
         source: f,
         isVideo: probe.isVideo,

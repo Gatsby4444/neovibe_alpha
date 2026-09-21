@@ -48,41 +48,9 @@ void main() {
     );
   });
 
-  // ── Le recadrage du fil ────────────────────────────────────────────
-  //
-  // Instagram publie un Reel en 9:16 et n'en montre qu'un 4:5 dans le fil.
-  // Jay a repris la règle pour les Vibes le 2026-09-17. Ce qui se vérifie
-  // ici : la Vibe n'est pas RÉTRÉCIE (même largeur), elle est RECADRÉE
-  // (moins haute) — et son contenu, lui, ne change pas.
-
-  testWidgets('dans un fil, une Vibe est recadrée en 4:5, pas rétrécie', (
-    tester,
-  ) async {
-    const type = CardType.standard;
-    final plein = await sizeOf(tester, const VibeFaceLoading(type: type));
-    final fil = await sizeOf(
-      tester,
-      const VibeFaceLoading(type: type, display: VibeDisplay.feed),
-    );
-
-    expect(fil.width, plein.width, reason: 'même largeur : on recadre');
-    expect(fil.height, lessThan(plein.height), reason: 'et c\'est plus court');
-
-    // L'image elle-même (le cadre retiré) est bien au format demandé.
-    final chrome = VibeFaceFrame.chrome(type);
-    expect(
-      (fil.width - chrome) / (fil.height - chrome),
-      moreOrLessEquals(kVibeFeedRatio, epsilon: 0.01),
-    );
-    expect(
-      (plein.width - chrome) / (plein.height - chrome),
-      moreOrLessEquals(kVibeFaceRatio, epsilon: 0.01),
-    );
-  });
-
   test('recadrer, c\'est montrer MOINS — pas des bandes noires', () {
     // À son format, rien n'est coupé ; à un autre, on coupe.
     expect(fitForRatio(kVibeFaceRatio), BoxFit.contain);
-    expect(fitForRatio(kVibeFeedRatio), BoxFit.cover);
+    expect(fitForRatio(4 / 5), BoxFit.cover);
   });
 }

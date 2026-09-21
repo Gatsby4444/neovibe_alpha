@@ -2,34 +2,41 @@ import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' show Rect;
 
-import '../../../core/location/anchor.dart';
-import '../../../core/models/library_item.dart';
 import 'color_grade.dart';
 import 'overlay_model.dart';
 
-/// Ce que l'éditeur d'album manipule — **pur** : pas de widget, pas de
-/// réseau, pas de natif. L'éditeur affiche ce modèle, l'export le lit.
+/// Ce que l'éditeur d'une Vibe manipule, média par média — **pur** : pas de
+/// widget, pas de réseau, pas de natif. L'éditeur affiche ce modèle, l'export
+/// le lit.
 ///
 /// Trois raisons d'en faire un objet à part (règle « on sépare tout ce qui
-/// peut l'être ») : les règles de Jay (11 médias, 60 s par vidéo, un ratio
-/// commun) se testent sans écran ; l'export photo et l'export vidéo lisent
-/// exactement la même description ; et un futur « brouillon sauvegardé » n'a
-/// qu'à sérialiser ceci.
-
-/// Le plafond : **20 médias**, la règle d'Instagram reprise par Jay le
-/// 2026-09-17 (« carrousel : 2 à 20 médias »). C'était 11 jusque-là.
+/// peut l'être ») : les règles (60 s par vidéo, le format 9:16) se testent
+/// sans écran ; l'export photo et l'export vidéo lisent exactement la même
+/// description ; et le brouillon n'a qu'à sérialiser ceci.
 ///
-/// ⚠️ La base le tient aussi (`library_media.slot` 0 … 19 et
-/// `publish_to_library`) : les deux doivent bouger ensemble, sinon l'app
-/// laisse composer ce que le serveur refusera.
-const kAlbumMaxMedia = 20;
-
-/// **Un Flow va jusqu'à trois minutes** (Jay, 2026-09-18) — la base tient la
-/// même règle, par kind.
-const kFlowMaxVideoMs = 180000;
+/// Historique : ce moteur a été écrit pour l'éditeur d'album (2026-09-15),
+/// puis l'éditeur de Vibes s'est posé dessus (2026-09-18). Les albums et les
+/// Flows sont sortis du MVP le 2026-09-21 (Jay : *« un éditeur pour un
+/// format : les Vibes »*) ; le moteur reste, sous son vrai nom.
 
 /// Le plafond de Jay : « vidéo de max 1 min par contenu ».
-const kAlbumMaxVideoMs = 60000;
+const kMaxFaceVideoMs = 60000;
+
+/// **Le cadre d'une Vibe : 9:16, plein écran.** Un seul format, jamais
+/// choisi — c'est ce qui distingue une Vibe d'une « publication » à
+/// formats (retirées du MVP le 2026-09-21). L'export ([MediaExport]) et la
+/// géométrie du cadrage ([CropGeometry]) ne connaissent que ce ratio.
+enum MediaAspect {
+  reel(9, 16, '9:16');
+
+  const MediaAspect(this.w, this.h, this.label);
+
+  final int w;
+  final int h;
+  final String label;
+
+  double get ratio => w / h;
+}
 
 /// Le cadrage d'un média dans le cadre du ratio commun : un **zoom**, un
 /// **point de visée**, des **quarts de tour** et un **redressement** fin.
@@ -169,7 +176,7 @@ class VideoTrim {
 
   /// Le rognage ramené dans les règles : dans la source, au plus [maxMs],
   /// au moins 1 s, la couverture dedans.
-  VideoTrim normalized(int sourceMs, {int maxMs = kAlbumMaxVideoMs}) {
+  VideoTrim normalized(int sourceMs, {int maxMs = kMaxFaceVideoMs}) {
     var s = startMs.clamp(0, math.max(0, sourceMs - 1000)).toInt();
     var e = endMs.clamp(s + 1000, sourceMs).toInt();
     if (e - s > maxMs) e = s + maxMs;
@@ -195,10 +202,10 @@ class VideoTrim {
   int get hashCode => Object.hash(startMs, endMs, coverMs);
 }
 
-/// Un média du brouillon : sa source telle que choisie, et tout ce que
-/// l'utilisateur lui a fait.
-class AlbumDraftMedia {
-  const AlbumDraftMedia({
+/// Une face telle que choisie, et tout ce que l'utilisateur lui a fait —
+/// cadrage, filtre, corrections, calques, découpe.
+class MediaEdit {
+  const MediaEdit({
     required this.id,
     required this.source,
     required this.isVideo,
@@ -207,7 +214,7 @@ class AlbumDraftMedia {
     this.rotation = 0,
     this.durationMs,
     this.crop = CropSpec.none,
-    this.filter = AlbumFilter.normal,
+    this.filter = MediaFilter.normal,
     this.filterStrength = 1,
     this.adjust = ColorGrade.none,
     this.overlays = const [],
@@ -237,7 +244,7 @@ class AlbumDraftMedia {
   final int? durationMs;
 
   final CropSpec crop;
-  final AlbumFilter filter;
+  final MediaFilter filter;
 
   /// L'intensité du filtre, 0 … 1 (Instagram : « appuyez à nouveau pour
   /// ajuster »). À 1 le filtre est entier, à 0 il ne fait rien.
@@ -263,7 +270,7 @@ class AlbumDraftMedia {
 
   /// Le même média, lu depuis un autre fichier : quand un brouillon
   /// **adopte** la source (la déplace dans son dossier, 2026-09-20).
-  AlbumDraftMedia withSource(File source) => AlbumDraftMedia(
+  MediaEdit withSource(File source) => MediaEdit(
     id: id,
     source: source,
     isVideo: isVideo,
@@ -279,14 +286,14 @@ class AlbumDraftMedia {
     trim: trim,
   );
 
-  AlbumDraftMedia copyWith({
+  MediaEdit copyWith({
     CropSpec? crop,
-    AlbumFilter? filter,
+    MediaFilter? filter,
     double? filterStrength,
     ColorGrade? adjust,
     List<OverlayObject>? overlays,
     VideoTrim? trim,
-  }) => AlbumDraftMedia(
+  }) => MediaEdit(
     id: id,
     source: source,
     isVideo: isVideo,
@@ -303,7 +310,7 @@ class AlbumDraftMedia {
   );
 
   /// Remplace le calque de même identifiant ; l'ajoute s'il est nouveau.
-  AlbumDraftMedia withOverlay(OverlayObject o) {
+  MediaEdit withOverlay(OverlayObject o) {
     final i = overlays.indexWhere((x) => x.id == o.id);
     final list = [...overlays];
     if (i < 0) {
@@ -314,12 +321,12 @@ class AlbumDraftMedia {
     return copyWith(overlays: list);
   }
 
-  AlbumDraftMedia withoutOverlay(String id) =>
+  MediaEdit withoutOverlay(String id) =>
       copyWith(overlays: overlays.where((o) => o.id != id).toList());
 
   @override
   bool operator ==(Object other) =>
-      other is AlbumDraftMedia &&
+      other is MediaEdit &&
       other.id == id &&
       other.source.path == source.path &&
       other.isVideo == isVideo &&
@@ -356,193 +363,4 @@ class AlbumDraftMedia {
     Object.hashAll(overlays),
     trim,
   );
-}
-
-/// Le brouillon entier.
-class AlbumDraft {
-  const AlbumDraft({
-    this.media = const [],
-    this.aspect = AlbumAspect.portrait,
-    this.flow = false,
-    this.caption = '',
-    this.captionFont,
-    this.isPublic = false,
-    this.shareable = false,
-    this.saveable = false,
-    this.anchor,
-    this.anchored = false,
-  });
-
-  final List<AlbumDraftMedia> media;
-
-  /// Où l'appareil était quand la publication a été commencée — déjà
-  /// gommée à 100 m ([ContentAnchor]). Nulle si la position n'était pas
-  /// disponible. Ce n'est pas encore un consentement : voir [anchored].
-  final ContentAnchor? anchor;
-
-  /// **L'auteur a demandé à localiser** sa publication (Jay, 2026-09-20 :
-  /// non par défaut — c'est parfois chez quelqu'un). Sans [anchor], sans
-  /// effet.
-  final bool anchored;
-
-  /// L'ancre à publier, ou rien.
-  ContentAnchor? get anchorToPublish => anchored ? anchor : null;
-
-  /// **C'est un Flow, édité comme tel** (Jay, 2026-09-18) : une seule vidéo,
-  /// le format [AlbumAspect.reel] imposé, jusqu'à [kFlowMaxVideoMs]. La
-  /// troisième porte de « Publier », à côté de la Vibe et de la publication.
-  ///
-  /// ⚠️ Ce n'est PAS la même chose qu'une publication d'une seule vidéo,
-  /// qui devient un Flow *au format d'origine* (requalification) : celle-ci
-  /// garde ses bandes noires en plein écran, celui-là remplit l'écran.
-  final bool flow;
-
-  /// **Le format de la publication entière** : 4:5, 1:1 ou 1,91:1, jamais
-  /// un par média (règle d'Instagram, redonnée par Jay le 2026-09-17 : *« le
-  /// ratio du premier média s'applique automatiquement à tous les
-  /// suivants »*). Il est proposé d'après le premier média ([aspectFor]) et
-  /// reste modifiable par l'outil Cadrer.
-  ///
-  /// ⚠️ Le 3:4 ([AlbumAspect.tall]) n'est plus proposé — il a existé du
-  /// 2026-09-15 au 2026-09-17 et des publications le portent encore : le
-  /// visionneur doit continuer à le lire.
-  final AlbumAspect aspect;
-  final String caption;
-
-  /// La police de la légende, choisie par l'auteur (voir [OverlayFont]).
-  /// Nulle = celle du texte courant.
-  final OverlayFont? captionFont;
-
-  final bool isPublic;
-  final bool shareable;
-  final bool saveable;
-
-  int get freeSlots => (flow ? 1 : kAlbumMaxMedia) - media.length;
-
-  /// La durée maximale d'une vidéo, selon le format.
-  int get maxVideoMs => flow ? kFlowMaxVideoMs : kAlbumMaxVideoMs;
-
-  /// **Devenir un Flow** : le format 9:16, une seule vidéo, les cadrages
-  /// remis (ils étaient relatifs à un autre cadre). C'est ce que « Passer à
-  /// l'éditeur Flow » fait, sans quitter l'éditeur.
-  AlbumDraft enFlow() => AlbumDraft(
-    media: [for (final m in media.take(1)) m.copyWith(crop: CropSpec.none)],
-    aspect: AlbumAspect.reel,
-    flow: true,
-    caption: caption,
-    captionFont: captionFont,
-    isPublic: isPublic,
-    shareable: shareable,
-    saveable: saveable,
-    anchor: anchor,
-    anchored: anchored,
-  );
-  bool get isFull => freeSlots <= 0;
-  bool get isEmpty => media.isEmpty;
-
-  AlbumDraft copyWith({
-    List<AlbumDraftMedia>? media,
-    AlbumAspect? aspect,
-    String? caption,
-    OverlayFont? captionFont,
-    bool? isPublic,
-    bool? shareable,
-    bool? saveable,
-    ContentAnchor? anchor,
-    bool? anchored,
-  }) => AlbumDraft(
-    media: media ?? this.media,
-    aspect: aspect ?? this.aspect,
-    flow: flow,
-    caption: caption ?? this.caption,
-    captionFont: captionFont ?? this.captionFont,
-    isPublic: isPublic ?? this.isPublic,
-    shareable: shareable ?? this.shareable,
-    saveable: saveable ?? this.saveable,
-    anchor: anchor ?? this.anchor,
-    anchored: anchored ?? this.anchored,
-  );
-
-  /// Ajoute autant de [items] que la place le permet ; le reste est ignoré
-  /// (l'appelant compte la différence pour le dire).
-  AlbumDraft add(Iterable<AlbumDraftMedia> items) =>
-      copyWith(media: [...media, ...items.take(math.max(0, freeSlots))]);
-
-  /// **Changer le format remet les cadrages à zéro.** Un cadrage est relatif
-  /// à SON cadre (zoom et point de visée dans le rectangle inscrit) : gardé
-  /// tel quel dans un cadre d'un autre format, il ne montre plus ce que
-  /// l'utilisateur avait choisi — il montre autre chose, sans le dire.
-  AlbumDraft withAspect(AlbumAspect a) => a == aspect || flow
-      ? this
-      : copyWith(
-          aspect: a,
-          media: [for (final m in media) m.copyWith(crop: CropSpec.none)],
-        );
-
-  /// **Le format que propose un média** : celui des trois qui s'éloigne le
-  /// moins du sien. Comparé en écart *relatif* (et non en différence de
-  /// nombres) — sinon le paysage 1,91 écraserait tout, un ratio étant une
-  /// échelle, pas une distance.
-  static AlbumAspect aspectFor(AlbumDraftMedia m) {
-    final r = m.srcHeight == 0 ? 1.0 : m.srcWidth / m.srcHeight;
-    AlbumAspect best = AlbumAspect.portrait;
-    var bestEcart = double.infinity;
-    for (final a in const [
-      AlbumAspect.portrait,
-      AlbumAspect.square,
-      AlbumAspect.landscape,
-    ]) {
-      final ecart = (math.log(r) - math.log(a.ratio)).abs();
-      if (ecart < bestEcart) {
-        bestEcart = ecart;
-        best = a;
-      }
-    }
-    return best;
-  }
-
-  /// Une vidéo, et rien d'autre : **ça ne se publie pas** (règle d'Instagram
-  /// tranchée par Jay le 2026-09-17 — une vidéo seule est un Reel, chez nous
-  /// une Vibe). L'écran qui s'en aperçoit doit le DIRE, pas refuser en
-  /// silence.
-  bool get videoSeule => media.length == 1 && media.first.isVideo;
-
-  AlbumDraft remove(String id) =>
-      copyWith(media: media.where((m) => m.id != id).toList());
-
-  /// Déplace le média de [from] à [to] (indices dans la liste).
-  AlbumDraft reorder(int from, int to) {
-    if (from == to || from < 0 || from >= media.length) return this;
-    final list = [...media];
-    final m = list.removeAt(from);
-    list.insert(to.clamp(0, list.length), m);
-    return copyWith(media: list);
-  }
-
-  AlbumDraft update(String id, AlbumDraftMedia Function(AlbumDraftMedia) f) =>
-      copyWith(media: [for (final m in media) m.id == id ? f(m) : m]);
-
-  /// La **découpe** d'une vidéo trop longue (Jay : *« si une vidéo est trop
-  /// longue on peut proposer à l'utilisateur de la découper et répartir
-  /// automatiquement sur plusieurs contenus du carrousel »*).
-  ///
-  /// Rend les morceaux `[début, fin]` de [maxMs] au plus, dans l'ordre, sans
-  /// dépasser [freeSlots] morceaux. Un bout de queue de moins d'une seconde
-  /// n'est pas un média : il est laissé de côté.
-  static List<VideoTrim> splitPlan(
-    int durationMs, {
-    required int freeSlots,
-    int maxMs = kAlbumMaxVideoMs,
-  }) {
-    if (freeSlots <= 0 || durationMs <= 0) return const [];
-    final parts = <VideoTrim>[];
-    var start = 0;
-    while (start < durationMs && parts.length < freeSlots) {
-      final end = math.min(start + maxMs, durationMs);
-      if (end - start < 1000) break;
-      parts.add(VideoTrim(startMs: start, endMs: end));
-      start = end;
-    }
-    return parts;
-  }
 }

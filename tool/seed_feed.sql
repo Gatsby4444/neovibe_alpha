@@ -22,18 +22,22 @@ on conflict (user_low, user_high) do update set last_seen_at = excluded.last_see
 -- 2. Les ajouts des amis, sous leur identité (les mêmes règles que l'app)
 set local role authenticated;
 
--- léa : sa publication « lac » et son flow
+-- (Depuis le 2026-09-21, un seul format : la Vibe. Les ajouts d'albums et de
+-- Flows de léa et malik ont disparu avec eux.)
+
+-- léa : ses Vibes publiques
 select set_config('request.jwt.claims', json_build_object('sub', '8a13fc20-2ab7-4ebe-806f-fda0930fc790', 'role', 'authenticated')::text, true);
 select public.add_to_feed(li.id, array[(select id from jay)])
 from public.library_items li
-where li.owner_id = '8a13fc20-2ab7-4ebe-806f-fda0930fc790' and li.is_public and li.kind in ('album', 'flow')
+where li.owner_id = '8a13fc20-2ab7-4ebe-806f-fda0930fc790' and li.is_public and li.kind = 'card'
   and li.created_at > now() - interval '1 day';
 
--- malik : son flow seulement
+-- malik : sa première Vibe seulement
 select set_config('request.jwt.claims', json_build_object('sub', '04fee059-168c-4252-9fe9-36a99c7fa3fa', 'role', 'authenticated')::text, true);
 select public.add_to_feed(li.id, array[(select id from jay)])
 from public.library_items li
-where li.owner_id = '04fee059-168c-4252-9fe9-36a99c7fa3fa' and li.kind = 'flow' and li.created_at > now() - interval '1 day';
+where li.owner_id = '04fee059-168c-4252-9fe9-36a99c7fa3fa' and li.kind = 'card' and li.created_at > now() - interval '1 day'
+order by li.created_at limit 1;
 
 -- chloé : sa Vibe
 select set_config('request.jwt.claims', json_build_object('sub', '8dc0a329-a598-4144-b667-4e7e269040f0', 'role', 'authenticated')::text, true);

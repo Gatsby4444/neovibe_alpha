@@ -39,12 +39,11 @@ class Draft {
   final String id;
   final DraftKind kind;
 
-  /// Où l'utilisateur en était : `edit`, `caption` (publication) ;
-  /// `capture`, `edit`, `share` (Vibe). Chaque famille lit les siens.
+  /// Où l'utilisateur en était : `capture`, `edit`, `share`.
   final String step;
   final DateTime updatedAt;
 
-  /// Ce que la famille sait relire (`AlbumDraftCodec`…).
+  /// Ce que `VibeDraftState` sait relire.
   final Map<String, dynamic> payload;
 
   /// Une image pour la liste (chemin absolu dans le dossier du brouillon).
@@ -67,7 +66,10 @@ class Draft {
   DateTime get expiresAt => updatedAt.add(DraftStore.ttl);
 }
 
-enum DraftKind { publication, flow, vibe }
+/// Une seule famille depuis le 2026-09-21 (albums et Flows sortis du MVP).
+/// Un brouillon d'une autre famille laissé sur le disque ne se relit pas
+/// ([DraftStore.load] rend null) : [DraftStore.sweep] l'efface au démarrage.
+enum DraftKind { vibe }
 
 /// Le rangement des brouillons : un dossier par brouillon, `draft.json`
 /// écrit en deux temps (`.tmp` puis renommage — un fichier à moitié écrit

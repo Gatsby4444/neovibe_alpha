@@ -4,8 +4,8 @@ import '../../core/drafts/draft_store.dart';
 import '../../core/location/anchor.dart';
 import '../../core/models/card.dart';
 import '../../core/utils/ids.dart';
-import '../library/album_editor/album_draft_codec.dart';
-import '../library/album_editor/overlay_model.dart';
+import 'editor/media_edit_codec.dart';
+import 'editor/overlay_model.dart';
 import 'editor/vibe_edit_draft.dart';
 import 'native_media.dart';
 import 'send/share_plan.dart';
@@ -50,12 +50,12 @@ class VibeDraftState {
       edit: edit == null
           ? null
           : VibeEditDraft(
-              front: AlbumDraftCodec.mediaFromJson(
+              front: MediaEditCodec.mediaFromJson(
                 (edit['front'] as Map).cast<String, dynamic>(),
               ),
               back: (edit['back'] as Map?) == null
                   ? null
-                  : AlbumDraftCodec.mediaFromJson(
+                  : MediaEditCodec.mediaFromJson(
                       (edit['back'] as Map).cast<String, dynamic>(),
                     ),
             ),
@@ -93,10 +93,10 @@ class VibeDraftState {
     'edit': edit == null
         ? null
         : {
-            'front': AlbumDraftCodec.mediaToJson(edit!.front),
+            'front': MediaEditCodec.mediaToJson(edit!.front),
             'back': edit!.back == null
                 ? null
-                : AlbumDraftCodec.mediaToJson(edit!.back!),
+                : MediaEditCodec.mediaToJson(edit!.back!),
           },
     'plan': plan == null ? null : SharePlanCodec.toJson(plan!),
   };
@@ -122,8 +122,8 @@ class VibeResume {
   final VibeDraftState state;
 }
 
-/// **Le gardien d'un brouillon de Vibe** — l'équivalent de
-/// `AlbumDraftKeeper` pour la prise, l'édition et le partage.
+/// **Le gardien d'un brouillon de Vibe** — pour la prise, l'édition et le
+/// partage.
 ///
 /// Les faces capturées naissent dans un dossier temporaire du système : à
 /// peine posées, elles sont **déplacées** dans le dossier du brouillon
@@ -136,8 +136,9 @@ class VibeResume {
 /// NeoVibe ». L'état vit en mémoire ([update]) et n'est écrit que par
 /// [flush], à « Garder en brouillon ». Si l'app meurt avant, le dossier —
 /// sans `draft.json` — est balayé au prochain démarrage : pas de
-/// consentement, pas de brouillon. Les publications, elles, s'écrivent
-/// seules (`AlbumDraftKeeper`) : ce sont des imports, pas des prises.
+/// consentement, pas de brouillon. (Les publications d'albums, qui
+/// s'écrivaient seules parce qu'elles étaient des imports, sont sorties du
+/// MVP le 2026-09-21.)
 class VibeDraftKeeper {
   VibeDraftKeeper(this._store, {String? id, VibeDraftState? state})
     : id = id ?? newUuid(),

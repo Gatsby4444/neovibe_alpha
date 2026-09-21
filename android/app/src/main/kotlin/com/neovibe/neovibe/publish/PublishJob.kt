@@ -4,19 +4,21 @@ import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 
 /**
- * **Une publication en cours**, telle qu'elle est écrite sur le disque.
+ * **Une Vibe en cours de publication**, telle qu'elle est écrite sur le disque.
  *
  * C'est le contrat entre le Dart (qui dépose) et le service natif (qui
  * exécute) — tranché par Jay le 2026-09-19 : *« la publication est une file
- * NATIVE et persistante »*. Tout ce dont le service a besoin pour finir le
- * travail **sans l'app** est ici : les fichiers, les paramètres de
- * transcodage, la clé, les chemins de dépôt, et où chaque étape en est.
+ * NATIVE et persistante »*, écrit pour les albums ; **les Vibes y passent
+ * depuis le 2026-09-21**, et les albums sont sortis du MVP le même jour.
+ * Tout ce dont le service a besoin pour finir le travail **sans l'app** est
+ * ici : les fichiers, la clé, les chemins de dépôt, et où chaque étape en
+ * est.
  *
  * ## Les phases, dans l'ordre
  *
  * | phase | ce que le service fait |
  * |---|---|
- * | `preparing` | transcode les vidéos, extrait les couvertures, scelle tout |
+ * | `preparing` | transcode ce qui doit l'être, extrait les couvertures, remet l'index MP4 en tête, scelle tout |
  * | `uploading` | dépose les scellés (TUS, reprenable, deux à la fois) |
  * | `waiting` | tout est déposé, mais « Publier » n'a pas encore été pressé |
  * | `registering` | l'appel serveur qui crée la publication |
@@ -44,10 +46,8 @@ data class PublishJob(
     val id: String,
     val ownerId: String,
     val createdAt: Long,
-    /** `album` ou `flow` — décidé côté Dart (`kindDuContenu`), vérifié par le serveur. */
-    val kind: String,
-    val aspectW: Int,
-    val aspectH: Int,
+    /** Le type de la Vibe : `standard`, `oneshot`, `bereal` (`card_type` en base). */
+    val cardType: String = "standard",
     val mediaKey: String,
     val media: List<PublishMedia>,
     /** Où copier chaque scellé une fois publié : place → chemin absolu. */
@@ -87,9 +87,6 @@ data class PublishJob(
     /** Ce que le Dart affiche : un instantané sans secret. */
     fun snapshot(released: Boolean): Map<String, Any?> = mapOf(
         "id" to id,
-        "kind" to kind,
-        "aspectW" to aspectW,
-        "aspectH" to aspectH,
         "cover" to cover,
         "phase" to phase,
         "released" to released,
@@ -102,7 +99,6 @@ data class PublishJob(
 /** Ce que « Publier » dépose : la légende et les droits. Écrit par l'app seulement. */
 data class Release(
     val caption: String? = null,
-    val captionFont: String? = null,
     val isPublic: Boolean = false,
     val shareable: Boolean = false,
     val saveable: Boolean = false,
@@ -118,13 +114,18 @@ data class Release(
     }
 }
 
-/** Un média de la publication : une photo déjà rendue, ou une vidéo à transcoder. */
+/**
+ * Un média de la publication : une face **déjà finale** (le cas d'une Vibe :
+ * photo ou vidéo telles que rendues par l'éditeur ou captées), ou une vidéo
+ * **à transcoder** ([source] + [transcode], le cas des albums d'avant).
+ */
 data class PublishMedia(
     val slot: Int,
     val isVideo: Boolean,
-    val width: Int,
-    val height: Int,
-    /** Vidéo : la source (copie de la galerie) et ses paramètres ; nuls pour une photo. */
+    /** Nuls pour une face de Vibe : la capture ne les mesure pas, le serveur les accepte nuls. */
+    val width: Int? = null,
+    val height: Int? = null,
+    /** Vidéo à transcoder : la source et ses paramètres. Nuls = [file].clear est déjà la vidéo finale. */
     val source: String? = null,
     val transcode: TranscodeSpec? = null,
     /** Vidéo : l'instant de la couverture, relatif au début du rognage. */
@@ -138,8 +139,8 @@ data class PublishMedia(
     /** Vidéo : la couverture, extraite du fichier produit. */
     val poster: PublishFile? = null,
 ) {
-    /** Le transcodage est fait quand la vidéo porte sa durée. */
-    val transcoded: Boolean get() = !isVideo || durationMs != null
+    /** Rien à transcoder (photo, ou vidéo déjà finale), ou déjà fait (la vidéo porte sa durée). */
+    val transcoded: Boolean get() = !isVideo || transcode == null || durationMs != null
 }
 
 /** Les paramètres du transcodeur, tels que `AlbumExport.videoSpec` les calcule. */

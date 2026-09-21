@@ -1,4 +1,4 @@
-# Pulse — le feed (construit le 2026-09-20, v0.9.232)
+# Pulse — le feed (construit le 2026-09-20, v0.9.232 ; Vibes seules depuis le 2026-09-21)
 
 > Description de ce qui **existe**. Les règles viennent de Jay (2026-09-20) ;
 > les nombres vivent en base (`feed_rules`, `crossing_windows`), pas dans le
@@ -7,14 +7,17 @@
 ## Ce que c'est, en une phrase
 
 **La section « Jeux » devient Pulse** : LA section des contenus. En haut, les
-stories de mes amis ; au milieu, une galerie de mini-cards (Vibes, Flows,
-publications mêlés — le liseré dit la nature) ; un tap ouvre **le fil de
-cette nature** — **directement en plein écran** pour une Vibe ou un Flow (les
-écrans du profil), dans le fil des publications pour une publication — avec
+stories de mes amis ; au milieu, une galerie de mini-cards — **des Vibes,
+rien d'autre** (Jay, 2026-09-21 : *« le feed reste mais ce sera que des
+vibes »* ; les Flows et les publications qui s'y mêlaient du 2026-09-20 au
+2026-09-21 sont sortis du MVP, `docs/formats-mis-de-cote.md`) ; un tap ouvre
+**directement le plein écran** (`VibesReelScreen`, l'écran du profil) avec
 le sélecteur Tout / Amis / Autour de moi **posé sur le contenu, à gauche de
-la croix, sans bandeau** (Jay, 2026-09-20 soir, v0.9.234 → v0.9.236 : un
-bandeau raccourcissait la page sous un 9:16 et rétrécissait les Flows ;
-l'auteur d'un Flow descend sous cette ligne — `FlowFrame`).
+la croix, sans bandeau** (Jay, 2026-09-20 soir).
+
+Dans ce plein écran, une Vibe qu'un ami m'a ajoutée dit **« Ajouté par X »**
+sous le pseudo de l'auteur **une fois que je l'ai likée** (`ReelIdentity`,
+`revealedAdderProvider`) — l'ajout est anonyme jusque-là.
 
 ## Les trois sources — toutes humaines, aucun algorithme
 
@@ -76,4 +79,6 @@ le chat comme avant. Une story va toujours dans le chat.
 - **Une carte** : l'ancre existe, aucun écran ne la dessine.
 - **Les anciens contenus** n'ont pas d'ancre : « Autour de moi » ne montre
   que ce qui sera localisé désormais.
-- Les trois couleurs des liserés (`KindColors`) sont des valeurs de départ.
+
+`feed_items` garde son paramètre `p_kind` : l'app y passe toujours `'card'`
+(`kLibraryKindVibe`), positivement.

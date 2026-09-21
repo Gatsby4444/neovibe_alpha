@@ -3,8 +3,8 @@ import 'dart:ui' as ui;
 
 import 'package:path_provider/path_provider.dart';
 
-import '../../cards/native_media.dart';
-import 'album_draft.dart';
+import '../native_media.dart';
+import 'media_edit.dart';
 
 /// **Les images décodées de l'éditeur**, tenues à un seul endroit : la source
 /// d'un média en grand (pour le shader de l'aperçu), en petit (pour les puces
@@ -29,10 +29,10 @@ class EditorImages {
   /// L'image si elle est déjà décodée — l'aperçu peint sans attendre.
   ui.Image? ready(String key) => _ready[key];
 
-  Future<ui.Image> full(AlbumDraftMedia m) =>
+  Future<ui.Image> full(MediaEdit m) =>
       _full.putIfAbsent(m.id, () => _decodeMedia(m, fullSide, 'full:${m.id}'));
 
-  Future<ui.Image> small(AlbumDraftMedia m) => _small.putIfAbsent(
+  Future<ui.Image> small(MediaEdit m) => _small.putIfAbsent(
     m.id,
     () => _decodeMedia(m, smallSide, 'small:${m.id}'),
   );
@@ -45,18 +45,18 @@ class EditorImages {
   ui.Image? stickerReady(String path) => _ready['sticker:$path'];
 
   /// Un média a changé de rognage (vidéo) : son image extraite est périmée.
-  void invalidate(AlbumDraftMedia m) {
+  void invalidate(MediaEdit m) {
     _full.remove(m.id);
     _small.remove(m.id);
     _ready.remove('full:${m.id}')?.dispose();
     _ready.remove('small:${m.id}')?.dispose();
   }
 
-  Future<ui.Image> _decodeMedia(AlbumDraftMedia m, int side, String key) async {
+  Future<ui.Image> _decodeMedia(MediaEdit m, int side, String key) async {
     File source = m.source;
     if (m.isVideo) {
       final temp = await getTemporaryDirectory();
-      final dest = File('${temp.path}/album_frame_${m.id}_$side.jpg');
+      final dest = File('${temp.path}/face_frame_${m.id}_$side.jpg');
       final ok = await NativeMedia.videoThumbnail(
         source: m.source.path,
         dest: dest.path,

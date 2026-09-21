@@ -1,12 +1,15 @@
 // Remplit le FEED de test (Pulse, 2026-09-20) avec les médias libres de
-// droits préparés par `tool/prepare_seed_feed.py` : publications, Flows,
-// Vibes et stories, publiés PAR LES BOTS, sous leur identité, par les mêmes
-// RPC que l'app (`publish_to_library`, `publish_story`) — donc à travers les
-// mêmes règles. Un seed qui contournerait la sécurité ne prouverait rien.
+// droits préparés par `tool/prepare_seed_feed.py` : des Vibes et des
+// stories, publiées PAR LES BOTS, sous leur identité, par les mêmes RPC que
+// l'app (`publish_to_library`, `publish_story`) — donc à travers les mêmes
+// règles. Un seed qui contournerait la sécurité ne prouverait rien.
+//
+// Les publications (albums) et les Flows que ce seed posait aussi sont
+// sortis du MVP le 2026-09-21 (Jay : « un éditeur pour un format ») et
+// purgés de la base le même jour. Seuls les médias 9:16 servent encore.
 //
 // Chaque média est scellé comme dans l'app (`ChunkedSeal`, format NVC1),
-// avec une clé par contenu ; les vidéos ont leur couverture ; les formats
-// sont ceux de l'éditeur (4:5, 1:1, 9:16).
+// avec une clé par contenu.
 //
 // Usage :
 //   dart run tool/seed_feed.dart <mot-de-passe-des-bots> [--media docdev/seed-feed]
@@ -71,201 +74,34 @@ class _Bot {
   Future<void> seed() async {
     switch (name) {
       case 'lea':
-        await _album(
-          [
-            'pub_00_4x5.jpg',
-            'pub_01_4x5.jpg',
-            'video_bbb_4x5.mp4',
-            'pub_02_4x5.jpg',
-          ],
-          4,
-          5,
-          'Journée au lac avec la bande 🌊',
-        );
-        await _album(
-          ['pub_03_4x5.jpg'],
-          4,
-          5,
-          'Coucher de soleil depuis le toit.',
-        );
-        await _flow('video_sintel_9x16.mp4', 'Répète du groupe, on progresse');
         await _vibe('vibe_30_9x16.jpg', 'vibe_31_9x16.jpg');
+        await _vibe('video_sintel_9x16.mp4', null);
+        await _vibe('vibe_32_9x16.jpg', null);
         await _story('vibe_32_9x16.jpg', null);
       case 'malik':
-        await _album(
-          ['pub_24_1x1.jpg', 'pub_25_1x1.jpg'],
-          1,
-          1,
-          'Le marché du dimanche',
-        );
-        await _flow('video_jelly_9x16.mp4', 'Aquarium, hypnotisant');
         await _vibe('video_bbb_9x16.mp4', 'vibe_33_9x16.jpg');
+        await _vibe('video_jelly_9x16.mp4', null);
         await _story('video_jelly_9x16.mp4', 'vibe_34_9x16.jpg');
       case 'chloe':
-        await _album(
-          [
-            'pub_04_4x5.jpg',
-            'pub_05_4x5.jpg',
-            'pub_06_4x5.jpg',
-            'pub_07_4x5.jpg',
-            'pub_08_4x5.jpg',
-          ],
-          4,
-          5,
-          'Balade en forêt, 12 km 🥾',
-        );
         await _vibe('vibe_35_9x16.jpg', null);
-        await _album(
-          ['pub_26_1x1.jpg'],
-          1,
-          1,
-          null,
-          isPublic: false,
-        ); // privée : ne doit PAS sortir
+        await _vibe('vibe_34_9x16.jpg', 'vibe_35_9x16.jpg');
+        // Privée : ne doit PAS sortir dans le feed.
+        await _vibe('vibe_33_9x16.jpg', null, isPublic: false);
       case 'yanis':
-        await _album(
-          ['pub_09_4x5.jpg', 'pub_10_4x5.jpg', 'video_jelly_4x5.mp4'],
-          4,
-          5,
-          'Soirée au Bar des Amis — merci à tous !',
-        );
-        await _album(
-          ['pub_11_4x5.jpg', 'pub_12_4x5.jpg'],
-          4,
-          5,
-          'Street art du quartier',
-        );
-        await _flow('video_bbb_9x16.mp4', 'Le lapin le plus célèbre du web 🐰');
         await _vibe('vibe_36_9x16.jpg', 'vibe_37_9x16.jpg');
+        await _vibe('video_bbb_9x16.mp4', null);
         await _story('vibe_30_9x16.jpg', 'vibe_31_9x16.jpg');
-        await _album(
-          ['pub_13_4x5.jpg'],
-          4,
-          5,
-          'Brouillon privé',
-          isPublic: false,
-        );
+        await _vibe('vibe_37_9x16.jpg', null, isPublic: false);
       case 'sofia':
-        await _album(
-          ['video_sintel_4x5.mp4', 'pub_14_4x5.jpg', 'video_bbb_4x5.mp4'],
-          4,
-          5,
-          'Ciné plein air, deux extraits',
-        );
-        await _album(
-          ['pub_27_1x1.jpg', 'pub_28_1x1.jpg', 'pub_29_1x1.jpg'],
-          1,
-          1,
-          'Tour du monde des tasses ☕',
-        );
         await _vibe('video_sintel_9x16.mp4', null);
-        await _flow('video_jelly_9x16.mp4', null);
+        await _vibe('video_jelly_9x16.mp4', 'vibe_36_9x16.jpg');
+        await _vibe('vibe_31_9x16.jpg', null);
     }
   }
 
-  // ── Les publications ────────────────────────────────────────────────
+  // ── Les Vibes ───────────────────────────────────────────────────────
 
-  Future<void> _album(
-    List<String> files,
-    int w,
-    int h,
-    String? caption, {
-    bool isPublic = true,
-  }) async {
-    final contentId = _uuid();
-    final key = await ChunkedSeal.newKey();
-    final rows = <Map<String, Object?>>[];
-    for (var slot = 0; slot < files.length; slot++) {
-      final f = files[slot];
-      final isVideo = f.endsWith('.mp4');
-      final path = '$id/${contentId}_$slot.${isVideo ? 'mp4' : 'jpg'}';
-      if (!await _upload('library', path, File('${_media.path}/$f'), key))
-        return;
-      String? poster;
-      if (isVideo) {
-        poster = '$id/${contentId}_${slot}_poster.jpg';
-        if (!await _upload(
-          'library',
-          poster,
-          File('${_media.path}/${f.replaceAll('.mp4', '_poster.jpg')}'),
-          key,
-        ))
-          return;
-      }
-      rows.add({
-        'path': path,
-        'is_video': isVideo,
-        'duration_ms': isVideo ? 9000 : null,
-        'poster_path': poster,
-        'width': 1080,
-        'height': (1080 * h / w).round(),
-      });
-    }
-    final ok = await _rpc('publish_to_library', {
-      'p_item_id': contentId,
-      'p_kind': 'album',
-      'p_card_type': 'standard',
-      'p_media': rows,
-      'p_caption': caption,
-      'p_caption_font': null,
-      'p_is_public': isPublic,
-      'p_shareable': true,
-      'p_saveable': true,
-      'p_media_key': key,
-      'p_aspect_w': w,
-      'p_aspect_h': h,
-      'p_anchor_lat': null,
-      'p_anchor_lng': null,
-    });
-    if (ok)
-      stdout.writeln(
-        '  publication ${files.length} média(s) ${isPublic ? 'publique' : 'PRIVÉE'} · $contentId',
-      );
-  }
-
-  Future<void> _flow(String file, String? caption) async {
-    final contentId = _uuid();
-    final key = await ChunkedSeal.newKey();
-    final path = '$id/${contentId}_0.mp4';
-    final poster = '$id/${contentId}_0_poster.jpg';
-    if (!await _upload('library', path, File('${_media.path}/$file'), key))
-      return;
-    if (!await _upload(
-      'library',
-      poster,
-      File('${_media.path}/${file.replaceAll('.mp4', '_poster.jpg')}'),
-      key,
-    ))
-      return;
-    final ok = await _rpc('publish_to_library', {
-      'p_item_id': contentId,
-      'p_kind': 'flow',
-      'p_card_type': 'standard',
-      'p_media': [
-        {
-          'path': path,
-          'is_video': true,
-          'duration_ms': 9000,
-          'poster_path': poster,
-          'width': 1080,
-          'height': 1920,
-        },
-      ],
-      'p_caption': caption,
-      'p_caption_font': null,
-      'p_is_public': true,
-      'p_shareable': true,
-      'p_saveable': true,
-      'p_media_key': key,
-      'p_aspect_w': 9,
-      'p_aspect_h': 16,
-      'p_anchor_lat': null,
-      'p_anchor_lng': null,
-    });
-    if (ok) stdout.writeln('  flow · $contentId');
-  }
-
-  Future<void> _vibe(String front, String? back) async {
+  Future<void> _vibe(String front, String? back, {bool isPublic = true}) async {
     final contentId = _uuid();
     final key = await ChunkedSeal.newKey();
     final rows = <Map<String, Object?>>[];
@@ -290,7 +126,7 @@ class _Bot {
       'p_media': rows,
       'p_caption': null,
       'p_caption_font': null,
-      'p_is_public': true,
+      'p_is_public': isPublic,
       'p_shareable': true,
       'p_saveable': true,
       'p_media_key': key,
@@ -301,7 +137,8 @@ class _Bot {
     });
     if (ok)
       stdout.writeln(
-        '  vibe ${back == null ? 'une face' : 'deux faces'} · $contentId',
+        '  vibe ${back == null ? 'une face' : 'deux faces'} '
+        '${isPublic ? 'publique' : 'PRIVÉE'} · $contentId',
       );
   }
 

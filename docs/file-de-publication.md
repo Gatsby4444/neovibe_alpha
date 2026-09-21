@@ -1,8 +1,12 @@
-# La file de publication — ce qui existe (2026-09-19)
+# La file de publication — ce qui existe (2026-09-19 ; les Vibes depuis le 2026-09-21)
 
 > Description de ce qui est **construit** le 2026-09-19 (v0.9.220), en
 > réponse à la décision de Jay : *« Je veux qu'on fasse comme les autres.
 > Les 5 points, même le 5ᵉ car c'est essentiel pour une bonne UX. »*
+> Écrite pour les albums et les Flows ; **depuis le 2026-09-21, c'est la
+> Vibe qui y passe** (Jay : *« on fait la file native maintenant pour les
+> vibes »*), les albums et les Flows étant sortis du MVP le même jour
+> (`docs/formats-mis-de-cote.md`).
 > Le contrat côté serveur (les versions, le traitement en clair en mémoire)
 > est un chantier à part : `docs/serveur-media.md`.
 
@@ -10,39 +14,43 @@
 
 | Avant | Maintenant |
 |---|---|
-| « Publier » → un bandeau « Préparation… 2/5 » en tête du profil, pendant une minute | « Suivant » → le travail commence **pendant qu'on tape la légende** ; « Publier » → la publication **apparaît tout de suite** dans la grille, à sa place, avec son anneau d'avancement |
-| l'écran se figeait ~9 s par vidéo (scellage Dart) | rien ne se fige : transcodage, scellage et envoi sont natifs, sur un fil de travail |
-| fermer l'app = perdre la publication | fermer l'app, couper le réseau, redémarrer le téléphone : la publication **finit quand même** (notification « Envoi… 43 % ») |
+| « Envoyer » une Vibe vers ma bibliothèque → un envoi simple, sous mes yeux, dans l'app | « Envoyer » → la Vibe **apparaît tout de suite** dans la grille, à sa place, avec son anneau d'avancement ; le bandeau d'envoi de la caméra se règle aussitôt (la destination est « déposée ») |
+| fermer l'app ou perdre le réseau au milieu = la Vibe est perdue, à refaire | fermer l'app, couper le réseau, redémarrer le téléphone : la Vibe **finit quand même** (notification « Envoi… 43 % ») |
 | une coupure = tout renvoyer | une coupure = repartir **de l'octet où le serveur en était** |
 | une erreur = un bandeau qui disparaît | une erreur = la case reste, avec un point d'exclamation ; un appui propose **Réessayer** / **Abandonner** |
 
 ## Qui fait quoi
 
 ```
-Dart, à « Suivant »                      Kotlin, avec ou sans l'app
-──────────────────────                   ──────────────────────────
-PublishPreparer.start(draft)             PublishService (premier plan, dataSync)
-  rend les photos (shader de l'aperçu)     └ PublishPipeline.process(job), pas à pas :
-  rend le calque des vidéos (PNG)              preparing  : transcode, couverture, scelle
-  calcule les paramètres du transcodage        uploading  : TUS, 2 fichiers à la fois, reprenable
-  copie la source vidéo dans le dossier        waiting    : tout est déposé, il manque « Publier »
-  écrit la couverture (cover.jpg)              registering: RPC publish_to_library
-  tire la clé → own_keys.json                  done       : scellés → cache own/, dossier vidé
-  calcule où iront les scellés (own/)
+Dart, à « Envoyer » (SharePublisher)     Kotlin, avec ou sans l'app
+──────────────────────────────────────   ──────────────────────────
+LibraryRepository.publish(faces…)        PublishService (premier plan, dataSync)
+  copie les faces (déjà finales)           └ PublishPipeline.process(job), pas à pas :
+    dans le dossier de la publication          preparing  : index MP4 en tête, scelle
+  écrit la couverture (cover.jpg)              uploading  : TUS, 2 fichiers à la fois, reprenable
+  tire la clé → own_keys.json                  registering: RPC publish_to_library
+  calcule où iront les scellés (own/)          done       : scellés → cache own/, dossier vidé
   PublishBridge.enqueue(job.json) ────────►  job.json
-                                           
-Dart, à « Publier »                       
-  PublishBridge.release(id, légende…) ───►  release.json   (lu à `waiting`)
-Dart, retour en arrière                    
+  PublishBridge.release(id, droits…) ─────►  release.json   (aussitôt : les réglages
+                                                             d'une Vibe sont connus à l'envoi)
+Dart, abandon d'un échec
   PublishBridge.cancel(id) ──────────────►  cancel         (lu entre deux pas)
 
 Kotlin → Dart : neovibe/publish/events {jobs:[…]} → PendingPublications → PendingCell
 ```
 
-**Le Dart ne transcode plus, ne scelle plus, n'envoie plus une publication.**
-Il rend ce que seul Flutter sait rendre (le shader de l'aperçu), il calcule,
-il dépose. La Vibe (une ou deux faces, envoyées sous les yeux de
-l'utilisateur) garde son chemin dans `LibraryRepository.publish`.
+**Le Dart ne scelle plus, n'envoie plus une publication.** Il copie, il
+dépose. Les faces sont **rendues avant**, en Dart, par l'éditeur de Vibes
+(`MediaExport`, à « Suivant ») : un même rendu sert toutes les destinations
+d'un envoi (story, chat, bibliothèque), la file ne reçoit que la version
+finale — sans `source` ni `transcode`, donc **sans transcodage**. La phase
+`waiting` (« déposé mais pas encore publié ») existe toujours dans le
+pipeline ; une Vibe ne s'y arrête pas, `release.json` étant écrit juste
+après `job.json`.
+
+Le pipeline sait encore transcoder une vidéo qui arrive avec `source` +
+`transcode` (testé sur la JVM, `PublishPipelineTest`) : c'est la voie prévue
+pour les vidéos importées dans une Vibe, à venir (Jay, 2026-09-21).
 
 ## Les fichiers
 
@@ -55,7 +63,7 @@ plus vrai d'une publication que le service finit sans l'app).
 | `job.json` | **le service seulement** | le service, le pont (instantanés) |
 | `release.json` | **l'app seulement** (« Publier ») | le service, à `waiting` |
 | `cancel` | **l'app seulement** | le service, entre deux pas |
-| `album_*.jpg`, `album_*_src.mp4`, `*_overlay.png` | l'app | le service ; effacés dès que scellés |
+| `face_0.jpg` / `.mp4`, `face_1.…` | l'app (copie des faces finales) | le service ; effacés dès que scellés |
 | `*.seal` | le service | l'envoi ; copiés dans `own/` puis effacés |
 | `cover.jpg` | l'app | la grille (`PendingCell`) ; reste jusqu'à l'acquittement |
 
@@ -90,9 +98,10 @@ l'autre — en silence. C'est la règle 2 de `CLAUDE.md`.
 
 ## Ce qui n'est PAS fait
 
-- **La position de la Vibe** : elle garde son envoi Dart (petit, sous les
-  yeux). La faire passer par la file demanderait le rendu natif de ses
-  faces éditées — à décider.
+- **Le transcodage d'une Vibe dans la file** : aujourd'hui l'éditeur rend
+  la face en Dart avant l'envoi (elle doit servir aux autres destinations).
+  Le jour des vidéos importées, la file reçoit `source` + `transcode` et
+  transcode elle-même.
 - **Le serveur** ne calcule pas encore de versions (`docs/serveur-media.md`).
 - **iOS** : même `job.json`, même pipeline, `URLSession` en arrière-plan
   (`docs/parties-natives-par-os.md` § 10).

@@ -2,14 +2,14 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/features/cards/editor/vibe_edit_draft.dart';
-import 'package:neovibe/features/library/album_editor/album_draft.dart';
-import 'package:neovibe/features/library/album_editor/color_grade.dart';
-import 'package:neovibe/features/library/album_editor/overlay_model.dart';
+import 'package:neovibe/features/cards/editor/media_edit.dart';
+import 'package:neovibe/features/cards/editor/color_grade.dart';
+import 'package:neovibe/features/cards/editor/overlay_model.dart';
 
 /// Le brouillon d'une Vibe : ce qu'« Original » rend, et ce que l'export a
 /// le droit de ne PAS retranscoder.
 void main() {
-  AlbumDraftMedia face(String id, {bool video = false}) => AlbumDraftMedia(
+  MediaEdit face(String id, {bool video = false}) => MediaEdit(
     id: id,
     source: File('$id.jpg'),
     isVideo: video,
@@ -34,7 +34,7 @@ void main() {
     );
     expect(
       d
-          .update(true, (m) => m.copyWith(filter: AlbumFilter.values[1]))
+          .update(true, (m) => m.copyWith(filter: MediaFilter.values[1]))
           .frontEdited,
       isTrue,
     );

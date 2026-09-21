@@ -33,8 +33,7 @@ import 'package:flutter/material.dart';
 ///
 /// Le prix : l'écran du dessous continue d'être peint tant que le plein
 /// écran est ouvert — négligeable pour une grille immobile — et tout ce qui
-/// y vit doit se savoir **recouvert** (le fil se tait sous un plein écran,
-/// `ActiveItemTracker`, même jour).
+/// y vit doit se savoir **recouvert**.
 class ReelRoute<T> extends PageRouteBuilder<T> {
   ReelRoute({required WidgetBuilder builder, super.settings})
     : super(

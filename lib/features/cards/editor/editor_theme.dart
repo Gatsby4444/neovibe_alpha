@@ -4,7 +4,7 @@ import '../../../core/palette.dart';
 import '../../../core/theme.dart';
 import '../../../core/typography.dart';
 
-/// **Les couleurs de l'éditeur d'album** — celles du thème en vigueur, pas un
+/// **Les couleurs de l'éditeur** — celles du thème en vigueur, pas un
 /// noir imposé.
 ///
 /// Le premier jet (v0.9.187) forçait l'éditeur en sombre « comme

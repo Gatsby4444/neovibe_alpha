@@ -90,9 +90,13 @@ class PublishPipelineTest {
         }
     }
 
-    /** De faux outils : « transcoder » copie, « sceller » copie en ajoutant un en-tête. */
+    /**
+     * De faux outils : « transcoder » copie, « fast-start » note le fichier,
+     * « sceller » copie en ajoutant un en-tête.
+     */
     private val tools = object : MediaTools {
         var transcodes = 0
+        val fastStarted = mutableListOf<String>()
         override fun transcode(
             spec: TranscodeSpec,
             source: File,
@@ -109,6 +113,10 @@ class PublishPipelineTest {
         override fun poster(source: File, dest: File, width: Int, atMs: Int): String? {
             dest.writeBytes(ByteArray(100) { 7 })
             return null
+        }
+
+        override fun fastStart(file: File) {
+            fastStarted.add(file.name)
         }
 
         override fun seal(source: File, dest: File, keyBase64: String) {
@@ -152,8 +160,7 @@ class PublishPipelineTest {
             )
         }
         return PublishJob(
-            id = id, ownerId = "me", createdAt = 1L, kind = if (video) "album" else "album",
-            aspectW = 4, aspectH = 5, mediaKey = "key", media = media,
+            id = id, ownerId = "me", createdAt = 1L, cardType = "oneshot", mediaKey = "key", media = media,
             ownCache = mapOf("0" to File(cache, "${id}_front.seal").path, "1" to File(cache, "${id}_back.seal").path, "101" to File(cache, "${id}_slot101.seal").path),
             cover = File(dir, "cover.jpg").apply { writeBytes(ByteArray(5)) }.path,
         ).also { store.save(it) }
@@ -180,7 +187,8 @@ class PublishPipelineTest {
         val body = remote.rpcBodies[0]
         assertTrue(body, body.contains("\"p_caption\":\"coucou\""))
         assertTrue(body, body.contains("\"p_is_public\":true"))
-        assertTrue(body, body.contains("\"p_kind\":\"album\""))
+        assertTrue(body, body.contains("\"p_kind\":\"card\""))
+        assertTrue("le type de la Vibe part tel quel", body.contains("\"p_card_type\":\"oneshot\""))
         assertTrue(body, body.contains("\"path\":\"me/item-1_0.jpg\""))
         assertTrue("le scellé est dans le cache de mes contenus", File(j.ownCache["0"]!!).exists())
         assertEquals("SEAL", File(j.ownCache["0"]!!).readBytes().copyOfRange(0, 4).decodeToString())
@@ -203,10 +211,45 @@ class PublishPipelineTest {
         assertFalse(File(j.media[1].source!!).exists())
         assertFalse(File(j.media[1].transcode!!.overlayPath!!).exists())
         assertEquals("trois fichiers déposés : photo, vidéo, couverture", 3, remote.creates)
+        assertEquals("l'index remis en tête sur la vidéo produite, et sur elle seule", listOf("v1.mp4"), tools.fastStarted)
         val body = remote.rpcBodies[0]
         assertTrue(body, body.contains("\"duration_ms\":4321"))
         assertTrue(body, body.contains("\"poster_path\":\"me/item-1_1_poster.jpg\""))
         assertTrue(File(j.ownCache["101"]!!).exists())
+    }
+
+    @Test
+    fun `une Vibe video - face finale, pas de transcodage, index en tete avant le scellage`() {
+        // Ce que le Dart dépose depuis le 2026-09-21 : une face vidéo déjà
+        // rendue (caméra ou éditeur), sans source ni paramètres, sans couverture.
+        val id = "vibe-1"
+        val dir = store.dir(id)
+        val face = File(dir, "face_0.mp4").apply { writeBytes(ByteArray(3000) { 3 }) }
+        val j = PublishJob(
+            id = id, ownerId = "me", createdAt = 1L, cardType = "standard", mediaKey = "key",
+            media = listOf(
+                PublishMedia(
+                    slot = 0, isVideo = true,
+                    file = PublishFile(0, face.path, "${face.path}.seal", "me/${id}_0.mp4"),
+                ),
+            ),
+            ownCache = mapOf("0" to File(root, "own/${id}_0.seal").path),
+        ).also { store.save(it) }
+        store.saveRelease(id, Release(isPublic = true))
+        val remote = FakeRemote()
+        assertTrue(pipeline(remote).process(j) is Wait.None)
+        val done = store.load(id)!!
+        assertEquals(PublishJob.DONE, done.phase)
+        assertEquals("rien à transcoder", 0, tools.transcodes)
+        assertEquals("l'index en tête, sur la face, avant le scellage", listOf("face_0.mp4"), tools.fastStarted)
+        assertNull("pas de durée : la capture ne la mesure pas", done.media[0].durationMs)
+        assertEquals("un seul fichier déposé : pas de couverture", 1, remote.creates)
+        val body = remote.rpcBodies[0]
+        assertTrue(body, body.contains("\"p_kind\":\"card\""))
+        assertTrue(body, body.contains("\"duration_ms\":null"))
+        assertTrue(body, body.contains("\"poster_path\":null"))
+        assertTrue(body, body.contains("\"width\":null"))
+        assertTrue(File(j.ownCache["0"]!!).exists())
     }
 
     @Test

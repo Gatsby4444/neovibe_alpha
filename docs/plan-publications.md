@@ -1,5 +1,11 @@
 # Plan — les publications à plusieurs médias (chantier B2, « l'album »)
 
+> 🔴 **SORTI DU MVP le 2026-09-21** (Jay : *« un éditeur pour un format : les
+> Vibes »*). Les albums et les Flows décrits ici ont été **retirés du code**
+> le même jour ; ce document décrit **ce qui a existé** (du 2026-09-15 au
+> 2026-09-21, tag `v0.9.236`), pas ce qui est. Où retrouver l'acquis et
+> comment le réintroduire : `docs/formats-mis-de-cote.md`.
+>
 > Écrit le 2026-09-15 après la spécification de Jay (rapport
 > `rapports-de-sessions/2026-09-15_00-34.md` §3), sur carte blanche :
 > *« tu fais tout à fond et comme Instagram, la seule différence sera

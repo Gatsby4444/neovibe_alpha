@@ -12,7 +12,8 @@ import 'pending_publications.dart';
 import 'publications_tabs.dart';
 import 'profile_edit_screen.dart';
 import 'profile_header.dart';
-import 'publish_choice_sheet.dart';
+import '../../core/motion.dart';
+import '../cards/card_capture_screen.dart';
 
 /// Mon profil (consigne Jay 2026-07-12) : PP + username en haut, stats, bio,
 /// puis la bibliothèque PUBLIQUE (partagée avec les amis). La bibliothèque
@@ -152,14 +153,19 @@ class ProfileScreen extends ConsumerWidget {
                         ),
                       ),
                     ),
-                    // Publier : une Vibe (notre caméra) ou des photos / vidéos
-                    // (l'éditeur). Le bouton du « deck » vivait ici — le deck
-                    // est supprimé (Jay, 2026-09-15), et l'import direct d'une
-                    // photo qu'ouvrait le bouton flottant passe par l'éditeur.
+                    // Publier une Vibe : notre caméra, restreinte à la
+                    // publication (pas de story, pas d'amis : la destination
+                    // est imposée). Un seul format depuis le 2026-09-21 —
+                    // plus de choix entre Vibe, photos/vidéos et Flow.
                     IconButton(
                       icon: const Icon(Icons.add_box_outlined),
-                      tooltip: 'Publier',
-                      onPressed: () => showPublishChoice(context),
+                      tooltip: 'Publier une Vibe',
+                      onPressed: () => Navigator.of(context).push(
+                        NeoFadeRoute(
+                          builder: (_) =>
+                              const CardCaptureScreen(publicationOnly: true),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -176,15 +182,16 @@ class ProfileScreen extends ConsumerWidget {
                 data: (list) => PublicationsTabs(
                   items: list,
                   pending: pending,
-                  feedTitle: 'Publications',
                   emptyMessage:
-                      'Ta bibliothèque est vide.\nPublie une Vibe ou ajoute '
-                      'une photo : ici, ça reste.',
+                      'Ta bibliothèque est vide.\nPublie une Vibe : ici, ça '
+                      'reste.',
                   onLongPress: (item) async {
                     final delete = await showDialog<bool>(
                       context: context,
                       builder: (context) => AlertDialog(
-                        title: const Text('Retirer de la bibliothèque ?'),
+                        title: const Text(
+                          'Retirer cette Vibe de la bibliothèque ?',
+                        ),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(context, false),

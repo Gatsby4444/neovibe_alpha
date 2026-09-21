@@ -28,15 +28,18 @@ enum FeedMode {
   };
 }
 
-/// Ce qu'on demande au serveur : une nature (nulle = toutes), un mode, et
-/// où je suis (nul = pas de source « autour »).
-typedef FeedQuery = ({LibraryKind? kind, FeedMode mode, ContentAnchor? at});
+/// Ce qu'on demande au serveur : un mode, et où je suis (nul = pas de
+/// source « autour »). La nature est toujours la Vibe (`kLibraryKindVibe`) :
+/// une seule depuis le 2026-09-21, dite positivement au serveur.
+typedef FeedQuery = ({FeedMode mode, ContentAnchor? at});
 
 /// **Le feed** — la fonction `feed_items` du serveur, telle quelle : les
 /// candidats des trois sources, déjà filtrés par le seul juge des droits,
 /// ordonnés par `feed_rank` (aujourd'hui le plus récent d'abord ; la
 /// pertinence se branchera là-bas, pas ici). Les lignes sont des
-/// `library_items` avec leurs médias : le même modèle que le profil.
+/// `library_items` avec leurs médias : le même modèle que le profil — et
+/// **que des Vibes** (Jay, 2026-09-21 : *« le feed reste mais ce sera que
+/// des vibes »*).
 final feedItemsProvider = FutureProvider.family<List<LibraryItem>, FeedQuery>((
   ref,
   q,
@@ -46,7 +49,7 @@ final feedItemsProvider = FutureProvider.family<List<LibraryItem>, FeedQuery>((
       .rpc(
         'feed_items',
         params: {
-          'p_kind': q.kind?.dbValue,
+          'p_kind': kLibraryKindVibe,
           'p_mode': q.mode.rpcValue,
           'p_lat': q.at?.lat,
           'p_lng': q.at?.lng,

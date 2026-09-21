@@ -23,8 +23,7 @@ Future<StickerOverlay?> pickSticker(BuildContext context) async {
   final pick = await Navigator.of(context).push<GalleryPick>(
     MaterialPageRoute(
       fullscreenDialog: true,
-      builder: (_) =>
-          const GalleryScreen(max: 1, single: true, allowCamera: false),
+      builder: (_) => const GalleryScreen(max: 1, single: true),
     ),
   );
   if (pick == null || pick.entries.isEmpty) return null;

@@ -1,82 +1,16 @@
 import 'card.dart';
 
-/// Le format d'un contenu de bibliothèque.
-///
-/// Les trois obéissent aux **mêmes règles de diffusion** — même audience,
-/// permanents, aucune limite de vues, mêmes droits portés par `contents` :
-/// c'est pourquoi ils partagent l'en-tête `library_items` (règle 2 de
-/// `CLAUDE.md` : ce qui partage une table partage ses règles). Ce qui change,
-/// c'est **comment on les fait et comment on les regarde**.
-/// Détail : `docs/plan-publications.md` §2 et §9.9.
-enum LibraryKind {
-  /// Une ou deux faces (places 0 et 1), au format Card : **une Vibe**. Elle
-  /// se retourne, et c'est notre format.
-  card,
+/// **Le seul format de la bibliothèque : la Vibe** (`library_items.kind =
+/// 'card'`). Les albums (`album`) et les Flows (`flow`) ont existé du
+/// 2026-09-15 au 2026-09-21 et sont sortis du MVP (Jay : *« un éditeur pour
+/// un format »*) ; la base garde son énumération à trois valeurs, l'app
+/// n'écrit et ne lit que celle-ci — `LibraryRepository` et `feed_items`
+/// filtrent sur elle, positivement.
+const kLibraryKindVibe = 'card';
 
-  /// De 1 à 20 médias, photos et vidéos mêlées, à un ratio commun. Le mot
-  /// n'apparaît pas dans l'interface : on dit « publication ».
-  album,
-
-  /// **Un Flow** : une vidéo publiée SEULE (Jay, 2026-09-17). Instagram
-  /// requalifie une vidéo seule en Reel ; nous en faisons un Flow, qui se
-  /// regarde **comme une publication, à son format** — et non en plein écran
-  /// vertical (tranché par Jay). Il a son propre `kind` parce qu'il n'a pas
-  /// les mêmes règles de composition qu'un album : exactement une vidéo, ni
-  /// plus ni moins. C'est aussi ce qui permettra de les rassembler dans un
-  /// fil.
-  flow;
-
-  static LibraryKind fromDb(String value) => switch (value) {
-    'album' => LibraryKind.album,
-    'flow' => LibraryKind.flow,
-    _ => LibraryKind.card,
-  };
-
-  String get dbValue => name;
-
-  /// Tout ce qui n'est pas une Vibe : ça se feuillette, ça porte une légende,
-  /// ça a un ratio.
-  bool get isPublication => this != LibraryKind.card;
-}
-
-/// Le ratio d'un album, commun à tous ses médias.
-///
-/// **Un seul est proposé : [tall], 3:4** — « vertical comme sur Instagram »,
-/// tranché par Jay le 2026-09-15 après le test de la v0.9.185. Les trois
-/// autres restent lisibles pour les albums publiés avant (le visionneur
-/// affiche chaque album à SON ratio), mais l'éditeur ne les offre plus.
-enum AlbumAspect {
-  tall(3, 4, '3:4'),
-  square(1, 1, '1:1'),
-  portrait(4, 5, '4:5'),
-  landscape(191, 100, '1.91:1'),
-
-  /// **Le format d'un Flow édité comme tel** : vertical plein écran, comme un
-  /// Reel (Jay, 2026-09-18). Jamais proposé pour une publication.
-  reel(9, 16, '9:16');
-
-  const AlbumAspect(this.w, this.h, this.label);
-
-  /// Les deux entiers stockés en base (`aspect_w`, `aspect_h`).
-  final int w;
-  final int h;
-  final String label;
-
-  double get ratio => w / h;
-
-  static AlbumAspect? fromDb(int? w, int? h) {
-    for (final a in values) {
-      if (a.w == w && a.h == h) return a;
-    }
-    return null;
-  }
-}
-
-/// Un média d'une publication, à sa place.
-///
-/// Une Card : place 0 = recto, place 1 = verso. Un album : de 0 à 10.
-/// Tous les médias d'une publication sont scellés avec **la même clé**
-/// (`content_media_keys`, une ligne par contenu).
+/// Un média d'une publication, à sa place : place 0 = recto, place 1 =
+/// verso. Les deux sont scellés avec **la même clé** (`content_media_keys`,
+/// une ligne par contenu).
 class LibraryMedia {
   const LibraryMedia({
     required this.slot,
@@ -92,11 +26,13 @@ class LibraryMedia {
   final String path;
   final bool isVideo;
 
-  /// Vidéo : sa durée en millisecondes (≤ 60 000 pour un album).
+  /// Vidéo : sa durée en millisecondes. Nulle pour une face de Vibe (la
+  /// capture ne la mesure pas).
   final int? durationMs;
 
-  /// Vidéo d'album : son image de couverture, scellée avec la même clé.
-  /// Nul pour les vidéos de Card (leur vignette reste une icône — `RAPPELS.md` #4).
+  /// Une image de couverture, scellée avec la même clé. Nulle pour une face
+  /// de Vibe (sa vignette reste une icône — `RAPPELS.md` #4) ; la colonne
+  /// reste en base.
   final String? posterPath;
 
   final int? width;
@@ -140,10 +76,9 @@ class LibraryMedia {
 /// Désormais une publication porte ses propres médias dans le bucket
 /// `library`, avec une seule règle d'accès. Son [id] **est** le Content ID.
 ///
-/// **Depuis le 2026-09-15, les médias sont une LISTE** (`library_media`), pour
-/// les deux formats : une Card y a ses faces aux places 0 et 1, un album ses
-/// 1 à 11 médias. [frontPath], [backPath] et compagnie sont des lectures
-/// dérivées des places 0 et 1 — les écrans Card n'ont rien eu à réapprendre.
+/// **Depuis le 2026-09-15, les médias sont une LISTE** (`library_media`) :
+/// une Vibe y a ses faces aux places 0 et 1. [frontPath], [backPath] et
+/// compagnie sont des lectures dérivées de ces deux places.
 ///
 /// **Permanente** : aucune date d'expiration (décision de Jay du 2026-08-11,
 /// « c'est ce qui a toujours été décidé »).
@@ -153,11 +88,8 @@ class LibraryItem {
     required this.ownerId,
     required this.media,
     required this.createdAt,
-    this.kind = LibraryKind.card,
     this.cardType = CardType.standard,
-    this.aspect,
     this.caption,
-    this.captionFont,
     this.isPublic = false,
     this.shareable = false,
     this.saveable = false,
@@ -169,25 +101,15 @@ class LibraryItem {
   final String id;
   final String ownerId;
 
-  final LibraryKind kind;
-
-  /// Le type de Card. Pour un album, la base garde le défaut `standard` : il
-  /// ne sert qu'à l'habillage commun de la grille (liseré), jamais à une règle.
+  /// Le type de Vibe (standard, oneshot, bereal).
   final CardType cardType;
-
-  /// Le ratio d'un album ; nul pour une Card.
-  final AlbumAspect? aspect;
 
   /// Les médias, **triés par place**. Jamais vide.
   final List<LibraryMedia> media;
 
+  /// Une Vibe n'a pas de description (Jay, 2026-09-17) : nulle aujourd'hui,
+  /// la colonne reste en base.
   final String? caption;
-
-  /// **La police choisie par l'auteur** pour sa légende (le nom d'une
-  /// [OverlayFont]), nulle = celle du texte courant. Jay, 2026-09-17 :
-  /// *« ce serait bien de pouvoir choisir la police d'écriture de la
-  /// description »* — et c'est l'auteur qui choisit, à la publication.
-  final String? captionFont;
 
   /// Publication publique : visible par toute personne accédant au profil
   /// par un moyen légitime (un rang au-dessus de « connexions »).
@@ -209,17 +131,7 @@ class LibraryItem {
 
   final DateTime createdAt;
 
-  bool get isAlbum => kind == LibraryKind.album;
-
-  /// Une vidéo publiée seule (voir [LibraryKind.flow]).
-  bool get isFlow => kind == LibraryKind.flow;
-
-  /// **Ce qui se regarde comme une publication** : un album ou un Flow.
-  /// C'est ce prédicat que l'affichage doit lire, jamais [isAlbum] — sans
-  /// quoi un Flow serait dessiné comme une Vibe, c'est-à-dire pas du tout.
-  bool get isPublication => kind.isPublication;
-
-  // ── Lectures dérivées pour le format Card (places 0 et 1) ──────────────
+  // ── Lectures dérivées : les faces (places 0 et 1) ──────────────────────
 
   LibraryMedia get front => media.first;
   LibraryMedia? get back => media.length > 1 ? media[1] : null;
@@ -229,8 +141,7 @@ class LibraryItem {
   bool get frontIsVideo => front.isVideo;
   bool get backIsVideo => back?.isVideo ?? false;
 
-  /// Null = publication à face unique (une photo importée, ou une Vibe dont le
-  /// verso a été passé à la prise).
+  /// Null = Vibe à face unique (le verso a été passé à la prise).
   bool get hasBack => back != null;
 
   factory LibraryItem.fromJson(Map<String, dynamic> json) {
@@ -243,15 +154,9 @@ class LibraryItem {
     return LibraryItem(
       id: json['id'] as String,
       ownerId: json['owner_id'] as String,
-      kind: LibraryKind.fromDb(json['kind'] as String? ?? 'card'),
       cardType: CardType.fromDb(json['card_type'] as String),
-      aspect: AlbumAspect.fromDb(
-        json['aspect_w'] as int?,
-        json['aspect_h'] as int?,
-      ),
       media: rows,
       caption: json['caption'] as String?,
-      captionFont: json['caption_font'] as String?,
       isPublic: json['is_public'] as bool? ?? false,
       shareable:
           (json['contents'] as Map<String, dynamic>?)?['shareable'] as bool? ??
@@ -287,36 +192,14 @@ class LibraryItem {
       other is LibraryItem &&
       other.id == id &&
       other.ownerId == ownerId &&
-      other.kind == kind &&
       other.cardType == cardType &&
-      other.aspect == aspect &&
       _sameMedia(other.media, media) &&
       other.caption == caption &&
-      other.captionFont == captionFont &&
       other.isPublic == isPublic &&
       other.shareable == shareable &&
       other.saveable == saveable &&
       other.encrypted == encrypted &&
       other.createdAt == createdAt;
-
-  /// La même publication avec une autre légende — ce que « Modifier la
-  /// description » rend aux écrans qui tiennent une copie de la liste.
-  LibraryItem withCaption({String? caption, String? captionFont}) =>
-      LibraryItem(
-        id: id,
-        ownerId: ownerId,
-        media: media,
-        createdAt: createdAt,
-        kind: kind,
-        cardType: cardType,
-        aspect: aspect,
-        caption: caption,
-        captionFont: captionFont,
-        isPublic: isPublic,
-        shareable: shareable,
-        saveable: saveable,
-        encrypted: encrypted,
-      );
 
   static bool _sameMedia(List<LibraryMedia> a, List<LibraryMedia> b) {
     if (a.length != b.length) return false;
@@ -330,12 +213,9 @@ class LibraryItem {
   int get hashCode => Object.hash(
     id,
     ownerId,
-    kind,
     cardType,
-    aspect,
     Object.hashAll(media),
     caption,
-    captionFont,
     isPublic,
     shareable,
     saveable,

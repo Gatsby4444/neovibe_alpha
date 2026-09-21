@@ -6,26 +6,22 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../../../core/typography.dart';
-import '../../cards/native_media.dart';
-import 'album_draft.dart';
+import '../native_media.dart';
+import 'media_edit.dart';
 import 'color_grade.dart';
 import 'editor_images.dart';
 import 'editor_theme.dart';
 import 'grade_shader.dart';
 import 'overlay_model.dart';
 
-/// **Les panneaux de l'éditeur** — communs à l'éditeur d'album / Flow
-/// (`AlbumEditorScreen`) et à celui des Vibes (`VibeEditorScreen`,
-/// 2026-09-18 : *« inspire-toi de celui qu'on a créé pour les Flows »*).
-///
-/// Sortis de `album_editor_screen.dart` tels quels le 2026-09-18 : un seul
-/// chemin pour un réglage. Si un filtre, un curseur ou la découpe change,
-/// il change pour les deux éditeurs — deux copies auraient divergé au
-/// premier réglage. Ce qui reste propre à l'album (la bande des médias, le
-/// choix du format) n'est pas ici.
+/// **Les panneaux de l'éditeur de Vibes** (`VibeEditorScreen`) — écrits
+/// d'abord pour l'éditeur d'album (2026-09-15), repris tels quels par celui
+/// des Vibes le 2026-09-18 (Jay : *« inspire-toi de celui qu'on a créé pour
+/// les Flows »*). Les albums et les Flows sont sortis du MVP le 2026-09-21 ;
+/// les panneaux restent, avec un seul éditeur.
 
 /// Les outils de la barre du bas.
-enum EditorTool { texte, sticker, filtre, modifier, cadrer, rogner }
+enum EditorTool { texte, sticker, filtre, modifier, rogner }
 
 // ---------------------------------------------------------------------------
 // Les outils de texte, pendant l'écriture sur l'image
@@ -226,17 +222,9 @@ class _TextToolButton extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class EditorToolbar extends StatelessWidget {
-  const EditorToolbar({
-    super.key,
-    required this.video,
-    required this.onTool,
-    this.format = true,
-  });
+  const EditorToolbar({super.key, required this.video, required this.onTool});
 
   final bool video;
-
-  /// L'outil Format (le ratio de la publication). Absent pour un Flow.
-  final bool format;
   final ValueChanged<EditorTool> onTool;
 
   @override
@@ -247,7 +235,6 @@ class EditorToolbar extends StatelessWidget {
       (EditorTool.sticker, Icons.emoji_emotions_outlined, 'Superposition'),
       (EditorTool.filtre, Icons.auto_awesome_outlined, 'Filtre'),
       (EditorTool.modifier, Icons.tune, 'Modifier'),
-      if (format) (EditorTool.cadrer, Icons.crop, 'Format'),
       if (video) (EditorTool.rogner, Icons.content_cut, 'Rogner'),
     ];
     return SafeArea(
@@ -376,9 +363,9 @@ class FilterPanel extends StatefulWidget {
     required this.onChanged,
   });
 
-  final AlbumDraftMedia media;
+  final MediaEdit media;
   final EditorImages images;
-  final void Function(AlbumFilter filter, double strength) onChanged;
+  final void Function(MediaFilter filter, double strength) onChanged;
 
   @override
   State<FilterPanel> createState() => _FilterPanelState();
@@ -405,7 +392,7 @@ class _FilterPanelState extends State<FilterPanel> {
       children: [
         SizedBox(
           height: 44,
-          child: _tuning && m.filter != AlbumFilter.normal
+          child: _tuning && m.filter != MediaFilter.normal
               ? Row(
                   children: [
                     const SizedBox(width: NeoSpace.lg),
@@ -428,7 +415,7 @@ class _FilterPanelState extends State<FilterPanel> {
                 )
               : Center(
                   child: Text(
-                    m.filter == AlbumFilter.normal
+                    m.filter == MediaFilter.normal
                         ? 'Choisis un filtre'
                         : 'Appuie à nouveau pour ajuster',
                     style: TextStyle(color: c.inkFaint, fontSize: 12),
@@ -439,9 +426,9 @@ class _FilterPanelState extends State<FilterPanel> {
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: NeoSpace.md),
-            itemCount: AlbumFilter.values.length,
+            itemCount: MediaFilter.values.length,
             itemBuilder: (context, i) {
-              final f = AlbumFilter.values[i];
+              final f = MediaFilter.values[i];
               final selected = f == m.filter;
               return GestureDetector(
                 onTap: () {
@@ -527,7 +514,7 @@ enum _Knob {
   final double min;
   final double max;
 
-  double of(AlbumDraftMedia m) => switch (this) {
+  double of(MediaEdit m) => switch (this) {
     straighten => m.crop.angle,
     lux => m.adjust.lux,
     brightness => m.adjust.brightness,
@@ -570,7 +557,7 @@ class AdjustPanel extends StatefulWidget {
     required this.onCrop,
   });
 
-  final AlbumDraftMedia media;
+  final MediaEdit media;
   final ValueChanged<ColorGrade> onAdjust;
   final ValueChanged<CropSpec> onCrop;
 
@@ -710,13 +697,13 @@ class TrimPanel extends StatefulWidget {
     super.key,
     required this.media,
     required this.onTrim,
-    this.maxMs = kAlbumMaxVideoMs,
+    this.maxMs = kMaxFaceVideoMs,
   });
 
-  final AlbumDraftMedia media;
+  final MediaEdit media;
   final ValueChanged<VideoTrim> onTrim;
 
-  /// Une minute pour une publication, trois pour un Flow.
+  /// Une face vidéo dure au plus une minute.
   final int maxMs;
 
   @override
@@ -738,7 +725,7 @@ class _TrimPanelState extends State<TrimPanel> {
     _debounce = Timer(const Duration(milliseconds: 350), () async {
       final temp = await getTemporaryDirectory();
       final dest = File(
-        '${temp.path}/album_cover_${widget.media.id}_${t.coverMs}.jpg',
+        '${temp.path}/face_cover_${widget.media.id}_${t.coverMs}.jpg',
       );
       final ok = await NativeMedia.videoThumbnail(
         source: widget.media.source.path,

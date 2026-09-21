@@ -18,7 +18,7 @@ import java.util.concurrent.Executors
  * | méthode | ce qu'elle fait |
  * |---|---|
  * | `configure` | dépose la session (url, clé publique, jeton) — à chaque connexion et renouvellement |
- * | `jobDir` | le dossier de travail d'une publication, où le Dart rend ses photos |
+ * | `jobDir` | le dossier de travail d'une publication, où le Dart copie les faces et la couverture |
  * | `enqueue` | dépose une publication (le JSON de [PublishJob]) et réveille le service |
  * | `release` | « Publier » : la légende et les droits ; le service inscrit quand tout est déposé |
  * | `cancel` | l'utilisateur est revenu en arrière : le travail s'arrête, le dossier s'efface |
@@ -102,7 +102,6 @@ class PublishBridge(
                         id,
                         Release(
                             caption = call.argument<String>("caption"),
-                            captionFont = call.argument<String>("captionFont"),
                             isPublic = call.argument<Boolean>("isPublic") ?: false,
                             shareable = call.argument<Boolean>("shareable") ?: false,
                             saveable = call.argument<Boolean>("saveable") ?: false,

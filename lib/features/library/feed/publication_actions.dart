@@ -17,24 +17,21 @@ import '../../cards/send/share_context.dart';
 import '../../cards/send/share_plan.dart';
 import '../library_repository.dart';
 import '../open_profile.dart';
-import 'edit_caption_sheet.dart';
 import '../../connections/connections_repository.dart';
 
-/// **Les actions d'une publication** — aimer, enregistrer, partager, et le
+/// **Les actions d'une Vibe publiée** — aimer, enregistrer, partager, et le
 /// menu « … ».
 ///
-/// Trois poses, le même contenu :
-/// - **à plat et resserré**, dans l'en-tête d'une cellule de **Vibe** du fil,
-///   sur la ligne de l'avatar et du pseudo (Jay, 2026-09-16 : sous la carte,
-///   la cellule ne tenait plus dans un écran) ;
+/// Deux poses, le même contenu :
+/// - **à plat et resserré**, sur la ligne de l'avatar et du pseudo (Jay,
+///   2026-09-16 : sous la carte, la cellule ne tenait plus dans un écran) ;
 /// - **en colonne**, sur la carte en plein écran, à droite — donc *dans* la
 ///   carte : elles s'inclinent et se retournent avec elle, et les deux faces
 ///   portent les mêmes, dans les mêmes états (ces états viennent des
-///   providers, pas du widget : ils ne peuvent pas diverger) ;
-/// - **en barre** ([bar]), sous le média d'une **publication** ou d'un
-///   **Flow** dans le fil, comme sur Instagram (Jay, 2026-09-19) : aimer et
-///   partager à gauche, enregistrer à droite — et **pas de menu**, qui vit
-///   alors dans l'en-tête ([PublicationMenu]).
+///   providers, pas du widget : ils ne peuvent pas diverger).
+///
+/// (La pose « en barre » sous le média, façon Instagram, servait aux albums
+/// et aux Flows — sortis du MVP le 2026-09-21.)
 ///
 /// ⚠️ **Plus de corbeille dans la barre** : « Retirer » vit dans le menu,
 /// avec les options du même genre à venir (Jay, 2026-09-16).
@@ -50,17 +47,14 @@ class PublicationActions extends ConsumerWidget {
     this.saveBackIsVideo = false,
     this.vertical = false,
     this.dense = false,
-    this.bar = false,
     this.color,
     this.onDeleted,
-    this.onChanged,
   });
 
   final LibraryItem item;
   final bool mine;
 
-  /// Ce que « Enregistrer » copie : pour une Card ses deux faces, pour un
-  /// album le média affiché (clé locale composée `id#place`).
+  /// Ce que « Enregistrer » copie : les deux faces.
   final String saveId;
   final OpenedMedia? saveFront;
   final OpenedMedia? saveBack;
@@ -70,12 +64,8 @@ class PublicationActions extends ConsumerWidget {
   /// En colonne (plein écran) plutôt qu'à plat.
   final bool vertical;
 
-  /// Resserré : l'en-tête d'une cellule du fil (voir [ActionMetrics]).
+  /// Resserré (voir [ActionMetrics]).
   final bool dense;
-
-  /// La barre sous le média, façon Instagram : aimer · partager … enregistrer,
-  /// sans menu.
-  final bool bar;
 
   /// La couleur des icônes ; par défaut l'encre du thème.
   final Color? color;
@@ -83,11 +73,6 @@ class PublicationActions extends ConsumerWidget {
   /// Après « Retirer » : l'écran qui nous contient décide (fermer, ou
   /// retirer la cellule).
   final VoidCallback? onDeleted;
-
-  /// Après « Modifier la description » : la publication mise à jour, pour
-  /// l'écran qui tient une copie de la liste. Le dépôt a déjà invalidé la
-  /// grille ; ici, c'est l'exemplaire à l'écran qu'on remplace.
-  final ValueChanged<LibraryItem>? onChanged;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -119,12 +104,6 @@ class PublicationActions extends ConsumerWidget {
             onPressed: () => _share(context, ref),
           )
         : null;
-    if (bar) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: NeoSpace.xs),
-        child: Row(children: [like, ?share, const Spacer(), save]),
-      );
-    }
     final children = [
       like,
       save,
@@ -135,7 +114,6 @@ class PublicationActions extends ConsumerWidget {
         color: ink,
         dense: dense,
         onDeleted: onDeleted,
-        onChanged: onChanged,
       ),
     ];
     return vertical
@@ -173,10 +151,8 @@ class PublicationActions extends ConsumerWidget {
   }
 }
 
-/// **Le menu « … » d'une publication** : Modifier la description / Retirer
-/// pour la mienne, Signaler / Bloquer pour celle d'autrui. À part de la barre
-/// d'actions depuis le 2026-09-19 : dans le fil, il vit dans l'en-tête
-/// (comme sur Instagram) tandis que les actions sont sous le média.
+/// **Le menu « … » d'une publication** : Retirer pour la mienne, Signaler /
+/// Bloquer pour celle d'autrui.
 class PublicationMenu extends ConsumerWidget {
   const PublicationMenu({
     super.key,
@@ -185,7 +161,6 @@ class PublicationMenu extends ConsumerWidget {
     required this.color,
     this.dense = false,
     this.onDeleted,
-    this.onChanged,
   });
 
   final LibraryItem item;
@@ -193,7 +168,6 @@ class PublicationMenu extends ConsumerWidget {
   final Color color;
   final bool dense;
   final VoidCallback? onDeleted;
-  final ValueChanged<LibraryItem>? onChanged;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => ContentOverflowMenu(
@@ -202,17 +176,9 @@ class PublicationMenu extends ConsumerWidget {
     color: color,
     dense: dense,
     mine: mine,
-    onRemove: mine ? () => _confirmDelete(context, ref) : null,
     // Une Vibe n'a pas de description (Jay, 2026-09-17) : rien à modifier.
-    onEditCaption: mine && item.isPublication
-        ? () => _editCaption(context, ref)
-        : null,
+    onRemove: mine ? () => _confirmDelete(context, ref) : null,
   );
-
-  Future<void> _editCaption(BuildContext context, WidgetRef ref) async {
-    final updated = await showEditCaptionSheet(context, item);
-    if (updated != null) onChanged?.call(updated);
-  }
 
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
     final delete = await showDialog<bool>(

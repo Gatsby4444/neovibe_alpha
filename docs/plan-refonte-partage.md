@@ -1,5 +1,9 @@
 # Plan — refonte du partage d'une Vibe, et le nouveau point d'entrée « publication »
 
+> ⚠️ **Le chantier B (le point d'entrée « publication », §6–§7) est sorti du
+> MVP le 2026-09-21** avec les albums et les Flows (`docs/formats-mis-de-cote.md`).
+> Le chantier A (le partage d'une Vibe) reste ce qui est construit.
+>
 > Écrit le 2026-09-13 sur demande de Jay (*« revoir le système de partage d'une
 > card/vibe […] d'abord dresse un plan de la refonte. L'architecture je la
 > validerai »*), **révisé le 2026-09-14** avec sa vision plus claire (deux

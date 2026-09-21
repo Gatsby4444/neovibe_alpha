@@ -1,56 +1,43 @@
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../../../core/models/library_item.dart';
 import '../../../../core/typography.dart';
 import '../editor_theme.dart';
+import '../media_edit.dart';
 import 'album_sheet.dart';
 import 'gallery_feed.dart';
-import 'gallery_import.dart';
 import 'native_gallery.dart';
 
-/// **« Nouvelle publication »** — la galerie du téléphone dans l'app, comme
-/// Instagram : un grand aperçu du média en cours, et la grille des récents
-/// dans un **panneau qu'on tire vers le haut** (jusqu'à 4/5 de l'écran —
-/// retour de Jay : *« très désagréable de voir que 2 lignes à peine en bas »*).
-/// Sélection **numérotée** (l'ordre de sélection est l'ordre de l'album),
-/// l'appareil photo en première case.
+/// **La galerie du téléphone dans l'app**, comme Instagram : un grand aperçu
+/// du média en cours, et la grille des récents dans un **panneau qu'on tire
+/// vers le haut** (jusqu'à 4/5 de l'écran — retour de Jay : *« très
+/// désagréable de voir que 2 lignes à peine en bas »*). Sélection
+/// **numérotée** (l'ordre de sélection est l'ordre de sortie).
 ///
-/// Rend un [GalleryPick] : les [GalleryEntry] retenus dans l'ordre, ou un
-/// fichier pris à l'appareil photo ; nul si l'utilisateur renonce. [max]
-/// borne la sélection ; [single] pour un seul média (l'autocollant image).
+/// Écrite pour l'éditeur d'album (2026-09-15), sorti du MVP le 2026-09-21 ;
+/// elle sert aujourd'hui à **l'autocollant image** de l'éditeur de Vibes
+/// ([single]), et servira le jour où la Vibe accepte des vidéos importées.
+///
+/// Rend un [GalleryPick] : les [GalleryEntry] retenus dans l'ordre ; nul si
+/// l'utilisateur renonce. [max] borne la sélection ; [single] pour un seul
+/// média.
 ///
 /// L'écran ne parle pas au natif : [GalleryFeed] lui donne les pages et les
 /// vignettes (les visibles d'abord), et ne sait rien de la sélection.
 class GalleryScreen extends StatefulWidget {
-  const GalleryScreen({
-    super.key,
-    required this.max,
-    this.single = false,
-    this.allowCamera = true,
-    this.videosOnly = false,
-  });
+  const GalleryScreen({super.key, required this.max, this.single = false});
 
   final int max;
   final bool single;
-
-  /// Un Flow ne se fait qu'avec une vidéo : la galerie s'ouvre sur les
-  /// vidéos, et n'offre pas les photos.
-  final bool videosOnly;
-
-  /// L'appareil photo en première case de la grille.
-  final bool allowCamera;
 
   @override
   State<GalleryScreen> createState() => _GalleryScreenState();
 }
 
 class _GalleryScreenState extends State<GalleryScreen> {
-  late final _feed = GalleryFeed()
-    ..filter = widget.videosOnly ? GalleryFilter.videos : GalleryFilter.tout;
+  late final _feed = GalleryFeed();
   final _selected = <GalleryEntry>[];
   GalleryEntry? _shown;
   var _permission = _Permission.pending;
@@ -96,12 +83,6 @@ class _GalleryScreenState extends State<GalleryScreen> {
     });
   }
 
-  Future<void> _camera() async {
-    final f = await GalleryImport.capture(context);
-    if (f == null || !mounted) return;
-    Navigator.of(context).pop(GalleryPick.file(f));
-  }
-
   void _tap(GalleryEntry e) {
     setState(() {
       _shown = e;
@@ -120,7 +101,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${widget.max} média${widget.max > 1 ? 's' : ''} au plus par publication.',
+              '${widget.max} média${widget.max > 1 ? 's' : ''} au plus.',
             ),
           ),
         );
@@ -173,14 +154,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
         _Permission.denied => _Denied(onRetry: _askPermission),
         _Permission.granted => Stack(
           children: [
-            // L'aperçu, derrière le panneau : au ratio de la publication,
-            // et il reste visible au-dessus du panneau replié.
+            // L'aperçu, derrière le panneau : au format d'une Vibe, et il
+            // reste visible au-dessus du panneau replié.
             Positioned(
               left: 0,
               right: 0,
               top: 0,
               child: AspectRatio(
-                aspectRatio: AlbumAspect.portrait.ratio,
+                aspectRatio: MediaAspect.reel.ratio,
                 child: _Preview(feed: _feed, entry: _shown, canvas: c.canvas),
               ),
             ),
@@ -228,34 +209,23 @@ class _GalleryScreenState extends State<GalleryScreen> {
                                 mainAxisSpacing: 2,
                                 crossAxisSpacing: 2,
                               ),
-                          delegate: SliverChildBuilderDelegate(
-                            (context, i) {
-                              if (widget.allowCamera) {
-                                if (i == 0) {
-                                  return _CameraTile(onTap: _camera);
-                                }
-                                i -= 1;
-                              }
-                              // Une page de plus quand on approche de la fin.
-                              if (i >= _feed.entries.length - 16) {
-                                _feed.loadMore();
-                              }
-                              final e = _feed.entries[i];
-                              final rank = _selected.indexOf(e);
-                              return _Tile(
-                                feed: _feed,
-                                entry: e,
-                                rank: rank < 0 ? null : rank + 1,
-                                shown: e == _shown,
-                                single: widget.single,
-                                accent: c.accent,
-                                onTap: () => _tap(e),
-                              );
-                            },
-                            childCount:
-                                _feed.entries.length +
-                                (widget.allowCamera ? 1 : 0),
-                          ),
+                          delegate: SliverChildBuilderDelegate((context, i) {
+                            // Une page de plus quand on approche de la fin.
+                            if (i >= _feed.entries.length - 16) {
+                              _feed.loadMore();
+                            }
+                            final e = _feed.entries[i];
+                            final rank = _selected.indexOf(e);
+                            return _Tile(
+                              feed: _feed,
+                              entry: e,
+                              rank: rank < 0 ? null : rank + 1,
+                              shown: e == _shown,
+                              single: widget.single,
+                              accent: c.accent,
+                              onTap: () => _tap(e),
+                            );
+                          }, childCount: _feed.entries.length),
                         ),
                       ),
                       if (_feed.isLoading)
@@ -287,13 +257,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
 enum _Permission { pending, granted, denied }
 
-/// Ce que l'écran rend : des médias de la galerie, ou un fichier pris à
-/// l'appareil photo.
+/// Ce que l'écran rend : des médias de la galerie, dans l'ordre choisi.
 class GalleryPick {
-  const GalleryPick.entries(this.entries) : file = null;
-  const GalleryPick.file(this.file) : entries = const [];
+  const GalleryPick.entries(this.entries);
   final List<GalleryEntry> entries;
-  final File? file;
 }
 
 class _SheetHeader extends StatelessWidget {
@@ -603,23 +570,6 @@ class _ThumbState extends State<_Thumb> {
       );
     }
     return ColoredBox(color: c.raised);
-  }
-}
-
-class _CameraTile extends StatelessWidget {
-  const _CameraTile({required this.onTap});
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final c = EditorColors.of(context);
-    return GestureDetector(
-      onTap: onTap,
-      child: ColoredBox(
-        color: c.raised,
-        child: Icon(Icons.photo_camera_outlined, color: c.ink),
-      ),
-    );
   }
 }
 

@@ -4,21 +4,18 @@ import 'dart:math' as math;
 import 'package:vector_math/vector_math_64.dart' show Vector3;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:neovibe/features/library/album_editor/album_draft.dart';
-import 'package:neovibe/features/library/album_editor/crop_geometry.dart';
+import 'package:neovibe/features/cards/editor/media_edit.dart';
+import 'package:neovibe/features/cards/editor/crop_geometry.dart';
 
-AlbumDraftMedia photo({
-  int w = 3000,
-  int h = 4000,
-  CropSpec crop = CropSpec.none,
-}) => AlbumDraftMedia(
-  id: 'p',
-  source: File('/tmp/p.jpg'),
-  isVideo: false,
-  srcWidth: w,
-  srcHeight: h,
-  crop: crop,
-);
+MediaEdit photo({int w = 3000, int h = 4000, CropSpec crop = CropSpec.none}) =>
+    MediaEdit(
+      id: 'p',
+      source: File('/tmp/p.jpg'),
+      isVideo: false,
+      srcWidth: w,
+      srcHeight: h,
+      crop: crop,
+    );
 
 void main() {
   group('CropGeometry.inscribed', () {

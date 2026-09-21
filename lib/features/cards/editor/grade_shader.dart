@@ -2,7 +2,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/rendering.dart';
 
-import 'album_draft.dart';
+import 'media_edit.dart';
 import 'color_grade.dart';
 import 'crop_geometry.dart';
 
@@ -34,7 +34,7 @@ abstract final class GradeShader {
     ui.Canvas canvas,
     Rect rect,
     ui.Image image,
-    AlbumDraftMedia m,
+    MediaEdit m,
     double aspect,
   ) {
     final program = _program;
@@ -74,7 +74,7 @@ class GradePainter extends CustomPainter {
   });
 
   final ui.Image image;
-  final AlbumDraftMedia media;
+  final MediaEdit media;
   final double aspect;
 
   @override
@@ -101,7 +101,7 @@ class GradedThumbPainter extends CustomPainter {
   });
 
   final ui.Image image;
-  final AlbumDraftMedia media;
+  final MediaEdit media;
   final double aspect;
   final ColorGrade grade;
 
@@ -113,7 +113,7 @@ class GradedThumbPainter extends CustomPainter {
       image,
       // Le cadrage du média, mais CE réglage.
       media.copyWith(
-        filter: AlbumFilter.normal,
+        filter: MediaFilter.normal,
         filterStrength: 1,
         adjust: grade,
       ),

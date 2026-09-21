@@ -29,12 +29,12 @@
 |---|---|---|---|
 | Caméra | `neovibe/camera` | CameraX + Camera2 + OpenGL ES | AVFoundation + Metal/CoreImage + AVAssetWriter |
 | Anti-capture | (dans `neovibe/camera` : `setSecure`) | `WindowManager.FLAG_SECURE` | Pas d'équivalent strict → détection + occultation |
-| **Galerie du téléphone** *(2026-09-15, **albums et filtres le 2026-09-17**)* | `neovibe/gallery` | `NativeGallery` (`MediaStore` paginé par `Bundle`, **`albums()` agrégé par `BUCKET_ID`**, `list()` filtrable par dossier et par type, `loadThumbnail`, copie dans le cache) | `PHPhotoLibrary` / `PHImageManager` (`requestImage`, `requestExportSession`) + **`PHAssetCollection.fetchAssetCollections`** pour les albums |
+| **Galerie du téléphone** *(2026-09-15, **albums et filtres le 2026-09-17** ; côté Dart sous `cards/editor/gallery/` depuis le 2026-09-21, ne sert plus qu'à l'autocollant image)* | `neovibe/gallery` | `NativeGallery` (`MediaStore` paginé par `Bundle`, **`albums()` agrégé par `BUCKET_ID`**, `list()` filtrable par dossier et par type, `loadThumbnail`, copie dans le cache) | `PHPhotoLibrary` / `PHImageManager` (`requestImage`, `requestExportSession`) + **`PHAssetCollection.fetchAssetCollections`** pour les albums |
 | Média (hors caméra) *(étendu le 2026-09-18)* | `neovibe/media` | `NativeMedia` (couverture d'une vidéo, sonde, JPEG, **clair d'un scellé**) + **`MediaTranscoder`** (rognage, recadrage, matrice de couleurs, recompression H.264 par `MediaCodec` + GL) | `AVAssetImageGenerator`, `CGImageSource`, `AVAssetExportSession` + `AVVideoComposition` + `CIFilter` ; `unseal` : `CryptoKit` `AES.GCM` (le même lecteur de blocs que le lecteur vidéo) |
 | Proximité BLE | `neovibe/proximity` + `/events` | Service de premier plan qui POSSÈDE la radio (advertise + scan) | CoreBluetooth, **mode dégradé à concevoir** |
 | ~~Transport GATT (liens, trames)~~ | — | **SUPPRIMÉ le 2026-08-27** — le BLE ne fait plus que prouver la proximité | *sans objet* |
 | ~~Transfert média proximité~~ | — | **ABANDONNÉ le 2026-08-27** — tout le contenu passe par le serveur | *sans objet* |
-| **File de publication** *(2026-09-19)* | `neovibe/publish` + `/events` | `publish/` : `PublishService` (premier plan `dataSync`), `PublishPipeline`, `PublishStore`, `SessionStore`, `SupabaseHttp` (TUS par OkHttp), `PublishBridge`, `BootReceiver` | `BGProcessingTask` + `URLSession` en arrière-plan (`background` configuration, reprise par `Range`/TUS), même `job.json`, même pipeline — voir § 10 |
+| **File de publication** *(2026-09-19 ; **les Vibes y passent depuis le 2026-09-21**)* | `neovibe/publish` + `/events` | `publish/` : `PublishService` (premier plan `dataSync`), `PublishPipeline`, `PublishStore`, `SessionStore`, `SupabaseHttp` (TUS par OkHttp), `PublishBridge`, `BootReceiver` | `BGProcessingTask` + `URLSession` en arrière-plan (`background` configuration, reprise par `Range`/TUS), même `job.json`, même pipeline — voir § 10 |
 | Hôte / cycle de vie | — | `MainActivity : FlutterFragmentActivity` | `AppDelegate` / `FlutterViewController` |
 | Journal caméra (dev) | (dans `neovibe/camera`) | `CamLog` (fichier disque) | fichier disque (trivial) |
 | Diagnostic appareil (dev) | `neovibe/diag` | `NativeDiagnostics` (`PackageManager` + `Build`) | `Bundle.main.infoDictionary` + `UIDevice` |
@@ -1247,17 +1247,29 @@ la JVM par `./gradlew test`, sans appareil :
 | `RecognitionVectorsTest.kt` | les vecteurs de reconnaissance partagés avec le Dart |
 | `SealedChunkReaderTest.kt`, `Mp4FastStartTest.kt`, `PartialStreamingTest.kt`, `ReadAheadTest.kt` *(2026-09-19)* | le lecteur de médias scellés (§7), et la lecture d'avance |
 | `SealedChunkWriterTest.kt` *(2026-09-19)* | le scelleur natif produit ce que le lecteur natif (et le Dart) lit : 0 octet, bloc partiel, bloc exact, plusieurs blocs |
-| `publish/PublishPipelineTest.kt` *(2026-09-19)* | la file de publication sans codec ni réseau : préparé et déposé avant « Publier », inscrit après ; vidéo transcodée une fois ; **reprise à l'offset du serveur** après une coupure ; attente croissante ; jeton refusé → attente de l'app ; refus du serveur → échec avec message ; annulation → coffre et dossier effacés ; `job.json` se relit tel quel |
+| `publish/PublishPipelineTest.kt` *(2026-09-19, Vibe le 2026-09-21)* | la file de publication sans codec ni réseau : préparé et déposé avant « Publier », inscrit après (avec `p_card_type`) ; **une Vibe vidéo, face finale : pas de transcodage, index en tête avant le scellage, durée et couverture nulles** ; vidéo transcodée une fois (index en tête sur elle seule) ; **reprise à l'offset du serveur** après une coupure ; attente croissante ; jeton refusé → attente de l'app ; refus du serveur → échec avec message ; annulation → coffre et dossier effacés ; `job.json` se relit tel quel |
 
 **iOS** : à réécrire en XCTest sur les mêmes vecteurs, au moment du portage.
 
-## 10. La file de publication — `publish/` *(2026-09-19)*
+## 10. La file de publication — `publish/` *(2026-09-19 ; Vibes depuis le 2026-09-21)*
 
 **Rôle** : finir une publication **avec ou sans l'app** — tranché par Jay le
 2026-09-19 (*« la publication est une file NATIVE et persistante »*, `CLAUDE.md`).
-Le Dart rend les photos (shader de l'aperçu) et le calque des vidéos, calcule
-les paramètres du transcodage, écrit la couverture, tire la clé ; puis il
-**dépose** (`PublishPreparer` → `PublishBridge`). Tout le reste est ici.
+Écrite pour les albums ; **depuis le 2026-09-21 c'est la Vibe qui y passe**
+(Jay : *« on fait la file native maintenant pour les vibes »*), les albums et
+les Flows étant sortis du MVP le même jour. Le Dart copie les faces — déjà
+finales, rendues par l'éditeur ou captées — dans le dossier de la
+publication, écrit la couverture, tire la clé ; puis il **dépose** et
+**libère** aussitôt (`LibraryRepository.publish` → `PublishBridge`). Tout le
+reste est ici.
+
+**Ce que le `job.json` d'une Vibe porte** : `cardType` (standard / oneshot /
+bereal, passé en `p_card_type`), un ou deux `media` sans `source` ni
+`transcode` (« déjà finale »), sans `poster`, `width`/`height` nuls. Plus de
+`kind` ni de `aspectW`/`aspectH` : le service inscrit `p_kind = 'card'`,
+ratio nul. Le pipeline sait toujours transcoder une vidéo qui arrive avec
+`source` + `transcode` (testé sur la JVM) — c'est la voie prévue pour les
+vidéos importées dans une Vibe, à venir.
 
 **Canal** : `neovibe/publish` (méthodes) + `neovibe/publish/events` (flux).
 
@@ -1267,7 +1279,7 @@ les paramètres du transcodage, écrit la couverture, tire la clé ; puis il
 | `signOut()` | efface la session |
 | `jobDir(id)` | le dossier de travail `<filesDir>/publish/<id>/` — **pas sous `work/`**, balayé au démarrage de l'app |
 | `enqueue(job)` | dépose le JSON de `PublishJob` et réveille le service |
-| `release(id, caption, captionFont, isPublic, shareable, saveable, anchorLat?, anchorLng?)` | « Publier » → `release.json` ; **l'ancre** (2026-09-20, Pulse) n'est là que si l'auteur a choisi « Localiser » — déjà gommée à 100 m par le Dart, passée telle quelle à `publish_to_library` |
+| `release(id, caption, isPublic, shareable, saveable, anchorLat?, anchorLng?)` | « Publier » → `release.json` ; **l'ancre** (2026-09-20, Pulse) n'est là que si l'auteur a choisi « Localiser » — déjà gommée à 100 m par le Dart, passée telle quelle à `publish_to_library` |
 | `cancel(id)` | retour en arrière → marqueur `cancel`, le service efface (coffre et dossier) |
 | `retry(id)` | après un échec : repart de ce qui est fait (scellé, déposé) |
 | `ack(id)` | l'app a vu la publication dans sa liste : le dossier s'efface |
@@ -1283,7 +1295,7 @@ rafraîchit sa session et rappelle `configure`.
 | `PublishStore.kt` | un dossier par publication, écriture `.tmp` + renommage ; les lectures ne créent rien |
 | `SessionStore.kt` | url, clé publique, jeton — un autre fichier, une autre durée de vie |
 | `SupabaseHttp.kt` | **TUS** (sondé sur le projet de dev le 2026-09-19) : `POST /storage/v1/upload/resumable` → `Location` ; `HEAD` → `Upload-Offset` ; `PATCH` par blocs de **6 Mo exactement** ; et l'inscription `POST /rest/v1/rpc/publish_to_library`. Range les réponses en `AuthExpired` (401, ou 400/403 « JWS » du coffre), `Rejected` (4xx : ne se réessaie pas seul), `IOException` (réseau : attente croissante 5 s → 5 min). **OkHttp** : `HttpURLConnection` ne sait pas émettre `PATCH`, et Supabase ignore `X-HTTP-Method-Override` (sondé) |
-| `PublishPipeline.kt` | le travail, pas à pas, **reprenable à chaque pas** : transcode (`MediaTranscoder`, avec annulation entre deux images), couvre (`NativeMedia.extract`), scelle (`SealedChunkWriter`), envoie (deux fichiers à la fois, reprise à l'offset du serveur), attend « Publier », inscrit, copie les scellés dans le cache de mes contenus (`ownCache`), efface. Testé sur la JVM |
+| `PublishPipeline.kt` | le travail, pas à pas, **reprenable à chaque pas** : transcode s'il le faut (`MediaTranscoder`, avec annulation entre deux images), couvre (`NativeMedia.extract`), **remet l'index MP4 en tête** (`Mp4FastStart`, 2026-09-21 — la caméra et le transcodeur l'écrivent à la fin ; avant, une vidéo transcodée par la file partait sans), scelle (`SealedChunkWriter`), envoie (deux fichiers à la fois, reprise à l'offset du serveur), attend « Publier », inscrit, copie les scellés dans le cache de mes contenus (`ownCache`), efface. Testé sur la JVM |
 | `PublishService.kt` | **Purge** *(2026-09-20)* : une publication déposée mais jamais libérée depuis `UNRELEASED_TTL_MS` (24 h) est annulée — coffre et dossier effacés (Jay : « on purge si c'est pas confirmé publié »). Service de premier plan **`dataSync`** (`FOREGROUND_SERVICE_DATA_SYNC`) : une boucle qui fait avancer chaque publication et attend (jeton, « Publier », délai) ; réveillé par l'app (`kick`), le retour du réseau (`registerDefaultNetworkCallback`), Android (`START_STICKY`) ou le boot ; notification « Envoi… 43 % » ; s'arrête seul quand il n'y a plus rien ; une notification à part sur un échec |
 | `PublishBridge.kt` | le pont, jetable (naît et meurt avec l'activité) |
 | `PublishHub.kt` | l'`object` par lequel le service publie ce qu'il constate, que le pont soit là ou non |

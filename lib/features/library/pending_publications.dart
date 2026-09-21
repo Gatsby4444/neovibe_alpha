@@ -14,9 +14,9 @@ import 'library_repository.dart';
 ///
 /// Une vue dérivée des instantanés du service natif ([PublishBridge.events]) :
 /// seules celles que l'utilisateur a **publiées** (« Publier » pressé) y
-/// figurent — pendant qu'il tape sa légende, le travail a commencé mais
-/// rien ne s'affiche encore. Comme Instagram : la publication apparaît dans
-/// la grille à l'instant où on appuie, avec son avancement.
+/// figurent. Une Vibe est libérée dès son dépôt (2026-09-21) : elle apparaît
+/// dans la grille à l'instant où on envoie, avec son avancement — comme
+/// Instagram.
 ///
 /// Quand une publication est **finie**, c'est ici que la liste de la
 /// bibliothèque est invalidée (l'invalidation appartient à l'écriture — et

@@ -1,16 +1,15 @@
 import 'dart:io';
 
-import '../../library/album_editor/album_export.dart';
+import 'media_export.dart';
 import 'vibe_edit_draft.dart';
 import '../../../core/work_dir.dart';
 
 /// Les deux faces d'une Vibe, prêtes à l'envoi.
 typedef VibeFaces = ({File front, File? back});
 
-/// Rend les faces d'un [VibeEditDraft] en fichiers — **par l'export des
-/// Flows** ([AlbumExport]) : le même shader pour une photo, le même
-/// transcodeur pour une vidéo, au format 9:16. Ce que l'aperçu montre est ce
-/// qui part.
+/// Rend les faces d'un [VibeEditDraft] en fichiers ([MediaExport]) : le
+/// shader de l'aperçu pour une photo, le transcodeur natif pour une vidéo,
+/// au format 9:16. Ce que l'aperçu montre est ce qui part.
 ///
 /// ⚠️ **Une face non retouchée n'est pas ré-exportée** : son fichier de
 /// capture part tel quel. Retranscoder une vidéo qu'on n'a pas touchée lui
@@ -28,7 +27,7 @@ abstract final class VibeExport {
     var done = 0;
     Future<File> rendre(bool isFront) async {
       final m = draft.face(front: isFront);
-      final out = await AlbumExport.render(
+      final out = await MediaExport.render(
         m,
         VibeEditDraft.aspect,
         dir,

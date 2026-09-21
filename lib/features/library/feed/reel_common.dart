@@ -11,27 +11,29 @@ import '../../../core/widgets/press_veil.dart';
 import '../../../core/widgets/pull_down_to_close.dart';
 import '../open_profile.dart';
 
-/// **Ce que les deux plein-écrans partagent** — celui des Vibes et celui des
-/// Flows : l'identité de l'auteur, sa légende, et la fermeture au
-/// sur-défilement.
-///
-/// Ils existaient une seule fois, dans l'écran des Vibes, tant qu'il n'y avait
-/// qu'un plein écran. Le second (les Flows, 2026-09-17) en avait besoin à
-/// l'identique : deux copies auraient divergé au premier réglage.
+/// **Les pièces du plein écran des Vibes** : l'identité de l'auteur, la
+/// légende, et la fermeture au sur-défilement. (Elles ont servi aussi au
+/// plein écran des Flows, du 2026-09-17 au 2026-09-21.)
 
-/// L'identité, en haut de la carte : photo, pseudo, date, type. Un appui mène
-/// au profil de l'auteur (sauf le mien).
+/// L'identité, en haut de la carte : photo, pseudo, date, type — et « Ajouté
+/// par X » quand un ami a mis cette Vibe dans mon feed et que mon like l'a
+/// révélé ([addedBy]). Un appui mène au profil de l'auteur (sauf le mien).
 class ReelIdentity extends StatelessWidget {
   const ReelIdentity({
     super.key,
     required this.item,
     required this.owner,
     required this.mine,
+    this.addedBy,
   });
 
   final LibraryItem item;
   final Profile? owner;
   final bool mine;
+
+  /// « Ajouté par X » — révélé par le like, dans un fil de Pulse (Jay,
+  /// 2026-09-11 : l'ajout est anonyme *« sauf si cet ami like le contenu »*).
+  final String? addedBy;
 
   @override
   Widget build(BuildContext context) {
@@ -70,17 +72,17 @@ class ReelIdentity extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      timeAgo(item.createdAt),
+                      addedBy == null
+                          ? timeAgo(item.createdAt)
+                          : 'Ajouté par $addedBy · ${timeAgo(item.createdAt)}',
+                      maxLines: 1,
                       style: const TextStyle(
                         color: Colors.white70,
                         fontSize: 12,
                       ),
                     ),
-                    // Une Vibe dit son type ; un Flow n'en a pas.
-                    if (!item.isPublication) ...[
-                      const SizedBox(width: NeoSpace.xs + 2),
-                      CardTypeBadge(type: item.cardType, fontSize: 9),
-                    ],
+                    const SizedBox(width: NeoSpace.xs + 2),
+                    CardTypeBadge(type: item.cardType, fontSize: 9),
                   ],
                 ),
               ],

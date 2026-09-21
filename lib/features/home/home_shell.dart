@@ -609,10 +609,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
   /// l'`IndexedStack` le garde monté, donc son état est conservé.
   /// Une section, construite à sa première visite — et **hors horloge** tant
   /// qu'elle n'est pas celle qu'on montre ([TickerMode]) : un `IndexedStack`
-  /// garde ses sections cachées vivantes ET animées. Depuis que le fil du
-  /// profil est une couverture dans sa section (2026-09-19), on peut changer
-  /// de section par la barre en laissant une vidéo derrière soi ; c'est ce
-  /// signal que `ActiveItemTracker` écoute pour la taire.
+  /// garde ses sections cachées vivantes ET animées.
   Widget _lazy(int index, Widget tab) => TickerMode(
     enabled: index == _shownIndex,
     child: _visited.contains(index) ? tab : const SizedBox.shrink(),

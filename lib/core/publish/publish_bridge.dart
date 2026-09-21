@@ -3,15 +3,12 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
-/// **Une publication en cours, vue de l'app** — l'instantané que le service
-/// natif publie (voir `publish/PublishJob.kt`, `snapshot`). Sans secret :
-/// ni clé, ni jeton, ni chemin de fichier autre que la couverture.
+/// **Une Vibe en cours de publication, vue de l'app** — l'instantané que le
+/// service natif publie (voir `publish/PublishJob.kt`, `snapshot`). Sans
+/// secret : ni clé, ni jeton, ni chemin de fichier autre que la couverture.
 class PendingPublication {
   const PendingPublication({
     required this.id,
-    required this.kind,
-    required this.aspectW,
-    required this.aspectH,
     required this.phase,
     required this.released,
     required this.progress,
@@ -23,9 +20,6 @@ class PendingPublication {
   factory PendingPublication.fromMap(Map<Object?, Object?> m) =>
       PendingPublication(
         id: m['id']! as String,
-        kind: m['kind']! as String,
-        aspectW: (m['aspectW']! as num).toInt(),
-        aspectH: (m['aspectH']! as num).toInt(),
         phase: m['phase']! as String,
         released: m['released'] == true,
         progress: (m['progress'] as num?)?.toDouble() ?? 0,
@@ -35,11 +29,6 @@ class PendingPublication {
       );
 
   final String id;
-
-  /// `album` ou `flow`.
-  final String kind;
-  final int aspectW;
-  final int aspectH;
 
   /// `preparing` · `uploading` · `waiting` · `registering` · `done` ·
   /// `failed` · `cancelled` (voir le Kotlin).
@@ -55,7 +44,6 @@ class PendingPublication {
   bool get isDone => phase == 'done';
   bool get isFailed => phase == 'failed';
   bool get isActive => !isDone && !isFailed && phase != 'cancelled';
-  bool get isFlow => kind == 'flow';
 
   /// Ce que la case dit, en un mot.
   String get label => switch (phase) {
@@ -71,9 +59,6 @@ class PendingPublication {
   bool operator ==(Object other) =>
       other is PendingPublication &&
       other.id == id &&
-      other.kind == kind &&
-      other.aspectW == aspectW &&
-      other.aspectH == aspectH &&
       other.phase == phase &&
       other.released == released &&
       other.progress == progress &&
@@ -92,9 +77,10 @@ class PublishNeedsToken {
 
 /// **Le pont vers la file de publication native** (`neovibe/publish`).
 ///
-/// L'app y DÉPOSE (une publication, sa légende, une session) et y LIT (les
-/// instantanés). Elle ne transcode plus, ne scelle plus, n'envoie plus : tout
-/// cela est au service, qui le finit avec ou sans elle (Jay, 2026-09-19).
+/// L'app y DÉPOSE (une Vibe, ses réglages, une session) et y LIT (les
+/// instantanés). Elle ne scelle plus, n'envoie plus : tout cela est au
+/// service, qui le finit avec ou sans elle (Jay, 2026-09-19 ; les Vibes y
+/// passent depuis le 2026-09-21).
 ///
 /// Sans natif (tests), les méthodes ne font rien et le flux est vide.
 class PublishBridge {
@@ -141,19 +127,19 @@ class PublishBridge {
 
   Future<void> signOut() => _call('signOut');
 
-  /// Le dossier de travail d'une publication : c'est là que l'app rend ses
-  /// photos et écrit sa couverture, avant de déposer.
+  /// Le dossier de travail d'une publication : c'est là que l'app copie les
+  /// faces et écrit la couverture, avant de déposer.
   Future<String?> jobDir(String id) => _call<String>('jobDir', {'id': id});
 
   /// Dépose une publication (le JSON de `PublishJob`). Le travail commence.
   Future<void> enqueue(Map<String, Object?> job) =>
       _call('enqueue', {'job': jsonEncode(job)});
 
-  /// « Publier » : la légende et les droits.
+  /// « Publier » : la légende et les droits. Pour une Vibe, déposé juste
+  /// après [enqueue] — ses réglages sont connus à l'envoi.
   Future<void> release(
     String id, {
     required String? caption,
-    required String? captionFont,
     required bool isPublic,
     required bool shareable,
     required bool saveable,
@@ -162,7 +148,6 @@ class PublishBridge {
   }) => _call('release', {
     'id': id,
     'caption': caption,
-    'captionFont': captionFont,
     'isPublic': isPublic,
     'shareable': shareable,
     'anchorLat': anchorLat,

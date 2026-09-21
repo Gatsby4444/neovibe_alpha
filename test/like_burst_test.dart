@@ -4,7 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/content/likes.dart';
 import 'package:neovibe/core/widgets/like_burst.dart';
-import 'package:neovibe/features/library/feed/publication_caption.dart';
 
 /// Un magasin de likes qui ne parle à personne : on compte les bascules.
 class _FauxLikes extends LikesStore {
@@ -107,38 +106,5 @@ void main() {
     await tester.longPress(find.byKey(const ValueKey('media')));
     await tester.pumpAndSettle();
     expect(sans.bascules, 0);
-  });
-
-  group('La légende', () {
-    Future<void> poserLegende(WidgetTester tester, String texte) =>
-        tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: ListView(
-                children: [
-                  SizedBox(width: 380, child: PublicationCaption(text: texte)),
-                ],
-              ),
-            ),
-          ),
-        );
-
-    testWidgets('« plus » n\'apparaît que si le texte déborde vraiment', (
-      tester,
-    ) async {
-      await poserLegende(tester, 'Court.');
-      expect(find.text('plus'), findsNothing);
-
-      await poserLegende(tester, 'Très long. ' * 60);
-      expect(find.text('plus'), findsOneWidget);
-
-      await tester.tap(find.text('plus'));
-      await tester.pump();
-      expect(find.text('moins'), findsOneWidget);
-    });
-
-    test('la limite est de 500 signes, sauts de ligne compris', () {
-      expect(kCaptionMax, 500);
-    });
   });
 }

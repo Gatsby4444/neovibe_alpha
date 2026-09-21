@@ -22,21 +22,12 @@ import '../video/video_watchdog.dart';
 /// plus jamais de ce qui est chargé.
 const kVibeFaceRatio = 9 / 16;
 
-/// **Le format d'une Vibe quand elle n'est pas en plein écran** : 4:5.
-///
-/// Règle reprise d'Instagram par Jay le 2026-09-17 : un Reel est **publié**
-/// en 9:16, mais dès qu'il défile dans le fil classique il est **recadré en
-/// 4:5**. Nos Vibes sont nos Reels : elles gardent leur 9:16 (c'est le
-/// format du contenu, il ne bouge pas), et ce sont le **fil** et la **grille
-/// du profil** qui en montrent un 4:5.
-///
-/// ⚠️ Recadrer, c'est **montrer moins**, pas montrer plus petit : à un
-/// format qui n'est pas le sien, une face se coupe (`BoxFit.cover`) au lieu
-/// de se poser dans des bandes noires. Voir [fitForRatio].
-const kVibeFeedRatio = 4 / 5;
-
 /// Comment une face remplit son cadre : **à son format natif rien n'est
-/// coupé** ; à tout autre format, on recadre.
+/// coupé** ; à tout autre format, on recadre — c'est **montrer moins**, pas
+/// montrer plus petit : la face se coupe (`BoxFit.cover`) au lieu de se
+/// poser dans des bandes noires. (Le 4:5 du fil mêlé, repris d'Instagram le
+/// 2026-09-17, est parti avec ce fil le 2026-09-21 : une Vibe se montre à
+/// son format partout.)
 BoxFit fitForRatio(double ratio) =>
     ratio == kVibeFaceRatio ? BoxFit.contain : BoxFit.cover;
 
@@ -44,22 +35,18 @@ BoxFit fitForRatio(double ratio) =>
 ///
 /// Le format et la marge du cadre voyageaient jusqu'ici en paramètres
 /// séparés, de widget en widget — deux réglages d'une même chose, qu'on
-/// pouvait changer l'un sans l'autre. Ils sont ici, ensemble, avec les trois
+/// pouvait changer l'un sans l'autre. Ils sont ici, ensemble, avec les deux
 /// seules combinaisons qui existent :
 ///
 /// | | format | marge | où |
 /// |---|---|---|---|
 /// | [card] | 9:16 | 16 | partout ailleurs (story, Vibe reçue, Enregistrements) |
-/// | [feed] | 4:5 | 16 | le fil et la grille — **recadrée**, comme un Reel |
 /// | [full] | 9:16 | 8 | le plein écran : la carte au plus près des bords |
 class VibeDisplay {
   const VibeDisplay({required this.ratio, required this.margin});
 
   /// La Vibe à son format, dans un écran qui n'est pas à elle.
   static const card = VibeDisplay(ratio: kVibeFaceRatio, margin: 16);
-
-  /// Recadrée pour un fil ou une grille (voir [kVibeFeedRatio]).
-  static const feed = VibeDisplay(ratio: kVibeFeedRatio, margin: 16);
 
   /// Le plein écran. La marge y est **plus courte** : elle est tout ce qui
   /// sépare deux Vibes quand on passe de l'une à l'autre, et Jay la trouvait

@@ -11,10 +11,9 @@ import 'package:neovibe/features/library/mini_card.dart';
 /// change de section. Le détecteur du dessous joue ici le rôle de
 /// `HomeShell`.
 void main() {
-  LibraryItem item({required LibraryKind kind}) => LibraryItem(
+  LibraryItem item() => LibraryItem(
     id: 'p1',
     ownerId: 'moi',
-    kind: kind,
     media: const [LibraryMedia(slot: 0, path: 'moi/p1_0.jpg')],
     createdAt: DateTime(2026, 9, 18),
   );
@@ -55,11 +54,7 @@ void main() {
   testWidgets('balayer une face unique ne remonte pas à l\'écran', (
     tester,
   ) async {
-    expect(await balayages(tester, item(kind: LibraryKind.card)), 0);
-  });
-
-  testWidgets('balayer un Flow ne remonte pas à l\'écran', (tester) async {
-    expect(await balayages(tester, item(kind: LibraryKind.flow)), 0);
+    expect(await balayages(tester, item()), 0);
   });
 
   testWidgets('le contre-test : à côté de la mini, l\'écran balaie', (

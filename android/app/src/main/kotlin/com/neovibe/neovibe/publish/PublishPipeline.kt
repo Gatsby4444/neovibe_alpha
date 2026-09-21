@@ -23,6 +23,14 @@ interface MediaTools {
     /** Écrit la couverture ; rend null si tout va bien, sinon le message. */
     fun poster(source: File, dest: File, width: Int, atMs: Int): String?
 
+    /**
+     * L'index d'un MP4 (`moov`) en tête de fichier, sur place. La caméra et
+     * le transcodeur l'écrivent à la fin ; à distance, le lecteur devrait
+     * alors aller chercher la fin avant la première image (`Mp4FastStart`).
+     * Sans effet sur un fichier déjà bien disposé ou non reconnu.
+     */
+    fun fastStart(file: File)
+
     fun seal(source: File, dest: File, keyBase64: String)
 }
 
@@ -152,7 +160,7 @@ class PublishPipeline(
     }
 
     // ------------------------------------------------------------------
-    // Préparation : transcoder, couvrir, sceller
+    // Préparation : transcoder (s'il le faut), couvrir, fast-start, sceller
     // ------------------------------------------------------------------
 
     private fun prepare(job: PublishJob) {
@@ -175,7 +183,7 @@ class PublishPipeline(
                 if (isCancelled(job.id)) return
                 val poster = m.poster ?: throw IllegalStateException("vidéo sans couverture")
                 val at = (m.coverMs).coerceIn(0, duration)
-                tools.poster(File(m.file.clear), File(poster.clear), m.width, at)
+                tools.poster(File(m.file.clear), File(poster.clear), spec.outWidth, at)
                     ?.let { throw IllegalStateException("couverture : $it") }
                 m.durationMs = minOf(duration, m.maxDurationMs.takeIf { it > 0 } ?: duration)
                 // La source (copie de la galerie) et le calque ne servent plus.
@@ -185,6 +193,9 @@ class PublishPipeline(
             }
             for (f in listOfNotNull(m.file, m.poster)) {
                 if (f.isSealed) continue
+                // Une vidéo, transcodée ici ou arrivée finale : l'index en
+                // tête AVANT de sceller — scellé, on ne le déplace plus.
+                if (m.isVideo && f === m.file) tools.fastStart(File(f.clear))
                 tools.seal(File(f.clear), File(f.sealed), job.mediaKey)
                 f.isSealed = true
                 File(f.clear).delete()
@@ -269,17 +280,18 @@ class PublishPipeline(
         }
         val body = mapOf(
             "p_item_id" to job.id,
-            "p_kind" to job.kind,
-            "p_card_type" to "standard",
+            // Le seul format depuis le 2026-09-21 : la Vibe (`kind = 'card'`).
+            "p_kind" to "card",
+            "p_card_type" to job.cardType,
             "p_media" to rows,
             "p_caption" to release.caption,
-            "p_caption_font" to release.captionFont,
+            "p_caption_font" to null,
             "p_is_public" to release.isPublic,
             "p_shareable" to release.shareable,
             "p_saveable" to release.saveable,
             "p_media_key" to job.mediaKey,
-            "p_aspect_w" to job.aspectW,
-            "p_aspect_h" to job.aspectH,
+            "p_aspect_w" to null,
+            "p_aspect_h" to null,
             "p_anchor_lat" to release.anchorLat,
             "p_anchor_lng" to release.anchorLng,
         )

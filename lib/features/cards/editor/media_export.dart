@@ -5,16 +5,15 @@ import 'dart:ui' as ui;
 import 'package:flutter/painting.dart';
 
 import '../../../core/diagnostics/app_log.dart';
-import '../../../core/models/library_item.dart';
-import '../../cards/native_media.dart';
-import 'album_draft.dart';
+import '../native_media.dart';
+import 'media_edit.dart';
 import 'crop_geometry.dart';
 import 'editor_images.dart';
 import 'grade_shader.dart';
 import 'overlay_model.dart';
 import 'overlay_painter.dart';
 
-/// Rend un média du brouillon en **fichier prêt à publier**.
+/// Rend une face éditée en **fichier prêt à l'envoi**.
 ///
 /// - Une **photo** est dessinée par Flutter avec **le shader de l'aperçu**
 ///   (`GradeShader` : cadrage, rotation, filtre, réglages, vignette) puis les
@@ -26,31 +25,31 @@ import 'overlay_painter.dart';
 ///   calque des textes et autocollants rendu en PNG à la taille de sortie ;
 ///   sa couverture est tirée du fichier **produit** (donc déjà cadrée,
 ///   corrigée, avec ses calques).
-abstract final class AlbumExport {
-  /// La taille de sortie pour un ratio : **1080 de large**, comme Instagram
-  /// (1080×1440 en 3:4). Paire, pour l'encodeur vidéo. Seule définition — le
-  /// natif reçoit ces deux nombres.
-  static (int, int) outputSize(AlbumAspect aspect) {
+abstract final class MediaExport {
+  /// La taille de sortie : **1080 de large** (1080×1920 en 9:16). Paire,
+  /// pour l'encodeur vidéo. Seule définition — le natif reçoit ces deux
+  /// nombres.
+  static (int, int) outputSize(MediaAspect aspect) {
     const w = 1080;
     final h = (w / aspect.ratio).round() & ~1;
     return (w, h);
   }
 
-  /// Exporte [m] dans [dir], **ici et maintenant** — l'éditeur de Vibes s'en
-  /// sert (une face à la fois, sous les yeux de l'utilisateur). Photo : un
-  /// rendu Flutter puis un appel natif. Vidéo : le transcodeur natif, avec sa
-  /// progression (0..1).
+  /// Exporte [m] dans [dir], **ici et maintenant** — une face à la fois, sous
+  /// les yeux de l'utilisateur, à « Suivant ». Photo : un rendu Flutter puis
+  /// un appel natif. Vidéo : le transcodeur natif, avec sa progression (0..1).
   ///
-  /// ⚠️ Une **publication**, elle, ne passe plus par ici pour ses vidéos : le
-  /// Dart rend les photos ([renderPhoto]) et le calque ([renderOverlay]),
-  /// calcule les paramètres ([videoSpec]), et c'est le service natif qui
-  /// transcode, scelle et envoie — avec ou sans l'app (Jay, 2026-09-19).
+  /// ⚠️ Le fichier rendu est **final** : la file native de publication
+  /// (`docs/file-de-publication.md`) le scelle et l'envoie tel quel, sans le
+  /// retranscoder. Les faces sont rendues ici, et pas dans la file, parce
+  /// qu'un même rendu sert toutes les destinations d'un envoi (story, chat,
+  /// bibliothèque).
   static Future<RenderedMedia> render(
-    AlbumDraftMedia m,
-    AlbumAspect aspect,
+    MediaEdit m,
+    MediaAspect aspect,
     Directory dir, {
     void Function(double progress)? onProgress,
-    int maxVideoMs = kAlbumMaxVideoMs,
+    int maxVideoMs = kMaxFaceVideoMs,
   }) => m.isVideo
       ? _renderVideo(
           m,
@@ -62,8 +61,8 @@ abstract final class AlbumExport {
       : _renderPhotoMedia(m, aspect, dir);
 
   static Future<RenderedMedia> _renderPhotoMedia(
-    AlbumDraftMedia m,
-    AlbumAspect aspect,
+    MediaEdit m,
+    MediaAspect aspect,
     Directory dir,
   ) async {
     final (outW, outH) = outputSize(aspect);
@@ -72,7 +71,7 @@ abstract final class AlbumExport {
   }
 
   /// Les images des autocollants d'un média, décodées pour l'export.
-  static Future<Map<String, ui.Image>> _stickerImages(AlbumDraftMedia m) async {
+  static Future<Map<String, ui.Image>> _stickerImages(MediaEdit m) async {
     final out = <String, ui.Image>{};
     for (final o in m.overlays) {
       if (o is StickerOverlay && !o.isEmoji && !out.containsKey(o.imagePath)) {
@@ -87,8 +86,8 @@ abstract final class AlbumExport {
 
   /// Rend une photo : le fichier JPEG produit, à [outputSize].
   static Future<File> renderPhoto(
-    AlbumDraftMedia m,
-    AlbumAspect aspect,
+    MediaEdit m,
+    MediaAspect aspect,
     Directory dir,
   ) async {
     await GradeShader.load();
@@ -143,7 +142,7 @@ abstract final class AlbumExport {
   /// échangées et la rotation du fichier ajoutée aux quarts de tour, pour que
   /// les coins tombent au bon endroit d'une image que le décodeur n'a pas
   /// tournée.
-  static AlbumDraftMedia _unrotated(AlbumDraftMedia m) => AlbumDraftMedia(
+  static MediaEdit _unrotated(MediaEdit m) => MediaEdit(
     id: m.id,
     source: m.source,
     isVideo: m.isVideo,
@@ -163,8 +162,8 @@ abstract final class AlbumExport {
   /// taille de sortie en PNG : le transcodeur le pose sur chaque image. Nul
   /// s'il n'y a rien à poser.
   static Future<String?> renderOverlay(
-    AlbumDraftMedia m,
-    AlbumAspect aspect,
+    MediaEdit m,
+    MediaAspect aspect,
     Directory dir,
   ) async {
     if (m.overlays.isEmpty) return null;
@@ -191,13 +190,12 @@ abstract final class AlbumExport {
     }
   }
 
-  /// **Les paramètres du transcodeur** pour [m] — la seule définition, que
-  /// le transcodage soit fait ici ([render]) ou par le service natif : les
+  /// **Les paramètres du transcodeur** pour [m] — la seule définition : les
   /// coins du cadrage, le rognage, les nombres de couleur, la rotation, le
   /// calque. Les clés sont celles que le Kotlin lit (`TranscodeSpec`).
   static Map<String, Object?> videoSpec(
-    AlbumDraftMedia m,
-    AlbumAspect aspect, {
+    MediaEdit m,
+    MediaAspect aspect, {
     required String? overlayPath,
   }) {
     final (outW, outH) = outputSize(aspect);
@@ -218,11 +216,11 @@ abstract final class AlbumExport {
   }
 
   static Future<RenderedMedia> _renderVideo(
-    AlbumDraftMedia m,
-    AlbumAspect aspect,
+    MediaEdit m,
+    MediaAspect aspect,
     Directory dir, {
     void Function(double progress)? onProgress,
-    int maxVideoMs = kAlbumMaxVideoMs,
+    int maxVideoMs = kMaxFaceVideoMs,
   }) async {
     final (outW, outH) = outputSize(aspect);
     final trim = m.effectiveTrim;
@@ -270,7 +268,7 @@ abstract final class AlbumExport {
   }
 }
 
-/// Un média rendu par [AlbumExport.render] : le fichier, et pour une vidéo
+/// Un média rendu par [MediaExport.render] : le fichier, et pour une vidéo
 /// sa durée et sa couverture.
 class RenderedMedia {
   const RenderedMedia(

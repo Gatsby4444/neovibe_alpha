@@ -140,7 +140,6 @@ class UserLibraryScreen extends ConsumerWidget {
                 ),
                 data: (list) => PublicationsTabs(
                   items: list,
-                  feedTitle: profile.displayName,
                   emptyMessage:
                       'Rien à voir ici — bibliothèque vide ou accès restreint.',
                   padding: const EdgeInsets.all(10),

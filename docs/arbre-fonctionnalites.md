@@ -49,7 +49,7 @@ Vibe
 │   └── Importer depuis la galerie ✅
 ├── Après la prise
 │   ├── Reprendre le recto ✅
-│   ├── Éditeur de Vibe ✅   `cards/editor/vibe_editor_screen.dart` (2026-09-18) — le même que celui des Flows, adapté : recto/verso, 9:16 imposé, Texte · Autocollant · Filtre · Modifier · Rogner ; s'ouvre après la prise, se rouvre depuis « À qui ? » avec les réglages gardés
+│   ├── Éditeur de Vibe ✅   `cards/editor/vibe_editor_screen.dart` (2026-09-18) — recto/verso, 9:16 imposé, Texte · Autocollant · Filtre · Modifier · Rogner ; s'ouvre après la prise, se rouvre depuis « À qui ? » avec les réglages gardés. Son moteur (`cards/editor/`) vient de l'éditeur d'album, sorti du MVP le 2026-09-21
 │   └── ⚠️ exclu du Oneshot et du BeReal par principe
 └── → écran d'envoi
 ```
@@ -162,17 +162,18 @@ qui donne sa légitimité à la barrière physique.
 
 ```
 Profil
-├── Ma bibliothèque ✅   grille (le « deck » a été retiré le 2026-09-15)
-│   ├── Publier ✅  (2026-09-15) → une Vibe (caméra restreinte à la
-│   │                 publication) ou Photos / vidéos (l'éditeur d'album :
-│   │                 jusqu'à 11 médias, ratio, filtres, réglages, rognage,
-│   │                 légende, visibilité, droits — `docs/plan-publications.md`)
+├── Ma bibliothèque ✅   grille de Vibes à leur format 9:16 (le « deck » a
+│   │                    été retiré le 2026-09-15 ; les albums et les Flows,
+│   │                    et leurs onglets, le 2026-09-21 — « un éditeur pour
+│   │                    un format », `docs/formats-mis-de-cote.md`)
+│   ├── Publier ✅  → la caméra, restreinte à la publication ; la Vibe part
+│   │                 par la **file native** (2026-09-21) : elle apparaît tout
+│   │                 de suite dans la grille avec son avancement, et finit
+│   │                 même si l'app est fermée — `docs/file-de-publication.md`
 │   ├── retirer de la bibliothèque ✅
-│   └── toucher une case → le fil des publications du profil ✅ (2026-09-15)
-│       ├── posé sur la publication touchée, on défile les autres
-│       ├── album : carrousel au ratio · Vibe : carte qui se retourne
-│       ├── aimer ✅ (cœur, compte, « qui a aimé ») · enregistrer · partager
-│       └── toucher une Vibe → plein écran façon Reels ✅ (glisser = suivante)
+│   └── toucher une case → plein écran façon Reels ✅ (glisser = suivante)
+│       ├── posé sur la Vibe touchée, on défile les autres
+│       └── aimer ✅ (appui long ; cœur, compte, « qui a aimé ») · enregistrer · partager
 ├── Modifier le profil ✅  + avatar avec recadrage ✅
 ├── Demandes & rencontres ✅  (3 onglets)
 │   ├── Demandes ✅       en attente à proximité · historique

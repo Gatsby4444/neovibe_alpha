@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 
-import 'album_draft.dart';
+import 'media_edit.dart';
 import 'color_grade.dart';
 import 'crop_geometry.dart';
 import 'editor_images.dart';
@@ -61,7 +61,7 @@ class MediaPreview extends StatefulWidget {
     this.interactive = true,
   });
 
-  final AlbumDraftMedia media;
+  final MediaEdit media;
   final double aspect;
   final EditorImages images;
   final String? selectedOverlayId;
@@ -623,7 +623,7 @@ class _VignettePainter extends CustomPainter {
 /// tout scellement — rien à protéger ici.
 class _VideoPreview extends StatefulWidget {
   const _VideoPreview({required this.media});
-  final AlbumDraftMedia media;
+  final MediaEdit media;
 
   @override
   State<_VideoPreview> createState() => _VideoPreviewState();
