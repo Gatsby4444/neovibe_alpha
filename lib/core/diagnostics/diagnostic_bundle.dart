@@ -501,49 +501,72 @@ class DiagnosticBundle {
   /// l'appareil et à l'endroit qui pose problème, à la question qui compte :
   /// *le point se resserre-t-il si on attend ?*
   ///
-  /// Trois lectures possibles du résultat, et elles n'appellent pas la même
+  /// Deux lectures possibles du résultat, et elles n'appellent pas la même
   /// suite :
   ///
-  /// - **il se resserre** → la correction sert, et on sait de combien ;
-  /// - **un seul relevé arrive** → le flux ne tourne pas ; regarder `repli
-  ///   haut` juste au-dessus, et les réglages de localisation du téléphone ;
-  /// - **il arrive beaucoup de relevés mais l'incertitude ne descend pas** →
-  ///   le moteur n'a rien de mieux à offrir ici (sous terre, sans Wi-Fi), et
-  ///   aucun code ne le corrigera.
+  /// - **l'incertitude descend** → rester abonné sert, et on sait de combien ;
+  /// - **elle ne descend pas** → le moteur n'a rien de mieux à offrir ici
+  ///   (sous terre, sans Wi-Fi), et aucun code ne le corrigera.
+  ///
+  /// ⚠️ **Un petit NOMBRE de relevés n'est PAS un défaut.** Immobile, le
+  /// moteur de position ne réémet que lorsqu'il a quelque chose de neuf à
+  /// dire : un seul relevé à ± 19 m vaut infiniment mieux que dix à ± 2000 m.
+  /// C'est **l'incertitude** qu'on lit, jamais le compteur seul.
   ///
   /// ⚠️ **Ne PAS en conclure que la carte affiche ça.** Cette sonde repart de
   /// zéro à chaque diagnostic ; la carte, elle, reste abonnée tant qu'elle est
-  /// ouverte et a donc plus de temps que [_ecoute] pour converger.
+  /// ouverte et a donc bien plus de temps que [_ecoute] pour converger.
+  ///
+  /// ## 🔴 Le défaut d'instrument corrigé le 2026-09-22 au soir
+  ///
+  /// Cette sonde bornait son écoute avec `Stream.timeout`. Or ce délai est
+  /// **inter-événement** : il se réarme à chaque relevé reçu. Elle ne mesurait
+  /// donc pas « dix secondes d'écoute » mais « jusqu'à dix secondes de
+  /// silence » — et elle écrivait quand même *« N relevés en 10 s »*.
+  ///
+  /// Le premier relevé publié par cet instrument disait *« 1 relevés en
+  /// 10 s »* alors que la carte, au même moment, en comptait sept. Les deux
+  /// chiffres étaient vrais et se contredisaient : c'est exactement le
+  /// **mensonge d'instrument** que `CLAUDE.md` désigne comme le défaut le plus
+  /// coûteux — il ne gêne rien, il fausse simplement toutes les décisions
+  /// prises ensuite. La sonde ouvre maintenant une vraie fenêtre d'horloge.
   static Future<String> _convergence(CoarseLocation geo) async {
     final vus = <CoarseFix>[];
+    StreamSubscription<CoarseFix>? sub;
+    String? panne;
     try {
-      await geo.watch().take(_relevesMax).timeout(_ecoute).forEach(vus.add);
-    } on TimeoutException {
-      // Attendu : on borne l'écoute, on ne l'attend pas jusqu'au bout.
+      sub = geo.watch().listen(
+        vus.add,
+        onError: (Object e) => panne ??= e.toString(),
+        cancelOnError: false,
+      );
+      // ⚠️ **Une vraie fenêtre d'horloge**, et non un délai qui se réarme.
+      // C'est la seule forme qui autorise la phrase « en N secondes ».
+      await Future<void>.delayed(_ecoute);
     } catch (e) {
       return 'convergence   : flux indisponible ($e)\n';
+    } finally {
+      await sub?.cancel();
     }
+    final s = _ecoute.inSeconds;
     if (vus.isEmpty) {
-      return 'convergence   : aucun relevé en ${_ecoute.inSeconds} s\n';
+      return 'convergence   : aucun relevé en $s s'
+          '${panne == null ? '' : ' · $panne'}\n';
     }
     final meilleur = vus
         .map((f) => f.accuracy)
         .reduce((a, b) => a < b ? a : b)
         .round();
-    return 'convergence   : ${vus.length} relevés en ${_ecoute.inSeconds} s · '
+    return 'convergence   : ${vus.length} relevés en $s s · '
         'début ± ${vus.first.accuracy.round()} m · '
         'fin ± ${vus.last.accuracy.round()} m · '
-        'meilleur ± $meilleur m\n';
+        'meilleur ± $meilleur m'
+        '${panne == null ? '' : ' · $panne'}\n';
   }
 
   /// Combien de temps la sonde écoute. Assez pour qu'un GPS tiède réponde,
   /// assez peu pour qu'un diagnostic reste un geste et non une attente.
   static const _ecoute = Duration(seconds: 10);
-
-  /// Une borne de sécurité : dehors, le moteur peut livrer plusieurs relevés
-  /// par seconde, et on n'a pas besoin de les garder tous pour répondre à la
-  /// question.
-  static const _relevesMax = 40;
 
   /// Ce que le téléphone accorde à l'app pour vivre en arrière-plan.
   /// L'état MIUI « démarrage automatique » n'est pas lisible : on le dit,
