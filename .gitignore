@@ -53,3 +53,10 @@ __pycache__/
 # Jetons d'accès — JAMAIS dans le dépôt (règle de sécurité, CLAUDE.md)
 docs/PAT*.txt
 *PAT*.txt
+
+# Configuration Codex de Jay, propre a sa machine (2026-09-21). Laissee hors
+# depot ; l'ignorer explicitement evite qu'elle salisse `git status`, ce qui
+# bloquait `tool/publish-release.sh` (« l'arbre n'est pas propre »).
+.agents/
+.codex/
+AGENTS.md
