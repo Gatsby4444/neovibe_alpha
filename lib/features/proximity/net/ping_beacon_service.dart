@@ -101,9 +101,6 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   /// (Défaut introduit et corrigé le 2026-08-27, avant le premier test.)
   final _heardAt = <String, DateTime>{};
 
-  /// Tenons-nous l'abonnement à la position ? Voir [_stop].
-  bool _tientLaPosition = false;
-
   @override
   PingBeaconState build() {
     ref.onDispose(_stop);
@@ -142,15 +139,6 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   Future<void> _start() async {
     if (_refresh != null) return;
 
-    // ⚠️ **On s'abonne à la position pour toute la durée du ping.** Lire une
-    // position à chaque tour rouvrait un abonnement neuf toutes les minutes et
-    // retombait chaque fois sur la première réponse du moteur, la plus
-    // grossière — c'est ce que Jay a vu sur la carte le 2026-09-22. En restant
-    // abonné, le relevé se resserre entre deux tours et la balise publiée vaut
-    // ce que vaut le meilleur relevé, pas le plus pressé.
-    ref.read(livePositionProvider.notifier).acquire();
-    _tientLaPosition = true;
-
     _radioFeed ??= ref
         .read(proximitySupervisorProvider.notifier)
         .events
@@ -171,14 +159,6 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     // rallumer le ping repartirait en se croyant annoncé, et le premier tour
     // sans position se tairait au lieu de le dire.
     _publishedAt = null;
-    // ⚠️ **Relâché exactement autant de fois qu'acquis** : la carte peut tenir
-    // le même abonnement en même temps, et le ping qui s'éteint ne doit pas la
-    // couper. Le drapeau existe parce que [_stop] est appelé aussi bien à
-    // l'arrêt volontaire qu'à la destruction, et deux fois de suite.
-    if (_tientLaPosition) {
-      _tientLaPosition = false;
-      ref.read(livePositionProvider.notifier).release();
-    }
     _refresh?.cancel();
     _refresh = null;
     _flush?.cancel();
@@ -206,7 +186,16 @@ class PingBeaconService extends Notifier<PingBeaconState> {
       // rien.** Une position approximative reste une position : on publie, et
       // on dit la dégradation (voir [LocationPrecision]).
       final precision = await geo.precision();
-      final fix = await ref.read(livePositionProvider.notifier).current();
+      // ⚠️ **Une RAFALE, pas un abonnement permanent** — décision de Jay du
+      // 2026-09-22 au soir. Le ping tenait le flux ouvert tant qu'il était
+      // allumé : la précision maximale en continu, pour publier une balise par
+      // minute. On ouvre maintenant dix secondes, le temps que le point se
+      // resserre, et on referme. Le continu reste réservé à la carte ouverte,
+      // où quelqu'un regarde vraiment.
+      //
+      // ⚠️ Et si la carte est ouverte en même temps, ça ne coûte rien : le
+      // compteur d'abonnés de `LivePosition` fait que le flux tourne déjà.
+      final fix = await ref.read(livePositionProvider.notifier).rafale();
       if (fix == null) {
         // La dernière panne réseau ne décrit plus la situation : ce qui bloque
         // maintenant, c'est la position. En garder deux ferait afficher deux

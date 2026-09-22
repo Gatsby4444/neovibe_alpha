@@ -286,9 +286,17 @@ class ProximityService : Service(), BleEngine.Listener {
      *   toute facon cinq minutes apres la fermeture ([publicAutorise]) ;
      * - **le Dart publie encore.**
      *
-     * Sinon : **ecran allume** ⇒ [LocationBeat.RAPIDE_MS] ; **eteint** ⇒
-     * [LocationBeat.LENT_MS]. La source est `ScreenState`, la meme que le
-     * rythme d'ecoute, avec sa minute de retard a l'extinction.
+     * Sinon : **une mesure par minute** ([LocationBeat.CADENCE_MS]), et chaque
+     * mesure ouvre une fenetre de dix secondes avant de publier
+     * ([LocationBeat.FENETRE_MS]) — decision de Jay du 2026-09-22 au soir.
+     *
+     * ⚠️ **Il n'y a plus deux cadences.** Elles valaient 30 s ecran allume et
+     * 60 s eteint, lues dans `ScreenState`. La distinction n'avait pas de sens
+     * ici : ce battement ne tourne QUE quand le Dart s'est tu depuis 90 s,
+     * c'est-a-dire quand l'app n'est plus au premier plan. Que l'ecran soit
+     * allume pour une AUTRE app ne change rien a ce qu'on doit publier.
+     * `ScreenState` sert toujours au BLE (le mode de scan) — on n'a retire que
+     * son effet ici.
      */
     private fun revoirLeBattement() {
         val plan = schedule
@@ -300,9 +308,7 @@ class ProximityService : Service(), BleEngine.Listener {
             battement.stop()
             return
         }
-        battement.start(
-            if (engine.ecranAllume) LocationBeat.RAPIDE_MS else LocationBeat.LENT_MS,
-        )
+        battement.start(LocationBeat.CADENCE_MS)
     }
 
 

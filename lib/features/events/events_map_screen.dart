@@ -63,6 +63,10 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// se recentrer de force sous le doigt de quelqu'un en train de la déplacer.
   bool _poseeSurMoi = false;
 
+  /// Le flux tourne-t-il **pour nous** en ce moment ? Voir
+  /// [didChangeAppLifecycleState].
+  bool _abonne = false;
+
   /// 🔴 **Ce que la carte faisait, et pourquoi c'était faux** — 2026-09-22.
   ///
   /// Elle demandait une position, prenait la première réponse, et recommençait
@@ -80,6 +84,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     super.initState();
     _position = ref.read(livePositionProvider.notifier);
     _position.acquire();
+    _abonne = true;
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -88,18 +93,45 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     WidgetsBinding.instance.removeObserver(this);
     // ⚠️ Relâché ici, et le notifier est retenu depuis [initState] : lire un
     // provider pendant `dispose` n'est pas garanti.
-    _position.release();
+    // ⚠️ Et **seulement si on tient encore l'abonnement** : l'écran peut être
+    // détruit alors qu'il l'a déjà relâché en passant en arrière-plan.
+    if (_abonne) {
+      _abonne = false;
+      _position.release();
+    }
     super.dispose();
   }
 
-  /// ⚠️ **La finesse accordée se relit au retour dans l'app.** Si on la
-  /// change dans les réglages système, rien ne nous prévient : sans cette
-  /// relecture, l'avertissement resterait affiché après avoir été corrigé —
-  /// aussi trompeur qu'un avertissement absent.
+  /// **L'écoute continue s'arrête dès qu'on quitte l'app** — décision de Jay
+  /// du 2026-09-22 au soir : *« on peut faire en continu app ouverte sur maps
+  /// comme Google Maps […] et lorsque l'app est éteinte ou en arrière-plan, on
+  /// demande la position une fois par minute »*.
+  ///
+  /// ⚠️ **Sans ça, « arrière-plan » resterait du continu.** Une carte laissée
+  /// ouverte derrière une autre app garderait le moteur de position allumé à
+  /// pleine précision, sans que personne ne la regarde — exactement ce que
+  /// cette décision supprime. Le ping, lui, continue de publier par rafales.
+  ///
+  /// ⚠️ **La finesse accordée se relit au retour.** Si on la change dans les
+  /// réglages système, rien ne nous prévient : sans cette relecture,
+  /// l'avertissement resterait affiché après avoir été corrigé — aussi
+  /// trompeur qu'un avertissement absent.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      if (!_abonne) {
+        _abonne = true;
+        _position.acquire();
+      }
       unawaited(_position.relisPrecision());
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      // ⚠️ Relâché **une seule fois**, sinon le compteur d'abonnés passerait
+      // sous zéro et couperait le flux sous les pieds d'un autre lecteur.
+      if (_abonne) {
+        _abonne = false;
+        _position.release();
+      }
     }
   }
 

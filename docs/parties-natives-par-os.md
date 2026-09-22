@@ -722,8 +722,23 @@ implémentation du même accord, sans point de contact, est une divergence promi
   premier plan de type `location` avec sa notification. C'est ce statut qui
   rend une position par minute tenable écran éteint (Doze ne s'applique pas),
   là où une alarme est plafonnée à ~9 min et `WorkManager` à 15 min.
-  Cadences : `RAPIDE_MS` 30 s écran allumé, `LENT_MS` 60 s écran éteint
-  (source : `ScreenState`), position périmée au-delà de `PERIMEE_MS` 5 min.
+  🔴 **PAR RAFALES depuis le 2026-09-22 au soir** (décision de Jay, à sa
+  question *« app fermée on continue de demander la position en continu ? »* —
+  la réponse était oui, et c'était trop). L'abonnement au moteur restait ouvert
+  en permanence, à la précision maximale, pour publier une balise par minute :
+  **quatre mesures pour en utiliser une**, GPS jamais froid. Désormais :
+  `CADENCE_MS` **60 s** entre deux mesures, `FENETRE_MS` **10 s** d'écoute par
+  mesure (pas interne `PAS_FENETRE_MS` 1 s), puis on **referme** et on publie —
+  la publication est à la FERMETURE, sinon les dix secondes ne serviraient à
+  rien. `RAPIDE_MS`/`LENT_MS` sont **fusionnées** : ce battement ne tourne que
+  quand le Dart s'est tu depuis 90 s, donc app hors premier plan, et l'état de
+  l'écran n'y change rien (`ScreenState` sert toujours au BLE).
+  ⚠️ Garde de `start()` : elle lit `arme` (le battement est-il armé ?) et non
+  `listening` (la fenêtre est-elle ouverte ?) — équivalents tant que l'écoute
+  était permanente, opposés depuis la rafale, où `listening` est faux 50 s sur
+  60. Avec l'ancienne garde, le battement se reposait à chaque appel et
+  **n'aurait jamais publié**.
+  Position périmée au-delà de `PERIMEE_MS` 5 min.
   Réutilise `SessionStore` + `SupabaseHttp` (`publish/`), éprouvés par
   `EventPresenceService`. Instruments dans `stats()` : `publicEnArrierePlan`,
   `beaconPublications`, `beaconEchecs`, `beaconDernierEchec`, `beaconMoteur`,

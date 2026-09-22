@@ -187,4 +187,37 @@ void main() {
       );
     });
   });
+
+  group('la rafale et le continu — decision de Jay du 2026-09-22 au soir', () {
+    // Jay : « on peut faire en continu app ouverte sur maps comme Google Maps
+    // si deux amis veulent se retrouver, et lorsque l'app est eteinte ou en
+    // arriere-plan, on demande la position une fois par minute mais on ouvre
+    // pendant 10 sec le temps de bien calibrer la position et ensuite on
+    // referme, toutes les 60 secondes. »
+
+    test("la fenetre de rafale est celle du natif, pas un chiffre rond", () {
+      // La meme regle est ecrite deux fois, en Dart et en Kotlin
+      // (LocationBeat.FENETRE_MS). Deux valeurs differentes, et le point
+      // mesure app ouverte et le point mesure app fermee n'auraient pas la
+      // meme qualite, sans que rien ne le signale.
+      expect(
+        LivePosition.fenetreRafale,
+        const Duration(seconds: 10),
+        reason: "si ceci change, LocationBeat.FENETRE_MS doit changer avec",
+      );
+    });
+
+    test("dix secondes, pas une : une fenetre trop courte rend la premiere "
+        "reponse", () {
+      // Le coeur du defaut du 2026-09-22 : le moteur repond d'abord de
+      // memoire, puis affine. Une fenetre d'une seconde economiserait de la
+      // batterie en redonnant exactement le point grossier qu'on voulait
+      // fuir — l'economie annulerait la correction.
+      expect(
+        LivePosition.fenetreRafale.inSeconds,
+        greaterThanOrEqualTo(5),
+        reason: "sous 5 s, le moteur n'a pas le temps de se resserrer",
+      );
+    });
+  });
 }

@@ -299,6 +299,55 @@ class LivePosition extends Notifier<LivePositionState> {
     await relisPrecision();
   }
 
+  /// **Une rafale : on ouvre, on laisse le point se resserrer, on referme.**
+  ///
+  /// ## Ce que ça remplace, et la décision de Jay (2026-09-22 au soir)
+  ///
+  /// Sa question : *« app fermée on continue de demander la position en
+  /// continu ? »* — oui, et c'était trop. Le ping gardait l'abonnement ouvert
+  /// **tant qu'il était allumé**, à la précision maximale, pour ne publier
+  /// qu'une balise par minute.
+  ///
+  /// Sa décision : **continu quand on regarde la carte** (deux amis qui se
+  /// rejoignent ont besoin du temps réel), **une rafale de dix secondes par
+  /// minute le reste du temps**.
+  ///
+  /// L'image : on démarre le moteur, on roule, on coupe — au lieu de le
+  /// laisser tourner au ralenti pour un trajet par heure.
+  ///
+  /// ## ⚠️ Elle coûte ZÉRO si quelqu'un écoute déjà
+  ///
+  /// [acquire] et [release] sont **comptés**. Si la carte est ouverte au même
+  /// moment, le flux tourne déjà : la rafale ne fait qu'attendre la fenêtre
+  /// puis lire le meilleur relevé. Aucune seconde de radio en plus, et surtout
+  /// **aucun second abonnement** — c'est ce qui évite deux mesures
+  /// concurrentes qui se contrediraient.
+  ///
+  /// ⚠️ **Le repli sur un tir unique est volontaire.** Si la fenêtre n'a rien
+  /// rapporté (permission refusée entre-temps, moteur muet), publier reste
+  /// mieux que se taire : une balise absente rend invisible, et l'écran ne
+  /// pourrait pas distinguer « je n'ai pas mesuré » de « personne autour ».
+  Future<CoarseFix?> rafale({Duration fenetre = fenetreRafale}) async {
+    acquire();
+    try {
+      await Future<void>.delayed(fenetre);
+    } finally {
+      release();
+    }
+    if (state.isFresh(DateTime.now())) return state.fix;
+    return current();
+  }
+
+  /// La durée d'une [rafale].
+  ///
+  /// **Dix secondes**, la même valeur que le natif (`LocationBeat.FENETRE_MS`),
+  /// parce que c'est la même règle écrite deux fois dans deux langages. C'est
+  /// le temps qu'il faut au moteur pour **affiner** : il répond d'abord de
+  /// mémoire, puis se resserre. Une fenêtre d'une seconde redonnerait la
+  /// première réponse grossière — le défaut du 2026-09-22, revenu par la porte
+  /// de l'économie de batterie.
+  static const fenetreRafale = Duration(seconds: 10);
+
   /// **Le meilleur relevé disponible maintenant, quitte à en demander un.**
   ///
   /// Pour tout ce qui a besoin d'une position **une fois** : créer un
