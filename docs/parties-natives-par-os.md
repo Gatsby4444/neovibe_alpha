@@ -726,10 +726,33 @@ implémentation du même accord, sans point de contact, est une divergence promi
   (source : `ScreenState`), position périmée au-delà de `PERIMEE_MS` 5 min.
   Réutilise `SessionStore` + `SupabaseHttp` (`publish/`), éprouvés par
   `EventPresenceService`. Instruments dans `stats()` : `publicEnArrierePlan`,
-  `beaconPublications`, `beaconEchecs`, `beaconDernierEchec`,
+  `beaconPublications`, `beaconEchecs`, `beaconDernierEchec`, `beaconMoteur`,
   `beaconAgeMillis`.
+  🔴 **QUEL MOTEUR MESURE — changé le 2026-09-22 (soir).** Il écoutait le
+  `LocationManager` d'Android, qui ne croise **rien** : GPS brut, ou antenne
+  brute. Il passe désormais par le **moteur fusionné de Google**
+  (`FusedLocationProviderClient`, `play-services-location:21.2.0`, version
+  alignée sur celle que `geolocator_android` apporte déjà) — GPS + Wi-Fi +
+  antennes + capteurs, celui qui sert Google Maps. Constat qui l'a déclenché :
+  dans le métro, NeoVibe plaçait Jay à deux rues de l'endroit réel, Google Maps
+  juste, au même instant sur le même téléphone.
+  `demarreGoogle()` d'abord, **repli** sur `demarreAndroid()` si les services
+  Google Play manquent (Huawei, ROM dégooglisée) ; `stopListening()` coupe
+  **les deux**. `setWaitForAccurateLocation(false)` volontairement : on veut le
+  point rapide **et** les meilleurs ensuite, c'est `listener` qui garde le
+  meilleur. L'instrument `beaconMoteur` (`google` / `android` / `aucun`) dit
+  lequel a tourné — les deux rendent le même objet avec les mêmes champs, donc
+  sans lui une position fusionnée et une estimation d'antenne sont
+  indiscernables dans un rapport.
+  🔴 **Défaut corrigé le même jour** : `start()` changeait la cadence du
+  battement sans reposer l'abonnement, qui gardait l'ancien intervalle — écran
+  éteint, on annonçait « une position par minute » en continuant d'en demander
+  une toutes les 15 s. La cadence est maintenant reposée
+  (`changeDeCadence` → `stopListening()` puis `startListening()`).
   🍎 **iOS (à faire)** : `CLLocationManager` avec `allowsBackgroundLocationUpdates`
-  et le mode d'arrière-plan « location », même RPC.
+  et le mode d'arrière-plan « location », même RPC. ⚠️ Pas de question de
+  moteur sur iOS : CoreLocation **est** le moteur fusionné d'Apple, il n'y a
+  pas d'équivalent du `LocationManager` brut à éviter.
 
 - **`AdvertSchedule.publicTokenAt`** *(2026-09-22)* — le jeton public du
   créneau courant et son numéro, **lus au plan, jamais recalculés** :
@@ -1416,6 +1439,14 @@ rafraîchit sa session et rappelle `configure`.
 
 Dépendances ajoutées : `com.google.code.gson:gson:2.11.0` (main, elle n'était
 qu'en test), `com.squareup.okhttp3:okhttp:4.12.0`.
+
+Et, pour la position (2026-09-22) :
+`com.google.android.gms:play-services-location:21.2.0` — le moteur fusionné de
+Google, pour `LocationBeat.kt`. ⚠️ **Version alignée sur celle que
+`geolocator_android` apporte déjà** (relevée dans son `build.gradle:44`) : même
+règle que media3, deux versions dans un même APK ne se concilient pas et la
+plus haute gagnerait en silence. **Sans équivalent iOS à ajouter** : CoreLocation
+est déjà le moteur fusionné d'Apple, et il est dans le système.
 
 ⚠️ **R8 et la réflexion** (v0.9.221, après le test de Jay) : Gson lit ces
 classes **par leur nom** ; en release R8 les renommait (`x7.g`) et le dépôt

@@ -2,7 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../features/proximity/geo/coarse_location.dart';
+import '../../features/proximity/geo/live_position.dart';
 
 /// **L'ancre d'un contenu** : où il a été pris — **gommée**, jamais exacte.
 ///
@@ -57,7 +57,7 @@ class AnchorSource {
   final Ref _ref;
 
   Future<ContentAnchor?> current() async {
-    final fix = await _ref.read(coarseLocationProvider).current();
+    final fix = await _ref.read(livePositionProvider.notifier).current();
     if (fix == null) return null;
     return ContentAnchor.gomme(fix.latitude, fix.longitude);
   }

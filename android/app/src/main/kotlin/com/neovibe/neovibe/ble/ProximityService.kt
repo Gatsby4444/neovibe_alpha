@@ -1093,6 +1093,13 @@ class ProximityService : Service(), BleEngine.Listener {
         "beaconPublications" to battement.publications,
         "beaconEchecs" to battement.echecs,
         "beaconDernierEchec" to battement.dernierEchec,
+        // ⚠️ **QUI mesure la position** : `google` (moteur fusionne, celui de
+        // Google Maps) ou `android` (LocationManager brut, en repli sur un
+        // telephone sans services Google Play). Les deux rendent le meme objet
+        // avec les memes champs : sans cette ligne, une position fusionnee et
+        // une estimation d'antenne brute sont indiscernables dans un rapport.
+        // Voir [LocationBeat.moteur] — ajoute le 2026-09-22.
+        "beaconMoteur" to battement.moteur,
         "beaconAgeMillis" to
             if (battement.dernierePublication == 0L) {
                 -1L

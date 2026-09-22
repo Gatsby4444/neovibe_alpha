@@ -8,7 +8,7 @@ import '../../core/typography.dart';
 import '../../core/utils/erreur_serveur.dart';
 import '../../core/utils/formats.dart';
 import '../../core/widgets/top_banner.dart';
-import '../proximity/geo/coarse_location.dart';
+import '../proximity/geo/live_position.dart';
 import 'create_event_screen.dart';
 import 'event_screen.dart';
 import 'events_map_screen.dart';
@@ -257,7 +257,7 @@ Future<bool> rejoindreEvenement(
   WidgetRef ref,
   String eventId,
 ) async {
-  final fix = await ref.read(coarseLocationProvider).current();
+  final fix = await ref.read(livePositionProvider.notifier).current();
   if (fix == null) {
     if (context.mounted) {
       TopBanner.show(

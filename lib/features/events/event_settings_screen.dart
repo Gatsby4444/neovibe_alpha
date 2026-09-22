@@ -7,7 +7,7 @@ import '../../core/typography.dart';
 import '../../core/utils/erreur_serveur.dart';
 import '../../core/utils/formats.dart';
 import '../../core/widgets/top_banner.dart';
-import '../proximity/geo/coarse_location.dart';
+import '../proximity/geo/live_position.dart';
 import 'events_providers.dart';
 import 'events_repository.dart';
 
@@ -91,7 +91,7 @@ class _EventSettingsScreenState extends ConsumerState<EventSettingsScreen> {
   }
 
   Future<void> _usePlace(NeoEvent event) async {
-    final fix = await ref.read(coarseLocationProvider).current();
+    final fix = await ref.read(livePositionProvider.notifier).current();
     if (fix == null) {
       if (mounted) {
         TopBanner.show(

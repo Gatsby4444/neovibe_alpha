@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../geo/coarse_location.dart';
+import '../geo/live_position.dart';
 import '../proximity_identity.dart';
 import 'ble_radio.dart';
 import 'ping_nearby_feed.dart';
@@ -100,6 +101,9 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   /// (Défaut introduit et corrigé le 2026-08-27, avant le premier test.)
   final _heardAt = <String, DateTime>{};
 
+  /// Tenons-nous l'abonnement à la position ? Voir [_stop].
+  bool _tientLaPosition = false;
+
   @override
   PingBeaconState build() {
     ref.onDispose(_stop);
@@ -138,6 +142,15 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   Future<void> _start() async {
     if (_refresh != null) return;
 
+    // ⚠️ **On s'abonne à la position pour toute la durée du ping.** Lire une
+    // position à chaque tour rouvrait un abonnement neuf toutes les minutes et
+    // retombait chaque fois sur la première réponse du moteur, la plus
+    // grossière — c'est ce que Jay a vu sur la carte le 2026-09-22. En restant
+    // abonné, le relevé se resserre entre deux tours et la balise publiée vaut
+    // ce que vaut le meilleur relevé, pas le plus pressé.
+    ref.read(livePositionProvider.notifier).acquire();
+    _tientLaPosition = true;
+
     _radioFeed ??= ref
         .read(proximitySupervisorProvider.notifier)
         .events
@@ -158,6 +171,14 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     // rallumer le ping repartirait en se croyant annoncé, et le premier tour
     // sans position se tairait au lieu de le dire.
     _publishedAt = null;
+    // ⚠️ **Relâché exactement autant de fois qu'acquis** : la carte peut tenir
+    // le même abonnement en même temps, et le ping qui s'éteint ne doit pas la
+    // couper. Le drapeau existe parce que [_stop] est appelé aussi bien à
+    // l'arrêt volontaire qu'à la destruction, et deux fois de suite.
+    if (_tientLaPosition) {
+      _tientLaPosition = false;
+      ref.read(livePositionProvider.notifier).release();
+    }
     _refresh?.cancel();
     _refresh = null;
     _flush?.cancel();
@@ -185,7 +206,7 @@ class PingBeaconService extends Notifier<PingBeaconState> {
       // rien.** Une position approximative reste une position : on publie, et
       // on dit la dégradation (voir [LocationPrecision]).
       final precision = await geo.precision();
-      final fix = await geo.current();
+      final fix = await ref.read(livePositionProvider.notifier).current();
       if (fix == null) {
         // La dernière panne réseau ne décrit plus la situation : ce qui bloque
         // maintenant, c'est la position. En garder deux ferait afficher deux

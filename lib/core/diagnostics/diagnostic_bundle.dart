@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -246,6 +248,7 @@ class DiagnosticBundle {
         'beaconPublications',
         'beaconEchecs',
         'beaconDernierEchec',
+        'beaconMoteur',
         'beaconAgeMillis',
         'resumedFromDisk',
         'multipleAdvertisement',
@@ -473,11 +476,74 @@ class DiagnosticBundle {
         ..writeln('finesse       : ${precision.name}');
       final fix = await geo.current();
       buffer.writeln('carreau       : ${fix ?? 'aucune position lisible'}');
+      buffer.writeln(
+        'repli haut    : ${CoarseLocation.lastBestFailure ?? 'aucun échec'}',
+      );
+      buffer.write(await _convergence(geo));
     } catch (e) {
       buffer.writeln('relevé impossible : $e');
     }
     return buffer.toString();
   }
+
+  /// Combien on tirait à côté — **la mesure du défaut du 2026-09-22**.
+  ///
+  /// ## Ce qu'elle compare, et pourquoi elle vaut le temps qu'elle prend
+  ///
+  /// Le 2026-09-22, dans le métro, NeoVibe affichait Jay à `± 675 m` et deux
+  /// rues plus loin, quand Google Maps le plaçait juste. La cause n'était pas
+  /// la source des données — c'était qu'on **raccrochait à la première
+  /// réponse**, la plus rapide donc la plus grossière.
+  ///
+  /// Cette sonde écoute [CoarseLocation.watch] pendant [_ecoute] et écrit ce
+  /// qu'il s'est passé : **combien de relevés** sont arrivés, celui de départ,
+  /// celui d'arrivée, et le meilleur. C'est la seule façon de répondre, sur
+  /// l'appareil et à l'endroit qui pose problème, à la question qui compte :
+  /// *le point se resserre-t-il si on attend ?*
+  ///
+  /// Trois lectures possibles du résultat, et elles n'appellent pas la même
+  /// suite :
+  ///
+  /// - **il se resserre** → la correction sert, et on sait de combien ;
+  /// - **un seul relevé arrive** → le flux ne tourne pas ; regarder `repli
+  ///   haut` juste au-dessus, et les réglages de localisation du téléphone ;
+  /// - **il arrive beaucoup de relevés mais l'incertitude ne descend pas** →
+  ///   le moteur n'a rien de mieux à offrir ici (sous terre, sans Wi-Fi), et
+  ///   aucun code ne le corrigera.
+  ///
+  /// ⚠️ **Ne PAS en conclure que la carte affiche ça.** Cette sonde repart de
+  /// zéro à chaque diagnostic ; la carte, elle, reste abonnée tant qu'elle est
+  /// ouverte et a donc plus de temps que [_ecoute] pour converger.
+  static Future<String> _convergence(CoarseLocation geo) async {
+    final vus = <CoarseFix>[];
+    try {
+      await geo.watch().take(_relevesMax).timeout(_ecoute).forEach(vus.add);
+    } on TimeoutException {
+      // Attendu : on borne l'écoute, on ne l'attend pas jusqu'au bout.
+    } catch (e) {
+      return 'convergence   : flux indisponible ($e)\n';
+    }
+    if (vus.isEmpty) {
+      return 'convergence   : aucun relevé en ${_ecoute.inSeconds} s\n';
+    }
+    final meilleur = vus
+        .map((f) => f.accuracy)
+        .reduce((a, b) => a < b ? a : b)
+        .round();
+    return 'convergence   : ${vus.length} relevés en ${_ecoute.inSeconds} s · '
+        'début ± ${vus.first.accuracy.round()} m · '
+        'fin ± ${vus.last.accuracy.round()} m · '
+        'meilleur ± $meilleur m\n';
+  }
+
+  /// Combien de temps la sonde écoute. Assez pour qu'un GPS tiède réponde,
+  /// assez peu pour qu'un diagnostic reste un geste et non une attente.
+  static const _ecoute = Duration(seconds: 10);
+
+  /// Une borne de sécurité : dehors, le moteur peut livrer plusieurs relevés
+  /// par seconde, et on n'a pas besoin de les garder tous pour répondre à la
+  /// question.
+  static const _relevesMax = 40;
 
   /// Ce que le téléphone accorde à l'app pour vivre en arrière-plan.
   /// L'état MIUI « démarrage automatique » n'est pas lisible : on le dit,

@@ -10,6 +10,7 @@ import '../../core/widgets/avatar.dart';
 import '../../core/widgets/top_banner.dart';
 import '../connections/connections_repository.dart';
 import '../proximity/geo/coarse_location.dart';
+import '../proximity/geo/live_position.dart';
 import 'event_screen.dart';
 import 'events_repository.dart';
 
@@ -79,7 +80,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
 
   Future<void> _usePlace() async {
     setState(() => _placeBusy = true);
-    final fix = await ref.read(coarseLocationProvider).current();
+    final fix = await ref.read(livePositionProvider.notifier).current();
     if (!mounted) return;
     setState(() {
       _placeBusy = false;

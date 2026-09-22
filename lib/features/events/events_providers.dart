@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/derived_list.dart';
 import '../../core/models/event.dart';
 import '../../core/supabase_providers.dart';
-import '../proximity/geo/coarse_location.dart';
+import '../proximity/geo/live_position.dart';
 import 'events_repository.dart';
 
 /// **Les serveurs du mode événement** : des vues dérivées, chacune à son
@@ -164,7 +164,7 @@ final eventHotSpotsProvider = FutureProvider.family<List<HotSpot>, String>((
 /// elle, l'erreur le dit — l'écran n'a pas à deviner.
 final nearbyEventsProvider = FutureProvider<List<NearbyEvent>>((ref) async {
   if (ref.watch(currentUserIdProvider) == null) return const [];
-  final fix = await ref.watch(coarseLocationProvider).current();
+  final fix = await ref.read(livePositionProvider.notifier).current();
   if (fix == null) {
     throw StateError('Position indisponible');
   }

@@ -372,6 +372,18 @@ dependencies {
     implementation("com.google.code.gson:gson:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Le moteur de position de Google (LocationBeat.kt, 2026-09-22) — celui-là
+    // même qui sert Google Maps : GPS + Wi-Fi + antennes + capteurs, fusionnés.
+    // Le `LocationManager` d'Android, qu'on utilisait, ne croise rien : il rend
+    // le GPS brut ou l'antenne brute, et sous terre ça fait des centaines de
+    // mètres d'écart (constaté par Jay dans le métro, le 2026-09-22).
+    //
+    // ⚠️ Version alignée sur celle que `geolocator_android` apporte déjà
+    // (relevée dans son `build.gradle:44`). Même raison que media3 plus haut :
+    // deux versions dans un même APK ne se concilient pas, et la plus haute
+    // gagnerait en silence.
+    implementation("com.google.android.gms:play-services-location:21.2.0")
+
     // Vecteurs de test croisés du format scellé (voir docs/format-media-scelle.md)
     testImplementation("junit:junit:4.13.2")
 }

@@ -1,6 +1,7 @@
 package com.neovibe.neovibe.ble
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
 import android.location.Location
@@ -9,6 +10,14 @@ import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import com.google.android.gms.common.ConnectionResult
+import com.google.android.gms.common.GoogleApiAvailability
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import com.neovibe.neovibe.publish.SessionStore
 import com.neovibe.neovibe.publish.SupabaseHttp
 import java.util.concurrent.Executors
@@ -162,7 +171,16 @@ class LocationBeat(
     fun start(cadenceMs: Long) {
         if (!hasPermission()) return
         if (cadence == cadenceMs && listening) return
+        // 🔴 **Défaut relevé le 2026-09-22, dans le code de la veille.**
+        // `startListening()` sortait aussitôt quand on écoutait déjà : le
+        // battement changeait de cadence, mais **l'abonnement gardait
+        // l'ancienne**. Passer l'écran en veille annonçait donc « une position
+        // par minute » tout en continuant d'en demander une toutes les quinze
+        // secondes — deux fois plus de radio que prévu, et rien pour le dire.
+        // La cadence étant l'intervalle de la requête, il faut la reposer.
+        val changeDeCadence = listening && cadence != cadenceMs
         cadence = cadenceMs
+        if (changeDeCadence) stopListening()
         startListening()
         main.removeCallbacks(tick)
         main.post(tick)
@@ -183,9 +201,100 @@ class LocationBeat(
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
             PackageManager.PERMISSION_GRANTED
 
+    /**
+     * **Quel moteur mesure la position** : `google`, `android`, ou `aucun`.
+     *
+     * ## ⚠️ Pourquoi c'est publié et pas déduit
+     *
+     * Les deux moteurs rendent le même objet [Location], avec les mêmes
+     * champs. Une position fusionnée par Google et une position d'antenne
+     * brute ont **exactement la même apparence** — seule leur incertitude
+     * diffère, et une incertitude seule ne dit pas qui l'a produite.
+     *
+     * Le 2026-09-22, il a fallu lire le code d'un paquet pour savoir lequel
+     * répondait. Ça ne se reproduit pas : le diagnostic le dit.
+     */
+    @Volatile
+    var moteur = "aucun"
+        private set
+
+    private var fused: FusedLocationProviderClient? = null
+
+    private val rappelGoogle = object : LocationCallback() {
+        override fun onLocationResult(result: LocationResult) {
+            result.lastLocation?.let { listener.onLocationChanged(it) }
+        }
+    }
+
+    /**
+     * On écoute avec le **moteur de Google** si le téléphone l'a, sinon avec
+     * celui d'Android. Pas un choix de confort : voir [demarreGoogle].
+     */
     private fun startListening() {
         if (listening) return
-        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return
+        listening = demarreGoogle() || demarreAndroid()
+        if (!listening) moteur = "aucun"
+    }
+
+    /**
+     * **Le moteur fusionné de Google** — celui qui sert Google Maps et Snap.
+     *
+     * ## 🔴 Ce qu'il change, et pourquoi on a mis un mois à le voir
+     *
+     * [LocationManager] (ci-dessous) ne croise **rien** : il rend le GPS brut,
+     * ou l'estimation d'antenne brute. Sous terre, dans un bâtiment, dans une
+     * rue étroite, ça fait des centaines de mètres. Le moteur de Google croise
+     * GPS, Wi-Fi, antennes et capteurs, et s'appuie sur la base de données
+     * Wi-Fi mondiale de Google.
+     *
+     * Constaté par Jay le 2026-09-22, dans le métro : NeoVibe à deux rues de
+     * l'endroit réel, Google Maps juste, au même instant sur le même téléphone.
+     *
+     * ⚠️ **`setWaitForAccurateLocation(false)`, volontairement.** Demander à
+     * n'être réveillé que sur une position précise ferait taire le moteur tant
+     * qu'il n'a rien de bon — or on préfère un point médiocre tout de suite
+     * **et** les meilleurs ensuite : c'est [listener] qui garde le meilleur.
+     * Laisser le tri au moteur, c'est lui déléguer une décision d'usage.
+     *
+     * @return `false` si les services Google Play manquent — Huawei, ROM
+     *   chinoise, appareil dégooglisé. Ce n'est pas une panne : c'est le cas
+     *   où [demarreAndroid] est la seule option, et il faut alors que le
+     *   diagnostic le dise plutôt que d'afficher une position sans auteur.
+     */
+    @SuppressLint("MissingPermission")
+    private fun demarreGoogle(): Boolean {
+        val dispo = runCatching {
+            GoogleApiAvailability.getInstance()
+                .isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
+        }.getOrDefault(false)
+        if (!dispo) return false
+        return runCatching {
+            val client = fused
+                ?: LocationServices.getFusedLocationProviderClient(context)
+                    .also { fused = it }
+            val requete = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, cadence / 2)
+                .setMinUpdateIntervalMillis(cadence / 4)
+                .setWaitForAccurateLocation(false)
+                .build()
+            client.requestLocationUpdates(requete, rappelGoogle, Looper.getMainLooper())
+            // Ce que le moteur tient déjà : sans ça, le premier battement après
+            // un démarrage n'a rien à publier et compte un `no_fix` pour rien.
+            client.lastLocation.addOnSuccessListener { p ->
+                p?.let { listener.onLocationChanged(it) }
+            }
+            moteur = "google"
+            true
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Le moteur d'Android, **en repli seulement**. Voir [demarreGoogle] pour ce
+     * qu'il ne sait pas faire.
+     */
+    private fun demarreAndroid(): Boolean {
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            ?: return false
+        var arme = false
         for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
             runCatching {
                 if (lm.isProviderEnabled(provider)) {
@@ -197,19 +306,29 @@ class LocationBeat(
                         Looper.getMainLooper(),
                     )
                     lm.getLastKnownLocation(provider)?.let { listener.onLocationChanged(it) }
+                    arme = true
                 }
             }
         }
-        listening = true
+        if (arme) moteur = "android"
+        return arme
     }
 
+    /**
+     * ⚠️ **Les deux moteurs sont coupés, pas seulement celui qui tournait.**
+     * Règle 8 de `CLAUDE.md` : un abonnement qu'on croit arrêté parce qu'on a
+     * arrêté l'autre continue de réveiller la radio, et rien ne le signale —
+     * la batterie descend, c'est tout.
+     */
     private fun stopListening() {
         if (!listening) return
+        runCatching { fused?.removeLocationUpdates(rappelGoogle) }
         runCatching {
             (context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager)
                 ?.removeUpdates(listener)
         }
         listening = false
+        moteur = "aucun"
     }
 
     /** Dépose la balise. **Constate et compte** ; ne décide de rien d'autre. */

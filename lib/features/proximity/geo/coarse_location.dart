@@ -357,6 +357,24 @@ class CoarseLocation {
   /// | dehors, sans réseau ni Wi-Fi | ✅ satellites | ❌ rien à interroger |
   /// | dedans, sans satellites | ✅ retombe sur le Wi-Fi | ✅ |
   /// | dedans, sans réseau **ni** Wi-Fi | ❌ | ❌ → [FixSource.lastKnown] |
+  ///
+  /// ## ⚠️ Ce que ce tir unique NE peut pas faire — relevé le 2026-09-22
+  ///
+  /// Lu dans le paquet, `geolocator_android-4.6.2` :
+  /// `MethodCallHandlerImpl.java:241` — `getCurrentPosition` s'abonne au
+  /// service de position, **prend la toute première position livrée, puis
+  /// coupe l'abonnement**. Or la première livrée est la plus rapide, donc la
+  /// plus grossière : le moteur de Google répond d'abord de mémoire, et
+  /// **affine ensuite**, au fil des secondes.
+  ///
+  /// Conséquence mesurée sur l'appareil de Jay le 2026-09-22, dans le métro :
+  /// `réseau ± 675 m`, quand Google Maps le plaçait à la bonne intersection.
+  /// Rien n'était en panne — on raccrochait avant la bonne réponse.
+  ///
+  /// ➡️ Pour tout ce qui dure (la carte ouverte, le ping allumé), c'est
+  /// [watch] qu'il faut, et la vue dérivée `LivePosition` qui garde le
+  /// meilleur relevé. [current] reste le bon geste **uniquement** pour un
+  /// besoin ponctuel et isolé, quand personne n'écoute déjà.
   Future<CoarseFix?> current() async {
     if (await blocker() != null) return null;
 
@@ -376,6 +394,64 @@ class CoarseLocation {
 
     return _lastKnownIfFresh();
   }
+
+  /// **Le flux : on reste abonné, et la position se resserre.**
+  ///
+  /// ## Pourquoi un flux, et pas [current] répété
+  ///
+  /// Ce n'est pas une photo, c'est une paire de jumelles qu'on règle. Le
+  /// moteur de position de Google répond d'abord de mémoire — tout de suite,
+  /// et mal — puis **affine** tant qu'on écoute : Wi-Fi, antennes, satellites,
+  /// capteurs. [current] raccroche à la première réponse (voir son
+  /// avertissement) ; ici on ne raccroche pas.
+  ///
+  /// Appeler [current] toutes les 15 s ne remplace pas ce flux : chaque appel
+  /// rouvre un abonnement neuf et retombe sur la même première réponse
+  /// grossière. Quinze photos floues ne font pas une photo nette.
+  ///
+  /// ## ⚠️ Ce flux publie TOUT, il ne trie rien
+  ///
+  /// Règle de Jay du 2026-08-20 : *qui acquiert publie fidèlement, qui
+  /// consomme décide.* Il sort donc des relevés meilleurs **et** pires les uns
+  /// que les autres, dans le désordre où Android les donne. Garder le meilleur
+  /// est un **usage**, et il vit dans `LivePosition` — pas ici.
+  ///
+  /// ## ⚠️ Toutes les sources s'annoncent [FixSource.best], et c'est exact
+  ///
+  /// On demande `PRIORITY_HIGH_ACCURACY`, donc c'est ce qu'on écrit — voir
+  /// l'avertissement de [FixSource] : *ce nom dit ce qu'on a DEMANDÉ, jamais
+  /// ce qui a contribué*. Android ne dit pas quel palier a réellement répondu
+  /// (vérifié le 2026-09-22 dans `LocationMapper.java` : ni le fournisseur ni
+  /// le nombre de satellites n'en sortent). **La seule mesure honnête de ce
+  /// que vaut un relevé est son incertitude annoncée**, `CoarseFix.accuracy`.
+  ///
+  /// `distanceFilter: 0` : on veut aussi les relevés qui ne bougent pas, parce
+  /// que c'est **la précision** qui progresse quand on reste immobile.
+  Stream<CoarseFix> watch() => Geolocator.getPositionStream(
+    locationSettings: const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 0,
+    ),
+  ).map((p) => CoarseFix.of(p, FixSource.best));
+
+  /// **Pourquoi le meilleur palier n'a rien rendu, la dernière fois.**
+  ///
+  /// ## ⚠️ Pourquoi cet instrument existe
+  ///
+  /// Le 2026-09-22, l'appareil de Jay affichait `réseau ± 675 m` : le palier
+  /// [FixSource.best] avait échoué, et on s'était rabattu **en silence** en
+  /// changeant simplement d'étiquette. Un repli muet et un repli motivé ont
+  /// exactement la même apparence — et c'est le repli qui décide de la qualité
+  /// de toute la chaîne.
+  ///
+  /// Une cause possible, lue dans le paquet et **non encore constatée sur
+  /// l'appareil** : avant de demander le meilleur palier,
+  /// `FusedLocationClient.java:238` demande à Android *« tes réglages
+  /// permettent-ils cette précision ? »*. Si « Précision de la localisation
+  /// Google » est désactivée, cette question échoue et rien n'est mesuré.
+  ///
+  /// `null` = le meilleur palier n'a jamais échoué depuis le lancement.
+  static String? lastBestFailure;
 
   /// Combien de temps on laisse au meilleur palier avant de se replier.
   ///
@@ -428,11 +504,22 @@ class CoarseLocation {
           timeLimit: limit,
         ),
       );
+      if (source == FixSource.best) lastBestFailure = null;
       return CoarseFix.of(p, source);
-    } catch (_) {
+    } catch (e) {
       // Délai dépassé, palier indisponible, service coupé entre-temps : dans
       // tous les cas il n'y a rien à publier **par ce palier**. C'est
       // [current] qui décide de la suite — pas nous.
+      //
+      // ⚠️ Mais on **écrit la cause** quand c'est le meilleur palier qui
+      // tombe : c'est le seul endroit où elle existe encore. Voir
+      // [lastBestFailure]. Un `TimeoutException` n'a pas de message utile, son
+      // type suffit ; une erreur de plateforme porte son code.
+      if (source == FixSource.best) {
+        lastBestFailure = e is PlatformException
+            ? '${e.code}${e.message == null ? '' : ' · ${e.message}'}'
+            : e.runtimeType.toString();
+      }
       return null;
     }
   }

@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +8,7 @@ import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/utils/erreur_serveur.dart';
 import '../proximity/geo/coarse_location.dart';
+import '../proximity/geo/live_position.dart';
 import 'event_screen.dart';
 import 'events_providers.dart';
 import 'map_tiles.dart';
@@ -25,7 +24,7 @@ import 'map_tiles.dart';
 /// |---|---|
 /// | carte **claire** dans une app sombre | fond OpenStreetMap **assombri chez nous** selon le thème ([MapTiles]) — la tentative CARTO du matin exigeait une clé |
 /// | tout **flou** | on demande les tuiles du niveau au-dessus et on les dessine sur la même surface (OSM ne sert pas de @2x) |
-/// | le point affiché **à ~2 km** de l'endroit réel (14:39) | la position était lue **une seule fois** à l'ouverture et jamais corrigée : elle est maintenant relue toutes les 15 s et au recentrage, et l'écran **dit d'où vient le point** (`_libelleFix`) |
+/// | le point affiché **à ~2 km** de l'endroit réel (14:39) | la carte prenait une photo au lieu de régler des jumelles ; elle **s'abonne** désormais (`LivePosition`), et dit sous la carte ce que vaut le point (`_libelleFix`) |
 /// | motifs géants puis **gris vide** en zoomant | le zoom est **borné** ([MapTiles.maxZoom]) : on ne peut plus dépasser le dernier niveau qui existe |
 /// | un viseur `my_location` posé sur la carte | un **point avec son halo d'incertitude** — ce que l'appareil sait vraiment |
 /// | la mention « © OpenStreetMap » sous la barre système | attribution remontée dans la zone sûre, sur un fond qui la détache |
@@ -47,56 +46,51 @@ class EventsMapScreen extends ConsumerStatefulWidget {
 
 class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
   final _map = MapController();
-  CoarseFix? _me;
-  DateTime? _meAt;
-  Timer? _suivi;
 
   /// ⚠️ **Posé une seule fois, au premier build utile.** Recalculer le centre
   /// à chaque reconstruction ramènerait la carte de force sous le doigt dès
   /// qu'une position arrive ou qu'un point chaud bouge.
   LatLng? _centreInitial;
 
-  /// 🔴 **La carte lisait la position UNE FOIS, à l'ouverture, et ne la
-  /// corrigeait jamais** — relevé sur la capture de Jay du 2026-09-22 (14:39),
-  /// où le point affiché était à ~2 km de l'endroit réel.
+  /// La carte s'est-elle déjà posée sur le premier relevé reçu ?
   ///
-  /// Quinze secondes : assez pour qu'un GPS froid ait le temps de répondre
-  /// après un premier repli sur le réseau, assez peu pour qu'on ne reste pas
-  /// planté sur un point faux en regardant l'écran.
-  static const _rythmeDeSuivi = Duration(seconds: 15);
+  /// ⚠️ Une seule fois, et c'est tout l'objet de ce drapeau : le flux publie
+  /// un relevé toutes les quelques secondes, et sans lui la carte reviendrait
+  /// se recentrer de force sous le doigt de quelqu'un en train de la déplacer.
+  bool _poseeSurMoi = false;
+
+  /// 🔴 **Ce que la carte faisait, et pourquoi c'était faux** — 2026-09-22.
+  ///
+  /// Elle demandait une position, prenait la première réponse, et recommençait
+  /// quinze secondes plus tard. Or chaque demande rouvre un abonnement neuf et
+  /// retombe sur la même réponse grossière : dans le métro, `± 675 m`, à deux
+  /// rues de l'endroit réel, pendant que Google Maps voyait juste.
+  ///
+  /// Quinze photos floues ne font pas une photo nette. Elle **s'abonne**
+  /// désormais — `LivePosition` garde le relevé le plus net et le point se
+  /// resserre, comme chez les autres.
+  late final LivePosition _position;
 
   @override
   void initState() {
     super.initState();
-    _relis(recentre: true);
-    _suivi = Timer.periodic(_rythmeDeSuivi, (_) => _relis());
+    _position = ref.read(livePositionProvider.notifier);
+    _position.acquire();
   }
 
   @override
   void dispose() {
-    _suivi?.cancel();
+    // ⚠️ Relâché ici, et le notifier est retenu depuis [initState] : lire un
+    // provider pendant `dispose` n'est pas garanti.
+    _position.release();
     super.dispose();
   }
 
-  Future<void> _relis({bool recentre = false}) async {
-    final fix = await ref.read(coarseLocationProvider).current();
-    if (!mounted || fix == null) return;
-    setState(() {
-      _me = fix;
-      _meAt = DateTime.now();
-    });
-    // La position arrive après coup : si la carte s'est ouverte sur le centre
-    // de secours, on la ramène — une fois, au premier relevé seulement.
-    if (recentre && _centreInitial == null) {
-      _map.move(LatLng(fix.latitude, fix.longitude), MapTiles.initialZoom);
-    }
-  }
-
-  /// Recentrer **relit** d'abord : c'est le geste de quelqu'un qui trouve que
-  /// le point est faux, pas celui de quelqu'un qui veut revoir le même point.
+  /// Recentrer **redemande** d'abord : c'est le geste de quelqu'un qui trouve
+  /// que le point est faux, pas celui de quelqu'un qui veut revoir le même
+  /// point.
   Future<void> _recentrer() async {
-    await _relis();
-    final me = _me;
+    final me = await _position.current();
     if (me == null || !mounted) return;
     _map.move(LatLng(me.latitude, me.longitude), MapTiles.initialZoom);
   }
@@ -115,7 +109,21 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
         ? const <HotSpot>[]
         : ref.watch(eventHotSpotsProvider(eventId)).value ?? const [];
 
-    final me = _me;
+    final live = ref.watch(livePositionProvider);
+    final me = live.fix;
+
+    // La position arrive après coup : la carte s'est ouverte sur le centre de
+    // secours, on l'amène sur le premier relevé reçu — une fois, et seulement
+    // s'il n'y a pas d'événement à montrer, qui lui prime.
+    if (me != null && !_poseeSurMoi && event?.lat == null && spots.isEmpty) {
+      _poseeSurMoi = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _map.move(LatLng(me.latitude, me.longitude), MapTiles.initialZoom);
+        }
+      });
+    }
+
     _centreInitial ??= event?.lat != null
         ? LatLng(event!.lat!, event.lon!)
         : spots.isNotEmpty
@@ -265,7 +273,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
                   child: Text(
                     me == null
                         ? '© OpenStreetMap'
-                        : '© OpenStreetMap · ${_libelleFix(me, _meAt)}',
+                        : '© OpenStreetMap · ${_libelleFix(live)}',
                     style: TextStyle(fontSize: 10, color: p.inkMuted),
                   ),
                 ),
@@ -296,16 +304,39 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
 /// L'incertitude est celle **qu'annonce l'appareil**, pas une estimation de
 /// notre part : un « ± 20 m » sur un point faux de 2 km est en soi le
 /// diagnostic.
-String _libelleFix(CoarseFix fix, DateTime? at) {
-  final source = switch (fix.source) {
-    FixSource.best => 'GPS',
-    FixSource.network => 'réseau',
-    FixSource.lastKnown => 'mémoire',
+/// Ce que vaut le point affiché, dit en clair sous la carte.
+///
+/// ## ⚠️ Ce libellé ne dit plus « GPS », et c'est une correction
+///
+/// Il affichait `GPS` / `réseau` / `mémoire`. Depuis que la carte s'abonne au
+/// flux, **tous** les relevés arrivent étiquetés [FixSource.best] — parce que
+/// c'est ce qu'on *demande*, pas ce qui répond. Android ne dit jamais quel
+/// palier a réellement contribué (vérifié le 2026-09-22 dans
+/// `LocationMapper.java` du paquet : ni le fournisseur ni le nombre de
+/// satellites n'en sortent). Écrire « GPS » serait inventer une mesure, et un
+/// libellé qui ment coûte plus cher qu'un libellé absent.
+///
+/// Restent trois choses qu'on sait vraiment, et les trois servent :
+///
+/// - **l'incertitude annoncée** — la seule mesure honnête de ce que vaut le
+///   point ; c'est elle qui valait `± 675 m` sur la capture de Jay ;
+/// - **l'âge** — un point juste et un point figé ont la même apparence ;
+/// - **le nombre de relevés reçus** — il répond à *« le flux tourne-t-il ? »*.
+///   Bloqué à 1, c'est le défaut du 2026-09-22 revenu ; qui monte sans que
+///   l'incertitude descende, c'est un réglage du téléphone.
+///
+/// Le mot du palier ne reparaît que lorsqu'il porte une information : un repli
+/// sur le réseau ou sur la mémoire signale que le meilleur palier a échoué.
+String _libelleFix(LivePositionState live) {
+  final fix = live.fix!;
+  final repli = switch (fix.source) {
+    FixSource.best => '',
+    FixSource.network => 'réseau · ',
+    FixSource.lastKnown => 'mémoire · ',
   };
-  final age = at == null
-      ? ''
-      : ' · ${DateTime.now().difference(at).inSeconds} s';
-  return '$source ± ${fix.accuracy.round()} m$age';
+  final age = live.ageAt(DateTime.now());
+  final vu = age == null ? '' : ' · ${age.inSeconds} s';
+  return '$repli± ${fix.accuracy.round()} m$vu · ${live.received} relevés';
 }
 
 /// Ma position : un point plein cerclé de la couleur du fond, pour rester

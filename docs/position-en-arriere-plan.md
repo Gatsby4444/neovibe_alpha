@@ -148,6 +148,50 @@ allumés.
 | Un test JVM sur `revoirLeBattement` | ❌ — la décision lit `schedule`, `engine` et l'horloge ; l'extraire en fonction pure est le prochain geste |
 | Mesure : une nuit, une publication par minute au carnet | ❌ — **c'est la vérification qui compte**, elle attend un test réel |
 
+## 3 bis. 🔴 QUEL MOTEUR MESURE — corrigé le 2026-09-22 (soir)
+
+**Le constat de Jay**, deux captures au même instant dans le métro : Google
+Maps le place à la bonne intersection, NeoVibe à deux rues de là, avec
+`réseau ± 675 m`. *« Je ne peux pas livrer cela, on n'est pas au niveau. »*
+
+**Ce qui n'était PAS en cause** : la source des données. Vérifié dans le
+paquet (`GeolocationManager.java:80`) — quand les services Google Play sont
+présents, `geolocator` passe déjà par le moteur de position de Google. On était
+déjà branchés sur le bon robinet.
+
+**Ce qui l'était — deux défauts distincts, même racine :**
+
+| Où | Ce qu'on faisait | Pourquoi c'est faux |
+|---|---|---|
+| **Dart** (carte, ping, 8 appelants) | `getCurrentPosition`, une fois, répétée | Le paquet **prend la première position livrée puis coupe** (`MethodCallHandlerImpl.java:241`). La première est la plus rapide, donc la plus grossière : le moteur répond de mémoire et **affine ensuite**. Quinze photos floues ne font pas une photo nette. |
+| **Kotlin** (`LocationBeat`) | `LocationManager` brut | Il ne croise **rien** : GPS brut, ou antenne brute. Pas de Wi-Fi, pas de fusion, pas la base de données Wi-Fi de Google. |
+
+**L'image** : ce n'est pas une photo, c'est une paire de jumelles qu'on règle.
+Les premières secondes sont floues, puis ça se précise. On raccrochait avant.
+
+**Ce qui a été construit :**
+
+| | |
+|---|---|
+| `CoarseLocation.watch()` | la cuisine : un **flux** qui publie fidèlement tout ce qu'Android livre, sans trier |
+| `LivePosition` (nouveau) | le serveur : garde **le meilleur relevé récent**, règle pure `retient()`, **12 tests** dont un contre-test |
+| `acquire()` / `release()` | la radio ne tourne que tant que quelqu'un demande — carte ouverte, ping allumé |
+| les 8 appelants Dart | routés par `LivePosition.current()` — **un chemin, une donnée** (règle 4) |
+| `LocationBeat.demarreGoogle()` | le moteur fusionné de Google, avec repli `demarreAndroid()` |
+| `CoarseLocation.lastBestFailure` | **pourquoi** le palier haut a échoué — il se rabattait en silence |
+| `beaconMoteur` + `convergence` au diagnostic | qui mesure, et le point se resserre-t-il si on attend |
+
+⚠️ **Ce que ça ne corrige pas** : si le moteur n'a rien de mieux à offrir
+(sous terre, sans Wi-Fi), rester abonné ne fabrique pas de précision. La sonde
+`convergence` du diagnostic est là pour **départager** les deux cas.
+
+❓ **À vérifier sur le téléphone de Jay** : le réglage **« Précision de la
+localisation Google »** (Réglages › Localisation › Services de localisation).
+Piste lue dans le paquet et **non constatée** : avant de demander le palier
+haut, `FusedLocationClient.java:238` demande à Android si les réglages le
+permettent ; si ce réglage est éteint, la demande échoue — ce qui expliquerait
+le `réseau` de la capture. `lastBestFailure` le dira au prochain diagnostic.
+
 ## 4. Ce qui reste à mesurer avant d'y toucher
 
 | Question | Comment |
