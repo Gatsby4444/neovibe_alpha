@@ -226,7 +226,8 @@ de « message fantôme ».
 ⚠️ **`stableAfter` est une durée, pas un compte d'annonces.** L'intention de Jay
 (« 15 pings en 20 secondes ») est de ne pas payer une poignée de main pour un
 passant ou une voiture qui s'arrête au feu. Mais l'advertising BLE tourne à
-~100 ms : « 15 annonces » est atteint en moins de deux secondes et ne filtre
+~100 ms (250 ms depuis le 2026-09-22, `ADVERT_INTERVAL` — le raisonnement
+tient) : « 15 annonces » est atteint en quelques secondes et ne filtre
 rien. Un **ami** reconnu à son ID rotatif n'est pas concerné — le reconnaître ne
 coûte rien.
 

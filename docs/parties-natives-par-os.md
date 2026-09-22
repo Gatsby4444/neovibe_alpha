@@ -683,6 +683,38 @@ implémentation du même accord, sans point de contact, est une divergence promi
   décide seul de son rythme de scan. À relever au portage, pas maintenant.
   Aucune méthode de canal : lu à travers `stats()` (`casqueBluetooth`).
 
+- **`ScreenState.kt`** — *(nouveau, 2026-09-22)* **l'écran est-il allumé, ou
+  éteint depuis plus d'une minute ?** Seconde source de `BleEngine.modeDeScan`
+  sur le modèle d'`AudioLink` : écran éteint depuis 60 s ⇒ `SCAN_MODE_BALANCED`
+  (1 s d'écoute toutes les 4 s) ; écran rallumé ⇒ `LOW_LATENCY` tout de suite.
+  Réétude du ping (Jay, RAPPELS #158) : l'écoute continue est **le** poste de
+  dépense, et écran éteint personne ne regarde la liste — le besoin est « à
+  côté pendant un moment », pas « vu à la première seconde ».
+  🔴 **La minute de retard n'est pas du confort** : changer de rythme = arrêter
+  et relancer le scan, et Android bannit au-delà de 5 démarrages par 30 s
+  (`SCAN_FAILED_SCANNING_TOO_FREQUENTLY`, 35 s sans détection + bandeau). Le
+  carnet du 2026-09-21 montre 6 allumages/extinctions en 36 s à 13:09.
+  ⚠️ Lit `SCREEN_ON/OFF` à l'exécution (jamais au manifeste) et
+  `PowerManager.isInteractive` à l'attache (un service relancé la nuit démarre
+  écran éteint). `EnergyWatcher` écoute les mêmes signaux mais reste un
+  instrument : deux lecteurs valent mieux qu'un instrument qui décide.
+  Lu à travers `stats()` (`ecranAllume`) — `scanMode`, `casqueBluetooth` et
+  `ecranAllume` se lisent **ensemble**.
+  🍎 **iOS** : sans objet pour le remède (`CBCentralManager` ne règle pas son
+  rythme) ; la question se lit par `UIApplication.applicationState`.
+
+- **`ADVERT_INTERVAL`** *(`BleEngine.kt`, 2026-09-22)* — l'intervalle d'un jeu
+  d'annonces en mode parallèle : **`INTERVAL_MEDIUM` = 250 ms** (était
+  `INTERVAL_LOW` = 100 ms). Règle : l'intervalle d'émission reste **sous** la
+  fenêtre d'écoute d'en face (1 s en `BALANCED`) avec plusieurs annonces par
+  fenêtre pour absorber les paquets perdus. ⚠️ Le mode cycle (repli) garde
+  100 ms : il tourne les jetons toutes les 400 ms, un intervalle plus long
+  sauterait des jetons sans rien signaler.
+
+- **`offloadedFiltering` / `offloadedScanBatching`** *(`advertCapabilities()`,
+  2026-09-22)* — la puce sait-elle trier et grouper elle-même ? Instrument
+  seulement : le filtre est vide depuis le 2026-08-16. RAPPELS #159 (v6).
+
 ⚠️ **Cinq compteurs de diagnostic remontent par `stats()`** et doivent rester
 visibles même à zéro — le jour où ils montent, ils expliquent une détection
 fantôme que rien d'autre n'expliquerait :

@@ -892,6 +892,9 @@ class ProximityService : Service(), BleEngine.Listener {
             else -> "autre (${engine.modeDeScanEnCours})"
         },
         "casqueBluetooth" to engine.casqueBluetooth,
+        // Depuis le 2026-09-22, `cyclique` a une seconde cause : l'ecran eteint
+        // depuis plus d'une minute. Les TROIS lignes se lisent ensemble.
+        "ecranAllume" to engine.ecranAllume,
         "advertMode" to if (engine.parallelAdvertising) "parallele" else "cycle",
         // ⚠️ **Ce qui EMET vraiment, compte — pas le mode qu'on croit tenir.**
         //

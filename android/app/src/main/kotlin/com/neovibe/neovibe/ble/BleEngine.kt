@@ -50,6 +50,25 @@ import android.os.Looper
 /** Valeur d'Android quand l'emetteur n'annonce pas sa puissance. */
 const val TX_POWER_UNKNOWN = 127
 
+/**
+ * **A quel rythme chaque jeu d'annonces crie**, en mode parallele — unites de
+ * 0,625 ms. `INTERVAL_MEDIUM` = 400 × 0,625 = **250 ms**.
+ *
+ * Jusqu'au 2026-09-22 : `INTERVAL_LOW` (100 ms), dix fois par seconde par jeu.
+ * Reetude du ping (Jay, RAPPELS #158) : l'ecoute d'en face n'est plus
+ * continue ecran eteint (`SCAN_MODE_BALANCED`, fenetre de 1 s toutes les
+ * 4 s), et la regle est que **l'intervalle d'emission reste sous la fenetre
+ * d'ecoute** — a 250 ms, une fenetre de 1 s contient ~4 annonces, ce qui
+ * absorbe les paquets perdus (10 a 30 % a courte portee, plus dans la foule).
+ * A 1 s, une seule annonce par fenetre : un paquet perdu = une fenetre vide.
+ *
+ * ⚠️ Ne concerne que le mode parallele. Le mode cycle (repli) garde
+ * `ADVERTISE_MODE_LOW_LATENCY` (100 ms) : il change de jeton toutes les
+ * 400 ms (`ProximityService.cycleMillis`), et un intervalle plus long que la
+ * rotation ferait sauter des jetons sans rien signaler.
+ */
+const val ADVERT_INTERVAL = AdvertisingSetParameters.INTERVAL_MEDIUM
+
 @SuppressLint("MissingPermission") // vérifiées explicitement par evaluateRadio()
 class BleEngine(private val context: Context, private val listener: Listener) {
 
@@ -105,6 +124,9 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * meme le premier scan.
      */
     private val audioLink = AudioLink(context, main) { revoirLeRythmeDeScan() }
+
+    /** L'ecran, avec une minute de retard a l'extinction. Voir [ScreenState]. */
+    private val ecran = ScreenState(context, main) { revoirLeRythmeDeScan() }
     private val manager get() =
         context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
     private val adapter: BluetoothAdapter? get() = manager?.adapter
@@ -268,12 +290,24 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             "periodicAdvertising" to
                 (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                     (a?.isLePeriodicAdvertisingSupported ?: false)),
+            // ⚠️ **La puce sait-elle trier elle-meme ?** (2026-09-22, RAPPELS
+            // #159.) Vrai = elle pourrait ne reveiller le processeur que pour
+            // nos annonces ; on ne s'en sert PAS aujourd'hui (voir
+            // [startScanning] : filtre vide depuis le 2026-08-16). Le chiffre
+            // est la pour que le jour ou l'on re-essaie, on sache sur quel
+            // appareil c'est seulement possible.
+            "offloadedFiltering" to (a?.isOffloadedFilteringSupported ?: false),
+            "offloadedScanBatching" to (a?.isOffloadedScanBatchingSupported ?: false),
         )
     }
 
     /** Un casque Bluetooth est-il branche en ce moment ? Voir [AudioLink]. */
     val casqueBluetooth: Boolean
         get() = audioLink.connecte()
+
+    /** L'ecran est-il considere allume (ou eteint depuis moins d'une minute) ? Voir [ScreenState]. */
+    val ecranAllume: Boolean
+        get() = ecran.allume()
 
     private var lastPublished: RadioStatus? = null
 
@@ -320,6 +354,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
         )
         audioLink.attach()
+        ecran.attach()
         publish(currentStatus())
     }
 
@@ -330,6 +365,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             // Jamais enregistré : rien à faire.
         }
         audioLink.detach()
+        ecran.detach()
         stop()
     }
 
@@ -557,7 +593,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             // IllegalArgumentException si les deux ne s'accordent pas.
             .setConnectable(true)
             .setScannable(true)
-            .setInterval(AdvertisingSetParameters.INTERVAL_LOW)
+            .setInterval(ADVERT_INTERVAL)
             .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_MEDIUM)
             .build()
 
@@ -1005,6 +1041,8 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         // des deux change. La note sur la puissance d'emission y a suivi.
         val data = advertDataFor(advertId, type)
         val settings = AdvertiseSettings.Builder()
+            // 100 ms, et ca doit le rester : voir [ADVERT_INTERVAL] — le cycle
+            // tourne les jetons toutes les 400 ms.
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
             .setConnectable(true) // connectable : le chat passe par le GATT
@@ -1256,20 +1294,34 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * ## Ce que ca coute, dit franchement
      *
      * `BALANCED` ecoute environ **un quart du temps** au lieu de la totalite. Un
-     * ami est donc reconnu un peu plus lentement. C'est acceptable ici et
-     * nulle part ailleurs : la tolerance de presence est de 11 secondes
-     * (`PresenceRules.freshFor`), et un ami emet toutes les 100 ms — meme au
-     * quart du temps, il reste largement au-dessus des
-     * [PresenceRules.minSightings] detections exigees.
+     * ami est donc reconnu un peu plus lentement. Acceptable : la tolerance de
+     * presence est de 11 secondes (`PresenceRules.freshFor`), et un ami emet
+     * toutes les 250 ms ([ADVERT_INTERVAL]) — chaque fenetre de 1 s en
+     * contient ~4, donc il reste au-dessus des [PresenceRules.minSightings]
+     * detections exigees. *(Jusqu'au 2026-09-22 : 100 ms, ~10 par fenetre.)*
      *
-     * ## ⚠️ On ne leve le pied QUE si un casque est branche
+     * ## ⚠️ On ne leve le pied QUE si un casque est branche — jusqu'au 2026-09-22
      *
      * Regle « le defaut juste, pas l'option supplementaire » : pas de reglage a
-     * proposer a l'utilisateur, et **aucun changement** quand il n'y a pas de
-     * casque. La cause n'existe pas ? Le remede non plus.
+     * proposer a l'utilisateur. Jusqu'au 2026-09-22, **aucun changement** sans
+     * casque : la cause n'existe pas, le remede non plus.
+     *
+     * ## Ecran eteint : un quart du temps aussi (Jay, 2026-09-22)
+     *
+     * Reetude du ping (RAPPELS #158). L'ecoute continue est le poste de depense
+     * de tout le ping — l'emission, c'est la puce qui la fait. Or ecran eteint,
+     * personne ne regarde la liste « Autour de toi » : le seul besoin est de
+     * savoir qu'un ami a ete **a cote pendant un moment**, pas de le voir a la
+     * premiere seconde. La regle qui rend ca sur : **on entend a coup sur si la
+     * fenetre d'ecoute (1 s en `BALANCED`) est au moins aussi longue que
+     * l'intervalle d'emission d'en face** ([ADVERT_INTERVAL]) — et plusieurs
+     * annonces par fenetre absorbent les paquets perdus.
+     *
+     * « Eteint » se dit apres une minute, jamais a l'instant ([ScreenState]),
+     * a cause du quota de demarrages de scan d'Android.
      */
     private fun modeDeScan(): Int =
-        if (audioLink.connecte()) ScanSettings.SCAN_MODE_BALANCED
+        if (audioLink.connecte() || !ecran.allume()) ScanSettings.SCAN_MODE_BALANCED
         else ScanSettings.SCAN_MODE_LOW_LATENCY
 
     /**

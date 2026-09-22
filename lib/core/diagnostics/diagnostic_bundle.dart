@@ -189,6 +189,9 @@ class DiagnosticBundle {
         //     coupure de son vient d'ailleurs.
         'scanMode',
         'casqueBluetooth',
+        // Seconde cause de `cyclique` depuis le 2026-09-22 : écran éteint
+        // depuis plus d'une minute.
+        'ecranAllume',
         'advertMode',
         'advertTokensPerSlot',
         // ⚠️ **POURQUOI on est en cycle** — ajoutées le 2026-08-31.
@@ -240,6 +243,10 @@ class DiagnosticBundle {
         'resumedFromDisk',
         'multipleAdvertisement',
         'extendedAdvertising',
+        // ⚠️ La puce sait-elle trier elle-même ? Pas utilisé aujourd'hui
+        // (filtre vide depuis le 2026-08-16) — RAPPELS #159.
+        'offloadedFiltering',
+        'offloadedScanBatching',
         'maxAdvertisingDataLength',
         'needsLocation',
         'fgsLocationType',
