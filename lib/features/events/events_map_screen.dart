@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -22,7 +24,8 @@ import 'map_tiles.dart';
 /// | Défaut | Correction |
 /// |---|---|
 /// | carte **claire** dans une app sombre | fond OpenStreetMap **assombri chez nous** selon le thème ([MapTiles]) — la tentative CARTO du matin exigeait une clé |
-/// | tout **flou** | tuiles @2x sur écran dense |
+/// | tout **flou** | on demande les tuiles du niveau au-dessus et on les dessine sur la même surface (OSM ne sert pas de @2x) |
+/// | le point affiché **à ~2 km** de l'endroit réel (14:39) | la position était lue **une seule fois** à l'ouverture et jamais corrigée : elle est maintenant relue toutes les 15 s et au recentrage, et l'écran **dit d'où vient le point** (`_libelleFix`) |
 /// | motifs géants puis **gris vide** en zoomant | le zoom est **borné** ([MapTiles.maxZoom]) : on ne peut plus dépasser le dernier niveau qui existe |
 /// | un viseur `my_location` posé sur la carte | un **point avec son halo d'incertitude** — ce que l'appareil sait vraiment |
 /// | la mention « © OpenStreetMap » sous la barre système | attribution remontée dans la zone sûre, sur un fond qui la détache |
@@ -45,29 +48,56 @@ class EventsMapScreen extends ConsumerStatefulWidget {
 class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
   final _map = MapController();
   CoarseFix? _me;
+  DateTime? _meAt;
+  Timer? _suivi;
 
   /// ⚠️ **Posé une seule fois, au premier build utile.** Recalculer le centre
   /// à chaque reconstruction ramènerait la carte de force sous le doigt dès
   /// qu'une position arrive ou qu'un point chaud bouge.
   LatLng? _centreInitial;
 
+  /// 🔴 **La carte lisait la position UNE FOIS, à l'ouverture, et ne la
+  /// corrigeait jamais** — relevé sur la capture de Jay du 2026-09-22 (14:39),
+  /// où le point affiché était à ~2 km de l'endroit réel.
+  ///
+  /// Quinze secondes : assez pour qu'un GPS froid ait le temps de répondre
+  /// après un premier repli sur le réseau, assez peu pour qu'on ne reste pas
+  /// planté sur un point faux en regardant l'écran.
+  static const _rythmeDeSuivi = Duration(seconds: 15);
+
   @override
   void initState() {
     super.initState();
-    ref.read(coarseLocationProvider).current().then((fix) {
-      if (!mounted) return;
-      setState(() => _me = fix);
-      // La position arrive après coup : si la carte s'est ouverte sur le
-      // centre de secours, on la ramène — une fois.
-      if (fix != null && _centreInitial == null) {
-        _map.move(LatLng(fix.latitude, fix.longitude), MapTiles.initialZoom);
-      }
-    });
+    _relis(recentre: true);
+    _suivi = Timer.periodic(_rythmeDeSuivi, (_) => _relis());
   }
 
-  void _recentrer() {
+  @override
+  void dispose() {
+    _suivi?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _relis({bool recentre = false}) async {
+    final fix = await ref.read(coarseLocationProvider).current();
+    if (!mounted || fix == null) return;
+    setState(() {
+      _me = fix;
+      _meAt = DateTime.now();
+    });
+    // La position arrive après coup : si la carte s'est ouverte sur le centre
+    // de secours, on la ramène — une fois, au premier relevé seulement.
+    if (recentre && _centreInitial == null) {
+      _map.move(LatLng(fix.latitude, fix.longitude), MapTiles.initialZoom);
+    }
+  }
+
+  /// Recentrer **relit** d'abord : c'est le geste de quelqu'un qui trouve que
+  /// le point est faux, pas celui de quelqu'un qui veut revoir le même point.
+  Future<void> _recentrer() async {
+    await _relis();
     final me = _me;
-    if (me == null) return;
+    if (me == null || !mounted) return;
     _map.move(LatLng(me.latitude, me.longitude), MapTiles.initialZoom);
   }
 
@@ -233,7 +263,9 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    '© OpenStreetMap',
+                    me == null
+                        ? '© OpenStreetMap'
+                        : '© OpenStreetMap · ${_libelleFix(me, _meAt)}',
                     style: TextStyle(fontSize: 10, color: p.inkMuted),
                   ),
                 ),
@@ -244,6 +276,36 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
       ),
     );
   }
+}
+
+/// **D'où vient le point, et ce qu'il vaut** — écrit à côté de l'attribution.
+///
+/// 🔴 **Ajouté le 2026-09-22, sur une capture de Jay** : le point affiché
+/// était à ~2 km de l'endroit réel, et **rien à l'écran ne permettait de dire
+/// pourquoi**. Un point faux et un point juste avaient exactement la même
+/// apparence — c'est le défaut d'instrument que `CLAUDE.md` interdit de
+/// laisser passer.
+///
+/// Les trois mots disent chacun une cause différente :
+/// - **GPS** ([FixSource.best]) : satellites + Wi-Fi + antennes ;
+/// - **réseau** ([FixSource.network]) : Wi-Fi et antennes **sans** satellites
+///   — c'est le palier qui se trompe de plusieurs centaines de mètres quand la
+///   base de données des bornes Wi-Fi est fausse ;
+/// - **mémoire** ([FixSource.lastKnown]) : un point d'il y a jusqu'à 5 min.
+///
+/// L'incertitude est celle **qu'annonce l'appareil**, pas une estimation de
+/// notre part : un « ± 20 m » sur un point faux de 2 km est en soi le
+/// diagnostic.
+String _libelleFix(CoarseFix fix, DateTime? at) {
+  final source = switch (fix.source) {
+    FixSource.best => 'GPS',
+    FixSource.network => 'réseau',
+    FixSource.lastKnown => 'mémoire',
+  };
+  final age = at == null
+      ? ''
+      : ' · ${DateTime.now().difference(at).inSeconds} s';
+  return '$source ± ${fix.accuracy.round()} m$age';
 }
 
 /// Ma position : un point plein cerclé de la couleur du fond, pour rester
