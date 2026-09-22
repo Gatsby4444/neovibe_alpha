@@ -161,6 +161,28 @@ class AdvertSchedule(
         return Pair(jetons, leursTypes.toByteArray())
     }
 
+    /**
+     * **Le jeton PUBLIC du creneau qui couvre [nowMillis], et son numero de
+     * creneau.** `null` si le plan ne couvre plus cet instant ou n'en porte
+     * aucun (decouverte eteinte).
+     *
+     * ⚠️ **Ajoute le 2026-09-22 pour que le NATIF puisse publier la balise.**
+     * Sans balise fraiche, ce jeton n'est traduisible par personne : le crier
+     * ne sert a rien (voir `ProximityService.graceBattement`). C'est donc la
+     * meme paire que le Dart envoyait a `publish_ping_beacon` — lue au plan,
+     * jamais recalculee : recalculer, ce serait reecrire en Kotlin une regle
+     * qui vit en Dart.
+     */
+    fun publicTokenAt(nowMillis: Long): Pair<ByteArray, Long>? {
+        val (jetons, leursTypes) = tokensAt(nowMillis, avecPublic = true) ?: return null
+        for (i in jetons.indices) {
+            if (leursTypes[i] == BleConstants.TYPE_PUBLIC) {
+                return Pair(jetons[i], nowMillis / slotMillis)
+            }
+        }
+        return null
+    }
+
     /** Combien de jetons differents sont emis par creneau. */
     val cycleLength: Int get() = perSlot
 

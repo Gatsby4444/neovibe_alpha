@@ -124,6 +124,32 @@ class _PingScreenState extends ConsumerState<PingScreen> {
                   : null,
             ),
 
+            // 🟢 **Le troisième interrupteur (Jay, 2026-09-22).** Il
+            // n'apparaît que sous celui dont il dépend : sans « Visible à
+            // proximité », aucun jeton public n'est crié, et proposer de
+            // prolonger un droit qu'on n'a pas n'aurait aucun sens.
+            if (runtime.wantsDiscovery)
+              SwitchListTile(
+                title: const Text("Visible même quand l'app est fermée"),
+                subtitle: Text(
+                  runtime.wantsBackgroundDiscovery
+                      ? "Les gens autour de toi peuvent te voir et t'envoyer "
+                            'un message même si NeoVibe est fermée. Ton '
+                            'téléphone met sa position à jour toutes les '
+                            'minutes.'
+                      : "Aujourd'hui, fermer NeoVibe te rend invisible aux "
+                            'inconnus au bout de 5 minutes. Tes amis, eux, te '
+                            'croisent toujours.',
+                  style: TextStyle(color: context.faint, fontSize: 11),
+                ),
+                value: runtime.wantsBackgroundDiscovery,
+                onChanged: runtime.intentLoaded
+                    ? (on) => ref
+                          .read(proximitySupervisorProvider.notifier)
+                          .setBackgroundDiscovery(on)
+                    : null,
+              ),
+
             if (runtime.wantsDiscovery) _BandeauEtat(runtime: runtime),
 
             // Ce que le téléphone accorde pour vivre en arrière-plan

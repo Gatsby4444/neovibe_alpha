@@ -132,6 +132,12 @@ class BleRadio {
     required int slotCount,
     required int perSlot,
     required int tokenLength,
+
+    /// **L'utilisateur veut rester découvrable par des inconnus app fermée**
+    /// (Jay, 2026-09-22). Il descend avec le plan parce qu'il ne change rien
+    /// à ce qu'on crie — seulement à la **durée** du droit de le crier, et
+    /// c'est le plan qui porte ce qu'on crie.
+    bool publicEnArrierePlan = false,
   }) async {
     final res = await _methods
         .invokeMapMethod<String, dynamic>('setAdvertPlan', {
@@ -142,6 +148,7 @@ class BleRadio {
           'slotCount': slotCount,
           'perSlot': perSlot,
           'tokenLength': tokenLength,
+          'publicEnArrierePlan': publicEnArrierePlan,
         });
     return (res?['validUntil'] as num?)?.toInt() ?? 0;
   }

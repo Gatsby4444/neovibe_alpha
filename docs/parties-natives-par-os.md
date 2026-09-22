@@ -703,6 +703,38 @@ implémentation du même accord, sans point de contact, est une divergence promi
   🍎 **iOS** : sans objet pour le remède (`CBCentralManager` ne règle pas son
   rythme) ; la question se lit par `UIApplication.applicationState`.
 
+- **`LocationBeat.kt`** — *(nouveau, 2026-09-22)* **mesurer où l'on est et
+  republier la balise `ping_beacons`, sans le Dart.** Jusque-là, la balise
+  était publiée par le Dart toutes les 60 s, app ouverte seulement — or le
+  jeton public ne vaut rien sans elle : **fermer l'app rendait invisible aux
+  inconnus au bout de 5 min, en silence** (`graceBattement`). Le croisement
+  d'amis, lui, n'a jamais eu besoin de rien (BLE pur, plan de 12 h).
+  🔴 **Un seul écrivain à la fois** (règle 4) : le Dart publie tant qu'il
+  vit ; ce battement prend le relais après 90 s de silence (`relaisApres`,
+  deux battements manqués) et le rend dès que le Dart redépose un plan. La
+  règle de passage de main est écrite dans `ProximityService.revoirLeBattement`
+  et nulle part ailleurs.
+  ⚠️ **Il ne tourne que si l'utilisateur l'a demandé** — le troisième
+  interrupteur, `publicEnArrierePlan`, descend avec le plan (jamais relu du
+  disque : le plan persisté est `friendsOnly`, donc un service repris après la
+  mort du processus n'a aucun jeton public à crier).
+  ⚠️ **Pas de second service** : `ProximityService` est déjà un service de
+  premier plan de type `location` avec sa notification. C'est ce statut qui
+  rend une position par minute tenable écran éteint (Doze ne s'applique pas),
+  là où une alarme est plafonnée à ~9 min et `WorkManager` à 15 min.
+  Cadences : `RAPIDE_MS` 30 s écran allumé, `LENT_MS` 60 s écran éteint
+  (source : `ScreenState`), position périmée au-delà de `PERIMEE_MS` 5 min.
+  Réutilise `SessionStore` + `SupabaseHttp` (`publish/`), éprouvés par
+  `EventPresenceService`. Instruments dans `stats()` : `publicEnArrierePlan`,
+  `beaconPublications`, `beaconEchecs`, `beaconDernierEchec`,
+  `beaconAgeMillis`.
+  🍎 **iOS (à faire)** : `CLLocationManager` avec `allowsBackgroundLocationUpdates`
+  et le mode d'arrière-plan « location », même RPC.
+
+- **`AdvertSchedule.publicTokenAt`** *(2026-09-22)* — le jeton public du
+  créneau courant et son numéro, **lus au plan, jamais recalculés** :
+  recalculer serait réécrire en Kotlin une règle qui vit en Dart.
+
 - **`ADVERT_INTERVAL`** *(`BleEngine.kt`, 2026-09-22)* — l'intervalle d'un jeu
   d'annonces en mode parallèle : **`INTERVAL_MEDIUM` = 250 ms** (était
   `INTERVAL_LOW` = 100 ms). Règle : l'intervalle d'émission reste **sous** la

@@ -33,10 +33,16 @@ Future<void> _propage() =>
 Future<
   ({ProviderContainer container, RadioFactice radio, CarnetMemoire carnet})
 >
-_harnais({bool? visible = true, bool? amis, String? me = 'u-moi'}) async {
+_harnais({
+  bool? visible = true,
+  bool? amis,
+  bool? arrierePlan,
+  String? me = 'u-moi',
+}) async {
   SharedPreferences.setMockInitialValues({
     ProximitySupervisor.prefsKey: ?visible,
     ProximitySupervisor.prefsKeyFriends: ?amis,
+    ProximitySupervisor.prefsKeyBackground: ?arrierePlan,
   });
   final radio = RadioFactice();
   final carnet = CarnetMemoire();
@@ -265,6 +271,60 @@ void _deuxInterrupteurs() {
             'le croisement d\'amis ne dépend ni du serveur, ni de la position, '
             'ni de la découverte — il ne doit pas s\'arrêter avec elle',
       );
+    });
+
+    // ⚠️ **Ce que ces trois tests défendent : le troisième interrupteur ne
+    // donne AUCUN droit nouveau, il change une DURÉE** (Jay, 2026-09-22).
+    // Le natif s'en sert pour décider si l'identifiant public se tait cinq
+    // minutes après la fermeture de l'app. Si le Dart l'envoyait allumé sans
+    // que la découverte le soit, un appareil deviendrait découvrable app
+    // fermée sans que rien ne l'affiche — et aucun test existant ne pouvait
+    // le voir, puisque le plan, lui, resterait correct.
+    test(
+      "interrupteur d'arrière-plan allumé : le plan le dit au natif",
+      () async {
+        final h = await _harnais(visible: true, amis: true, arrierePlan: true);
+        addTearDown(h.container.dispose);
+        addTearDown(h.radio.fermer);
+        h.container.listen(proximitySupervisorProvider, (_, _) {});
+        await _propage();
+
+        expect(h.radio.dernierPublicEnArrierePlan, isTrue);
+      },
+    );
+
+    test(
+      "découverte éteinte : l'arrière-plan ne part PAS, même allumé",
+      () async {
+        final h = await _harnais(visible: false, amis: true, arrierePlan: true);
+        addTearDown(h.container.dispose);
+        addTearDown(h.radio.fermer);
+        h.container.listen(proximitySupervisorProvider, (_, _) {});
+        await _propage();
+
+        expect(
+          h.radio.dernierPublicEnArrierePlan,
+          isFalse,
+          reason:
+              "sans découverte il n'y a aucun jeton public à crier : prolonger "
+              "un droit qu'on n'a pas n'a pas de sens",
+        );
+      },
+    );
+
+    test("éteindre l'arrière-plan redépose un plan qui le dit", () async {
+      final h = await _harnais(visible: true, amis: true, arrierePlan: true);
+      addTearDown(h.container.dispose);
+      addTearDown(h.radio.fermer);
+      h.container.listen(proximitySupervisorProvider, (_, _) {});
+      await _propage();
+
+      await h.container
+          .read(proximitySupervisorProvider.notifier)
+          .setBackgroundDiscovery(false);
+      await _propage();
+
+      expect(h.radio.dernierPublicEnArrierePlan, isFalse);
     });
 
     test('tout couper arrête bien la radio', () async {

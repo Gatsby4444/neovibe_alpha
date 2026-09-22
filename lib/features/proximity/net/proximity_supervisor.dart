@@ -40,6 +40,7 @@ class ProximityRuntime {
   const ProximityRuntime({
     required this.wantsFriends,
     required this.wantsDiscovery,
+    this.wantsBackgroundDiscovery = false,
     required this.status,
     this.intentLoaded = false,
   });
@@ -56,6 +57,15 @@ class ProximityRuntime {
   /// C'est lui, et lui seul, qui ajoute l'identifiant PUBLIC au plan d'émission
   /// et qui fait publier une balise au serveur.
   final bool wantsDiscovery;
+
+  /// **Rester découvrable par des inconnus même app fermée** (Jay,
+  /// 2026-09-22 — le troisième interrupteur).
+  ///
+  /// ⚠️ **Il ne donne aucun droit nouveau : il change une DURÉE.** Sans
+  /// [wantsDiscovery], aucun jeton public n'entre dans le plan et il n'y a
+  /// rien à crier, celui-ci allumé ou non. Ce qu'il décide, c'est si ce droit
+  /// s'éteint cinq minutes après la fermeture de l'app ou s'il tient.
+  final bool wantsBackgroundDiscovery;
 
   /// Ce que la radio fait réellement, publié par le natif.
   final RadioStatus status;
@@ -81,11 +91,14 @@ class ProximityRuntime {
   ProximityRuntime copyWith({
     bool? wantsFriends,
     bool? wantsDiscovery,
+    bool? wantsBackgroundDiscovery,
     RadioStatus? status,
     bool? intentLoaded,
   }) => ProximityRuntime(
     wantsFriends: wantsFriends ?? this.wantsFriends,
     wantsDiscovery: wantsDiscovery ?? this.wantsDiscovery,
+    wantsBackgroundDiscovery:
+        wantsBackgroundDiscovery ?? this.wantsBackgroundDiscovery,
     status: status ?? this.status,
     intentLoaded: intentLoaded ?? this.intentLoaded,
   );
@@ -119,6 +132,9 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
 
   /// L'intention « croiser mes amis », ajoutée le 2026-08-28.
   static const prefsKeyFriends = 'proximity_friends';
+
+  /// Le troisième interrupteur (2026-09-22).
+  static const prefsKeyBackground = 'proximity_visible_background';
 
   BleRadio get _radio => ref.read(bleRadioProvider);
 
@@ -260,6 +276,9 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
     state = state.copyWith(
       wantsFriends: amis,
       wantsDiscovery: decouverte ?? false,
+      // ⚠️ **Éteint par défaut, et c'est délibéré.** Rester découvrable app
+      // fermée est un choix ; personne ne doit le découvrir après coup.
+      wantsBackgroundDiscovery: prefs.getBool(prefsKeyBackground) ?? false,
       intentLoaded: true,
     );
     if (!state.radioNeeded) {
@@ -279,6 +298,19 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
   }
 
   /// **Croiser mes amis.** Réglage de `Sécurité et confidentialité`.
+  /// **Rester visible des inconnus app fermée.** Réglage de l'écran Ping,
+  /// sous l'interrupteur dont il dépend.
+  Future<void> setBackgroundDiscovery(bool wanted) async {
+    if (state.wantsBackgroundDiscovery == wanted && state.intentLoaded) return;
+    state = state.copyWith(
+      wantsBackgroundDiscovery: wanted,
+      intentLoaded: true,
+    );
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefsKeyBackground, wanted);
+    await _appliquerIntention();
+  }
+
   Future<void> setFriendCrossing(bool wanted) async {
     if (state.wantsFriends == wanted && state.intentLoaded) return;
     state = state.copyWith(wantsFriends: wanted, intentLoaded: true);
@@ -576,6 +608,13 @@ class ProximitySupervisor extends Notifier<ProximityRuntime> {
       slotCount: plan.toSlot - plan.fromSlot + 1,
       perSlot: perSlot,
       tokenLength: ProximityIdentity.tokenLength,
+      // ⚠️ **Il descend avec le plan, et seulement avec lui.** Le natif ne
+      // relit jamais cette intention du disque : le plan persisté est
+      // `friendsOnly`, donc un service repris après la mort du processus n'a
+      // aucun jeton public à crier — et aucune raison de s'en accorder le
+      // droit. L'app le redira en se rouvrant.
+      publicEnArrierePlan:
+          state.wantsDiscovery && state.wantsBackgroundDiscovery,
     );
 
     // ⚠️ **Et la table de reconnaissance, sinon le natif diffuse en aveugle.**

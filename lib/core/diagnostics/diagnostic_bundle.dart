@@ -240,6 +240,13 @@ class DiagnosticBundle {
         // crier tant que l'app n'a pas été rouverte. C'est le prix du choix du
         // 2026-08-28, et un prix qu'on ne voit pas est un prix qu'on oublie
         // d'avoir accepté.
+        // Le battement de position (2026-09-22) : sans ces lignes, « la
+        // balise a-t-elle été republiée cette nuit ? » n'a aucune réponse.
+        'publicEnArrierePlan',
+        'beaconPublications',
+        'beaconEchecs',
+        'beaconDernierEchec',
+        'beaconAgeMillis',
         'resumedFromDisk',
         'multipleAdvertisement',
         'extendedAdvertising',

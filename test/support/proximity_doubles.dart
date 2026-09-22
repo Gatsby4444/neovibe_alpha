@@ -308,12 +308,17 @@ class RadioFactice implements BleRadio {
     required int slotCount,
     required int perSlot,
     required int tokenLength,
+    bool publicEnArrierePlan = false,
   }) async {
     if (refusePlan) throw StateError('service absent');
     plans++;
     derniersTypes = types;
+    dernierPublicEnArrierePlan = publicEnArrierePlan;
     return 0;
   }
+
+  /// Ce que le dernier plan disait du troisième interrupteur (2026-09-22).
+  bool dernierPublicEnArrierePlan = false;
 
   @override
   Future<void> setRecognitionTable({

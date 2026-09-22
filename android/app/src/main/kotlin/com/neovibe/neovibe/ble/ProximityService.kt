@@ -227,6 +227,12 @@ class ProximityService : Service(), BleEngine.Listener {
             // prochaine nuit de sommeil.
             slotAlarm.veille()
             emitNext()
+            // ⚠️ **La cadence du battement se relit ICI, et nulle part
+            // ailleurs.** L'ecran s'eteint sans prevenir ce service ; sans ce
+            // passage, le battement resterait a la cadence qu'il avait au
+            // depot du plan. [LocationBeat.start] ne fait rien quand la
+            // cadence n'a pas change, donc ce rappel ne coute rien.
+            revoirLeBattement()
             cycleHandler.postDelayed(this, nextDelay())
         }
     }
@@ -244,6 +250,61 @@ class ProximityService : Service(), BleEngine.Listener {
         if (parallel) return 30_000L
         return if (plan == null || plan.cycleLength <= 1) 30_000L else cycleMillis
     }
+
+    /**
+     * Au-dela de ce silence du Dart, on considere qu'il ne publie plus la
+     * balise et que c'est a nous de le faire.
+     *
+     * ⚠️ **Deux battements manques, pas un.** Le Dart republie toutes les
+     * 60 s (`PingBeaconService.refreshEvery`) ; prendre la main au premier
+     * retard ferait publier les deux a la fois pendant une seconde de reseau
+     * lent. La balise, elle, vit cinq minutes cote serveur : on a tout le
+     * temps.
+     */
+    private val relaisApres = 90_000L
+
+    /**
+     * **Le battement de position doit-il tourner, et a quelle cadence ?**
+     *
+     * Une seule fonction pose la question, comme `_appliquerIntention` cote
+     * Dart pose celle de la radio : tant que chaque appelant decidait
+     * lui-meme, il suffisait qu'un oublie de regarder l'autre.
+     *
+     * ## ⚠️ UN SEUL ECRIVAIN DE `ping_beacons` A LA FOIS
+     *
+     * Regle 4 de `CLAUDE.md` — « un chemin, une donnee ». Le Dart publie tant
+     * qu'il vit ; ce battement **prend le relais** quand il se tait depuis
+     * [relaisApres], et le rend des qu'il revient (son depot de plan repose
+     * `dernierBattement`). La regle de passage de main est ecrite ici, a un
+     * seul endroit, et nulle part ailleurs.
+     *
+     * Les trois raisons de ne rien faire :
+     * - **rien a publier** : un plan sans jeton public, c'est la decouverte
+     *   eteinte ; mesurer une position serait la prendre pour rien ;
+     * - **l'utilisateur n'a pas demande** a rester decouvrable app fermee
+     *   ([publicEnArrierePlan]) — sans ce reglage, le jeton public se tait de
+     *   toute facon cinq minutes apres la fermeture ([publicAutorise]) ;
+     * - **le Dart publie encore.**
+     *
+     * Sinon : **ecran allume** ⇒ [LocationBeat.RAPIDE_MS] ; **eteint** ⇒
+     * [LocationBeat.LENT_MS]. La source est `ScreenState`, la meme que le
+     * rythme d'ecoute, avec sa minute de retard a l'extinction.
+     */
+    private fun revoirLeBattement() {
+        val plan = schedule
+        val aQuoiCrier = plan != null &&
+            plan.publicTokenAt(System.currentTimeMillis()) != null
+        val dartVivant = dernierBattement != 0L &&
+            android.os.SystemClock.elapsedRealtime() - dernierBattement < relaisApres
+        if (!aQuoiCrier || !publicEnArrierePlan || dartVivant) {
+            battement.stop()
+            return
+        }
+        battement.start(
+            if (engine.ecranAllume) LocationBeat.RAPIDE_MS else LocationBeat.LENT_MS,
+        )
+    }
+
 
     /**
      * Vrai quand le moteur emet tous les jetons **en meme temps**.
@@ -264,6 +325,34 @@ class ProximityService : Service(), BleEngine.Listener {
      */
     @Volatile
     private var dernierBattement = 0L
+
+    /**
+     * **L'utilisateur veut rester decouvrable par des inconnus meme app
+     * fermee** (Jay, 2026-09-22 — le troisieme interrupteur).
+     *
+     * ⚠️ **Ce drapeau ne donne aucun droit nouveau : il change une DUREE.**
+     * Le droit vient du plan — si la decouverte est eteinte, le plan ne porte
+     * aucun jeton public et il n'y a rien a crier, drapeau ou pas. Ici, on
+     * decide seulement si ce droit s'eteint cinq minutes apres la mort du Dart
+     * ([graceBattement]) ou s'il tient tant que le plan couvre l'instant.
+     *
+     * Ce qui rend ce choix possible, c'est [battement] : le natif republie
+     * desormais la balise lui-meme, donc le jeton reste **traduisible** sans
+     * le Dart. Sans cette moitie-la, prolonger le droit ne ferait que crier
+     * plus longtemps un identifiant que personne ne peut lire — exactement le
+     * defaut corrige le 2026-08-28.
+     */
+    @Volatile
+    private var publicEnArrierePlan = false
+
+    /**
+     * Le battement de position : il mesure et republie la balise. Voir
+     * [LocationBeat]. Cree paresseusement — un appareil dont la decouverte
+     * n'est jamais allumee ne doit pas payer un `LocationManager`.
+     */
+    private val battement by lazy {
+        LocationBeat(applicationContext) { schedule?.publicTokenAt(System.currentTimeMillis()) }
+    }
 
     /**
      * Combien de temps on continue de crier l'identifiant public **apres** le
@@ -320,8 +409,15 @@ class ProximityService : Service(), BleEngine.Listener {
      * laisserait l'appareil muet jusqu'a la premiere republication de balise.
      */
     private fun publicAutorise(): Boolean =
-        dernierBattement != 0L &&
-            android.os.SystemClock.elapsedRealtime() - dernierBattement < graceBattement
+        // 🟢 **Le troisieme interrupteur (2026-09-22).** Quand l'utilisateur
+        // a demande a rester decouvrable app fermee, l'homme mort n'a plus
+        // lieu d'etre : ce n'est plus le Dart qui rend le jeton traduisible,
+        // c'est [battement]. Voir [publicEnArrierePlan].
+        publicEnArrierePlan ||
+            (
+                dernierBattement != 0L &&
+                    android.os.SystemClock.elapsedRealtime() - dernierBattement < graceBattement
+                )
 
     /**
      * La plus grande derive de creneau jamais observee, et quand.
@@ -453,7 +549,16 @@ class ProximityService : Service(), BleEngine.Listener {
      * plan ne vient pas du Dart et ne prouve donc rien sur sa sante. Voir
      * [repartDuDisque].
      */
-    fun setAdvertSchedule(plan: AdvertSchedule, duDart: Boolean = true) {
+    fun setAdvertSchedule(
+        plan: AdvertSchedule,
+        duDart: Boolean = true,
+        publicEnArrierePlan: Boolean = false,
+    ) {
+        // ⚠️ **L'intention ne se relit PAS du disque** (2026-09-22). Le plan
+        // persiste est `friendsOnly` : un service repris apres la mort du
+        // processus n'a aucun jeton public a crier, donc aucune raison de
+        // s'accorder le droit de le faire. L'app le redira en se rouvrant.
+        if (duDart) this.publicEnArrierePlan = publicEnArrierePlan
         // ⚠️ **Deposer un plan, c'est prouver qu'on est vivant.** Voir
         // [publicAutorise] : sans cette ligne, allumer la decouverte laisserait
         // l'appareil muet jusqu'a la premiere republication de balise.
@@ -476,6 +581,7 @@ class ProximityService : Service(), BleEngine.Listener {
         planSlotMillis = plan.rawSlotMillis
         schedule = plan
         persiste()
+        revoirLeBattement()
         cursor = 0
         cycleHandler.removeCallbacks(cycleTick)
         if (!plan.isEmpty) {
@@ -801,6 +907,10 @@ class ProximityService : Service(), BleEngine.Listener {
         // exactement le noeud orphelin de la regle 8 de `CLAUDE.md`, en pire —
         // il coute de la batterie a quelqu'un qui a coupe la fonction.
         slotAlarm.cancel()
+        // Meme raison que l'alarme : un `LocationManager` qui continue de
+        // livrer des positions a un service mort est un noeud orphelin, et il
+        // coute du GPS a quelqu'un qui a coupe la fonction.
+        battement.dispose()
         schedule = null
         // La table et les constats appartiennent a ce service : les laisser
         // derriere serait garder une trace de qui a ete croise, sans personne
@@ -976,6 +1086,19 @@ class ProximityService : Service(), BleEngine.Listener {
         // lui, continue. Sans cette ligne, ce silence VOULU serait indiscernable
         // d'une panne de radio.
         "publicMuted" to !publicAutorise(),
+        // ⚠️ **Le battement de position, rendu VISIBLE** (2026-09-22). Sans
+        // ces quatre lignes, « la balise a-t-elle ete republiee cette nuit ? »
+        // n'a aucune reponse — c'est le defaut #130 a un autre etage.
+        "publicEnArrierePlan" to publicEnArrierePlan,
+        "beaconPublications" to battement.publications,
+        "beaconEchecs" to battement.echecs,
+        "beaconDernierEchec" to battement.dernierEchec,
+        "beaconAgeMillis" to
+            if (battement.dernierePublication == 0L) {
+                -1L
+            } else {
+                android.os.SystemClock.elapsedRealtime() - battement.dernierePublication
+            },
         "publicHeartbeatAgeMillis" to
             if (dernierBattement == 0L) -1L
             else android.os.SystemClock.elapsedRealtime() - dernierBattement,

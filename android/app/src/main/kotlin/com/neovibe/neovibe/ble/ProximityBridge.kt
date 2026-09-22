@@ -172,6 +172,11 @@ class ProximityBridge(
                                 tokenLength = tokenLength,
                                 types = types,
                             ),
+                            // ⚠️ Absent = faux : une version de l'app qui ne
+                            // connait pas ce reglage ne doit pas se retrouver
+                            // decouvrable app fermee sans l'avoir demande.
+                            publicEnArrierePlan =
+                                call.argument<Boolean>("publicEnArrierePlan") ?: false,
                         )
                         result.success(mapOf("validUntil" to service.scheduleValidUntil()))
                     }
