@@ -22,6 +22,7 @@ import 'proximity_repository.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_supervisor.dart';
 import 'net/radio_status.dart';
+import 'background_guard_screen.dart';
 import 'ping_store.dart';
 import 'presence_feed.dart';
 import 'proximity_identity.dart';
@@ -124,6 +125,12 @@ class _PingScreenState extends ConsumerState<PingScreen> {
             ),
 
             if (runtime.wantsDiscovery) _BandeauEtat(runtime: runtime),
+
+            // Ce que le téléphone accorde pour vivre en arrière-plan
+            // (2026-09-22) : sans exemption d'optimisation batterie, MIUI a
+            // tué le service radio l'après-midi du 21 et rien ne l'a relancé.
+            // Le bandeau ne s'affiche que si quelque chose de LISIBLE manque.
+            if (runtime.radioNeeded) const BackgroundGuardBanner(),
 
             if (runtime.isLive)
               Padding(

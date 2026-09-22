@@ -19,6 +19,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var nativeDiagnostics: NativeDiagnostics? = null
     private var nativeInstall: NativeInstall? = null
     private var locationGrant: LocationGrant? = null
+    private var backgroundGuard: BackgroundGuard? = null
     private var voiceRecorder: NativeVoiceRecorder? = null
     private var nativeGallery: NativeGallery? = null
     /// Pont vers la file de publication — jetable comme celui de la proximité :
@@ -60,6 +61,13 @@ class MainActivity : FlutterFragmentActivity() {
         // `applicationContext` : on ne fait que LIRE une permission, il n'y a
         // aucune raison de retenir l'activite pour ca.
         locationGrant = LocationGrant(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
+        // Ce que le telephone accorde a l'app pour vivre en arriere-plan
+        // (2026-09-22) : constate et ouvre des pages de reglages, `NEW_TASK`
+        // suffit, l'activite n'a rien a y faire.
+        backgroundGuard = BackgroundGuard(
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
@@ -107,6 +115,8 @@ class MainActivity : FlutterFragmentActivity() {
         nativeInstall = null
         locationGrant?.dispose()
         locationGrant = null
+        backgroundGuard?.dispose()
+        backgroundGuard = null
         // Un vocal en cours d'enregistrement meurt avec l'ecran : son fichier
         // en clair aussi.
         voiceRecorder?.dispose()

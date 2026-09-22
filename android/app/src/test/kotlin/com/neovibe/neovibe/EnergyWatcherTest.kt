@@ -15,20 +15,20 @@ import org.junit.Test
 class EnergyWatcherTest {
 
     @Test
-    fun `la ligne d'energie porte les cinq etats, dans un ordre fixe`() {
+    fun `la ligne d'energie porte les six etats, dans un ordre fixe`() {
         assertEquals(
-            "batt=57% chargeur=non eco=non veille=profonde ecran=eteint",
-            Energie.ligne(57, chargeur = false, economie = false, veilleProfonde = true, veilleLegere = true, ecranAllume = false),
+            "batt=57% chargeur=non eco=non veille=profonde ecran=eteint exempt=non",
+            Energie.ligne(57, chargeur = false, economie = false, veilleProfonde = true, veilleLegere = true, ecranAllume = false, exempt = false),
         )
         assertEquals(
-            "batt=100% chargeur=oui eco=oui veille=legere ecran=allume",
-            Energie.ligne(100, chargeur = true, economie = true, veilleProfonde = false, veilleLegere = true, ecranAllume = true),
+            "batt=100% chargeur=oui eco=oui veille=legere ecran=allume exempt=oui",
+            Energie.ligne(100, chargeur = true, economie = true, veilleProfonde = false, veilleLegere = true, ecranAllume = true, exempt = true),
         )
         // Niveau inconnu : un « ? », jamais un faux zero (regle « lire la
         // mesure, pas l'instrument »).
         assertEquals(
-            "batt=? chargeur=non eco=non veille=non ecran=allume",
-            Energie.ligne(-1, chargeur = false, economie = false, veilleProfonde = false, veilleLegere = false, ecranAllume = true),
+            "batt=? chargeur=non eco=non veille=non ecran=allume exempt=non",
+            Energie.ligne(-1, chargeur = false, economie = false, veilleProfonde = false, veilleLegere = false, ecranAllume = true, exempt = false),
         )
     }
 

@@ -41,6 +41,7 @@
 | Diagnostic appareil (dev) | `neovibe/diag` | `NativeDiagnostics` (`PackageManager` + `Build`) | `Bundle.main.infoDictionary` + `UIDevice` |
 | **Installation d'APK (dev)** | `neovibe/install` | `NativeInstall` + `FileProvider` + `MediaStore` | *sans objet — iOS n'installe que par l'App Store ou TestFlight* |
 | **Finesse de position accordée** | `neovibe/location` | `LocationGrant` (`checkSelfPermission` sur `ACCESS_FINE_LOCATION`) | `CLLocationManager.accuracyAuthorization` (`.fullAccuracy` / `.reducedAccuracy`) |
+| **Ce que le téléphone accorde en arrière-plan** *(2026-09-22)* | `neovibe/background_guard` | `BackgroundGuard` (`isIgnoringBatteryOptimizations`, fabricant, pages MIUI joignables ; ouvre la boîte `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, la page MIUI « Démarrage automatique », l'économiseur MIUI de l'app, la fiche de l'app) | *sans objet* — iOS ne tue pas les apps par surcouche constructeur ; le mode d'arrière-plan « bluetooth-central/peripheral » remplace tout ça |
 | **Micro des messages vocaux** *(2026-09-13)* | `neovibe/voice` | `NativeVoiceRecorder` (`MediaRecorder`, AAC mono 24 kHz dans MPEG-4) | `AVAudioRecorder` (mêmes réglages, conteneur `.m4a`) |
 
 ### Natif **fourni par un paquet**, donc rien à écrire — mais à connaître
@@ -506,6 +507,11 @@ au remplacement de l'interface.
   chargeur=non eco=non veille=profonde ecran=eteint`, lu sur l'intent
   collant `ACTION_BATTERY_CHANGED` et `PowerManager`), joint aux lignes `cree`,
   `radio : …`, `alarme`, `alarme perdue, reposee` et `memoire basse`.
+  **Sixième état depuis le 2026-09-22 : `exempt=oui/non`**
+  (`PowerManager.isIgnoringBatteryOptimizations`, lu à chaque ligne car le
+  réglage peut changer entre deux) — l'après-midi du 2026-09-21, le service
+  est mort sur batterie sans relance ni réveil, et le carnet ne disait pas si
+  l'app était exemptée à ce moment-là.
   ⚠️ **Un instrument, pas une règle** : il ne coupe rien et ne change aucune
   cadence. Le jour où une économie sera voulue, elle vivra ailleurs et lira
   ces mêmes signaux. La table action → libellé et la mise en forme sont
@@ -1018,6 +1024,48 @@ pour le portage : iOS permet en plus de demander la précision complète
 **temporairement**, pour un usage nommé
 (`requestTemporaryFullAccuracyAuthorization(withPurposeKey:)`), ce qu'Android ne
 sait pas faire. Décision produit à prendre à ce moment-là, pas maintenant.
+
+---
+
+## 6 quinquies. Ce que le téléphone accorde en arrière-plan *(2026-09-22)*
+
+**Canal** : `neovibe/background_guard`. Méthodes : `state` →
+`{manufacturer, brand, model, batteryExempt, autostartPage, batterySaverPage}` ;
+`requestBatteryExemption`, `openAutostart`, `openBatterySaver`,
+`openAppDetails` → booléen (la page s'est ouverte, ou non).
+
+**Android (fait, 2026-09-22)** : `BackgroundGuard.kt`. Pourquoi : l'après-midi
+du 2026-09-21, le service radio est mort à ~13:45 sur batterie, après quatre
+« mémoire basse », **sans relance `START_STICKY` ni livraison de l'alarme**
+posée — la signature d'un « forcer l'arrêt » de MIUI, confirmée par les
+captures de Jay (économiseur « recommandé », démarrage automatique désactivé).
+
+| réglage | lisible ? | comment |
+|---|---|---|
+| exemption d'optimisation batterie | **oui** | `PowerManager.isIgnoringBatteryOptimizations` |
+| économiseur MIUI « Pas de restriction » | non, mais c'est le même interrupteur sur MIUI récent | on lit l'exemption |
+| démarrage automatique MIUI | **non** (aucune API publique) | on ouvre la page et on le dit |
+
+MIUI n'est **pas** deviné à la marque : on regarde si ses pages existent
+(`resolveActivity`), d'où les `<queries>` du manifeste pour
+`com.miui.securitycenter` et `com.miui.powerkeeper` — sans elles, Android 11+
+répond « n'existe pas » même sur un Xiaomi, et le bouton serait mort sans
+erreur. Les pages : `com.miui.permcenter.autostart.AutoStartManagementActivity`
+et `com.miui.powerkeeper.ui.HiddenAppsConfigActivity` (extras `package_name`,
+`package_label`). Lancées depuis le contexte d'application avec `NEW_TASK`.
+
+**Permission** : `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` au manifeste. ⚠️
+Google Play exige une justification : la fonction principale (reconnaître ses
+amis à côté de soi, écran éteint) en dépend — à écrire dans la Play Console.
+
+**Côté Dart** : `lib/features/proximity/background_guard.dart` (acquisition,
+`backgroundGuardProvider`), `background_guard_screen.dart` (l'écran « Écran
+éteint » à trois étapes + le bandeau de l'écran Ping, qui n'apparaît que si
+quelque chose de **lisible** manque), entrée Réglages › « Écran éteint »,
+section « ARRIÈRE-PLAN — CE QUE LE TÉLÉPHONE ACCORDE » du diagnostic.
+
+**iOS (sans objet)** : pas de surcouche qui tue ; le mode d'arrière-plan
+Bluetooth se déclare dans `Info.plist`.
 
 ---
 

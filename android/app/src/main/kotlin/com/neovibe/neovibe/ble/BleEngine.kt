@@ -198,10 +198,15 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * Rappels arrives pour un jeu d'annonces **deja remplace**.
      *
      * ⚠️ **Doit rester visible meme a zero.** Ce compteur existe parce que la
-     * course qu'il mesure a ete trouvee **a la relecture, pas sur appareil** :
-     * tant qu'il vaut zero, elle est theorique ; le jour ou il monte, il
-     * explique d'un coup un `advertSetsOnAir` qui sous-compte et un
-     * `advertSlotDrift` bloque sur -1. Voir `AdvertSetCallback.estLeCourant`.
+     * course qu'il mesure a ete trouvee **a la relecture, pas sur appareil** ;
+     * le jour ou il monte, il explique d'un coup un `advertSetsOnAir` qui
+     * sous-compte et un `advertSlotDrift` bloque sur -1. Voir
+     * `AdvertSetCallback.estLeCourant`.
+     *
+     * ✅ **Elle n'est plus theorique — nuit du 2026-09-21 → 22** (`dev_reports`
+     * `a2c09b93…`) : 4 rappels perimes en 7 h 38, aux redepots de plan, tous
+     * ignores/raccroches ; `advertSetsOnAir` est reste a 2 et la derive a 0.
+     * La parade tient ; le compteur reste, pour le jour ou elle ne tiendrait plus.
      */
     var advertStaleCallbacks = 0
         private set

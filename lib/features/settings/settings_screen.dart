@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/supabase_providers.dart';
 import '../drafts/drafts_screen.dart';
+import '../proximity/background_guard_screen.dart';
 import 'sections/appearance_settings_screen.dart';
 import 'sections/camera_settings_screen.dart';
 import 'sections/developer_screen.dart';
@@ -83,6 +84,15 @@ class SettingsScreen extends ConsumerWidget {
             subtitle: 'Personnes bloquées, waves en temps réel',
             builder: _privacy,
           ),
+          // Ce que le téléphone accorde pour vivre en arrière-plan
+          // (2026-09-22) : l'exemption batterie et, sur Xiaomi, le démarrage
+          // automatique — celui-là ne se vérifie pas, d'où une entrée durable.
+          const SettingsCategoryTile(
+            icon: Icons.battery_saver_outlined,
+            title: 'Écran éteint',
+            subtitle: 'Pour que NeoVibe te voie même téléphone en poche',
+            builder: _backgroundGuard,
+          ),
           const Divider(),
           const SettingsCategoryTile(
             icon: Icons.construction,
@@ -113,6 +123,8 @@ class SettingsScreen extends ConsumerWidget {
   static Widget _sharing(BuildContext _) => const SharingSettingsScreen();
   static Widget _shareDefaults(BuildContext _) => const ShareDefaultsScreen();
   static Widget _privacy(BuildContext _) => const PrivacySettingsScreen();
+  static Widget _backgroundGuard(BuildContext _) =>
+      const BackgroundGuardScreen();
   static Widget _developer(BuildContext _) => const DeveloperScreen();
   static Widget _drafts(BuildContext _) => const DraftsScreen();
 }

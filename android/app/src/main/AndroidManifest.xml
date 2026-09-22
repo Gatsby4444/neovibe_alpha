@@ -63,6 +63,14 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
+    <!-- Exemption de l'optimisation batterie (2026-09-22). Sans elle, MIUI
+         tue le service radio sur batterie (« forcer l'arrêt » : ni relance,
+         ni alarme — après-midi du 2026-09-21) et rien ne peut le relancer.
+         Ouvre la boîte de dialogue standard d'Android (`BackgroundGuard.kt`).
+         ⚠️ Google Play exige une justification : la fonction principale
+         (reconnaître ses amis à côté de soi, écran éteint) en dépend. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- Service de premier plan : maintien de la détection BLE en arrière-plan -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
@@ -184,5 +192,11 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Les pages MIUI « Démarrage automatique » et « Économiseur de
+             batterie » (`BackgroundGuard.kt`). Depuis Android 11, sans cette
+             déclaration `resolveActivity` répond « n'existe pas » même sur
+             un Xiaomi — et le bouton serait mort sans erreur. -->
+        <package android:name="com.miui.securitycenter" />
+        <package android:name="com.miui.powerkeeper" />
     </queries>
 </manifest>

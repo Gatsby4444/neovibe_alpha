@@ -147,8 +147,22 @@ object Energie {
             veilleProfonde = pm?.isDeviceIdleMode == true,
             veilleLegere = veilleLegere(pm),
             ecranAllume = pm?.isInteractive != false,
+            exempt = exempt(context),
         )
     }
+
+    /**
+     * Vrai si l'utilisateur a exempte l'app de l'optimisation de batterie
+     * (Reglages > Batterie > « Pas de restriction » sur MIUI).
+     *
+     * ⚠️ **Ajoute le 2026-09-22, apres l'apres-midi du 21** : le service est
+     * mort a ~13:45 sans etre relance ni reveille, et le carnet ne disait pas
+     * si l'app etait exemptee a ce moment-la. Le reglage peut changer entre
+     * deux lignes ; il se lit donc a chaque ligne, comme le chargeur.
+     */
+    fun exempt(context: Context): Boolean =
+        context.getSystemService(PowerManager::class.java)
+            ?.isIgnoringBatteryOptimizations(context.packageName) == true
 
     /** `isDeviceLightIdleMode` n'existe qu'a partir d'Android 13. */
     fun veilleLegere(pm: PowerManager?): Boolean =
@@ -162,6 +176,7 @@ object Energie {
         veilleProfonde: Boolean,
         veilleLegere: Boolean,
         ecranAllume: Boolean,
+        exempt: Boolean,
     ): String {
         val veille = when {
             veilleProfonde -> "profonde"
@@ -170,7 +185,8 @@ object Energie {
         }
         val batt = if (pourcent < 0) "?" else "$pourcent%"
         return "batt=$batt chargeur=${ouiNon(chargeur)} eco=${ouiNon(economie)} " +
-            "veille=$veille ecran=${if (ecranAllume) "allume" else "eteint"}"
+            "veille=$veille ecran=${if (ecranAllume) "allume" else "eteint"} " +
+            "exempt=${ouiNon(exempt)}"
     }
 
     private fun ouiNon(b: Boolean) = if (b) "oui" else "non"

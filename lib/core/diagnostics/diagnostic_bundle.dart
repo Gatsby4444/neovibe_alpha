@@ -12,6 +12,7 @@ import 'app_log.dart';
 import 'card_rules_trace.dart';
 import 'service_journal_reading.dart';
 
+import '../../features/proximity/background_guard.dart';
 import '../../features/proximity/geo/coarse_location.dart';
 import '../../features/proximity/net/ble_radio.dart';
 import '../../features/proximity/net/connection_trace.dart';
@@ -464,6 +465,35 @@ class DiagnosticBundle {
     return buffer.toString();
   }
 
+  /// Ce que le téléphone accorde à l'app pour vivre en arrière-plan.
+  /// L'état MIUI « démarrage automatique » n'est pas lisible : on le dit,
+  /// plutôt que d'afficher un faux « non ».
+  static Future<String> backgroundGuard() async {
+    final buffer = StringBuffer();
+    try {
+      final etat = await const BackgroundGuard().state();
+      buffer
+        ..writeln('fabricant            : ${etat.manufacturer} (${etat.model})')
+        ..writeln('exemption batterie   : ${etat.batteryExempt}')
+        ..writeln('surcouche MIUI       : ${etat.miui}');
+      if (etat.miui) {
+        buffer.writeln(
+          'démarrage automatique : non lisible (aucune API) — à vérifier à '
+          'la main',
+        );
+      }
+      if (!etat.batteryExempt) {
+        buffer.writeln(
+          'LECTURE : sans exemption, le téléphone peut arrêter le service '
+          'radio sur batterie sans le relancer (après-midi du 2026-09-21).',
+        );
+      }
+    } catch (e) {
+      buffer.writeln('relevé impossible : $e');
+    }
+    return buffer.toString();
+  }
+
   /// [radio] non nul = la section proximité est collectée, et c'est le seul
   /// moyen de la demander. L'ancien drapeau `proximityState` pouvait valoir
   /// `true` sans qu'aucune radio ne soit fournie : le collecteur en construisait
@@ -684,7 +714,13 @@ class DiagnosticBundle {
         ..writeln('\n===== CONNEXIONS — DEMANDES ET SYNCHRONISATION =====')
         ..writeln(connections())
         ..writeln('\n===== POSITION — CE QU\'ANDROID A ACCORDÉ =====')
-        ..writeln(await location());
+        ..writeln(await location())
+        // ⚠️ Ajouté le 2026-09-22 : l'après-midi du 21, le service est mort
+        // sur batterie sans relance ni réveil, et le rapport ne disait pas si
+        // l'app était exemptée de l'optimisation batterie. Maintenant il le
+        // dit — et le carnet du service aussi, ligne par ligne (`exempt=`).
+        ..writeln('\n===== ARRIÈRE-PLAN — CE QUE LE TÉLÉPHONE ACCORDE =====')
+        ..writeln(await backgroundGuard());
     }
 
     if (video) {
