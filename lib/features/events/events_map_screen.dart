@@ -21,11 +21,11 @@ import 'map_tiles.dart';
 ///
 /// | Défaut | Correction |
 /// |---|---|
-/// | carte **claire et chargée** dans une app sombre | fond CARTO, clair **ou** sombre selon le thème, peu d'étiquettes ([MapTiles]) |
+/// | carte **claire** dans une app sombre | fond OpenStreetMap **assombri chez nous** selon le thème ([MapTiles]) — la tentative CARTO du matin exigeait une clé |
 /// | tout **flou** | tuiles @2x sur écran dense |
 /// | motifs géants puis **gris vide** en zoomant | le zoom est **borné** ([MapTiles.maxZoom]) : on ne peut plus dépasser le dernier niveau qui existe |
 /// | un viseur `my_location` posé sur la carte | un **point avec son halo d'incertitude** — ce que l'appareil sait vraiment |
-/// | la mention « © OpenStreetMap » sous la barre système | attribution dans la zone sûre, fond lisible, et CARTO cité comme sa licence l'exige |
+/// | la mention « © OpenStreetMap » sous la barre système | attribution remontée dans la zone sûre, sur un fond qui la détache |
 ///
 /// Et un bouton **recentrer**, qui manquait : une fois perdu, on ne revenait
 /// chez soi qu'en refermant l'écran.
@@ -233,7 +233,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    '© OpenStreetMap · © CARTO',
+                    '© OpenStreetMap',
                     style: TextStyle(fontSize: 10, color: p.inkMuted),
                   ),
                 ),
