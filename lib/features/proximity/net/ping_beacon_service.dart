@@ -182,10 +182,6 @@ class PingBeaconService extends Notifier<PingBeaconState> {
     final geo = ref.read(coarseLocationProvider);
     final repo = ref.read(pingRepositoryProvider);
     try {
-      // ⚠️ **La finesse accordée est relevée à chaque tour, et elle ne bloque
-      // rien.** Une position approximative reste une position : on publie, et
-      // on dit la dégradation (voir [LocationPrecision]).
-      final precision = await geo.precision();
       // ⚠️ **Une RAFALE, pas un abonnement permanent** — décision de Jay du
       // 2026-09-22 au soir. Le ping tenait le flux ouvert tant qu'il était
       // allumé : la précision maximale en continu, pour publier une balise par
@@ -196,6 +192,16 @@ class PingBeaconService extends Notifier<PingBeaconState> {
       // ⚠️ Et si la carte est ouverte en même temps, ça ne coûte rien : le
       // compteur d'abonnés de `LivePosition` fait que le flux tourne déjà.
       final fix = await ref.read(livePositionProvider.notifier).rafale();
+      // 🔴 **La finesse se lit à UN SEUL endroit depuis le 2026-09-22 au
+      // soir** (relevé à l'inventaire de fin de session). Ce tour appelait
+      // `geo.precision()` de son côté, pendant que `LivePosition` la lisait du
+      // sien : **deux sources pour un même fait**, à deux rythmes. Le jour où
+      // l'une se rafraîchit et pas l'autre, l'écran du ping et la carte
+      // affichent des avertissements contradictoires — et rien ne le signale.
+      // Règle 4 de `CLAUDE.md` : un chemin, une donnée. `rafale()` vient
+      // d'acquérir le flux, donc la finesse est fraîche.
+      final precision =
+          ref.read(livePositionProvider).precision ?? LocationPrecision.precise;
       if (fix == null) {
         // La dernière panne réseau ne décrit plus la situation : ce qui bloque
         // maintenant, c'est la position. En garder deux ferait afficher deux
@@ -353,7 +359,12 @@ class PingBeaconService extends Notifier<PingBeaconState> {
   /// l'approximative a été accordée : [CoarseLocation.request] redemande alors
   /// à Android, qui affiche sa boîte de mise à niveau.
   Future<void> requestPermission() async {
-    final blocker = await ref.read(coarseLocationProvider).request();
+    // ⚠️ **On passe par `LivePosition`, pas par l'acquisition directement** :
+    // c'est lui qui redemande PUIS relit ce qui a été accordé. Demander ici et
+    // laisser l'autre relire plus tard, c'est rouvrir les deux sources que
+    // l'inventaire du 2026-09-22 vient de refermer.
+    await ref.read(livePositionProvider.notifier).requestPrecise();
+    final blocker = await ref.read(coarseLocationProvider).blocker();
     state = state.copyWith(blocker: blocker);
     // ⚠️ **On relance sans attendre le prochain tour de minuteur.** L'ancien
     // code appelait `_start()`, qui sort aussitôt si les minuteurs sont déjà
