@@ -56,7 +56,13 @@ import 'coarse_location.dart';
 /// ⚠️ Porte son égalité de valeur, sans quoi tout écran qui l'observe se
 /// redessinerait à chaque relevé — plusieurs fois par seconde, pour rien.
 class LivePositionState {
-  const LivePositionState({this.fix, this.at, this.received = 0, this.error});
+  const LivePositionState({
+    this.fix,
+    this.at,
+    this.received = 0,
+    this.error,
+    this.precision,
+  });
 
   /// Le meilleur relevé retenu, ou `null` si aucun n'est encore arrivé.
   final CoarseFix? fix;
@@ -79,6 +85,42 @@ class LivePositionState {
   /// La dernière erreur du flux, ou `null`. Voir [LivePosition.acquire].
   final String? error;
 
+  /// **La finesse qu'Android accorde réellement**, ou `null` si pas encore lue.
+  ///
+  /// ## 🔴 Pourquoi c'est ICI, et plus seulement sur l'écran du ping
+  ///
+  /// Relevé le 2026-09-22 au soir, dans le diagnostic de Jay :
+  /// `finesse : approximate`, `carreau(5061, 312) ± 2000 m`. Il n'avait
+  /// accordé que la position **approximative** — Android brouille alors
+  /// volontairement à ~2 km, et le point de la carte était à trois kilomètres
+  /// de l'endroit réel.
+  ///
+  /// Ce n'était **pas** une panne de mesure : `repli haut : aucun échec`, le
+  /// meilleur palier répondait. Android faisait exactement ce qu'on lui
+  /// demandait de faire.
+  ///
+  /// ⚠️ **Le défaut n'était pas la position, c'était le silence.** L'écran du
+  /// ping disait la dégradation depuis le 2026-08-26 ; la carte, arrivée
+  /// après, ne la disait pas. Un point brouillé et un point juste ont
+  /// exactement la même apparence — et celui qui regarde la carte conclut que
+  /// l'app est cassée. Règle 6 de `CLAUDE.md` : après un changement
+  /// d'architecture, **rejouer les décisions qui en dépendaient**. La décision
+  /// « la finesse approximative est une dégradation, pas un blocage » avait
+  /// été prise quand la position ne servait qu'à choisir un carreau d'un
+  /// kilomètre. Une carte l'affiche.
+  ///
+  /// En le portant ici, tout lecteur de position l'obtient — au lieu que
+  /// chaque écran doive penser à aller le demander.
+  final LocationPrecision? precision;
+
+  /// Android brouille-t-il volontairement la position ?
+  ///
+  /// ⚠️ **À ne pas confondre avec « la position est mauvaise ».** Un GPS qui
+  /// peine sous terre et un Android qui refuse de dire mieux qu'à 2 km
+  /// produisent le même gros chiffre — mais le premier ne se répare pas, et le
+  /// second se répare en un geste. Deux causes, deux phrases.
+  bool get brouillee => precision == LocationPrecision.approximate;
+
   /// L'âge du relevé retenu, ou `null` s'il n'y en a pas.
   Duration? ageAt(DateTime now) => at == null ? null : now.difference(at!);
 
@@ -96,10 +138,11 @@ class LivePositionState {
       other.fix == fix &&
       other.at == at &&
       other.received == received &&
-      other.error == error;
+      other.error == error &&
+      other.precision == precision;
 
   @override
-  int get hashCode => Object.hash(fix, at, received, error);
+  int get hashCode => Object.hash(fix, at, received, error, precision);
 }
 
 /// La vue dérivée. **Retient le meilleur relevé récent ; ne mesure rien
@@ -185,6 +228,7 @@ class LivePosition extends Notifier<LivePositionState> {
   /// même temps, et le premier qui s'en va ne doit pas couper l'autre.
   void acquire() {
     _holders++;
+    unawaited(relisPrecision());
     if (_sub != null) return;
     _sub = ref
         .read(coarseLocationProvider)
@@ -200,6 +244,7 @@ class LivePosition extends Notifier<LivePositionState> {
               at: state.at,
               received: state.received,
               error: e.toString(),
+              precision: state.precision,
             );
           },
           cancelOnError: false,
@@ -220,6 +265,38 @@ class LivePosition extends Notifier<LivePositionState> {
   void _debranche() {
     _sub?.cancel();
     _sub = null;
+  }
+
+  /// **Relit ce qu'Android accorde.** À rappeler au retour dans l'app : le
+  /// réglage peut avoir changé dans les paramètres système pendant qu'on n'y
+  /// était pas, et un avertissement qui reste affiché après avoir été corrigé
+  /// est aussi trompeur qu'un avertissement absent.
+  Future<void> relisPrecision() async {
+    final lu = await ref.read(coarseLocationProvider).precision();
+    if (lu == state.precision) return;
+    state = LivePositionState(
+      fix: state.fix,
+      at: state.at,
+      received: state.received,
+      error: state.error,
+      precision: lu,
+    );
+  }
+
+  /// **Demande la position précise**, puis relit ce qui a été accordé.
+  ///
+  /// ⚠️ `CoarseLocation.request()` redemande **même quand la permission est
+  /// déjà « accordée »** : c'est la seule façon de faire apparaître la boîte
+  /// de mise à niveau d'Android après un premier « Approximative ». Sans ce
+  /// second appel, le seul remède serait les réglages système — où Jay avait
+  /// cherché en vain le 2026-08-26.
+  ///
+  /// ⚠️ **On relit après, on ne suppose pas que c'est accordé.** L'utilisateur
+  /// peut refuser la boîte ; afficher « c'est bon » sur un refus ferait
+  /// chercher le problème ailleurs.
+  Future<void> requestPrecise() async {
+    await ref.read(coarseLocationProvider).request();
+    await relisPrecision();
   }
 
   /// **Le meilleur relevé disponible maintenant, quitte à en demander un.**
@@ -256,6 +333,11 @@ class LivePosition extends Notifier<LivePositionState> {
       at: garde ? now : state.at,
       received: state.received + 1,
       error: null,
+      // ⚠️ **Reportée, pas oubliée.** Elle est lue par un autre chemin et à
+      // un autre rythme ; la laisser tomber ici ferait clignoter
+      // l'avertissement de finesse à chaque relevé, c'est-à-dire plusieurs
+      // fois par seconde.
+      precision: state.precision,
     );
   }
 }

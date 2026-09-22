@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +11,7 @@ import '../../core/typography.dart';
 import '../../core/utils/erreur_serveur.dart';
 import '../proximity/geo/coarse_location.dart';
 import '../proximity/geo/live_position.dart';
+import '../proximity/geo/precision_notice.dart';
 import 'event_screen.dart';
 import 'events_providers.dart';
 import 'map_tiles.dart';
@@ -44,7 +47,8 @@ class EventsMapScreen extends ConsumerStatefulWidget {
   ConsumerState<EventsMapScreen> createState() => _EventsMapScreenState();
 }
 
-class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
+class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
+    with WidgetsBindingObserver {
   final _map = MapController();
 
   /// ⚠️ **Posé une seule fois, au premier build utile.** Recalculer le centre
@@ -76,14 +80,27 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
     super.initState();
     _position = ref.read(livePositionProvider.notifier);
     _position.acquire();
+    WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     // ⚠️ Relâché ici, et le notifier est retenu depuis [initState] : lire un
     // provider pendant `dispose` n'est pas garanti.
     _position.release();
     super.dispose();
+  }
+
+  /// ⚠️ **La finesse accordée se relit au retour dans l'app.** Si on la
+  /// change dans les réglages système, rien ne nous prévient : sans cette
+  /// relecture, l'avertissement resterait affiché après avoir été corrigé —
+  /// aussi trompeur qu'un avertissement absent.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_position.relisPrecision());
+    }
   }
 
   /// Recentrer **redemande** d'abord : c'est le geste de quelqu'un qui trouve
@@ -248,6 +265,24 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
                 child: const Icon(Icons.my_location),
               ),
             ),
+          // 🔴 **Le point est à trois kilomètres, et l'écran le DIT** — ajouté
+          // le 2026-09-22 au soir, sur le diagnostic de Jay
+          // (`finesse : approximate`, `± 2000 m`). Sans ce bandeau, la carte
+          // affichait un point faux avec exactement l'aplomb d'un point juste,
+          // et le seul écran qui annonçait la cause était celui du ping —
+          // que personne ne va consulter quand c'est la carte qui se trompe.
+          if (live.brouillee)
+            Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: SafeArea(
+                bottom: false,
+                child: BandeauPositionApprochee(
+                  onAutoriser: () => unawaited(_position.requestPrecise()),
+                ),
+              ),
+            ),
           // ⚠️ **L'attribution est obligatoire, donc elle doit être LISIBLE.**
           // Elle était collée en bas à gauche, à moitié sous la barre de
           // navigation du téléphone (capture du 2026-09-22). `SafeArea` la
@@ -286,24 +321,6 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
   }
 }
 
-/// **D'où vient le point, et ce qu'il vaut** — écrit à côté de l'attribution.
-///
-/// 🔴 **Ajouté le 2026-09-22, sur une capture de Jay** : le point affiché
-/// était à ~2 km de l'endroit réel, et **rien à l'écran ne permettait de dire
-/// pourquoi**. Un point faux et un point juste avaient exactement la même
-/// apparence — c'est le défaut d'instrument que `CLAUDE.md` interdit de
-/// laisser passer.
-///
-/// Les trois mots disent chacun une cause différente :
-/// - **GPS** ([FixSource.best]) : satellites + Wi-Fi + antennes ;
-/// - **réseau** ([FixSource.network]) : Wi-Fi et antennes **sans** satellites
-///   — c'est le palier qui se trompe de plusieurs centaines de mètres quand la
-///   base de données des bornes Wi-Fi est fausse ;
-/// - **mémoire** ([FixSource.lastKnown]) : un point d'il y a jusqu'à 5 min.
-///
-/// L'incertitude est celle **qu'annonce l'appareil**, pas une estimation de
-/// notre part : un « ± 20 m » sur un point faux de 2 km est en soi le
-/// diagnostic.
 /// Ce que vaut le point affiché, dit en clair sous la carte.
 ///
 /// ## ⚠️ Ce libellé ne dit plus « GPS », et c'est une correction
@@ -327,13 +344,22 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen> {
 ///
 /// Le mot du palier ne reparaît que lorsqu'il porte une information : un repli
 /// sur le réseau ou sur la mémoire signale que le meilleur palier a échoué.
+///
+/// 🔴 **Et « approché » passe DEVANT tout le reste** — 2026-09-22 au soir.
+/// Sur le diagnostic de Jay, `± 2000 m` s'affichait nu ; ce chiffre se lit
+/// comme « le GPS est mauvais ici », alors qu'il veut dire « Android a reçu
+/// l'ordre de ne rien dire de mieux ». Les deux causes n'ont ni le même
+/// remède, ni la même conclusion : la première ne se répare pas, la seconde
+/// se répare en un geste. Le mot désigne laquelle.
 String _libelleFix(LivePositionState live) {
   final fix = live.fix!;
-  final repli = switch (fix.source) {
-    FixSource.best => '',
-    FixSource.network => 'réseau · ',
-    FixSource.lastKnown => 'mémoire · ',
-  };
+  final repli = live.brouillee
+      ? 'approché · '
+      : switch (fix.source) {
+          FixSource.best => '',
+          FixSource.network => 'réseau · ',
+          FixSource.lastKnown => 'mémoire · ',
+        };
   final age = live.ageAt(DateTime.now());
   final vu = age == null ? '' : ' · ${age.inSeconds} s';
   return '$repli± ${fix.accuracy.round()} m$vu · ${live.received} relevés';

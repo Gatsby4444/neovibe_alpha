@@ -15,6 +15,7 @@ import '../connections/connections_repository.dart';
 import '../stories/stories_bar.dart';
 import '../stories/stories_repository.dart';
 import 'geo/coarse_location.dart';
+import 'geo/precision_notice.dart';
 import 'net/ping_beacon_service.dart';
 import 'net/ping_nearby_feed.dart';
 import 'net/ping_repository.dart';
@@ -773,16 +774,17 @@ List<Widget> _autourDeToiV2(WidgetRef ref, ProximityRuntime runtime) {
   // « Position approximative » était un bandeau exclusif : la découverte
   // s'arrêtait là. Or elle fonctionne quand même, moins bien — et le mur
   // garantissait l'échec que l'avertissement se contente d'annoncer.
+  // ⚠️ **Le texte vient de `geo/precision_notice.dart`, il n'est pas écrit
+  // ici.** Il l'était, et la carte en avait besoin le 2026-09-22 : deux
+  // copies du même avertissement, c'est une copie qu'on oubliera de corriger.
+  // Le chiffre y est passé de « environ 3 km » à « environ 2 km », qui est ce
+  // que le diagnostic de Jay a réellement mesuré (`± 2000 m`).
   final notice = beacon.precision == LocationPrecision.approximate
       ? [
           _BandeauSimple(
-            titre: "Position approximative",
-            detail:
-                "Android répond à environ 3 km près : on cherche quand même, "
-                "mais quelqu'un du quartier d'à côté peut te manquer. La "
-                "position précise ne sert qu'à savoir OÙ chercher — qui est "
-                "vraiment à 20 m, c'est le Bluetooth qui le prouve.",
-            action: "Autoriser la position précise",
+            titre: titrePositionApprochee,
+            detail: detailPositionApprochee,
+            action: actionPositionApprochee,
             onAction: () =>
                 ref.read(pingBeaconProvider.notifier).requestPermission(),
           ),

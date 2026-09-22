@@ -147,4 +147,44 @@ void main() {
       expect(vieux.isFresh(maintenant), isFalse);
     });
   });
+
+  group('la finesse accordée par Android', () {
+    // 🔴 Diagnostic de Jay du 2026-09-22 (app 0.9.247+5121), lu en base :
+    //   finesse       : approximate
+    //   carreau       : carreau(5061, 312) ± 2000 m · best
+    //   repli haut    : aucun échec
+    // Rien n'était en panne : Android brouillait volontairement à ~2 km, et le
+    // point tombait à trois kilomètres de l'endroit réel. Ce que l'écran
+    // devait dire, il ne le disait que sur l'écran du ping — pas sur la carte.
+
+    test('approximative ⇒ la position est déclarée BROUILLÉE', () {
+      const etat = LivePositionState(precision: LocationPrecision.approximate);
+      expect(etat.brouillee, isTrue);
+    });
+
+    test("précise ⇒ elle ne l'est pas", () {
+      const etat = LivePositionState(precision: LocationPrecision.precise);
+      expect(etat.brouillee, isFalse);
+    });
+
+    test("non encore lue ⇒ on n'accuse PAS Android", () {
+      // Un doute ne doit pas se transformer en reproche à l'utilisateur :
+      // afficher « tu as bridé la position » avant d'avoir lu la permission
+      // enverrait chercher le problème là où il n'est peut-être pas.
+      expect(const LivePositionState().brouillee, isFalse);
+    });
+
+    test("la finesse fait partie de l'égalité — sinon le bandeau ne disparaît "
+        "jamais", () {
+      // Si `precision` était hors du `==`, corriger la permission ne
+      // changerait pas l'état, l'écran ne se reconstruirait pas, et
+      // l'avertissement resterait affiché après avoir été réparé.
+      expect(
+        const LivePositionState(precision: LocationPrecision.approximate),
+        isNot(
+          equals(const LivePositionState(precision: LocationPrecision.precise)),
+        ),
+      );
+    });
+  });
 }
