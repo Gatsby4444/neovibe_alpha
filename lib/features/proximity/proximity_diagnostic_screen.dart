@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/diagnostics/radio_reading.dart';
 import '../../core/theme.dart';
 import 'dart:async';
 
@@ -210,27 +211,10 @@ class _ProximityDiagnosticScreenState
   ///
   /// Il sépare deux pannes que « détection active » confondait : ne rien
   /// entendre, et n'avoir personne à entendre.
-  String _lireCompteurs() {
-    final raw = _stats['rawScans'] as int?;
-    final neo = _stats['neoScans'] as int?;
-    final autreVersion = _stats['otherVersionScans'] as int? ?? 0;
-    if (autreVersion > 0 && (neo ?? 0) == 0) {
-      return '$autreVersion annonces NeoVibe écartées : elles parlent une AUTRE version du protocole. Les deux appareils ne sont pas à la même version — mets-les à jour ENSEMBLE.';
-    }
-    if (raw == null) return 'Le service ne tourne pas.';
-    if (raw == 0) {
-      return 'ZÉRO annonce reçue, toutes applications confondues. La radio ne '
-          "te livre rien : le problème est SOUS l'app — permission, puce, ou "
-          "bridage du système. Ce n'est pas la faute de l'autre appareil.";
-    }
-    if (neo == 0) {
-      return 'La radio te livre bien des annonces ($raw), mais AUCUNE ne vient '
-          "de NeoVibe. Ton écoute fonctionne : c'est la diffusion d'en face "
-          "qui n'arrive pas jusqu'ici.";
-    }
-    return 'La chaîne est complète : $raw annonces reçues, dont $neo de '
-        'NeoVibe.';
-  }
+  ///
+  /// La lecture vit dans `radio_reading.dart`, partagée avec le rapport
+  /// envoyé : deux copies avaient fini par se tromper de la même façon.
+  String _lireCompteurs() => lireEcoute(_stats) ?? 'Le service ne tourne pas.';
 
   static String _nommer(RadioStatus status) => switch (status) {
     RadioUnsupported() => 'unsupported',

@@ -12,6 +12,7 @@ import '../../features/cards/native_camera.dart';
 import '../../features/library_vibes/library_vault_cache.dart';
 import 'app_log.dart';
 import 'card_rules_trace.dart';
+import 'radio_reading.dart';
 import 'service_journal_reading.dart';
 
 import '../../features/proximity/background_guard.dart';
@@ -190,6 +191,11 @@ class DiagnosticBundle {
         //     et c'est exactement ce qu'il faut savoir avant de conclure que la
         //     coupure de son vient d'ailleurs.
         'scanMode',
+        // Collés à `scanMode` (2026-09-23) : un « aucun scan » ne se lit
+        // qu'avec eux — voulu ou panne, combien de refus, depuis quand.
+        'ecouteVoulue',
+        'scanRefus',
+        'scanPanneDepuisMillis',
         'casqueBluetooth',
         // Seconde cause de `cyclique` depuis le 2026-09-22 : écran éteint
         // depuis plus d'une minute.
@@ -274,25 +280,10 @@ class DiagnosticBundle {
         buffer.writeln('${cle.padRight(12)} : ${stats[cle]}');
       }
 
-      final raw = stats['rawScans'] as int?;
-      final neo = stats['neoScans'] as int?;
-      if (raw == 0) {
-        buffer.writeln(
-          'LECTURE : la radio ne livre RIEN. Le problème est sous l\'app '
-          '(permission, localisation éteinte sur Android <= 11, ou puce).',
-        );
-      } else if ((stats['otherVersionScans'] as int? ?? 0) > 0 && neo == 0) {
-        buffer.writeln(
-          'LECTURE : ${stats['otherVersionScans']} annonces NeoVibe ecartees '
-          'parce qu\'elles parlent une AUTRE version du protocole. Les deux '
-          'appareils ne sont pas a la meme version : mets-les a jour ENSEMBLE.',
-        );
-      } else if (raw != null && neo == 0) {
-        buffer.writeln(
-          'LECTURE : la radio livre ($raw), mais aucune annonce NeoVibe. '
-          'L\'écoute marche ; c\'est la diffusion d\'en face qui n\'arrive pas.',
-        );
-      }
+      // Une seule lecture, partagée avec l'écran de diagnostic : voir
+      // `radio_reading.dart` pour le mensonge du 2026-09-23 qu'elle corrige.
+      final lecture = lireEcoute(stats);
+      if (lecture != null) buffer.writeln('LECTURE : $lecture');
 
       // ⚠️ **La ligne qui aurait fait gagner une journée le 2026-08-26.**
       //
@@ -319,6 +310,7 @@ class DiagnosticBundle {
         }
       }
 
+      final neo = stats['neoScans'] as int?;
       final self = stats['selfScans'] as int?;
       if (self != null && neo != null && neo > 0 && self * 3 > neo) {
         buffer.writeln(

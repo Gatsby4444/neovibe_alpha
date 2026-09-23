@@ -703,6 +703,20 @@ implémentation du même accord, sans point de contact, est une divergence promi
   🍎 **iOS** : sans objet pour le remède (`CBCentralManager` ne règle pas son
   rythme) ; la question se lit par `UIApplication.applicationState`.
 
+- **`ScanRecovery.kt`** — *(nouveau, 2026-09-23)* **quand reprendre l'écoute
+  après un refus d'Android.** Décision pure (aucune radio, aucune horloge),
+  testée par `ScanRecoveryTest`. Diagnostic de Jay du 2026-09-23 : à 10:53,
+  une minute après l'extinction de l'écran, la relance du scan au rythme
+  économe a été refusée (`SCAN_FAILED_APPLICATION_REGISTRATION_FAILED`), et
+  **aucune reprise n'existait pour ce code** — téléphone sourd plus d'une heure,
+  toujours visible des autres. Désormais `REGISTRATION_FAILED`, `INTERNAL_ERROR`
+  et `OUT_OF_HARDWARE_RESOURCES` se réessaient à 5 s, 30 s, 2 min puis toutes les
+  5 min tant que le ping est voulu (`BleEngine.repriseScan`). Instruments dans
+  `stats()` : `ecouteVoulue`, `scanRefus`, `scanPanneDepuisMillis` ; le carnet
+  écrit `running (ecoute coupee)` quand le service tourne sans écouter.
+  🍎 **iOS** : `CBCentralManager` ne renvoie pas ces codes ; l'équivalent est de
+  relancer `scanForPeripherals` sur `centralManagerDidUpdateState(.poweredOn)`.
+
 - **`LocationBeat.kt`** — *(nouveau, 2026-09-22)* **mesurer où l'on est et
   republier la balise `ping_beacons`, sans le Dart.** Jusque-là, la balise
   était publiée par le Dart toutes les 60 s, app ouverte seulement — or le

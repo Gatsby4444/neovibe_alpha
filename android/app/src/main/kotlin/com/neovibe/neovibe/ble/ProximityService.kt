@@ -971,6 +971,12 @@ class ProximityService : Service(), BleEngine.Listener {
     fun stats(): Map<String, Any?> = engine.advertCapabilities() + mapOf(
         "rawScans" to engine.rawScans,
         "neoScans" to engine.neoScans,
+        // ⚠️ **Ce qui manquait le 2026-09-23** pour lire un « aucun scan » :
+        // le ping est-il voulu (donc panne), combien de refus d'Android, et
+        // depuis quand rien n'a ete entendu. Voir `ScanRecovery`.
+        "ecouteVoulue" to engine.ecouteVoulue,
+        "scanRefus" to engine.scanRefus,
+        "scanPanneDepuisMillis" to engine.scanPanneDepuisMillis,
         // ⚠️ **Le temoin du desaccord de version, rendu VISIBLE.**
         //
         // Il etait compte depuis le 2026-08-20 et n'etait expose nulle part :
@@ -1165,8 +1171,14 @@ class ProximityService : Service(), BleEngine.Listener {
     override fun onStatus(status: RadioStatus) {
         // Seul le TYPE compte : `Running(advertising, scanning)` change a chaque
         // rotation d'annonce, et noter ca noierait le carnet.
-        val avant = lastStatus.toMap()["type"]
-        val apres = status.toMap()["type"]
+        //
+        // 🔴 **Sauf l'ecoute (2026-09-23).** Le carnet a ecrit « radio :
+        // running » a 11:34 alors que le scan etait mort depuis 10:53 : le type
+        // seul disait « tout va bien ». L'emission bascule a chaque rotation,
+        // l'ecoute non — elle entre donc dans le libelle, l'emission reste
+        // dehors.
+        val avant = libelleJournal(lastStatus)
+        val apres = libelleJournal(status)
         if (avant != apres) {
             // L'etat d'energie accompagne chaque changement de radio : c'est
             // ce qui manquait pour lire « adapterOff a 02:31 » (2026-09-14).
@@ -1181,6 +1193,10 @@ class ProximityService : Service(), BleEngine.Listener {
         bridge?.onStatus(status)
         updateNotification(status)
     }
+
+    private fun libelleJournal(status: RadioStatus): String =
+        if (status is RadioStatus.Running && !status.scanning) "running (ecoute coupee)"
+        else status.toMap()["type"].toString()
 
     override fun onScan(
         address: String,

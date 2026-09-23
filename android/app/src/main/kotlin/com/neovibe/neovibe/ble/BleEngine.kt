@@ -26,6 +26,7 @@ import android.content.IntentFilter
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 
 /**
  * Le moteur BLE : advertising, scan, serveur et client GATT.
@@ -335,6 +336,43 @@ class BleEngine(private val context: Context, private val listener: Listener) {
     var neoScans = 0
         private set
 
+    /**
+     * Refus de scan opposes par Android depuis le dernier [start].
+     *
+     * ⚠️ **Ajoute le 2026-09-23** : le refus de 10:53 n'etait visible que par
+     * une ligne du journal, et `rawScans` — un cumul — continuait de faire
+     * croire que l'ecoute marchait. Voir [ScanRecovery].
+     */
+    @Volatile
+    var scanRefus = 0
+        private set
+
+    /** Refus d'affilee, sans une seule annonce recue entre eux. */
+    private var refusConsecutifs = 0
+
+    /**
+     * Horloge `elapsedRealtime` du premier refus de la panne en cours, 0 sinon.
+     * Remis a zero par la premiere annonce recue : c'est la seule preuve que
+     * l'ecoute est revenue — une relance acceptee peut encore echouer.
+     */
+    @Volatile
+    private var panneDepuis = 0L
+
+    /**
+     * Depuis combien de temps l'ecoute est en panne **sans rien avoir recu
+     * depuis**, ou -1.
+     *
+     * ⚠️ Dans un lieu sans aucun appareil Bluetooth, une reprise reussie ne
+     * recoit rien et ce chiffre continue de courir : il dit « rien entendu
+     * depuis le refus », pas « sourd ». A lire avec `scanMode`.
+     */
+    val scanPanneDepuisMillis: Long
+        get() = panneDepuis.let { if (it == 0L) -1L else SystemClock.elapsedRealtime() - it }
+
+    /** Le ping est-il VOULU ? Distingue « rien n'ecoute, c'est voulu » d'une panne. */
+    val ecouteVoulue: Boolean
+        get() = desiredAdvertId != null
+
     // ⚠️ **`pathStats`, `bothPathsPeak` et `notePaths` ont ete SUPPRIMES le
     // 2026-08-27**, avec les connexions GATT qu'ils comptaient.
     //
@@ -390,6 +428,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         desiredAdvertId = advertId
         desiredAdvertType = type
         scanRetried = false
+        main.removeCallbacks(repriseScan)
         // 🔴 **TOUS LES COMPTEURS, OU AUCUN — corrige le 2026-08-31.**
         //
         // Seuls `rawScans` et `neoScans` repartaient de zero ici. Les quatre
@@ -408,6 +447,9 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         neoScans = 0
         selfScans = 0
         otherVersionScans = 0
+        scanRefus = 0
+        refusConsecutifs = 0
+        panneDepuis = 0L
         advertStaleCallbacks = 0
         onAir.reinitialiseRefus()
         // ⚠️ **Une session neuve reessaie le parallele.** Le repli est une
@@ -930,6 +972,8 @@ class BleEngine(private val context: Context, private val listener: Listener) {
 
     /** Coupe le matériel sans toucher à l'intention (Bluetooth qui s'éteint). */
     private fun teardown() {
+        // Une reprise en attente ne doit pas relancer ce qu'on vient de couper.
+        main.removeCallbacks(repriseScan)
         stopAdvertising()
         // ⚠️ **Les jeux paralleles aussi.** Les oublier ici, c'est laisser la
         // radio annoncer apres l'extinction du Bluetooth — et c'est exactement
@@ -1068,6 +1112,11 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             // Compte AVANT tout tri : c'est ce chiffre qui dit si la radio
             // livre quelque chose, independamment de ce qu'on en garde.
             rawScans++
+            // La preuve que l'ecoute est revenue : la panne est close.
+            if (refusConsecutifs != 0 || panneDepuis != 0L) {
+                refusConsecutifs = 0
+                panneDepuis = 0L
+            }
             val payload = result.scanRecord
                 ?.getManufacturerSpecificData(BleConstants.MANUFACTURER_ID) ?: return
             if (payload.size != BleConstants.ADVERT_PAYLOAD_SIZE) return
@@ -1147,6 +1196,28 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             // le diagnostic annoncer « continu » apres un echec — la meme
             // famille de mensonge, par le chemin qu'on n'avait pas compte.
             modeDeScanEnCours = -1
+            scanRefus++
+            if (panneDepuis == 0L) panneDepuis = SystemClock.elapsedRealtime()
+            // 🔴 **La reprise qui manquait (2026-09-23)** — voir [ScanRecovery].
+            // Avant elle, ces trois refus laissaient le telephone sourd jusqu'a
+            // ce que quelqu'un coupe le Bluetooth, et rien ne le disait.
+            if (ScanRecovery.reprendSeul(errorCode)) {
+                refusConsecutifs++
+                val delai = ScanRecovery.delaiApres(refusConsecutifs)
+                // On libere tout de suite ce qui pourrait rester enregistre :
+                // le delai laisse a la pile le temps de le digerer.
+                dropScanRegistration()
+                main.removeCallbacks(repriseScan)
+                main.postDelayed(repriseScan, delai)
+                publish(
+                    RadioStatus.Failed(
+                        "scan",
+                        scanFailureText(errorCode) +
+                            " Nouvel essai automatique dans ${delai / 1000} s.",
+                    ),
+                )
+                return
+            }
             when (errorCode) {
                 SCAN_FAILED_ALREADY_STARTED -> {
                     // Un scan de NOTRE application est encore enregistre cote
@@ -1185,6 +1256,27 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      */
     private fun dropScanRegistration() {
         runCatching { adapter?.bluetoothLeScanner?.stopScan(scanCallback) }
+    }
+
+    /**
+     * Relance l'ecoute apres un refus passager ([ScanRecovery]).
+     *
+     * Rien si le ping n'est plus voulu, si l'ecoute a deja repris par un autre
+     * chemin, ou si le Bluetooth est coupé entre-temps — le rallumage a son
+     * propre chemin ([adapterWatcher]).
+     */
+    private val repriseScan = Runnable {
+        if (desiredAdvertId == null || scanning) return@Runnable
+        if (evaluateRadio(context) != null) {
+            publish(currentStatus())
+            return@Runnable
+        }
+        try {
+            startScanning()
+            publish(currentStatus())
+        } catch (e: Exception) {
+            publish(RadioStatus.Failed("scan", e.message ?: e.toString()))
+        }
     }
 
     /** Une seule reprise par demarrage : sinon on boucle sur un defaut reel. */
