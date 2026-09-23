@@ -1206,8 +1206,8 @@ final peerInRangeProvider = …   // ← 25 s de souvenir, infini si relié</pre
 
   <h3>③ Le mode d'émission : pourquoi le cycle ne passe pas à l'échelle</h3>
 
-  <p>Une annonce BLE ne porte <b>qu'un seul</b> jeton — 31 octets en tout, on en
-  utilise 20. Avec un ami, il faut donc crier un jeton ; avec dix amis, dix
+  <p>Une annonce BLE ne porte <b>qu'un seul</b> jeton — 31 octets en tout, dont 20 à nous et 30
+  occupés (voir <code>docs/annonce-ble-octet-par-octet.md</code>). Avec un ami, il faut donc crier un jeton ; avec dix amis, dix
   jetons différents. Cette contrainte est réelle et n'a pas changé.</p>
 
   <div class="card warn">

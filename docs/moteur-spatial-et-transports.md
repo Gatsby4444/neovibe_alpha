@@ -169,7 +169,9 @@ ping ».)*
 
 Deux raisons, et la seconde est la vraie :
 
-1. l'annonce fait **31 octets** et on en occupe **28** — il n'y a pas la place ;
+1. l'annonce fait **31 octets** et on en occupe **30** — il n'y a pas la place
+   (détail : [`annonce-ble-octet-par-octet.md`](annonce-ble-octet-par-octet.md), 2026-09-23 ;
+   le « 28 » écrit ici auparavant était périmé) ;
 2. « cet appareil a l'UWB » diffusé en clair est une **empreinte d'appareil
    stable**. Tout l'identifiant rotatif existe pour qu'un observateur passif ne
    puisse pas suivre quelqu'un d'un créneau à l'autre. Un masque de capacités

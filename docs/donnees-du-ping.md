@@ -70,24 +70,16 @@ l'émetteur dans la formule rend les deux sens distincts.
 
 ---
 
-## D. Ce qui part réellement sur les ondes — 20 octets, et rien d'autre
+## D. Ce qui part réellement sur les ondes
 
-| Position | Contenu |
-|---|---|
-| — | identifiant fabricant `0xFFFF` |
-| 0–1 | `"NV"` (`0x4E 0x56`) |
-| 2 | **version du protocole** = **5** |
-| 3 | **type** : `0x01` public · `0x02` ami |
-| 4–19 | **le jeton** (16 o) |
+➡️ **Déplacé le 2026-09-23 dans [`annonce-ble-octet-par-octet.md`](annonce-ble-octet-par-octet.md)** :
+les 31 octets de l'annonce, vérifiés dans notre code et dans le code source
+d'Android. L'ancienne version de cette section ne décrivait que nos 20 octets
+et se lisait comme le paquet entier.
 
-⚠️ **La version est un octet aujourd'hui et une migration entière si on
-l'oublie.** Deux appareils de versions différentes **ne se voient tout
-simplement pas** — sans erreur. Le compteur `otherVersionScans` du diagnostic
-existe pour que ça ne passe pas pour « personne autour ».
-
-⚠️ **Il n'y a ni nom, ni identifiant, ni pseudo sur les ondes.** Un jeton est
-opaque : seul le serveur (pour le public) ou le carnet local (pour un ami) sait
-le nommer.
+En une ligne : **30 octets occupés sur 31** — drapeaux (3, Android),
+données fabricant (24, dont nos 20 : `NV`, version **5**, type, jeton de 16),
+puissance d'émission (3, Android). Ni nom, ni pseudo, ni identifiant de compte.
 
 ---
 
@@ -218,7 +210,7 @@ invisibles, et **chacune a déjà causé une panne ou en causera une** :
 |---|---|---|
 | 1 | **la graine du jeton public** (A-3) | en mémoire seulement → ton identité d'inconnu change à chaque redémarrage |
 | 2 | **le sens du jeton d'ami** (C-7) | l'inverser rend les deux appareils sourds, sans erreur |
-| 3 | **le numéro de version du protocole** (D) | un octet faux = deux plateformes mutuellement invisibles |
+| 3 | **le numéro de version du protocole** (D, octet 9 de [l'annonce](annonce-ble-octet-par-octet.md)) | un octet faux = deux plateformes mutuellement invisibles |
 | 4 | **le `txPower`** (E-10) | sans lui, toutes les distances sont fausses |
 | 5 | **l'adresse BLE** (E-8) | elle tourne toute seule et fabrique de fausses personnes |
 | 6 | **l'instant de l'annonce** (E-11) | un scan rejoué n'est pas une observation |
