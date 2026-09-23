@@ -986,6 +986,13 @@ class ProximityService : Service(), BleEngine.Listener {
         // cas de « personne autour ». Constate le 2026-08-25, juste avant le
         // premier test a deux appareils.
         "otherVersionScans" to engine.otherVersionScans,
+        // 🔎 La puissance d'emission lue par ses deux chemins (2026-09-23) :
+        // voir `BleEngine.txAnnonces` et `docs/annonce-ble-octet-par-octet.md`.
+        "txAnnonces" to engine.txAnnonces,
+        "txEnTetePresent" to engine.txEnTetePresent,
+        "txBoitePresent" to engine.txBoitePresent,
+        "txEnTeteDernier" to engine.txEnTeteDernier,
+        "txBoiteDernier" to engine.txBoiteDernier,
         // ⚠️ **Deux compteurs qui doivent rester visibles meme a zero** : le
         // jour ou ils montent, ils expliquent un ami fantome ou une detection
         // multipliee que rien d'autre n'expliquerait.

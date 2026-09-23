@@ -58,4 +58,40 @@ void main() {
   test('service absent : pas de lecture', () {
     expect(lireEcoute(const {}), isNull);
   });
+
+  group('lirePuissance', () {
+    test("sans annonce NeoVibe d'en face, aucune conclusion", () {
+      expect(lirePuissance(const {'txAnnonces': 0}), isNull);
+      expect(lirePuissance(const {}), isNull);
+    });
+
+    test('seule la boîte répond : le défaut est confirmé', () {
+      final l = lirePuissance(const {
+        'txAnnonces': 40,
+        'txEnTetePresent': 0,
+        'txBoitePresent': 40,
+        'txBoiteDernier': -7,
+      })!;
+      expect(l, contains('CONFIRMÉ'));
+      expect(l, contains('-7'));
+    });
+
+    test("l'en-tête répond : la distance est calibrée", () {
+      final l = lirePuissance(const {
+        'txAnnonces': 40,
+        'txEnTetePresent': 40,
+        'txBoitePresent': 40,
+      })!;
+      expect(l, contains('calibrée'));
+    });
+
+    test('aucun chemin ne répond', () {
+      final l = lirePuissance(const {
+        'txAnnonces': 5,
+        'txEnTetePresent': 0,
+        'txBoitePresent': 0,
+      })!;
+      expect(l, contains('AUCUN'));
+    });
+  });
 }

@@ -128,8 +128,11 @@ de distance.
   par `scanRecord.txPowerLevel`, que rien n'appelle. Si c'est confirmé,
   l'estimation de distance tourne **toujours** sur la valeur supposée
   (`distance_estimate.dart`, `txPower != 127`), et les 3 octets de la boîte
-  ne servent à rien. À mesurer avant de corriger (règle 7) : compter, par
-  annonce NeoVibe reçue, les deux valeurs côte à côte.
+  ne servent à rien. À mesurer avant de corriger (règle 7).
+  ✅ **Instrument posé en v0.9.251** : `txAnnonces`, `txEnTetePresent`,
+  `txBoitePresent` (+ dernières valeurs) au diagnostic, avec une ligne
+  « LECTURE : … PUISSANCE » qui conclut d'elle-même. Il faut **deux
+  téléphones** : il ne compte que les annonces NeoVibe d'un autre appareil.
 - **Protocole v6** (RAPPELS #159) : une annonce filtrable par la puce
   (identifiant de service 16 bits). Toute place gagnée ici compte pour lui.
 - **Version** : un seul octet, et deux versions différentes ne se voient

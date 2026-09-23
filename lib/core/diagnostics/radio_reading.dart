@@ -55,6 +55,37 @@ String? lireEcoute(Map<Object?, Object?> stats) {
       'NeoVibe.';
 }
 
+/// **La puissance d'émission d'en face : quel chemin la rend ?** (2026-09-23)
+///
+/// Instrument posé AVANT tout correctif (règle 7). Le récepteur lit la
+/// puissance par l'en-tête des annonces étendues (`ScanResult.txPower`) ; notre
+/// annonce la porte dans une boîte (`scanRecord.txPowerLevel`). Si seul le
+/// second chemin répond, l'estimation de distance tourne sur une valeur
+/// supposée depuis toujours. Détail : `docs/annonce-ble-octet-par-octet.md` §5.
+///
+/// Rend `null` tant qu'aucune annonce NeoVibe d'un autre appareil n'a été
+/// reçue : sans elle, les deux compteurs à zéro ne prouvent rien.
+String? lirePuissance(Map<Object?, Object?> stats) {
+  final n = stats['txAnnonces'] as int? ?? 0;
+  if (n == 0) return null;
+  final entete = stats['txEnTetePresent'] as int? ?? 0;
+  final boite = stats['txBoitePresent'] as int? ?? 0;
+  final chiffres =
+      'sur $n annonces NeoVibe reçues : en-tête $entete, boîte $boite '
+      '(dernières valeurs ${stats['txEnTeteDernier']} / '
+      '${stats['txBoiteDernier']} dBm)';
+  if (entete == 0 && boite > 0) {
+    return '🔴 PUISSANCE : le défaut est CONFIRMÉ — la valeur n\'arrive que '
+        'par la boîte, que la distance ne lit pas. La distance est estimée '
+        'sur une valeur supposée ($chiffres).';
+  }
+  if (entete > 0) {
+    return 'Puissance : l\'en-tête la fournit, la distance est calibrée '
+        '($chiffres).';
+  }
+  return 'Puissance : AUCUN des deux chemins ne la rend ($chiffres).';
+}
+
 String _duree(int ms) {
   final min = ms ~/ 60000;
   if (min < 1) return '${ms ~/ 1000} s';

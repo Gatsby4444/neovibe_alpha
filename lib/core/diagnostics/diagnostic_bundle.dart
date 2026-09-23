@@ -174,6 +174,13 @@ class DiagnosticBundle {
         'rawScans',
         'neoScans',
         'otherVersionScans',
+        // La puissance d'émission par ses deux chemins (2026-09-23) : voir
+        // `lirePuissance` dans `radio_reading.dart`.
+        'txAnnonces',
+        'txEnTetePresent',
+        'txBoitePresent',
+        'txEnTeteDernier',
+        'txBoiteDernier',
         'protocolVersion',
         // ⚠️ **À quel rythme on ÉCOUTE, et pourquoi** — ajoutées le 2026-09-10
         // après le signalement de Jay : casque Bluetooth branché, puis ping
@@ -284,6 +291,8 @@ class DiagnosticBundle {
       // `radio_reading.dart` pour le mensonge du 2026-09-23 qu'elle corrige.
       final lecture = lireEcoute(stats);
       if (lecture != null) buffer.writeln('LECTURE : $lecture');
+      final puissance = lirePuissance(stats);
+      if (puissance != null) buffer.writeln('LECTURE : $puissance');
 
       // ⚠️ **La ligne qui aurait fait gagner une journée le 2026-08-26.**
       //

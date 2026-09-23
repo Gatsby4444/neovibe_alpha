@@ -249,6 +249,47 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         private set
 
     /**
+     * 🔎 **LA PUISSANCE D'EMISSION, LUE PAR LES DEUX CHEMINS — un instrument,
+     * pas un correctif (2026-09-23).**
+     *
+     * Chaque annonce porte une boite « puissance d'emission »
+     * (`setIncludeTxPowerLevel(true)`, octets 27-29 de
+     * `docs/annonce-ble-octet-par-octet.md`). Le recepteur la lit par
+     * `ScanResult.txPower` — or, d'apres la documentation d'Android, ce champ
+     * vient de l'EN-TETE des annonces etendues et vaudrait 127 (« absent ») pour
+     * une annonce classique comme la notre. Notre boite se lit par
+     * `scanRecord.txPowerLevel`, que rien n'appelait. Si c'est vrai, la distance
+     * tourne toujours sur la valeur supposee.
+     *
+     * **Probable, pas mesure** : regle 7, on compte avant de corriger. Par
+     * annonce NeoVibe d'un autre appareil, a la bonne version :
+     * - [txEnTetePresent] : `txPower` differente de 127 ;
+     * - [txBoitePresent] : `txPowerLevel` presente ;
+     * et la derniere valeur de chacun. Lecture au test a deux telephones :
+     * `txEnTetePresent = 0` et `txBoitePresent > 0` confirme le defaut.
+     */
+    @Volatile
+    var txAnnonces = 0
+        private set
+
+    @Volatile
+    var txEnTetePresent = 0
+        private set
+
+    @Volatile
+    var txBoitePresent = 0
+        private set
+
+    /** Derniere valeur vue par chaque chemin, `null` si jamais vue. */
+    @Volatile
+    var txEnTeteDernier: Int? = null
+        private set
+
+    @Volatile
+    var txBoiteDernier: Int? = null
+        private set
+
+    /**
      * Nos PROPRES annonces, captees et ecartees.
      *
      * ⚠️ **Ce compteur doit rester visible meme s'il vaut toujours zero** : le
@@ -447,6 +488,11 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         neoScans = 0
         selfScans = 0
         otherVersionScans = 0
+        txAnnonces = 0
+        txEnTetePresent = 0
+        txBoitePresent = 0
+        txEnTeteDernier = null
+        txBoiteDernier = null
         scanRefus = 0
         refusConsecutifs = 0
         panneDepuis = 0L
@@ -1170,6 +1216,18 @@ class BleEngine(private val context: Context, private val listener: Listener) {
                 result.txPower
             } else {
                 TX_POWER_UNKNOWN
+            }
+            // 🔎 L'instrument de la puissance (voir [txAnnonces]) : il ne
+            // change RIEN a `tx`, il compte seulement ce que chaque chemin rend.
+            txAnnonces++
+            if (tx != TX_POWER_UNKNOWN) {
+                txEnTetePresent++
+                txEnTeteDernier = tx
+            }
+            val boite = result.scanRecord?.txPowerLevel ?: Int.MIN_VALUE
+            if (boite != Int.MIN_VALUE) {
+                txBoitePresent++
+                txBoiteDernier = boite
             }
             // ⚠️ **La date est relevee ICI**, au moment de la reception, et non
             // au moment ou le consommateur la traite : entre les deux il peut
