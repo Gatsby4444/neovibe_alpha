@@ -22,6 +22,7 @@ import 'net/ping_repository.dart';
 import 'proximity_repository.dart';
 import 'net/proximity_controller.dart';
 import 'net/proximity_supervisor.dart';
+import 'net/radio_permissions.dart';
 import 'net/radio_status.dart';
 import 'background_guard_screen.dart';
 import 'ping_store.dart';
@@ -404,47 +405,14 @@ class _BandeauEtat extends ConsumerWidget {
           .read(proximitySupervisorProvider.notifier)
           .openLocationSettings();
     } else if (status is RadioPermissionsMissing) {
-      // ⚠️ **On demande ce que le NATIF dit manquer, on ne le déduit pas.**
-      //
-      // La liste dépend de la version d'Android — `ACCESS_FINE_LOCATION` sous
-      // Android 12, `BLUETOOTH_SCAN` au-dessus — et c'est `BlePermissions`
-      // qui la calcule, en interrogeant le système. Écrire ici un second test
-      // de version reviendrait à décider une deuxième fois de ce qu'Android
-      // exige, à un endroit qui ne le sait pas : le jour où les deux ne
-      // diraient plus la même chose, rien ne le signalerait — la demande
-      // porterait sur une permission, le blocage sur une autre.
-      //
-      // C'est le défaut A2 du diagnostic, corrigé en 2026-07 : la couche Dart
-      // demandait les permissions puis jetait le résultat.
-      await [
-        ...status.missing.map(_permissionAndroid).nonNulls,
-        Permission.notification,
-      ].request();
+      // La traduction et la demande vivent dans `radio_permissions.dart`.
+      await requestRadioPermissions(status.missing);
     } else if (status is RadioAdapterOff) {
       await openAppSettings();
     }
     // Dans tous les cas on redemande : c'est le natif qui dira si ça a marché.
     await ref.read(proximitySupervisorProvider.notifier).retry();
   }
-
-  /// Traduit un nom de permission Android en permission `permission_handler`.
-  ///
-  /// ⚠️ **Traduction, pas décision.** Les seuls noms qui arrivent ici sont ceux
-  /// que `BlePermissions.required()` a produits côté natif. `BLUETOOTH` et
-  /// `BLUETOOTH_ADMIN` (Android ≤ 11) n'en font jamais partie en pratique : ce
-  /// sont des permissions de niveau *normal*, accordées à l'installation, donc
-  /// `checkSelfPermission` ne les déclare jamais manquantes. On rend `null`
-  /// plutôt que de lever : un nom inconnu ne doit pas empêcher de demander les
-  /// autres.
-  Permission? _permissionAndroid(String nom) => switch (nom) {
-    'android.permission.BLUETOOTH_SCAN' => Permission.bluetoothScan,
-    'android.permission.BLUETOOTH_ADVERTISE' => Permission.bluetoothAdvertise,
-    // ⚠️ `BLUETOOTH_CONNECT` a été retirée du natif le 2026-08-27, avec le bloc
-    // GATT. Sa traduction part avec elle : la garder pour « au cas où » ferait
-    // demander une permission que rien ne réclame plus.
-    'android.permission.ACCESS_FINE_LOCATION' => Permission.locationWhenInUse,
-    _ => null,
-  };
 }
 
 /// **Le cadre commun des deux tuiles du Ping.**

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/notifications/notification_service.dart';
+import '../../arrival/arrival_screen.dart';
 import '../../proximity/net/advert_capacity.dart';
 import '../../proximity/net/ble_radio.dart';
 import '../../proximity/net/proximity_controller.dart';
@@ -18,6 +19,17 @@ class DeveloperToolsScreen extends ConsumerWidget {
       appBar: AppBar(title: const Text('Outils')),
       body: ListView(
         children: const [
+          SettingsHeader('Arrivée en soirée'),
+          SettingsCategoryTile(
+            icon: Icons.celebration_rounded,
+            title: 'Arrivée en soirée (test)',
+            subtitle:
+                'Le parcours de quelqu\'un qui installe l\'app devant le bar : '
+                'prénom, selfie, compte, autorisations, soirée, Drop. '
+                'N\'écrit rien — ni compte, ni profil, ni présence.',
+            builder: _arrival,
+          ),
+          Divider(),
           SettingsHeader('Caméra'),
           SettingsCategoryTile(
             icon: Icons.view_in_ar,
@@ -51,6 +63,8 @@ class DeveloperToolsScreen extends ConsumerWidget {
   }
 
   static Widget _glPreview(BuildContext _) => const GlPreviewTestScreen();
+
+  static Widget _arrival(BuildContext _) => const ArrivalScreen();
 }
 
 /// Mode test développeur (temporaire) : déclenche ou programme la
