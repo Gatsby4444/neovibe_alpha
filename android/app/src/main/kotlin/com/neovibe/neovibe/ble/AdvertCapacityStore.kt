@@ -79,5 +79,21 @@ object AdvertCapacityStore {
     // mort : elle finit par etre appelee par erreur, ou par decider d'une
     // architecture qu'on n'a pas choisie.
 
-    private fun signature(): String = Build.FINGERPRINT
+    /**
+     * Le systeme **et la facon d'emettre** : un plafond mesure pour une
+     * emission ne decrit pas une autre. Les parametres sont lus a leur seule
+     * source ([neoAdvertParams]) ; les changer oublie la mesure d'elle-meme,
+     * sans constante a penser a incrementer. *(Ajoute le 2026-09-24, au passage
+     * en non connectable : les mesures d'avant decrivaient l'emission
+     * connectable.)*
+     */
+    private fun signature(): String {
+        val p = neoAdvertParams()
+        return Build.FINGERPRINT +
+            "|legacy=" + p.isLegacy +
+            "|connectable=" + p.isConnectable +
+            "|scannable=" + p.isScannable +
+            "|interval=" + p.interval +
+            "|tx=" + p.txPowerLevel
+    }
 }

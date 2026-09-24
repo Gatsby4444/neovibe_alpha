@@ -19,18 +19,24 @@ Dans l'enveloppe, on range des **petites boîtes**. Chaque boîte commence par
 deux cases d'étiquette : **sa longueur**, puis **son type**. C'est tout ce
 qu'un récepteur a besoin de savoir pour les séparer.
 
-Nous en mettons **trois** :
+Nous en mettons **deux** :
 
 ```
- octet  0         3         6                                          30
-        ┌─────────┬─────────┬───────────────────────────────────────────┬──┐
-        │ DRAPEAUX│PUISSANCE│          DONNÉES FABRICANT                │  │
-        │  3 o    │  3 o    │               24 o                        │1 │
-        └─────────┴─────────┴───────────────────────────────────────────┴──┘
-          Android   Android    2 o d'étiquette + 2 o fabricant + 20 o à nous  libre
+ octet  0                                          24        27        30
+        ┌──────────────────────────────────────────┬─────────┬─────────┐
+        │            DONNÉES FABRICANT             │PUISSANCE│  libre  │
+        │                  24 o                    │  3 o    │  4 o    │
+        └──────────────────────────────────────────┴─────────┴─────────┘
+         2 o d'étiquette + 2 o fabricant + 20 o à nous  Android
 ```
 
-**30 octets occupés sur 31. Il en reste 1.**
+**27 octets occupés sur 31. Il en reste 4** (depuis le 2026-09-24,
+v0.9.252 ; avant, une troisième boîte « drapeaux » de 3 octets, ajoutée par
+Android parce que l'annonce était connectable, en occupait 30).
+
+*(Le schéma du 2026-09-23 plaçait la puissance avant les données fabricant ;
+le tableau ci-dessous, vérifié dans le code d'Android, dit l'inverse — c'est
+le tableau qui avait raison.)*
 
 ---
 
@@ -38,22 +44,26 @@ Nous en mettons **trois** :
 
 | Octet | Valeur | Ce que c'est | Qui l'écrit |
 |---|---|---|---|
-| **0** | `0x02` | longueur de la boîte « drapeaux » (2 octets suivent) | Android |
-| **1** | `0x01` | type : drapeaux | Android |
-| **2** | `0x02` | « appareil visible par tous » (*general discoverable*) | Android |
-| **3** | `0x17` | longueur de la boîte « données fabricant » : 23 octets suivent | Android |
-| **4** | `0xFF` | type : données fabricant | Android |
-| **5–6** | `0xFF 0xFF` | identifiant fabricant `0xFFFF` = « aucun fabricant enregistré » (écrit poids faible d'abord) | nous (`MANUFACTURER_ID`) |
-| **7–8** | `0x4E 0x56` | `N` `V` : la signature NeoVibe | nous (`MAGIC`) |
-| **9** | `0x05` | **version du protocole** | nous (`PROTOCOL_VERSION`) |
-| **10** | `0x01` / `0x02` | **type de jeton** : `0x01` public (pour les inconnus) · `0x02` ami | nous (`TYPE_PUBLIC` / `TYPE_FRIEND`) |
-| **11–26** | 16 octets | **le jeton** — voir §3 | nous |
-| **27** | `0x02` | longueur de la boîte « puissance d'émission » | Android |
-| **28** | `0x0A` | type : puissance d'émission | Android |
-| **29** | ex. `0xF9` | la puissance réelle, en dBm (un nombre négatif) | **Android la remplit** au moment d'émettre |
-| **30** | — | **libre** | — |
+| **0** | `0x17` | longueur de la boîte « données fabricant » : 23 octets suivent | Android |
+| **1** | `0xFF` | type : données fabricant | Android |
+| **2–3** | `0xFF 0xFF` | identifiant fabricant `0xFFFF` = « aucun fabricant enregistré » (écrit poids faible d'abord) | nous (`MANUFACTURER_ID`) |
+| **4–5** | `0x4E 0x56` | `N` `V` : la signature NeoVibe | nous (`MAGIC`) |
+| **6** | `0x05` | **version du protocole** | nous (`PROTOCOL_VERSION`) |
+| **7** | `0x01` / `0x02` | **type de jeton** : `0x01` public (pour les inconnus) · `0x02` ami | nous (`TYPE_PUBLIC` / `TYPE_FRIEND`) |
+| **8–23** | 16 octets | **le jeton** — voir §3 | nous |
+| **24** | `0x02` | longueur de la boîte « puissance d'émission » | Android |
+| **25** | `0x0A` | type : puissance d'émission | Android |
+| **26** | ex. `0xF9` | la puissance réelle, en dBm (un nombre négatif) | **Android la remplit** au moment d'émettre |
+| **27–30** | — | **libres** | — |
 
-Nos **20 octets** sont les octets **7 à 26** : `ADVERT_PAYLOAD_SIZE = 20`.
+Nos **20 octets** sont les octets **4 à 23** : `ADVERT_PAYLOAD_SIZE = 20`.
+
+⚠️ **Rien ne lit une position fixe.** Le récepteur demande à Android « la
+boîte fabricant `0xFFFF` » (`getManufacturerSpecificData`), où qu'elle soit :
+retirer les drapeaux décale les numéros de ce tableau, pas ce que lit le
+récepteur. C'est pourquoi le changement ne change pas la version du
+protocole (toujours **5**) — un téléphone en v0.9.251 et un en v0.9.252 se
+voient encore.
 
 ### Comment ça a été vérifié (2026-09-23)
 
@@ -61,8 +71,8 @@ Nos **20 octets** sont les octets **7 à 26** : `ADVERT_PAYLOAD_SIZE = 20`.
 |---|---|
 | nos 20 octets, leur ordre, les constantes | `BleEngine.advertDataFor` et `RadioStatus.kt` (objet `BleConstants`) |
 | l'ordre des boîtes : fabricant **puis** puissance | code source d'Android 13, `AdvertiseHelper.advertiseDataToBytes` |
-| les drapeaux ajoutés **en tête**, **seulement si l'annonce est connectable**, valeur *general discoverable* | code source d'Android 13, `btm_ble_multi_adv.cc` (lignes 739–749) |
-| notre annonce est connectable | `BleEngine.kt` : `.setConnectable(true)` dans les deux modes (parallèle et cycle) |
+| les drapeaux ajoutés **en tête**, **seulement si l'annonce est connectable** — donc absents chez nous | code source d'Android 13, `btm_ble_multi_adv.cc` (lignes 739–749) |
+| notre annonce n'est **plus** connectable (2026-09-24) | `BleEngine.kt` : `neoAdvertParams()` (mode parallèle et sonde de capacité) et `.setConnectable(false)` dans `startAdvertising` (mode cycle) |
 
 ⚠️ **Pas encore mesuré sur les ondes.** Le code source dit ce qu'Android
 *devrait* émettre ; Xiaomi peut modifier sa pile Bluetooth. La seule preuve
@@ -79,7 +89,7 @@ pour qu'un observateur ne puisse pas suivre quelqu'un d'un quart d'heure à
 l'autre. C'est un HMAC-SHA256 **tronqué à 16 octets**
 (`proximity_identity.dart`) :
 
-| Type (octet 10) | Formule | Qui le reconnaît |
+| Type (octet 7) | Formule | Qui le reconnaît |
 |---|---|---|
 | `0x01` **public** | `HMAC(graine ping, "nv-ping-{créneau}")` | **personne sur place** — seul le serveur sait à qui il appartient |
 | `0x02` **ami** | `HMAC(secret de la paire, "nv-pair-{créneau}\|{celui qui crie}")` | **cet ami-là, et lui seul** — un jeton différent par ami |
@@ -106,21 +116,24 @@ prenant pour le sien (panne du 2026-08-26).
 
 Ce que la radio **mesure** sans que ce soit dans le paquet : l'adresse
 Bluetooth de l'émetteur (aléatoire, Android la change tout seul), et la
-puissance reçue (RSSI) — qui, comparée à l'octet 29, donne une estimation
+puissance reçue (RSSI) — qui, comparée à l'octet 26, donne une estimation
 de distance.
 
 ---
 
 ## 5. Ce qui reste ouvert
 
-- **Les 3 octets de drapeaux sont un reste.** Ils n'existent que parce que
-  l'annonce est « connectable » ; ce réglage servait au canal de connexion
-  directe (GATT), **supprimé le 2026-08-27** — le commentaire du code dit
-  encore « le chat passe par le GATT ». Passer en non-connectable libérerait
-  3 octets (4 libres au total) et fermerait une porte devenue inutile.
-  ⚠️ Change ce qui part sur les ondes : à éprouver sur les deux téléphones
-  avant de le garder. Proposé à Jay le 2026-09-23, prévu pour le week-end.
-- 🔴 **L'octet 29 est peut-être émis pour rien — PROBABLE, NON MESURÉ.** Le
+- ✅ **Les 3 octets de drapeaux sont retirés (2026-09-24, v0.9.252).** Ils
+  n'existaient que parce que l'annonce était « connectable », réglage du canal
+  de connexion directe (GATT) supprimé le 2026-08-27. Vérifié avant de couper :
+  aucun code ne se connecte ni ne sert de serveur (`connectGatt`,
+  `openGattServer`, `BluetoothGatt` : zéro), la permission `BLUETOOTH_CONNECT`
+  est déjà retirée, aucune réponse de scan n'est fournie, le récepteur ne lit
+  ni les drapeaux ni le type d'annonce. ⚠️ Change ce qui part sur les ondes :
+  **à confirmer au test à deux téléphones du week-end** (`neoScans` doit rester
+  comparable ; nRF Connect doit montrer une annonce « non connectable » sans
+  boîte de drapeaux).
+- 🔴 **L'octet 26 est peut-être émis pour rien — PROBABLE, NON MESURÉ.** Le
   récepteur lit la puissance par `ScanResult.txPower` (`onScanResult`). D'après
   la documentation d'Android, ce champ vient de **l'en-tête des annonces
   étendues**, pas de notre boîte « puissance » : pour une annonce classique

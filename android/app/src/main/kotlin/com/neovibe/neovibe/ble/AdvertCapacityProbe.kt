@@ -4,7 +4,6 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertisingSet
 import android.bluetooth.le.AdvertisingSetCallback
-import android.bluetooth.le.AdvertisingSetParameters
 import android.content.Context
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -112,16 +111,10 @@ object AdvertCapacityProbe {
             return refus("aucun annonceur disponible")
         }
 
-        // ⚠️ **Les memes parametres que la production, et c'est le point.** Le
-        // plafond depend du mode : mesurer en etendu ou en non-connectable
-        // rendrait un chiffre exact pour une emission qu'on ne fait pas.
-        val params = AdvertisingSetParameters.Builder()
-            .setLegacyMode(true)
-            .setConnectable(true)
-            .setScannable(true)
-            .setInterval(AdvertisingSetParameters.INTERVAL_LOW)
-            .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_MEDIUM)
-            .build()
+        // ⚠️ **Les parametres de la production, lus au meme endroit qu'elle.**
+        // Le plafond peut dependre du mode : mesurer une autre emission rendrait
+        // un chiffre exact pour une emission qu'on ne fait pas.
+        val params = neoAdvertParams()
 
         val rappels = ArrayList<SondeCallback>()
         var acceptes = 0

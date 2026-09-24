@@ -77,9 +77,10 @@ les 31 octets de l'annonce, vérifiés dans notre code et dans le code source
 d'Android. L'ancienne version de cette section ne décrivait que nos 20 octets
 et se lisait comme le paquet entier.
 
-En une ligne : **30 octets occupés sur 31** — drapeaux (3, Android),
-données fabricant (24, dont nos 20 : `NV`, version **5**, type, jeton de 16),
-puissance d'émission (3, Android). Ni nom, ni pseudo, ni identifiant de compte.
+En une ligne : **27 octets occupés sur 31** depuis le 2026-09-24 — données
+fabricant (24, dont nos 20 : `NV`, version **5**, type, jeton de 16),
+puissance d'émission (3, Android). Les drapeaux (3, Android) ont disparu avec
+le passage en annonce non connectable. Ni nom, ni pseudo, ni identifiant de compte.
 
 ---
 

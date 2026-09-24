@@ -70,6 +70,42 @@ const val TX_POWER_UNKNOWN = 127
  */
 const val ADVERT_INTERVAL = AdvertisingSetParameters.INTERVAL_MEDIUM
 
+/**
+ * **Comment un jeu d'annonces NeoVibe est emis. Un seul endroit le dit** : le
+ * mode parallele et la sonde de capacite ([AdvertCapacityProbe]) le lisent ici.
+ * Avant le 2026-09-24, chacun avait sa copie, et elles avaient diverge sans
+ * rien signaler (la sonde mesurait encore a 100 ms apres le passage de la
+ * production a 250 ms).
+ *
+ * **Non connectable, non scannable (ADV_NONCONN_IND) depuis le 2026-09-24.**
+ * Le mode connectable servait au canal GATT, supprime le 2026-08-27 avec la
+ * permission `BLUETOOTH_CONNECT`. Il ne restait que ses effets :
+ * - la pile ajoutait 3 octets de drapeaux en tete de l'annonce (source
+ *   Android 13, `btm_ble_multi_adv.cc`) ;
+ * - n'importe quel appareil pouvait se connecter au telephone ;
+ * - scannable, le telephone repondait aux demandes de scan d'en face par une
+ *   reponse vide (aucune n'est fournie a `startAdvertisingSet`).
+ * Le recepteur ne lit que la boite fabricant ; il ne regarde ni les drapeaux ni
+ * le type d'annonce.
+ *
+ * ⚠️ Une annonce classique non connectable exige un intervalle d'au moins
+ * 100 ms : [ADVERT_INTERVAL] (250 ms) le respecte.
+ */
+fun neoAdvertParams(): AdvertisingSetParameters =
+    AdvertisingSetParameters.Builder()
+        // ⚠️ **Mode LEGACY, delibere.** Une annonce etendue n'est pas vue
+        // par un scan legacy - et notre scan l'est, comme celui de tout
+        // appareil qui ne demande pas explicitement l'inverse. Passer en
+        // etendu nous rendrait invisibles d'une partie du parc **sans lever
+        // la moindre erreur**. Nos 20 octets tiennent largement dans les 31
+        // du format legacy.
+        .setLegacyMode(true)
+        .setConnectable(false)
+        .setScannable(false)
+        .setInterval(ADVERT_INTERVAL)
+        .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_MEDIUM)
+        .build()
+
 @SuppressLint("MissingPermission") // vérifiées explicitement par evaluateRadio()
 class BleEngine(private val context: Context, private val listener: Listener) {
 
@@ -253,7 +289,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
      * pas un correctif (2026-09-23).**
      *
      * Chaque annonce porte une boite « puissance d'emission »
-     * (`setIncludeTxPowerLevel(true)`, octets 27-29 de
+     * (`setIncludeTxPowerLevel(true)`, octets 24-26 de
      * `docs/annonce-ble-octet-par-octet.md`). Le recepteur la lit par
      * `ScanResult.txPower` — or, d'apres la documentation d'Android, ce champ
      * vient de l'EN-TETE des annonces etendues et vaudrait 127 (« absent ») pour
@@ -669,21 +705,7 @@ class BleEngine(private val context: Context, private val listener: Listener) {
         stopAdvertising()
         stopParallelAdverts()
 
-        val params = AdvertisingSetParameters.Builder()
-            // ⚠️ **Mode LEGACY, delibere.** Une annonce etendue n'est pas vue
-            // par un scan legacy - et notre scan l'est, comme celui de tout
-            // appareil qui ne demande pas explicitement l'inverse. Passer en
-            // etendu nous rendrait invisibles d'une partie du parc **sans lever
-            // la moindre erreur**. Nos 20 octets tiennent largement dans les 31
-            // du format legacy.
-            .setLegacyMode(true)
-            // En legacy, connectable implique scannable : Android leve un
-            // IllegalArgumentException si les deux ne s'accordent pas.
-            .setConnectable(true)
-            .setScannable(true)
-            .setInterval(ADVERT_INTERVAL)
-            .setTxPowerLevel(AdvertisingSetParameters.TX_POWER_MEDIUM)
-            .build()
+        val params = neoAdvertParams()
 
         parallelExpected = ids.size
         advertSets.clear()
@@ -1135,7 +1157,9 @@ class BleEngine(private val context: Context, private val listener: Listener) {
             // tourne les jetons toutes les 400 ms.
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
             .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
-            .setConnectable(true) // connectable : le chat passe par le GATT
+            // Non connectable, comme le mode parallele : voir [neoAdvertParams].
+            // Sans reponse de scan, l'API classique emet alors ADV_NONCONN_IND.
+            .setConnectable(false)
             .setTimeout(0)
             .build()
         advertiser.startAdvertising(settings, data, advertiseCallback)
