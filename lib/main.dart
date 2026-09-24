@@ -25,6 +25,7 @@ import 'core/content/content_media_cache.dart';
 import 'core/widgets/avatar.dart';
 import 'features/library_vibes/library_vault_cache.dart';
 import 'features/cards/native_camera.dart';
+import 'features/events/event_recap_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -102,6 +103,14 @@ Future<void> main() async {
     if (payload == 'bereal') {
       navigatorKey.currentState?.push(
         NeoFadeRoute(builder: (_) => const CardCaptureScreen(bereal: true)),
+      );
+    } else if (payload.startsWith('recap:')) {
+      // « C'est fini » : le générique de la soirée (2026-09-24).
+      navigatorKey.currentState?.push(
+        NeoFadeRoute(
+          builder: (_) =>
+              EventRecapScreen(eventId: payload.substring('recap:'.length)),
+        ),
       );
     }
   };

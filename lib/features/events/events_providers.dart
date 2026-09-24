@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/derived_list.dart';
 import '../../core/models/event.dart';
@@ -223,6 +224,33 @@ final eventChallengesProvider =
     FutureProvider.family<List<EventChallenge>, String>(
       (ref, eventId) => ref.watch(eventsRepositoryProvider).challenges(eventId),
     );
+
+/// **Les défis en direct** (2026-09-24) : un défi lancé par un autre présent
+/// apparaît sans rafraîchir. Même principe que le Drop en direct
+/// (`conversationLibraryLiveProvider`) : une acquisition qui relit, tant que
+/// quelqu'un regarde. `event_challenges` est diffusée depuis la migration
+/// `20260924210000_les_defis_en_direct.sql`, sous sa politique de lecture.
+final eventChallengesLiveProvider = Provider.autoDispose.family<void, String>((
+  ref,
+  eventId,
+) {
+  ref.watch(realtimeEpochProvider);
+  final client = ref.watch(supabaseProvider);
+  final channel = client.channel('challenges:$eventId')
+    ..onPostgresChanges(
+      event: PostgresChangeEvent.insert,
+      schema: 'public',
+      table: 'event_challenges',
+      filter: PostgresChangeFilter(
+        type: PostgresChangeFilterType.eq,
+        column: 'event_id',
+        value: eventId,
+      ),
+      callback: (_) => ref.invalidate(eventChallengesProvider(eventId)),
+    )
+    ..subscribe();
+  ref.onDispose(() => client.removeChannel(channel));
+});
 
 /// Ma mémoire des rencontres (2 ans).
 final myMeetingsProvider = FutureProvider<List<Meeting>>((ref) {

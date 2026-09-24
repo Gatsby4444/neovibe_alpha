@@ -29,6 +29,8 @@ class ConversationLibraryScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Le même direct que l'écran de soirée : un seul chemin pour l'écoute.
+    ref.watch(conversationLibraryLiveProvider(conversationId));
     final vibes = ref.watch(conversationLibraryProvider(conversationId));
 
     return Scaffold(

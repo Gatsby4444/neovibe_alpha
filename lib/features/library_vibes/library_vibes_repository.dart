@@ -433,3 +433,39 @@ final conversationLibraryProvider =
       (ref, conversationId) =>
           ref.watch(libraryVibesRepositoryProvider).vibesOf(conversationId),
     );
+
+/// **Le Drop en direct** (2026-09-24) : tant que quelqu'un l'observe, une
+/// Vibe ajoutée par N'IMPORTE QUI relit le Drop — sans tirer pour rafraîchir.
+///
+/// ⚠️ **On écoute les messages, pas `library_vibes`.** Chaque ajout pose un
+/// message `library_add` dans la conversation (`add_vibe_to_library`) ; la
+/// table des messages est déjà diffusée, et sa politique ne la livre qu'aux
+/// membres. Diffuser aussi `library_vibes` donnerait deux signaux pour un même
+/// fait.
+///
+/// C'est une ACQUISITION : elle constate « le Drop a changé » et relit ; elle
+/// ne dessine rien. `autoDispose` : l'écoute s'arrête quand plus aucun écran
+/// ne regarde ce Drop.
+final conversationLibraryLiveProvider = Provider.autoDispose
+    .family<void, String>((ref, conversationId) {
+      ref.watch(realtimeEpochProvider);
+      final client = ref.watch(supabaseProvider);
+      final channel = client.channel('drop:$conversationId')
+        ..onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'conversation_id',
+            value: conversationId,
+          ),
+          callback: (payload) {
+            if (payload.newRecord['kind'] == 'library_add') {
+              ref.invalidate(conversationLibraryProvider(conversationId));
+            }
+          },
+        )
+        ..subscribe();
+      ref.onDispose(() => client.removeChannel(channel));
+    });

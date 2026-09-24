@@ -120,8 +120,10 @@ class EventNotifier {
         await NotificationService.instance.show(
           NotifChannel.fomo,
           '${e.title} — c\'est fini',
-          'Le récap et le Drop t\'attendent, encore cinq jours.',
+          'Ton générique de soirée t\'attend. Le Drop reste cinq jours.',
           id: _idFor('closed'),
+          // Toucher ouvre le générique (`main.dart`, `EventRecapScreen`).
+          payload: 'recap:${e.id}',
         );
       }
     }

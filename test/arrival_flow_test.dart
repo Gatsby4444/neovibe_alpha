@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/models/event.dart';
 import 'package:neovibe/features/arrival/arrival_flow.dart';
 import 'package:neovibe/features/events/events_providers.dart';
+import 'package:neovibe/features/profile/profile_repository.dart';
 
 NearbyEvent _event({required int distance, int radius = 60, String? venue}) =>
     NearbyEvent(
@@ -25,6 +26,20 @@ ProviderContainer _container(Future<List<NearbyEvent>> Function() nearby) {
   addTearDown(c.dispose);
   c.listen(arrivalFlowProvider(ArrivalMode.test), (_, _) {});
   return c;
+}
+
+/// Répond « pris » pour tout ce qui commence par « pris », après un délai
+/// propre à chaque nom — pour rejouer une réponse qui arrive trop tard.
+class _FakeProfiles extends ProfileRepository {
+  _FakeProfiles(super.ref);
+
+  @override
+  Future<bool> usernameAvailable(String username) async {
+    await Future<void>.delayed(
+      Duration(milliseconds: username == 'lent.pris' ? 50 : 1),
+    );
+    return !username.contains('pris');
+  }
 }
 
 void main() {
@@ -156,6 +171,63 @@ void main() {
       final wants = c.read(arrivalWantsFinderProvider.notifier);
       expect(wants.take(), isTrue);
       expect(wants.take(), isFalse);
+    });
+  });
+
+  group('le username vérifié pendant la frappe', () {
+    ProviderContainer container() {
+      ArrivalFlow.checkDelay = Duration.zero;
+      final c = ProviderContainer(
+        overrides: [profileRepositoryProvider.overrideWith(_FakeProfiles.new)],
+      );
+      addTearDown(c.dispose);
+      c.listen(arrivalFlowProvider(ArrivalMode.test), (_, _) {});
+      return c;
+    }
+
+    test('libre, puis pris', () async {
+      final c = container();
+      final flow = c.read(arrivalFlowProvider(ArrivalMode.test).notifier);
+      flow.setUsername('jay.b');
+      expect(
+        c.read(arrivalFlowProvider(ArrivalMode.test)).usernameCheck,
+        UsernameCheck.checking,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        c.read(arrivalFlowProvider(ArrivalMode.test)).usernameCheck,
+        UsernameCheck.free,
+      );
+      flow.setUsername('deja.pris');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(
+        c.read(arrivalFlowProvider(ArrivalMode.test)).usernameCheck,
+        UsernameCheck.taken,
+      );
+    });
+
+    test("une réponse arrivée trop tard n'écrase pas la bonne", () async {
+      final c = container();
+      final flow = c.read(arrivalFlowProvider(ArrivalMode.test).notifier);
+      flow.setUsername('lent.pris');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      flow.setUsername('rapide');
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(
+        c.read(arrivalFlowProvider(ArrivalMode.test)).usernameCheck,
+        UsernameCheck.free,
+        reason:
+            '« lent.pris » répond après « rapide » : sa réponse est périmée',
+      );
+    });
+
+    test('un format invalide ne part pas au serveur', () {
+      final c = container();
+      c.read(arrivalFlowProvider(ArrivalMode.test).notifier).setUsername('ab');
+      expect(
+        c.read(arrivalFlowProvider(ArrivalMode.test)).usernameCheck,
+        UsernameCheck.unknown,
+      );
     });
   });
 }

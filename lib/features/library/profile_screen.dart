@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/profile.dart';
+import '../../core/prefs.dart';
+import '../../core/theme.dart';
+import '../../core/typography.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/widgets/cover_host.dart';
 import '../connections/friends_list_screen.dart';
@@ -153,6 +156,15 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+              // La photo temporaire de l'arrivée en soirée (2026-09-24).
+              if (profile != null &&
+                  profile.avatarUrl != null &&
+                  profile.avatarUrl == ref.watch(arrivalAvatarProvider))
+                _TemporaryPhoto(
+                  onChange: () => _editer(context, ref, profile),
+                  onKeep: () =>
+                      ref.read(arrivalAvatarProvider.notifier).forget(),
+                ),
               // Ma galerie (2026-09-21) : les moments, en albums.
               ListTile(
                 leading: const Icon(Icons.auto_awesome_motion_outlined),
@@ -238,6 +250,52 @@ class ProfileScreen extends ConsumerWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// « Ta photo, c'est ton selfie d'arrivée » — la proposition de la changer,
+/// tant qu'elle est encore celle déposée à l'inscription.
+class _TemporaryPhoto extends StatelessWidget {
+  const _TemporaryPhoto({required this.onChange, required this.onKeep});
+
+  final VoidCallback onChange;
+  final VoidCallback onKeep;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(16, 14, 8, 6),
+        decoration: BoxDecoration(
+          color: p.surface,
+          borderRadius: BorderRadius.circular(NeoRadius.md),
+          border: Border.all(color: p.action.withValues(alpha: 0.5)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Ta photo, c\'est ton selfie d\'arrivée.',
+              style: TextStyle(fontWeight: FontWeight.w600, color: p.ink),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'Tu en choisis une autre, ou tu la gardes ?',
+              style: TextStyle(color: p.inkMuted),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(onPressed: onKeep, child: const Text('Je la garde')),
+                TextButton(onPressed: onChange, child: const Text('Changer')),
+              ],
+            ),
+          ],
         ),
       ),
     );

@@ -23,6 +23,7 @@ import 'event_challenges_screen.dart';
 import 'event_finder_screen.dart';
 import 'event_invite_screen.dart';
 import 'event_people_sheet.dart';
+import 'event_recap_screen.dart';
 import 'event_settings_screen.dart';
 import 'events_map_screen.dart';
 import 'events_providers.dart';
@@ -160,8 +161,21 @@ class _PartyState extends ConsumerState<_Party>
     await ref.read(conversationLibraryProvider(event.conversationId).future);
   }
 
+  void _openRecap() => Navigator.of(context).push(
+    MaterialPageRoute(builder: (_) => EventRecapScreen(eventId: event.id)),
+  );
+
   @override
   Widget build(BuildContext context) {
+    // La soirée se ferme sous mes yeux, et j'y étais : le générique s'ouvre.
+    ref.listen<NeoEvent?>(eventByIdProvider(event.id), (before, after) {
+      if (before != null &&
+          before.isOpen &&
+          before.iAmPresent &&
+          (after?.isClosed ?? false)) {
+        _openRecap();
+      }
+    });
     final now = ref.watch(expiryClockProvider);
     final canAdd = event.isOpen && event.iAmPresent;
     final canJoin =
@@ -225,6 +239,17 @@ class _PartyState extends ConsumerState<_Party>
                 ),
               ],
             ),
+            if (event.isClosed)
+              Positioned(
+                left: NeoSpace.xl,
+                right: NeoSpace.xl,
+                bottom: NeoSpace.xl,
+                child: GlowButton(
+                  label: 'Revivre la soirée',
+                  icon: Icons.auto_awesome_rounded,
+                  onPressed: _openRecap,
+                ),
+              ),
             if (canAdd || canJoin)
               Positioned(
                 left: NeoSpace.xl,
@@ -718,6 +743,8 @@ class _DropGrid extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
+    // En direct : une Vibe ajoutée par un autre présent arrive toute seule.
+    ref.watch(conversationLibraryLiveProvider(event.conversationId));
     final vibes = ref.watch(conversationLibraryProvider(event.conversationId));
     final people =
         ref.watch(eventPeopleProvider(event.id)).value ?? const <EventPerson>[];
@@ -871,6 +898,8 @@ class _Challenges extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final p = context.palette;
+    // En direct : un défi lancé par un autre présent arrive tout seul.
+    ref.watch(eventChallengesLiveProvider(event.id));
     final challenges =
         ref.watch(eventChallengesProvider(event.id)).value ??
         const <EventChallenge>[];

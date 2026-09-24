@@ -571,3 +571,42 @@ class DevDualOneshot extends Notifier<bool> {
 final devDualOneshotProvider = NotifierProvider<DevDualOneshot, bool>(
   DevDualOneshot.new,
 );
+
+/// **La photo de profil temporaire** : le chemin de la photo déposée par
+/// l'arrivée en soirée (le selfie), ou `null` (Jay, 2026-09-24 : *« le selfie
+/// est la photo de profil temporaire »* ; proposer ensuite de la changer).
+///
+/// ⚠️ **La proposition se juge par une égalité, pas par un drapeau** : elle
+/// s'affiche tant que la photo du profil EST encore ce chemin. Changer de
+/// photo la fait disparaître d'elle-même — rien à penser à effacer.
+class ArrivalAvatarPref extends Notifier<String?> {
+  static const _key = 'arrival_avatar_path';
+
+  @override
+  String? build() {
+    _load();
+    return null;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getString(_key);
+  }
+
+  Future<void> remember(String path) async {
+    state = path;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_key, path);
+  }
+
+  /// « Je la garde » : on ne propose plus.
+  Future<void> forget() async {
+    state = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key);
+  }
+}
+
+final arrivalAvatarProvider = NotifierProvider<ArrivalAvatarPref, String?>(
+  ArrivalAvatarPref.new,
+);

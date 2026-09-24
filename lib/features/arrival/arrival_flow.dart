@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
@@ -5,7 +6,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/models/event.dart';
+import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/username.dart';
 import '../auth/auth_repository.dart';
 import '../events/events_providers.dart';
 import '../profile/avatar_service.dart';
@@ -31,6 +34,21 @@ import 'arrival_permissions.dart';
 /// (règle 2 : deux objets aux règles différentes ne partagent pas le même
 /// rangement).
 enum ArrivalMode { test, real }
+
+/// Ce qu'on sait du username tapé, pendant qu'on le tape.
+enum UsernameCheck {
+  /// Pas encore demandé (format invalide, ou le serveur n'a pas répondu).
+  unknown,
+
+  /// La question est partie.
+  checking,
+
+  /// Libre.
+  free,
+
+  /// Déjà pris.
+  taken,
+}
 
 enum ArrivalStep {
   /// L'accroche : « ce soir, ça se passe ici ».
@@ -114,6 +132,7 @@ class ArrivalState {
     this.hasAccount = false,
     this.busy = false,
     this.error,
+    this.usernameCheck = UsernameCheck.unknown,
   });
 
   final ArrivalStep step;
@@ -153,6 +172,9 @@ class ArrivalState {
   /// Ce que le serveur a répondu de travers, en une phrase lisible.
   final String? error;
 
+  /// Le username est-il libre ? Demandé pendant la frappe (2026-09-24).
+  final UsernameCheck usernameCheck;
+
   String get initial =>
       greetingName.isEmpty ? '' : greetingName.characters.first.toUpperCase();
 
@@ -172,6 +194,7 @@ class ArrivalState {
     bool? busy,
     String? error,
     bool clearError = false,
+    UsernameCheck? usernameCheck,
   }) => ArrivalState(
     step: step ?? this.step,
     username: username ?? this.username,
@@ -186,6 +209,7 @@ class ArrivalState {
     hasAccount: hasAccount ?? this.hasAccount,
     busy: busy ?? this.busy,
     error: clearError ? null : (error ?? this.error),
+    usernameCheck: usernameCheck ?? this.usernameCheck,
   );
 }
 
@@ -203,7 +227,10 @@ class ArrivalFlow extends Notifier<ArrivalState> {
     // Le selfie est un fichier temporaire de la caméra : il ne survit pas au
     // parcours. Lu au moment de la fermeture, pas à la construction — c'est
     // le dernier pris qui compte.
-    ref.onDispose(() => _discard(_selfie));
+    ref.onDispose(() {
+      _discard(_selfie);
+      _checkTimer?.cancel();
+    });
     return const ArrivalState();
   }
 
@@ -352,7 +379,12 @@ class ArrivalFlow extends Notifier<ArrivalState> {
     final selfie = state.selfie;
     if (selfie != null) {
       final avatars = ref.read(avatarServiceProvider);
-      await avatars.upload(await avatars.squareFromPhoto(selfie));
+      // En miroir : comme on s'est vu en le prenant (voir `_SelfieImage`).
+      final path = await avatars.upload(
+        await avatars.squareFromPhoto(selfie, mirror: true),
+      );
+      // Photo TEMPORAIRE : le profil proposera d'en choisir une autre.
+      await ref.read(arrivalAvatarProvider.notifier).remember(path);
     }
     ref.invalidate(myProfileProvider);
   }
@@ -405,8 +437,47 @@ class ArrivalFlow extends Notifier<ArrivalState> {
     return 'Ça n\'a pas marché : $e';
   }
 
-  void setUsername(String value) =>
-      state = state.copyWith(username: value.trim(), clearError: true);
+  void setUsername(String value) {
+    final username = value.trim();
+    _checkTimer?.cancel();
+    if (!Username.isValid(username)) {
+      state = state.copyWith(
+        username: username,
+        clearError: true,
+        usernameCheck: UsernameCheck.unknown,
+      );
+      return;
+    }
+    state = state.copyWith(
+      username: username,
+      clearError: true,
+      usernameCheck: UsernameCheck.checking,
+    );
+    // 400 ms après la dernière touche : une question par pause, pas une par
+    // lettre.
+    _checkTimer = Timer(checkDelay, () => _check(username));
+  }
+
+  /// Le délai avant de demander au serveur (réglable pour les tests).
+  static Duration checkDelay = const Duration(milliseconds: 400);
+
+  Timer? _checkTimer;
+
+  Future<void> _check(String username) async {
+    UsernameCheck result;
+    try {
+      result =
+          await ref.read(profileRepositoryProvider).usernameAvailable(username)
+          ? UsernameCheck.free
+          : UsernameCheck.taken;
+    } catch (_) {
+      // Pas de réseau : on ne bloque pas — le serveur jugera à la création.
+      result = UsernameCheck.unknown;
+    }
+    // Une réponse pour un username qui n'est plus celui tapé est périmée.
+    if (state.username != username) return;
+    state = state.copyWith(usernameCheck: result);
+  }
 
   void setPseudo(String value) =>
       state = state.copyWith(pseudo: value.trim(), clearError: true);

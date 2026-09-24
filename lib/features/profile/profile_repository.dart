@@ -43,6 +43,15 @@ class ProfileRepository {
     }),
   );
 
+  /// Ce username est-il libre ? Posé AVANT d'avoir un compte (l'inscription) :
+  /// la fonction est ouverte à `anon` et ne rend qu'un booléen. Le serveur
+  /// reste seul juge au moment de créer le profil.
+  Future<bool> usernameAvailable(String username) async =>
+      await ref
+              .read(supabaseProvider)
+              .rpc('username_available', params: {'p_username': username})
+          as bool;
+
   /// Montrer mon pseudo aux autres et dans les groupes, ou mon username
   /// (Jay, 2026-09-24). La base en déduit `pseudo_shown`.
   Future<void> setShowPseudo(bool value) => _write(

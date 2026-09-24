@@ -10,7 +10,6 @@ import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/avatar.dart';
 import '../../core/widgets/stage.dart';
-import 'create_event_screen.dart';
 import 'event_screen.dart';
 import 'events_map_screen.dart';
 import 'events_providers.dart';
@@ -373,8 +372,8 @@ class _NothingHere extends StatelessWidget {
                           ? 'Active la localisation pour trouver la soirée '
                                 'où tu es.'
                           : n == null
-                          ? 'Lance la tienne avec tes amis, ou regarde la '
-                                'carte.'
+                          ? 'Rien autour de toi pour l\'instant. Réessaie '
+                                'une fois dans la soirée, ou regarde la carte.'
                           : 'La plus proche : ${n.venueName ?? n.title}, '
                                 'à ${n.distanceM} m.',
                     ),
@@ -383,11 +382,6 @@ class _NothingHere extends StatelessWidget {
                       alignment: WrapAlignment.center,
                       spacing: NeoSpace.sm,
                       children: [
-                        ActionChip(
-                          avatar: Icon(Icons.refresh_rounded, color: p.ink),
-                          label: const Text('Chercher encore'),
-                          onPressed: onRetry,
-                        ),
                         ActionChip(
                           avatar: Icon(Icons.map_outlined, color: p.ink),
                           label: const Text('La carte'),
@@ -404,12 +398,13 @@ class _NothingHere extends StatelessWidget {
               ),
             ),
           ),
+          // Pas de « Créer une soirée » ici (Jay, 2026-09-24) : quelqu'un qui
+          // arrive cherche SA soirée — on lui propose de réessayer. Créer
+          // reste possible depuis l'écran Événements (« + »).
           GlowButton(
-            label: 'Créer une soirée',
-            icon: Icons.add_rounded,
-            onPressed: () => Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (_) => const CreateEventScreen()),
-            ),
+            label: 'Chercher encore',
+            icon: Icons.refresh_rounded,
+            onPressed: onRetry,
           ),
         ],
       ),

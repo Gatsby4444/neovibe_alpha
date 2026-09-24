@@ -82,7 +82,10 @@ class AvatarService {
   /// carré central, en 512 px PNG — le même format que ce que rend le
   /// recadrage ([AvatarCropperScreen]), sans passer par lui. Le selfie est
   /// pris DANS le rond : c'est déjà le cadrage voulu.
-  Future<Uint8List> squareFromPhoto(File source) async {
+  ///
+  /// [mirror] : retourne l'image de gauche à droite — un selfie pris à la
+  /// caméra frontale, que l'on veut garder tel qu'on s'est vu (en miroir).
+  Future<Uint8List> squareFromPhoto(File source, {bool mirror = false}) async {
     const output = 512;
     // Décodé à 1024 de large au plus : assez pour un carré net de 512, sans
     // charger en mémoire les 12 mégapixels d'un capteur.
@@ -101,7 +104,13 @@ class AvatarService {
       side.toDouble(),
     );
     final recorder = ui.PictureRecorder();
-    ui.Canvas(recorder).drawImageRect(
+    final canvas = ui.Canvas(recorder);
+    if (mirror) {
+      canvas
+        ..translate(output.toDouble(), 0)
+        ..scale(-1, 1);
+    }
+    canvas.drawImageRect(
       image,
       src,
       const Rect.fromLTWH(0, 0, 512, 512),

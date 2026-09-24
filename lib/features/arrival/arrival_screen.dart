@@ -273,7 +273,7 @@ class _Me extends ConsumerWidget {
     return StageHalo(
       size: size,
       child: s.selfie != null
-          ? Image.file(s.selfie!, fit: BoxFit.cover)
+          ? _SelfieImage(s.selfie!)
           : HaloInitial(s.initial, size: size),
     );
   }
@@ -347,7 +347,7 @@ class _NameStepState extends ConsumerState<_NameStep> {
   }
 
   void _next() {
-    if (!Username.isValid(_controller.text)) return;
+    if (!_canGo(ref.read(arrivalFlowProvider(context.arrivalMode)))) return;
     ref
         .read(arrivalFlowProvider(context.arrivalMode).notifier)
         .goTo(ArrivalStep.selfie);
@@ -361,11 +361,12 @@ class _NameStepState extends ConsumerState<_NameStep> {
       arrivalFlowProvider(context.arrivalMode).select((s) => s.username),
     );
     final probleme = name.isEmpty ? null : Username.problem(name);
+    final check = ref.watch(
+      arrivalFlowProvider(context.arrivalMode).select((s) => s.usernameCheck),
+    );
+    final canGo = _canGo(ref.watch(arrivalFlowProvider(context.arrivalMode)));
     return _StepFrame(
-      action: GlowButton(
-        label: 'C\'est moi',
-        onPressed: Username.isValid(name) ? _next : null,
-      ),
+      action: GlowButton(label: 'C\'est moi', onPressed: canGo ? _next : null),
       children: [
         const _Me(size: 120),
         const SizedBox(height: NeoSpace.xxl),
@@ -416,6 +417,14 @@ class _NameStepState extends ConsumerState<_NameStep> {
           _ErrorLine(error)
         else if (probleme != null)
           _ErrorLine(probleme)
+        else if (check == UsernameCheck.taken)
+          _ErrorLine(
+            'Déjà pris. Essaie « ${name.length > 19 ? name.substring(0, 19) : name}2 ».',
+          )
+        else if (check == UsernameCheck.free)
+          _FreeLine(name)
+        else if (check == UsernameCheck.checking)
+          const _Lead('On vérifie…')
         else
           const _Lead('Unique. C\'est lui qui signe tes Vibes.'),
         const SizedBox(height: NeoSpace.xl),
@@ -549,7 +558,7 @@ class _SelfieStepState extends ConsumerState<_SelfieStep> {
 
     final Widget inside;
     if (taken) {
-      inside = Image.file(s.selfie!, fit: BoxFit.cover);
+      inside = _SelfieImage(s.selfie!);
     } else if (_cam == _CamState.live && _camera.textureId != null) {
       inside = NativeCameraPreview(
         textureId: _camera.textureId!,
@@ -1317,7 +1326,7 @@ class _Presents extends StatelessWidget {
                   ringSpeed: 0.5,
                   child: me == null
                       ? const SizedBox.shrink()
-                      : Image.file(me!, fit: BoxFit.cover),
+                      : _SelfieImage(me!),
                 ),
               ],
             ),
@@ -1558,4 +1567,59 @@ class _ErrorLine extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// **Le selfie, tel qu'on s'est vu en le prenant : en miroir** (Jay,
+/// 2026-09-24 : *« pendant que je le prends je me vois comme dans un miroir,
+/// mais une fois enregistré je me vois dans l'autre sens, c'est trop
+/// perturbant »*).
+///
+/// L'aperçu de la caméra frontale est en miroir, la photo prise ne l'est pas :
+/// on la retourne à l'affichage ici, et `AvatarService.squareFromPhoto(mirror:
+/// true)` la retourne pour la photo de profil — les deux vues restent donc
+/// celle du miroir.
+class _SelfieImage extends StatelessWidget {
+  const _SelfieImage(this.file);
+
+  final File file;
+
+  @override
+  Widget build(BuildContext context) =>
+      Transform.flip(flipX: true, child: Image.file(file, fit: BoxFit.cover));
+}
+
+/// Peut-on quitter l'étape du username ? Le format est bon, et il n'est ni
+/// pris, ni en cours de vérification. Sans réponse du serveur (hors ligne), on
+/// laisse passer : il jugera à la création.
+bool _canGo(ArrivalState s) =>
+    Username.isValid(s.username) &&
+    s.usernameCheck != UsernameCheck.taken &&
+    s.usernameCheck != UsernameCheck.checking;
+
+class _FreeLine extends StatelessWidget {
+  const _FreeLine(this.name);
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(Icons.check_circle_rounded, size: 18, color: p.action),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            '@$name est libre',
+            style: TextStyle(
+              color: p.ink,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
 }
