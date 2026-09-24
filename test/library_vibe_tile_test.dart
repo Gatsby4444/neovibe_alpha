@@ -24,6 +24,9 @@ class _FakeRepo extends LibraryVibesRepository {
 
   @override
   Future<void> prefetch(LibraryVibe vibe) async {}
+
+  @override
+  Future<Uint8List?> sharpPhoto(LibraryVibe vibe) async => null;
 }
 
 /// Un PNG 1×1 valide, distinct selon [shade] (octet de couleur).

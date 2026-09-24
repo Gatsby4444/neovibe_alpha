@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
@@ -193,6 +194,98 @@ class LibraryVibesRepository {
         .toList();
   }
 
+  // ─── Les clés en lot, et la vignette nette (option A, 2026-09-24) ─────
+  //
+  // Jay : des vignettes nettes et une Vibe qui s'ouvre sans attendre, SANS
+  // renoncer au chiffrement. Le temps perdu était l'aller-retour « une clé par
+  // Vibe », pas le déchiffrement (~2 ms pour une photo, en natif).
+  //
+  // ⚠️ **Rien n'est écrit en clair.** Les clés vivent en MÉMOIRE, le temps de
+  // la session et de ce compte (le dépôt est recréé à chaque changement de
+  // compte) ; les photos déchiffrées aussi, dans un petit cache borné. Le
+  // disque ne porte que le scellé (`LibraryVaultCache`).
+
+  /// Les clés déjà obtenues, par Vibe.
+  final _keys = <String, String>{};
+
+  /// Un seul lot en vol par Drop : vingt tuiles qui demandent en même temps
+  /// posent UNE question au serveur.
+  final _batches = <String, Future<void>>{};
+
+  /// Les photos déchiffrées récemment (vignettes et ouverture), bornées.
+  final _photos = <String, Uint8List>{};
+  static const _photoCacheMax = 48;
+
+  /// Toutes les clés lisibles d'un Drop, en un appel (`drop_keys` : même
+  /// règle que `get_library_vibe_key` — membre, et révélée).
+  Future<void> _loadDropKeys(String conversationId) =>
+      _batches[conversationId] ??= () async {
+        try {
+          final rows =
+              await _client.rpc(
+                    'drop_keys',
+                    params: {'p_conversation_id': conversationId},
+                  )
+                  as List;
+          for (final r in rows) {
+            final m = r as Map;
+            _keys[m['vibe_id'] as String] = m['media_key'] as String;
+          }
+        } finally {
+          // Le lot suivant (une Vibe arrivée depuis) repartira.
+          unawaited(Future(() => _batches.remove(conversationId)));
+        }
+      }();
+
+  /// La clé d'une Vibe : en mémoire, sinon par le lot de son Drop, sinon à
+  /// l'unité (qui porte le refus « pas encore révélée »).
+  Future<String> _keyFor(LibraryVibe vibe) async {
+    final known = _keys[vibe.id];
+    if (known != null) return known;
+    try {
+      await _loadDropKeys(vibe.conversationId);
+    } catch (_) {
+      // Le lot a échoué : l'appel à l'unité dira pourquoi.
+    }
+    final batched = _keys[vibe.id];
+    if (batched != null) return batched;
+    final single =
+        await _client.rpc(
+              'get_library_vibe_key',
+              params: {'p_vibe_id': vibe.id},
+            )
+            as String;
+    return _keys[vibe.id] = single;
+  }
+
+  /// **La vignette nette** d'une Vibe révélée : sa photo, déchiffrée en
+  /// mémoire à partir du scellé déjà téléchargé. `null` pour une vidéo (pas
+  /// d'image à extraire sans la lire) ou une Vibe pas encore révélée — la
+  /// tuile garde alors son aperçu flouté.
+  Future<Uint8List?> sharpPhoto(LibraryVibe vibe) async {
+    if (vibe.frontIsVideo || !vibe.revealedMaintenant) return null;
+    final hit = _photos.remove(vibe.id);
+    if (hit != null) return _photos[vibe.id] = hit;
+    try {
+      final (key, sealed) = await (_keyFor(vibe), cacheFace(vibe)).wait;
+      final media = await MediaOpen.open(
+        sealed,
+        key,
+        isVideo: false,
+        cacheId: vibe.id,
+      );
+      final bytes = media.photoBytes;
+      if (bytes == null) return null;
+      _photos[vibe.id] = bytes;
+      while (_photos.length > _photoCacheMax) {
+        _photos.remove(_photos.keys.first);
+      }
+      return bytes;
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Le placeholder d'une face, lisible à tout moment.
   Future<Uint8List> placeholderBytes(LibraryVibe vibe, {bool back = false}) {
     final path = back ? vibe.placeholderBackPath : vibe.placeholderPath;
@@ -294,8 +387,10 @@ class LibraryVibesRepository {
               .read(libraryVaultCacheProvider)
               .tryFace(vibe.id, front: !back) !=
           null;
+      // La clé vient de la mémoire (lot du Drop) quand elle y est : plus
+      // d'aller-retour à l'ouverture (option A, 2026-09-24).
       final (key, sealedFile) = await (
-        _client.rpc('get_library_vibe_key', params: {'p_vibe_id': vibe.id}),
+        _keyFor(vibe),
         cacheFace(vibe, back: back),
       ).wait;
 
@@ -308,7 +403,7 @@ class LibraryVibesRepository {
       // Le clair, lui, n'apparaît nulle part sur le disque.
       final media = await MediaOpen.open(
         sealedFile,
-        key as String,
+        key,
         isVideo: isVideo,
         cacheId: '${vibe.id}${back ? '_back' : ''}',
       );
@@ -424,7 +519,12 @@ class LibraryVibesRepository {
   }
 }
 
-final libraryVibesRepositoryProvider = Provider(LibraryVibesRepository.new);
+/// Recréé à chaque changement de compte : les clés et les photos en mémoire
+/// appartiennent au compte qui les a obtenues.
+final libraryVibesRepositoryProvider = Provider((ref) {
+  ref.watch(currentUserIdProvider);
+  return LibraryVibesRepository(ref);
+});
 
 /// Les vibes d'une conversation. Rafraîchi par `ref.invalidate` après un ajout
 /// ou au passage du reveal.

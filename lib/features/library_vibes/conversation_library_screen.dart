@@ -190,6 +190,9 @@ class LibraryVibeTile extends ConsumerStatefulWidget {
 }
 
 class _LibraryVibeTileState extends ConsumerState<LibraryVibeTile> {
+  /// La photo révélée, nette (option A). Nulle : vidéo, ou pas révélée.
+  Uint8List? _sharp;
+
   Uint8List? _placeholder;
 
   @override
@@ -209,7 +212,10 @@ class _LibraryVibeTileState extends ConsumerState<LibraryVibeTile> {
   void didUpdateWidget(LibraryVibeTile old) {
     super.didUpdateWidget(old);
     if (old.vibe.id != widget.vibe.id) {
-      setState(() => _placeholder = null);
+      setState(() {
+        _placeholder = null;
+        _sharp = null;
+      });
       _load();
     }
   }
@@ -222,6 +228,17 @@ class _LibraryVibeTileState extends ConsumerState<LibraryVibeTile> {
       // Une réponse pour une Vibe que la tuile ne montre plus est périmée.
       if (mounted && widget.vibe.id == vibe.id) {
         setState(() => _placeholder = bytes);
+      }
+    } catch (_) {
+      // Placeholder indisponible : la tuile reste un cadre neutre.
+    }
+    // ⚡ **La vignette NETTE** (option A, 2026-09-24) : la photo révélée,
+    // déchiffrée en mémoire depuis le scellé (téléchargé au passage). Elle
+    // remplace l'aperçu flouté en fondu.
+    try {
+      final sharp = await repo.sharpPhoto(vibe);
+      if (mounted && sharp != null && widget.vibe.id == vibe.id) {
+        setState(() => _sharp = sharp);
       }
     } catch (_) {
       // Placeholder indisponible : la tuile reste un cadre neutre.
@@ -277,6 +294,21 @@ class _LibraryVibeTileState extends ConsumerState<LibraryVibeTile> {
                         ? Image.memory(_placeholder!, fit: BoxFit.cover)
                         : MaskedPlaceholder(bytes: _placeholder!, sigma: 7)),
             ),
+            // La vignette nette, en fondu par-dessus l'aperçu flouté.
+            // `cacheWidth` : décodée à la taille d'une tuile, pas du capteur.
+            if (revealed)
+              AnimatedOpacity(
+                opacity: _sharp == null ? 0 : 1,
+                duration: const Duration(milliseconds: 350),
+                child: _sharp == null
+                    ? const SizedBox.shrink()
+                    : Image.memory(
+                        _sharp!,
+                        fit: BoxFit.cover,
+                        cacheWidth: 360,
+                        gaplessPlayback: true,
+                      ),
+              ),
             if (!revealed)
               // Le cadenas se pose sur DEUX fonds différents : une photo
               // floutée, ou — quand il n'y a pas encore d'aperçu — une surface
