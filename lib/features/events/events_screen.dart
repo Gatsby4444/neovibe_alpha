@@ -250,11 +250,13 @@ class _TuileAutour extends ConsumerWidget {
         '${venue.venueName ?? 'Soirée ouverte'} · à ${venue.distanceM} m · '
         '$presents connecté${presents > 1 ? 's' : ''} ici',
       ),
+      // ⚠️ **Plus de bouton « Je suis là » ici (2026-09-24).** Un bouton plein
+      // réclame toute la largeur (`Size.fromHeight` du thème) : posé en
+      // `trailing`, il écrasait le titre jusqu'à une lettre par ligne. Toucher
+      // la tuile ouvre « Tu es au … » (`VenueFoundView`), qui a SON bouton
+      // « Rejoindre la soirée » — un seul chemin pour entrer, validé par Jay.
       trailing: venue.withinReach
-          ? FilledButton(
-              onPressed: () => rejoindreEvenement(context, ref, venue.id),
-              child: const Text('Je suis là'),
-            )
+          ? Icon(Icons.chevron_right_rounded, color: p.action)
           : Text('${venue.distanceM} m', style: context.sectionMeta),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
