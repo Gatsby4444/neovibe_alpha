@@ -10,6 +10,7 @@ import 'core/diagnostics/app_log_observers.dart';
 import 'core/prefs.dart';
 import 'core/supabase_providers.dart';
 import 'core/theme.dart';
+import 'core/widgets/ambience.dart';
 import 'features/auth/auth_screen.dart';
 import 'features/auth/onboarding_screen.dart';
 import 'features/home/home_shell.dart';
@@ -77,13 +78,24 @@ class NeoVibeApp extends ConsumerWidget {
       // `home`, pas ses enfants. Un Stack autour de `home` seul laisserait donc
       // toutes les navigations sur un fond noir — et le défaut ne se verrait
       // qu'à la deuxième page.
-      builder: identity.fondDuCycle ? _gradientBuilder : null,
+      //
+      // Vice6 (2026-09-24) se branche au même endroit, pour la même raison :
+      // ses lumières doivent être derrière TOUTES les routes, pas seulement
+      // derrière `home`.
+      builder: identity.fondDuCycle
+          ? _gradientBuilder
+          : identity.lumieresDerivantes
+          ? _ambienceBuilder
+          : null,
       home: const RootGate(),
     );
   }
 
   static Widget _gradientBuilder(BuildContext context, Widget? child) =>
       _DayCycleScope(child: child ?? const SizedBox.shrink());
+
+  static Widget _ambienceBuilder(BuildContext context, Widget? child) =>
+      NeoAmbience(child: child ?? const SizedBox.shrink());
 }
 
 /// Le fond dégradé vivant, sous l'app entière.

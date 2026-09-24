@@ -40,7 +40,8 @@ enum NeoIdentity {
   clair('Clair', 'Le neutre, en blanc et gris'),
   aurore('Aurore', 'Magenta, cyan et jaune sur blanc froid'),
   sable('Sable', 'Beige, blanc cassé et bruns'),
-  cycle('Cycle du jour', 'Le fond dégradé horaire, sur le neutre sombre');
+  cycle('Cycle du jour', 'Le fond dégradé horaire, sur le neutre sombre'),
+  vice6('Vice6', 'La soirée : noir profond, halos et lumières qui dérivent');
 
   const NeoIdentity(this.label, this.description);
 
@@ -57,6 +58,31 @@ enum NeoIdentity {
   /// sur du pâle.
   bool get fondDuCycle => this == cycle;
 
+  /// **Vice6** (Jay, 2026-09-24) : la direction de l'arrivée en soirée,
+  /// étendue à toute l'app — *« j'adore la DA proposée pour le test […]
+  /// applique-la à un nouveau thème pour toute l'app, qui s'appellera
+  /// vice6 »*.
+  ///
+  /// Deux effets, et deux seulement, tous deux portés par cette identité :
+  /// - [lumieresDerivantes] : deux lumières colorées qui dérivent lentement
+  ///   DERRIÈRE tous les écrans (`NeoAmbience`, posé par `MaterialApp.builder`
+  ///   comme le fond du cycle) ;
+  /// - [lueurs] : des ombres LUMINEUSES autour des éléments d'action —
+  ///   boutons en pilule, cartes, anneaux de photo, pastilles.
+  ///
+  /// ⚠️ Ses COULEURS sont celles de `sombre`, exactement : c'est sur elles que
+  /// le test a été dessiné. L'identité tient dans la lumière, pas dans une
+  /// palette de plus.
+  bool get lumieresDerivantes => this == vice6;
+
+  /// Les éléments d'action rayonnent (voir [lumieresDerivantes]).
+  bool get lueurs => this == vice6;
+
+  /// Un fond VIVANT est posé derrière l'app : les Scaffold doivent être
+  /// transparents pour le laisser voir. Un seul critère pour les deux fonds,
+  /// sinon le jour où un troisième arrive, l'un des deux chemins l'oublie.
+  bool get fondVivant => fondDuCycle || lumieresDerivantes;
+
   /// Vrai si l'identité s'adapte au réglage jour/nuit du téléphone.
   ///
   /// `clair` et `sombre` sont des choix **explicites** : les suivre au système
@@ -68,6 +94,7 @@ enum NeoIdentity {
     'clair' => NeoIdentity.clair,
     'sable' => NeoIdentity.sable,
     'cycle' => NeoIdentity.cycle,
+    'vice6' => NeoIdentity.vice6,
     // ⚠️ **Le défaut est `aurore` depuis le 2026-08-29**, sur décision de Jay.
     // Il était `neovibe` (le cycle) — voir la reprise de l'ancienne clé dans
     // `ThemeChoicePref`, qui explique pourquoi cette valeur-là est traduite en
@@ -93,6 +120,8 @@ enum NeoIdentity {
     // Le cycle emprunte le neutre sombre : ses surfaces sont des voiles posés
     // SUR le dégradé, donc elles ne doivent apporter aucune couleur propre.
     NeoIdentity.cycle => NeoPalettes.sombre,
+    // Vice6 aussi, et exactement : voir [lumieresDerivantes].
+    NeoIdentity.vice6 => NeoPalettes.sombre,
   };
 }
 
@@ -428,8 +457,8 @@ abstract final class NeoPalettes {
   /// devient impossible.
   static List<(String, NeoPalette)> get toutes => [
     for (final id in NeoIdentity.values)
-      if (id == NeoIdentity.cycle)
-        // Il emprunte la palette de `sombre`, déjà éprouvée juste au-dessus.
+      if (id == NeoIdentity.cycle || id == NeoIdentity.vice6)
+        // Ils empruntent la palette de `sombre`, déjà éprouvée juste au-dessus.
         // L'inclure ferait passer deux fois le même test et laisserait croire
         // à une couverture plus large qu'elle n'est.
         ...[]

@@ -119,6 +119,32 @@ extension NeoPaletteAccess on BuildContext {
           .palette(Brightness.dark);
 }
 
+/// Les éléments d'action rayonnent-ils ? Vrai sous **Vice6** (2026-09-24).
+///
+/// Pour les widgets que le thème Material ne peut pas habiller seul (anneaux,
+/// pastilles, boutons flottants dessinés à la main) : ils demandent ICI, au
+/// lieu de tester le nom d'une identité — le jour où une autre identité
+/// rayonnera, rien d'autre ne bougera.
+extension NeoGlowAccess on BuildContext {
+  bool get lueurs =>
+      Theme.of(this).extension<NeoPaletteTheme>()?.identity.lueurs ?? false;
+}
+
+/// Le halo d'un élément d'action sous une identité qui rayonne : la couleur
+/// d'action, diffuse, un peu sous l'élément — la lumière de l'arrivée en
+/// soirée (`GlowButton`, `ArrivalHalo`).
+List<BoxShadow> neoGlow(NeoPalette p, {double strength = 1}) => [
+  BoxShadow(
+    color: p.action.withValues(alpha: 0.45 * strength),
+    blurRadius: 24 * strength,
+    offset: Offset(0, 8 * strength),
+  ),
+  BoxShadow(
+    color: p.cool.withValues(alpha: 0.22 * strength),
+    blurRadius: 36 * strength,
+  ),
+];
+
 /// Nuances de texte et d'icône secondaires, **conscientes du thème**.
 ///
 /// Avant le 2026-08-10, l'app écrivait `Colors.white54` / `white38` / `white24`
@@ -176,10 +202,12 @@ abstract final class NeoTheme {
 
   static ThemeData _build(NeoIdentity identity, NeoPalette p) {
     final isDark = p.isDark;
-    // Le cycle pose son dégradé DERRIÈRE l'app : tout aplat opaque devient
-    // transparent, sinon il masquerait exactement ce qu'on veut voir. Le
-    // branchement tient en cette ligne et en `MaterialApp.builder`.
-    final overGradient = identity.fondDuCycle;
+    // Le cycle et Vice6 posent un fond vivant DERRIÈRE l'app : tout aplat
+    // opaque devient transparent, sinon il masquerait exactement ce qu'on veut
+    // voir. Le branchement tient en cette ligne et en `MaterialApp.builder`.
+    final overGradient = identity.fondVivant;
+    // Vice6 : les éléments d'action rayonnent (voir `NeoIdentity.lueurs`).
+    final glow = identity.lueurs;
 
     // `fromSeed` fabrique TOUTES les nuances de surface en les teintant de la
     // graine — c'est sa raison d'être. On ne garde donc de lui que les rôles
@@ -297,7 +325,7 @@ abstract final class NeoTheme {
         elevation: 0,
         // L'indicateur ne peut pas porter de dégradé : c'est l'icône
         // sélectionnée qui le fait (voir `GradientIcon` dans home_shell).
-        indicatorColor: p.action.withValues(alpha: 0.18),
+        indicatorColor: p.action.withValues(alpha: glow ? 0.30 : 0.18),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
             fontFamily: NeoType.body,
@@ -362,8 +390,12 @@ abstract final class NeoTheme {
       // Le dégradé est injecté par `backgroundBuilder` : il s'applique donc à
       // TOUS les `FilledButton`/`OutlinedButton` de l'app sans toucher aux
       // 60+ appels existants.
-      filledButtonTheme: FilledButtonThemeData(style: _filledStyle(p)),
-      outlinedButtonTheme: OutlinedButtonThemeData(style: _outlinedStyle(p)),
+      filledButtonTheme: FilledButtonThemeData(
+        style: _filledStyle(p, glow: glow),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: _outlinedStyle(p, glow: glow),
+      ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(foregroundColor: p.action),
       ),
@@ -427,21 +459,47 @@ abstract final class NeoTheme {
         ),
       ),
       cardTheme: CardThemeData(
-        color: p.surface,
+        // Vice6 : la carte laisse passer un peu des lumières du fond, et
+        // rayonne de la couleur d'action — l'ombre de Material prend alors la
+        // couleur qu'on lui donne au lieu du noir.
+        color: glow ? p.surface.withValues(alpha: 0.86) : p.surface,
         surfaceTintColor: Colors.transparent,
-        elevation: 0,
+        elevation: glow ? 10 : 0,
+        shadowColor: glow ? p.action.withValues(alpha: 0.55) : null,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(NeoRadius.md),
-          side: BorderSide(color: p.line),
+          borderRadius: BorderRadius.circular(
+            glow ? NeoRadius.lg : NeoRadius.md,
+          ),
+          side: BorderSide(
+            color: glow ? p.action.withValues(alpha: 0.35) : p.line,
+          ),
         ),
       ),
       dialogTheme: DialogThemeData(
         backgroundColor: p.surface,
         surfaceTintColor: Colors.transparent,
+        elevation: glow ? 18 : null,
+        shadowColor: glow ? p.action.withValues(alpha: 0.6) : null,
+        shape: glow
+            ? RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(28),
+                side: BorderSide(color: p.action.withValues(alpha: 0.45)),
+              )
+            : null,
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: p.surface,
         surfaceTintColor: Colors.transparent,
+        elevation: glow ? 18 : null,
+        shadowColor: glow ? p.action.withValues(alpha: 0.6) : null,
+        shape: glow
+            ? RoundedRectangleBorder(
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(28),
+                ),
+                side: BorderSide(color: p.action.withValues(alpha: 0.45)),
+              )
+            : null,
       ),
       popupMenuTheme: PopupMenuThemeData(
         color: p.surface,
@@ -482,9 +540,15 @@ abstract final class NeoTheme {
   /// le dégradé de l'identité. Le déduire de la luminosité serait faux — sur le
   /// beige de Sable il doit être clair, sur le jaune d'Aurore il doit être
   /// sombre, et les deux sont des identités « claires ».
-  static ButtonStyle _filledStyle(NeoPalette p) {
+  ///
+  /// Sous **Vice6** ([glow]) : une **pilule** qui rayonne — le `GlowButton` de
+  /// l'arrivée en soirée, appliqué à tous les boutons pleins de l'app. Le halo
+  /// déborde du bouton : c'est voulu, et c'est pourquoi il est peint par
+  /// `backgroundBuilder` (qui ne rogne pas) et non par une élévation.
+  static ButtonStyle _filledStyle(NeoPalette p, {required bool glow}) {
+    final radius = glow ? NeoRadius.pill : _radius;
     final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(_radius),
+      borderRadius: BorderRadius.circular(radius),
     );
     return FilledButton.styleFrom(
       // ⚠️ **`Size.fromHeight(52)` vaut `Size(double.infinity, 52)`** — une
@@ -529,7 +593,8 @@ abstract final class NeoTheme {
         return DecoratedBox(
           decoration: BoxDecoration(
             gradient: disabled ? p.signatureAttenuee : p.signatureCourte,
-            borderRadius: BorderRadius.circular(_radius),
+            borderRadius: BorderRadius.circular(radius),
+            boxShadow: glow && !disabled ? neoGlow(p) : null,
           ),
           child: child,
         );
@@ -545,9 +610,13 @@ abstract final class NeoTheme {
   /// `scaffoldBackgroundColor`) : en blanc fixe, il était **invisible en thème
   /// clair**. Bug corrigé le 2026-08-14 — il datait de l'ajout du thème clair
   /// le 2026-08-10 et n'a jamais levé la moindre erreur.
-  static ButtonStyle _outlinedStyle(NeoPalette p) {
+  ///
+  /// Sous **Vice6** ([glow]) : pilule aussi, avec un halo plus discret que le
+  /// bouton plein — il reste un geste secondaire.
+  static ButtonStyle _outlinedStyle(NeoPalette p, {required bool glow}) {
+    final radius = glow ? NeoRadius.pill : _radius;
     final shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(_radius),
+      borderRadius: BorderRadius.circular(radius),
     );
     return OutlinedButton.styleFrom(
       minimumSize: const Size.fromHeight(52),
@@ -567,7 +636,8 @@ abstract final class NeoTheme {
         return Container(
           decoration: BoxDecoration(
             gradient: isDisabled ? p.signatureAttenuee : p.signatureCourte,
-            borderRadius: BorderRadius.circular(_radius),
+            borderRadius: BorderRadius.circular(radius),
+            boxShadow: glow && !isDisabled ? neoGlow(p, strength: 0.5) : null,
           ),
           padding: const EdgeInsets.all(1.5),
           child: DecoratedBox(
@@ -575,8 +645,15 @@ abstract final class NeoTheme {
               // ⚠️ Le centre reprend le fond de l'ÉCRAN, pas la surface : sur
               // le cycle, `scaffoldBackgroundColor` est transparent et c'est le
               // dégradé qui apparaît au centre — ce qui est l'effet voulu.
-              color: Theme.of(context).scaffoldBackgroundColor,
-              borderRadius: BorderRadius.circular(_radius - 1.5),
+              //
+              // ⚠️ Sous Vice6, le fond de l'écran est transparent AUSSI, mais
+              // le halo est peint juste dessous : un centre transparent
+              // laisserait voir le halo à travers le bouton. On repeint donc
+              // le fond réel (`ground`).
+              color: glow
+                  ? p.ground
+                  : Theme.of(context).scaffoldBackgroundColor,
+              borderRadius: BorderRadius.circular(radius - 1.5),
             ),
             child: child,
           ),

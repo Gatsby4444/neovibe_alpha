@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/palette.dart';
 import '../../../core/prefs.dart';
+import '../../../core/theme.dart';
 import '../../../core/typography.dart';
 import '../settings_common.dart';
 
@@ -160,6 +161,8 @@ class _Apercu extends StatelessWidget {
                 gradient: identity.fondDuCycle ? null : p.signatureCourte,
                 color: identity.fondDuCycle ? p.action : null,
                 shape: BoxShape.circle,
+                // Vice6 se reconnaît à sa lumière : la pastille rayonne.
+                boxShadow: identity.lueurs ? neoGlow(p, strength: 0.35) : null,
               ),
             ),
           ),

@@ -6,6 +6,10 @@ import '../theme.dart';
 /// Flutter n'accepte qu'une couleur unie (icônes, texte, FAB, avatars).
 
 /// Icône peinte avec le dégradé de marque.
+/// La lueur des icônes et textes en dégradé sous Vice6. Blanche parce
+/// qu'elle passe sous le masque du dégradé, qui la recolore.
+const _lueur = [Shadow(color: Colors.white, blurRadius: 14)];
+
 class GradientIcon extends StatelessWidget {
   const GradientIcon(this.icon, {super.key, this.size = 24, this.gradient});
 
@@ -21,7 +25,14 @@ class GradientIcon extends StatelessWidget {
       blendMode: BlendMode.srcIn,
       shaderCallback: (bounds) =>
           (gradient ?? context.palette.signatureCourte).createShader(bounds),
-      child: Icon(icon, size: size, color: Colors.white),
+      // Vice6 : une lueur autour de l'icône. Elle est peinte AVANT le
+      // masque, donc elle prend elle aussi les couleurs du dégradé.
+      child: Icon(
+        icon,
+        size: size,
+        color: Colors.white,
+        shadows: context.lueurs ? _lueur : null,
+      ),
     );
   }
 }
@@ -50,7 +61,11 @@ class GradientText extends StatelessWidget {
       child: Text(
         text,
         textAlign: textAlign,
-        style: (style ?? const TextStyle()).copyWith(color: Colors.white),
+        style: (style ?? const TextStyle()).copyWith(
+          color: Colors.white,
+          // Vice6 : même lueur que [GradientIcon].
+          shadows: context.lueurs ? _lueur : null,
+        ),
       ),
     );
   }
@@ -75,7 +90,14 @@ class GradientDot extends StatelessWidget {
       width: size,
       height: size,
       alignment: Alignment.center,
-      decoration: BoxDecoration(shape: BoxShape.circle, gradient: gradient),
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: gradient,
+        // Vice6 : la pastille rayonne (voir `NeoGlowAccess`).
+        boxShadow: gradient != null && context.lueurs
+            ? neoGlow(context.palette, strength: 0.4)
+            : null,
+      ),
       child: child,
     );
   }
@@ -126,13 +148,15 @@ class GradientFab extends StatelessWidget {
         decoration: BoxDecoration(
           gradient: context.palette.signatureCourte,
           borderRadius: BorderRadius.circular(extended ? 16 : 28),
-          boxShadow: [
-            BoxShadow(
-              color: context.palette.action.withValues(alpha: .35),
-              blurRadius: 16,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          boxShadow: context.lueurs
+              ? neoGlow(context.palette)
+              : [
+                  BoxShadow(
+                    color: context.palette.action.withValues(alpha: .35),
+                    blurRadius: 16,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
         ),
         child: Material(
           color: Colors.transparent,
@@ -184,6 +208,10 @@ class GradientRing extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: gradient ?? context.palette.signature,
+        // Vice6 : l'anneau rayonne, comme le rond de l'arrivée en soirée.
+        boxShadow: context.lueurs
+            ? neoGlow(context.palette, strength: (size / 140).clamp(0.25, 1.0))
+            : null,
       ),
       padding: EdgeInsets.all(thickness),
       child: Container(

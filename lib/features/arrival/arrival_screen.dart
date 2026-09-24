@@ -9,6 +9,7 @@ import '../../core/motion.dart';
 import '../../core/palette.dart';
 import '../../core/theme.dart';
 import '../../core/typography.dart';
+import '../../core/widgets/ambience.dart';
 import '../cards/native_camera.dart';
 import 'arrival_flow.dart';
 import 'arrival_permissions.dart';
@@ -64,7 +65,7 @@ class _ArrivalStage extends ConsumerWidget {
       },
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        body: ArrivalAmbience(
+        body: NeoAmbience(
           intensity: step == ArrivalStep.inside ? 1.4 : 1,
           child: SafeArea(
             child: Column(
