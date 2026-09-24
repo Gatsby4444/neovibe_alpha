@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../../core/supabase_providers.dart';
+import 'auth_repository.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/gradient.dart';
 
@@ -34,17 +34,18 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       return;
     }
     setState(() => _loading = true);
-    final auth = ref.read(supabaseProvider).auth;
+    final auth = ref.read(authRepositoryProvider);
     try {
       if (_isSignUp) {
-        final res = await auth.signUp(email: email, password: password);
-        if (res.session == null && mounted) {
-          // Confirmation d'email activée côté Supabase
+        final outcome = await auth.signUp(email: email, password: password);
+        if (outcome == SignUpOutcome.mustConfirmEmail && mounted) {
+          // Ne devrait plus arriver (confirmation coupée le 2026-09-24) —
+          // mais si le réglage serveur revenait, on dit la vérité.
           _showError('Compte créé : confirme ton email puis connecte-toi.');
           setState(() => _isSignUp = false);
         }
       } else {
-        await auth.signInWithPassword(email: email, password: password);
+        await auth.signIn(email: email, password: password);
       }
     } on AuthException catch (e) {
       _showError(e.message);

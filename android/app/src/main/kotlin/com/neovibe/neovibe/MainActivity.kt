@@ -17,6 +17,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var nativeMedia: NativeMedia? = null
     private var nativePlayer: NativePlayer? = null
     private var nativeDiagnostics: NativeDiagnostics? = null
+    private var deviceIdentity: NativeDeviceIdentity? = null
     private var nativeInstall: NativeInstall? = null
     private var locationGrant: LocationGrant? = null
     private var backgroundGuard: BackgroundGuard? = null
@@ -51,6 +52,12 @@ class MainActivity : FlutterFragmentActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
         )
         nativeDiagnostics = NativeDiagnostics(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
+        // L'identifiant du telephone, pour borner la creation de comptes
+        // (2026-09-24). Separe des diagnostics : autre usage, autre regle.
+        deviceIdentity = NativeDeviceIdentity(
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
@@ -102,6 +109,8 @@ class MainActivity : FlutterFragmentActivity() {
         nativePlayer = null
         nativeDiagnostics?.dispose()
         nativeDiagnostics = null
+        deviceIdentity?.dispose()
+        deviceIdentity = null
         nativeGallery?.dispose()
         nativeGallery = null
         publish?.dispose()
