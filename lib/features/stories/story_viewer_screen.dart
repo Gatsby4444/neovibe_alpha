@@ -584,7 +584,8 @@ class _Header extends ConsumerWidget {
                                 color: NeoNeutrals.gray700,
                                 alignment: Alignment.center,
                                 child: Text(
-                                  owner.chatName.characters.first.toUpperCase(),
+                                  owner.displayName.characters.first
+                                      .toUpperCase(),
                                   style: const TextStyle(fontSize: 12),
                                 ),
                               ),
@@ -593,7 +594,9 @@ class _Header extends ConsumerWidget {
                           const SizedBox(width: 8),
                           Flexible(
                             child: Text(
-                              owner.chatName,
+                              // Une publication : le username, jamais le
+                              // pseudo (Jay, 2026-09-24).
+                              owner.displayName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -651,7 +654,7 @@ class _Header extends ConsumerWidget {
                     ContentOverflowMenu(
                       contentId: story.id,
                       authorId: story.ownerId,
-                      authorName: owner.chatName,
+                      authorName: owner.displayName,
                     ),
                   IconButton(
                     color: Colors.white,

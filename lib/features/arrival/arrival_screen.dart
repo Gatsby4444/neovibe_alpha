@@ -12,6 +12,7 @@ import '../../core/typography.dart';
 import '../../core/widgets/ambience.dart';
 import '../cards/native_camera.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/username.dart';
 import '../auth/auth_screen.dart';
 import 'arrival_flow.dart';
 import 'arrival_permissions.dart';
@@ -321,7 +322,7 @@ class _Threshold extends ConsumerWidget {
   }
 }
 
-// ─── 1. Le prénom ─────────────────────────────────────────────────────────
+// ─── 1. Le username (et le pseudo) ────────────────────────────────────────
 
 class _NameStep extends ConsumerStatefulWidget {
   const _NameStep();
@@ -332,17 +333,21 @@ class _NameStep extends ConsumerStatefulWidget {
 
 class _NameStepState extends ConsumerState<_NameStep> {
   late final _controller = TextEditingController(
-    text: ref.read(arrivalFlowProvider(context.arrivalMode)).firstName,
+    text: ref.read(arrivalFlowProvider(context.arrivalMode)).username,
+  );
+  late final _pseudo = TextEditingController(
+    text: ref.read(arrivalFlowProvider(context.arrivalMode)).pseudo,
   );
 
   @override
   void dispose() {
     _controller.dispose();
+    _pseudo.dispose();
     super.dispose();
   }
 
   void _next() {
-    if (_controller.text.trim().isEmpty) return;
+    if (!Username.isValid(_controller.text)) return;
     ref
         .read(arrivalFlowProvider(context.arrivalMode).notifier)
         .goTo(ArrivalStep.selfie);
@@ -351,29 +356,30 @@ class _NameStepState extends ConsumerState<_NameStep> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final flow = ref.read(arrivalFlowProvider(context.arrivalMode).notifier);
     final name = ref.watch(
-      arrivalFlowProvider(context.arrivalMode).select((s) => s.firstName),
+      arrivalFlowProvider(context.arrivalMode).select((s) => s.username),
     );
+    final probleme = name.isEmpty ? null : Username.problem(name);
     return _StepFrame(
       action: GlowButton(
         label: 'C\'est moi',
-        onPressed: name.isEmpty ? null : _next,
+        onPressed: Username.isValid(name) ? _next : null,
       ),
       children: [
-        const _Me(size: 132),
-        const SizedBox(height: NeoSpace.section),
-        const StageTitle('C\'est quoi\nton prénom ?'),
+        const _Me(size: 120),
         const SizedBox(height: NeoSpace.xxl),
+        const StageTitle('Choisis ton\nusername'),
+        const SizedBox(height: NeoSpace.xl),
         TextField(
           controller: _controller,
           autofocus: true,
-          maxLength: 30,
+          autocorrect: false,
+          maxLength: Username.maxLength,
           textAlign: TextAlign.center,
-          textCapitalization: TextCapitalization.words,
+          inputFormatters: const [UsernameInputFormatter()],
           textInputAction: TextInputAction.next,
-          onChanged: ref
-              .read(arrivalFlowProvider(context.arrivalMode).notifier)
-              .setName,
+          onChanged: flow.setUsername,
           onSubmitted: (_) => _next(),
           style: TextStyle(
             fontFamily: NeoType.display,
@@ -384,7 +390,13 @@ class _NameStepState extends ConsumerState<_NameStep> {
           cursorColor: p.action,
           decoration: InputDecoration(
             counterText: '',
-            hintText: 'Ton prénom',
+            prefixText: '@',
+            prefixStyle: TextStyle(
+              fontFamily: NeoType.display,
+              fontSize: 30,
+              color: p.inkMuted,
+            ),
+            hintText: 'ton.username',
             hintStyle: TextStyle(color: p.outline),
             filled: false,
             border: InputBorder.none,
@@ -402,8 +414,43 @@ class _NameStepState extends ConsumerState<_NameStep> {
             )
             case final error?)
           _ErrorLine(error)
+        else if (probleme != null)
+          _ErrorLine(probleme)
         else
-          const _Lead('C\'est ce que verront les gens de la soirée.'),
+          const _Lead('Unique. C\'est lui qui signe tes Vibes.'),
+        const SizedBox(height: NeoSpace.xl),
+        // Le pseudo : facultatif, pas unique — ce que voient les gens de la
+        // soirée et les groupes (réglable ensuite dans Sécurité et
+        // confidentialité).
+        TextField(
+          controller: _pseudo,
+          maxLength: Username.pseudoMaxLength,
+          textAlign: TextAlign.center,
+          textCapitalization: TextCapitalization.words,
+          onChanged: flow.setPseudo,
+          onSubmitted: (_) => _next(),
+          style: TextStyle(
+            fontFamily: NeoType.display,
+            fontSize: 20,
+            color: p.ink,
+          ),
+          cursorColor: p.action,
+          decoration: InputDecoration(
+            counterText: '',
+            hintText: 'Un pseudo ? (facultatif)',
+            hintStyle: TextStyle(color: p.outline),
+            filled: false,
+            border: InputBorder.none,
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: p.line),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: p.action),
+            ),
+          ),
+        ),
+        const SizedBox(height: NeoSpace.sm),
+        const _Lead('C\'est ce que verront les gens de la soirée.'),
       ],
     );
   }
@@ -584,7 +631,7 @@ class _SelfieStepState extends ConsumerState<_SelfieStep> {
         const SizedBox(height: NeoSpace.section),
         StageTitle(
           taken
-              ? 'Salut ${s.firstName} 👋'
+              ? 'Salut ${s.greetingName} 👋'
               : _cam == _CamState.refused
               ? 'Il nous faut ta tête'
               : 'Ta tête de ce soir',

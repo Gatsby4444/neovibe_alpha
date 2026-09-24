@@ -9,6 +9,7 @@ import '../../core/widgets/avatar.dart';
 import '../profile/avatar_service.dart';
 import '../../core/models/profile.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/username.dart';
 import '../profile/profile_repository.dart';
 
 /// Édition du profil : PP, username (unique), tag name (optionnel, affiché en
@@ -72,10 +73,11 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
 
   Future<void> _save() async {
     final username = _username.text.trim();
-    if (username.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Le nom d\'utilisateur est requis.')),
-      );
+    final probleme = Username.problem(username);
+    if (probleme != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Username : $probleme')));
       return;
     }
     setState(() => _loading = true);
@@ -175,20 +177,26 @@ class _ProfileEditScreenState extends ConsumerState<ProfileEditScreen> {
           const SizedBox(height: 12),
           TextField(
             controller: _username,
-            maxLength: 50,
+            maxLength: Username.maxLength,
+            autocorrect: false,
+            inputFormatters: const [UsernameInputFormatter()],
             decoration: const InputDecoration(
-              labelText: 'Nom d\'utilisateur',
-              helperText: 'Unique — c\'est ton identité sur NeoVibe',
+              labelText: 'Username',
+              prefixText: '@',
+              helperText:
+                  'Unique. Lettres, chiffres, point, tiret bas — '
+                  'affiché sur tes publications',
             ),
           ),
           const SizedBox(height: 12),
           TextField(
             controller: _tagName,
-            maxLength: 30,
+            maxLength: Username.pseudoMaxLength,
             decoration: const InputDecoration(
-              labelText: 'Tag name (optionnel)',
+              labelText: 'Pseudo (facultatif)',
               helperText:
-                  'Affiché dans les conversations ; vide = nom d\'utilisateur',
+                  'Ce que voient les autres et les groupes ; vide = ton '
+                  'username. Réglable dans Sécurité et confidentialité',
             ),
           ),
           const SizedBox(height: 12),

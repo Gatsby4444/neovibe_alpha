@@ -197,7 +197,9 @@ class ProximitySync {
     final profiles =
         await client
                 .from('profiles')
-                .select('id, display_name, tag_name, avatar_url')
+                // `tag_name:pseudo_shown` : le pseudo tel que son propriétaire veut
+                // le montrer (2026-09-24), rangé sous la clé que lit la suite.
+                .select('id, display_name, tag_name:pseudo_shown, avatar_url')
                 .inFilter('id', ids)
             as List;
     final byId = {

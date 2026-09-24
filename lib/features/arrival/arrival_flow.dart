@@ -36,7 +36,8 @@ enum ArrivalStep {
   /// L'accroche : « ce soir, ça se passe ici ».
   threshold,
 
-  /// Le prénom.
+  /// Le username (obligatoire, unique) et le pseudo (facultatif) —
+  /// 2026-09-24 : c'était « le prénom » jusqu'à ce que Jay tranche.
   name,
 
   /// Le selfie, obligatoire — la photo de profil temporaire.
@@ -101,7 +102,8 @@ class ArrivalVenue {
 class ArrivalState {
   const ArrivalState({
     this.step = ArrivalStep.threshold,
-    this.firstName = '',
+    this.username = '',
+    this.pseudo = '',
     this.selfie,
     this.location,
     this.bluetooth,
@@ -115,7 +117,15 @@ class ArrivalState {
   });
 
   final ArrivalStep step;
-  final String firstName;
+
+  /// Le username, déjà au format (`Username.normalize`).
+  final String username;
+
+  /// Le pseudo, facultatif ; vide = pas de pseudo.
+  final String pseudo;
+
+  /// Le nom par lequel l'accueillir : le pseudo s'il y en a un.
+  String get greetingName => pseudo.isNotEmpty ? pseudo : username;
 
   /// Le selfie pris, ou `null`. **Obligatoire** pour passer l'étape.
   final File? selfie;
@@ -144,11 +154,12 @@ class ArrivalState {
   final String? error;
 
   String get initial =>
-      firstName.isEmpty ? '' : firstName.characters.first.toUpperCase();
+      greetingName.isEmpty ? '' : greetingName.characters.first.toUpperCase();
 
   ArrivalState copyWith({
     ArrivalStep? step,
-    String? firstName,
+    String? username,
+    String? pseudo,
     File? selfie,
     bool clearSelfie = false,
     ArrivalGrant? location,
@@ -163,7 +174,8 @@ class ArrivalState {
     bool clearError = false,
   }) => ArrivalState(
     step: step ?? this.step,
-    firstName: firstName ?? this.firstName,
+    username: username ?? this.username,
+    pseudo: pseudo ?? this.pseudo,
     selfie: clearSelfie ? null : (selfie ?? this.selfie),
     location: location ?? this.location,
     bluetooth: bluetooth ?? this.bluetooth,
@@ -330,7 +342,11 @@ class ArrivalFlow extends Notifier<ArrivalState> {
     if (!_profileCreated) {
       await ref
           .read(profileRepositoryProvider)
-          .create(userId: userId, displayName: state.firstName);
+          .create(
+            userId: userId,
+            displayName: state.username,
+            tagName: state.pseudo,
+          );
       _profileCreated = true;
     }
     final selfie = state.selfie;
@@ -364,8 +380,8 @@ class ArrivalFlow extends Notifier<ArrivalState> {
           busy: false,
           step: ArrivalStep.name,
           error:
-              '« ${state.firstName} » est déjà pris sur NeoVibe. Ajoute '
-              'l\'initiale de ton nom, par exemple « ${state.firstName} B. ».',
+              '« @${state.username} » est déjà pris. Essaie par exemple '
+              '« ${_suggestion(state.username)} ».',
         );
         return;
       }
@@ -389,8 +405,19 @@ class ArrivalFlow extends Notifier<ArrivalState> {
     return 'Ça n\'a pas marché : $e';
   }
 
-  void setName(String value) =>
-      state = state.copyWith(firstName: value.trim(), clearError: true);
+  void setUsername(String value) =>
+      state = state.copyWith(username: value.trim(), clearError: true);
+
+  void setPseudo(String value) =>
+      state = state.copyWith(pseudo: value.trim(), clearError: true);
+
+  /// Une proposition quand le username est pris : le même, suivi d'un
+  /// chiffre, dans la limite de 20 caractères. (Le serveur dira s'il est
+  /// libre : on ne peut pas le vérifier avant d'avoir un compte.)
+  static String _suggestion(String taken) {
+    final base = taken.length > 19 ? taken.substring(0, 19) : taken;
+    return '${base}2';
+  }
 
   void setSelfie(File file) {
     if (_selfie?.path != file.path) _discard(_selfie);

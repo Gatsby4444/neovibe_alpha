@@ -128,7 +128,8 @@ class _StoryCard extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final name = ring.owner.chatName;
+    // Une publication : le username, jamais le pseudo (Jay, 2026-09-24).
+    final name = ring.owner.displayName;
     final p = context.palette;
     final tier = ref.watch(tierOfProvider(ring.owner.id));
 

@@ -48,12 +48,17 @@ void main() {
     );
   });
 
-  test('le prénom est rogné, l\'initiale en majuscule', () {
+  test('le pseudo passe avant le username pour accueillir', () {
     final c = _container(() async => const []);
-    c.read(arrivalFlowProvider(ArrivalMode.test).notifier).setName('  jay ');
-    final s = c.read(arrivalFlowProvider(ArrivalMode.test));
-    expect(s.firstName, 'jay');
+    final flow = c.read(arrivalFlowProvider(ArrivalMode.test).notifier);
+    flow.setUsername('  jay.b ');
+    var s = c.read(arrivalFlowProvider(ArrivalMode.test));
+    expect(s.username, 'jay.b');
     expect(s.initial, 'J');
+    flow.setPseudo('Zébulon');
+    s = c.read(arrivalFlowProvider(ArrivalMode.test));
+    expect(s.greetingName, 'Zébulon');
+    expect(s.initial, 'Z');
   });
 
   test('la soirée la plus proche À PORTÉE est retenue', () async {
@@ -134,8 +139,10 @@ void main() {
       c
           .read(arrivalFlowProvider(ArrivalMode.real).notifier)
           .begin(hasAccount: false);
-      c.read(arrivalFlowProvider(ArrivalMode.test).notifier).setName('Test');
-      expect(c.read(arrivalFlowProvider(ArrivalMode.real)).firstName, '');
+      c
+          .read(arrivalFlowProvider(ArrivalMode.test).notifier)
+          .setUsername('test');
+      expect(c.read(arrivalFlowProvider(ArrivalMode.real)).username, '');
       expect(c.read(arrivalFlowProvider(ArrivalMode.test)).active, isFalse);
     });
 

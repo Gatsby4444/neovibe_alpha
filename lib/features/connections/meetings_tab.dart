@@ -116,6 +116,8 @@ class _MeetingTile extends ConsumerWidget {
             id: m.userId,
             displayName: m.displayName,
             tagName: m.tagName,
+            // `my_meetings` rend déjà le pseudo MONTRÉ (`pseudo_shown`).
+            pseudoShown: m.tagName,
             avatarUrl: m.avatarUrl,
           ),
         ),

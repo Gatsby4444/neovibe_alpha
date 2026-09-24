@@ -721,7 +721,9 @@ class _DropGrid extends ConsumerWidget {
     final vibes = ref.watch(conversationLibraryProvider(event.conversationId));
     final people =
         ref.watch(eventPeopleProvider(event.id)).value ?? const <EventPerson>[];
-    final names = {for (final x in people) x.userId: x.chatName};
+    // Une publication : le username de l'auteur, jamais son pseudo (Jay,
+    // 2026-09-24).
+    final names = {for (final x in people) x.userId: x.displayName};
     final me = ref.watch(currentUserIdProvider);
 
     final list = vibes.value ?? const <LibraryVibe>[];

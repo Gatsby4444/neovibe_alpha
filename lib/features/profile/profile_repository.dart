@@ -31,13 +31,27 @@ class ProfileRepository {
   /// ⚠️ **Avant tout dépôt d'avatar** : `AvatarService.upload` met le profil à
   /// jour, donc sans la ligne la photo atterrirait dans le coffre sans que rien
   /// ne la désigne.
-  Future<void> create({required String userId, required String displayName}) =>
-      _write(
-        () => ref.read(supabaseProvider).from('profiles').insert({
-          'id': userId,
-          'display_name': displayName,
-        }),
-      );
+  Future<void> create({
+    required String userId,
+    required String displayName,
+    String? tagName,
+  }) => _write(
+    () => ref.read(supabaseProvider).from('profiles').insert({
+      'id': userId,
+      'display_name': displayName,
+      'tag_name': (tagName?.isEmpty ?? true) ? null : tagName,
+    }),
+  );
+
+  /// Montrer mon pseudo aux autres et dans les groupes, ou mon username
+  /// (Jay, 2026-09-24). La base en déduit `pseudo_shown`.
+  Future<void> setShowPseudo(bool value) => _write(
+    () => ref
+        .read(supabaseProvider)
+        .from('profiles')
+        .update({'show_pseudo': value})
+        .eq('id', _me),
+  );
 
   /// Le pseudo, le tag et la bio.
   Future<void> updateIdentity({

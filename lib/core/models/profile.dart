@@ -18,6 +18,8 @@ class Profile {
     this.storiesPublic = false,
     this.specialMention,
     this.specialMentionPublic = false,
+    this.showPseudo = true,
+    this.pseudoShown,
   });
 
   final String id;
@@ -25,9 +27,20 @@ class Profile {
   /// Username UNIQUE par utilisateur (consigne Jay 2026-07-12).
   final String displayName;
 
-  /// Tag name optionnel et libre — c'est LUI qui s'affiche en conversation ;
-  /// vide → le username prend le relais.
+  /// Le **pseudo**, facultatif et libre (1 à 30), NON unique — la valeur
+  /// BRUTE, pour l'écran d'édition. ⚠️ Pour afficher un nom aux autres, lire
+  /// [chatName] : il respecte le réglage [showPseudo].
   final String? tagName;
+
+  /// Montrer mon pseudo aux autres et dans les groupes (Jay, 2026-09-24) ;
+  /// faux = c'est mon username qu'ils voient.
+  final bool showPseudo;
+
+  /// Le pseudo **tel que les autres doivent le voir** : calculé par la base
+  /// (`profiles.pseudo_shown`), nul si son propriétaire ne veut pas le
+  /// montrer. Une seule règle, appliquée au même endroit pour l'app et pour
+  /// les fonctions du serveur.
+  final String? pseudoShown;
   final String? bio;
   final String? avatarUrl;
   final LibraryVisibility libraryVisibility;
@@ -58,9 +71,14 @@ class Profile {
   // 15 min (rien à stocker côté serveur, donc rien à voler : le risque de
   // pistage disparaît par conception).
 
-  /// Nom affiché dans les conversations : tag name, sinon username.
-  String get chatName =>
-      (tagName != null && tagName!.isNotEmpty) ? tagName! : displayName;
+  /// Le nom montré aux autres et dans les groupes : le pseudo, s'il existe
+  /// et si son propriétaire le montre ; sinon le username.
+  ///
+  /// ⚠️ **Jamais sur une publication** (Vibe, story, profil) : là, c'est
+  /// toujours le username ([displayName]) — consigne de Jay, 2026-09-24.
+  String get chatName => (pseudoShown != null && pseudoShown!.isNotEmpty)
+      ? pseudoShown!
+      : displayName;
 
   factory Profile.fromJson(Map<String, dynamic> json) => Profile(
     id: json['id'] as String,
@@ -75,6 +93,8 @@ class Profile {
     storiesPublic: json['stories_public'] as bool? ?? false,
     specialMention: json['special_mention'] as String?,
     specialMentionPublic: json['special_mention_public'] as bool? ?? false,
+    showPseudo: json['show_pseudo'] as bool? ?? true,
+    pseudoShown: json['pseudo_shown'] as String?,
   );
 
   // ⚠️ **Égalité de VALEUR, posée le 2026-08-25 (checkup `RAPPELS.md` #52).**
@@ -95,7 +115,9 @@ class Profile {
       other.realtimeWaves == realtimeWaves &&
       other.specialMention == specialMention &&
       other.specialMentionPublic == specialMentionPublic &&
-      other.storiesPublic == storiesPublic;
+      other.storiesPublic == storiesPublic &&
+      other.showPseudo == showPseudo &&
+      other.pseudoShown == pseudoShown;
 
   @override
   int get hashCode => Object.hash(
@@ -109,5 +131,7 @@ class Profile {
     specialMention,
     specialMentionPublic,
     storiesPublic,
+    showPseudo,
+    pseudoShown,
   );
 }

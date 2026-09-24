@@ -75,6 +75,27 @@ class PrivacySettingsScreen extends ConsumerWidget {
           // exact que vise la règle « un défaut trouvé se répare tout de suite »
           // (`CLAUDE.md`, 2026-08-30) : il ne coûte que des décisions fausses,
           // et il les coûte en silence.
+          // Le nom que voient les autres (Jay, 2026-09-24) : le pseudo s'il
+          // existe et si je le veux, sinon le username. Les publications
+          // gardent toujours le username, quel que soit ce réglage.
+          const SettingsHeader('Mon nom'),
+          SwitchListTile(
+            title: const Text('Montrer mon pseudo'),
+            subtitle: Text(
+              (profile?.tagName ?? '').isEmpty
+                  ? 'Tu n\'as pas de pseudo : les autres voient ton username '
+                        '(@${profile?.displayName ?? '…'}). Ajoute-en un dans '
+                        'Modifier le profil.'
+                  : 'Dans les groupes et pour les autres, on verra '
+                        '« ${(profile?.showPseudo ?? true) ? profile!.tagName : profile?.displayName} ». '
+                        'Tes publications montrent toujours ton username.',
+            ),
+            value: profile?.showPseudo ?? true,
+            onChanged: profile == null
+                ? null
+                : (v) => ref.read(profileRepositoryProvider).setShowPseudo(v),
+          ),
+          const Divider(),
           const SettingsHeader('Quand un ami est tout près'),
           SwitchListTile(
             title: const Text('Me prévenir tout de suite'),
