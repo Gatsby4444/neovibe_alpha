@@ -78,13 +78,47 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
     });
   }
 
+  /// Au-delà, un lieu ne situe pas une soirée : il la place dans le
+  /// quartier d'à côté (et les gens sur place ne la trouveraient pas).
+  static const _maxPlaceAccuracyM = 100.0;
+
+  /// 🔴 **Créer une soirée exige la position PRÉCISE** (Jay, 2026-09-24 :
+  /// *« on peut créer un événement sans la localisation précise ? Ça c'est
+  /// non »*). L'« approximative » d'Android brouille exprès à ~2 km : une
+  /// soirée posée ainsi est introuvable pour ceux qui sont vraiment là.
+  ///
+  /// Relit ce qu'Android accorde MAINTENANT (la permission change à chaque
+  /// installation, RAPPELS #162) ; sinon la demande, et dit pourquoi.
+  Future<bool> _precise() async {
+    final position = ref.read(livePositionProvider.notifier);
+    await position.relisPrecision();
+    if (ref.read(livePositionProvider).precision == LocationPrecision.precise) {
+      return true;
+    }
+    if (!mounted) return false;
+    TopBanner.show(
+      context,
+      'Pour créer une soirée, active la position précise : l\'approximative '
+      'la placerait à 2 km.',
+      tone: TopBannerTone.already,
+    );
+    await position.requestPrecise();
+    return ref.read(livePositionProvider).precision ==
+        LocationPrecision.precise;
+  }
+
   Future<void> _usePlace() async {
     setState(() => _placeBusy = true);
+    if (!await _precise()) {
+      if (mounted) setState(() => _placeBusy = false);
+      return;
+    }
     final fix = await ref.read(livePositionProvider.notifier).current();
     if (!mounted) return;
+    final tooVague = fix != null && fix.accuracy > _maxPlaceAccuracyM;
     setState(() {
       _placeBusy = false;
-      _place = fix;
+      _place = tooVague ? null : fix;
     });
     if (fix == null) {
       TopBanner.show(
@@ -92,10 +126,19 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
         'Pas de position : active la localisation.',
         tone: TopBannerTone.already,
       );
+    } else if (tooVague) {
+      TopBanner.show(
+        context,
+        'Position trop imprécise (± ${fix.accuracy.round()} m). Approche-toi '
+        'd\'une fenêtre ou sors, puis réessaie.',
+        tone: TopBannerTone.already,
+      );
     }
   }
 
   Future<void> _create() async {
+    // La position précise d'abord, pour TOUTE soirée (même sans lieu fixe).
+    if (!await _precise() || !mounted) return;
     final title = _title.text.trim();
     if (title.isEmpty) {
       TopBanner.show(

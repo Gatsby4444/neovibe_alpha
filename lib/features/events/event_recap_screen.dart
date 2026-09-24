@@ -468,7 +468,11 @@ class _DropMosaic extends StatelessWidget {
               childAspectRatio: 9 / 16,
               children: [
                 for (final v in shown.take(6))
-                  LibraryVibeTile(vibe: v, onRefresh: () {}),
+                  LibraryVibeTile(
+                    key: ValueKey(v.id),
+                    vibe: v,
+                    onRefresh: () {},
+                  ),
               ],
             ),
           ),

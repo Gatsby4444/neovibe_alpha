@@ -221,14 +221,21 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
               // 50 m, proportionnel au monde qu'il y a.
               CircleLayer(
                 circles: [
+                  // ⚠️ **Seulement là où il y a du monde (2026-09-24).** Le
+                  // serveur rend aussi le LIEU de la soirée, avec 0 personne
+                  // (`event_hot_spots`) ; dessiné pareil, il faisait un
+                  // second rond rose — un endroit vide qui avait l'air
+                  // peuplé (capture de Jay). Le lieu a son propre repère,
+                  // plus bas.
                   for (final s in spots)
-                    CircleMarker(
-                      point: LatLng(s.lat, s.lon),
-                      radius: 12.0 + 4 * s.headcount.clamp(0, 10),
-                      color: p.action.withValues(alpha: 0.25),
-                      borderColor: p.action,
-                      borderStrokeWidth: 1.5,
-                    ),
+                    if (s.headcount > 0)
+                      CircleMarker(
+                        point: LatLng(s.lat, s.lon),
+                        radius: 12.0 + 4 * s.headcount.clamp(0, 10),
+                        color: p.action.withValues(alpha: 0.25),
+                        borderColor: p.action,
+                        borderStrokeWidth: 1.5,
+                      ),
                   // ⚠️ **Le halo d'incertitude, en MÈTRES.** L'appareil ne sait
                   // pas où il est au mètre près (`accuracy` : 21 m au mieux,
                   // 100 m et plus en intérieur, relevé du 2026-09-22). Un point
@@ -246,6 +253,14 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
               ),
               MarkerLayer(
                 markers: [
+                  // Le lieu de la soirée : un repère, pas un point chaud.
+                  if (event?.lat != null && event?.lon != null)
+                    Marker(
+                      point: LatLng(event!.lat!, event.lon!),
+                      width: 34,
+                      height: 34,
+                      child: _LieuSoiree(couleur: p.action, fond: p.ground),
+                    ),
                   if (me != null)
                     Marker(
                       point: LatLng(me.latitude, me.longitude),
@@ -457,4 +472,30 @@ class _Epingle extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Le repère du lieu de la soirée : un rond au dégradé, avec la fête dedans.
+/// Distinct des points chauds (qui comptent des gens) et de mon point.
+class _LieuSoiree extends StatelessWidget {
+  const _LieuSoiree({required this.couleur, required this.fond});
+
+  final Color couleur;
+  final Color fond;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      gradient: context.palette.signatureCourte,
+      border: Border.all(color: fond, width: 2),
+      boxShadow: [
+        BoxShadow(color: couleur.withValues(alpha: 0.5), blurRadius: 10),
+      ],
+    ),
+    child: Icon(
+      Icons.celebration_rounded,
+      size: 18,
+      color: context.palette.onAction,
+    ),
+  );
 }

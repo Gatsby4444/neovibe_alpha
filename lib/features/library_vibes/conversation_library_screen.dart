@@ -9,7 +9,6 @@ import '../../core/utils/formats.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
 import 'vibe_faces_screen.dart';
-import 'revealed_vibe_screen.dart';
 
 /// Bibliothèque éphémère d'une conversation — **albums datés** (consigne Jay
 /// 2026-08-10), le plus récent en premier.
@@ -158,8 +157,11 @@ class _Album extends ConsumerWidget {
             crossAxisSpacing: 8,
           ),
           itemCount: vibes.length,
-          itemBuilder: (_, i) =>
-              LibraryVibeTile(vibe: vibes[i], onRefresh: onRefresh),
+          itemBuilder: (_, i) => LibraryVibeTile(
+            key: ValueKey(vibes[i].id),
+            vibe: vibes[i],
+            onRefresh: onRefresh,
+          ),
         ),
       ],
     );
@@ -196,11 +198,31 @@ class _LibraryVibeTileState extends ConsumerState<LibraryVibeTile> {
     _load();
   }
 
+  /// 🔴 **L'image suit la Vibe, pas la case (2026-09-24).** Jusqu'ici l'aperçu
+  /// n'était chargé qu'à la création de la tuile. Quand une Vibe arrivait en
+  /// tête du Drop, Flutter réutilisait les tuiles existantes pour les Vibes
+  /// décalées : la légende et l'heure suivaient la bonne Vibe, l'image restait
+  /// celle d'avant — toutes finissaient par montrer la première (captures de
+  /// Jay, trois Vibes différentes, une seule image). Vérifié en base : les
+  /// trois aperçus déposés étaient bien distincts.
+  @override
+  void didUpdateWidget(LibraryVibeTile old) {
+    super.didUpdateWidget(old);
+    if (old.vibe.id != widget.vibe.id) {
+      setState(() => _placeholder = null);
+      _load();
+    }
+  }
+
   Future<void> _load() async {
     final repo = ref.read(libraryVibesRepositoryProvider);
+    final vibe = widget.vibe;
     try {
-      final bytes = await repo.placeholderBytes(widget.vibe);
-      if (mounted) setState(() => _placeholder = bytes);
+      final bytes = await repo.placeholderBytes(vibe);
+      // Une réponse pour une Vibe que la tuile ne montre plus est périmée.
+      if (mounted && widget.vibe.id == vibe.id) {
+        setState(() => _placeholder = bytes);
+      }
     } catch (_) {
       // Placeholder indisponible : la tuile reste un cadre neutre.
     }
@@ -215,7 +237,7 @@ class _LibraryVibeTileState extends ConsumerState<LibraryVibeTile> {
     //
     // Les DEUX faces, et sans `setState` : rien à réafficher, le fichier est
     // simplement là pour l'ouverture qui suivra.
-    await repo.prefetch(widget.vibe);
+    await repo.prefetch(vibe);
   }
 
   @override
@@ -226,20 +248,18 @@ class _LibraryVibeTileState extends ConsumerState<LibraryVibeTile> {
     final revealed = vibe.revealedAt(ref.watch(expiryClockProvider));
 
     return GestureDetector(
-      // Ouvrable À TOUT MOMENT depuis le 2026-08-10 (demande de Jay) : avant le
-      // reveal on ouvre les faces floutées, qu'on peut retourner. L'écran de
-      // dissipation ne sert qu'au tout premier dévoilement.
+      // Ouvrable À TOUT MOMENT depuis le 2026-08-10 (demande de Jay).
+      //
+      // ⚠️ **Un seul visionneur depuis le 2026-09-24** : `VibeFacesScreen`,
+      // révélée ou non. L'écran de « dissipation » (`RevealedVibeScreen`) ne
+      // montrait QUE le recto — une Vibe révélée ne pouvait plus se
+      // retourner (Jay : « le viewer ne permet pas de retourner les
+      // cartes »). Sa dissipation vit désormais dans le visionneur unique.
       onTap: () async {
         await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => revealed
-                ? RevealedVibeScreen(
-                    vibe: vibe,
-                    // Passé pour que l'écran de reveal démarre sur EXACTEMENT
-                    // ce que montrait la tuile : pas de rupture à l'ouverture.
-                    placeholderBytes: _placeholder,
-                  )
-                : VibeFacesScreen(vibe: vibe, frontPlaceholder: _placeholder),
+            builder: (_) =>
+                VibeFacesScreen(vibe: vibe, frontPlaceholder: _placeholder),
           ),
         );
         widget.onRefresh();

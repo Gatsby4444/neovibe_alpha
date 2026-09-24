@@ -73,6 +73,11 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
     final repo = ref.read(libraryVibesRepositoryProvider);
     final vibe = widget.vibe;
 
+    // ⚡ **La vraie face part EN MÊME TEMPS que les aperçus (2026-09-24).**
+    // Elle attendait la fin des deux téléchargements d'aperçu : un
+    // aller-retour réseau de plus avant de voir la Vibe, pour rien.
+    final real = vibe.revealedMaintenant ? _openReal(repo, vibe) : null;
+
     if (_front == null) {
       try {
         final bytes = await repo.placeholderBytes(vibe);
@@ -88,11 +93,13 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
       } catch (_) {}
     }
 
-    // Un geste se juge au moment où il est fait : l'instantané est ici le
-    // bon choix, et il est écrit comme tel.
-    if (!vibe.revealedMaintenant) return;
+    await real;
+  }
 
-    // Révélée : on remplace les placeholders par les vraies faces.
+  /// Révélée : les vraies faces, recto puis verso. Un geste se juge au moment
+  /// où il est fait : l'instantané (`revealedMaintenant`) est ici le bon
+  /// choix, et il est écrit comme tel.
+  Future<void> _openReal(LibraryVibesRepository repo, LibraryVibe vibe) async {
     try {
       final front = await repo.openRevealed(vibe, isVideo: vibe.frontIsVideo);
       if (mounted) setState(() => _frontMedia = front);
@@ -187,7 +194,21 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
     );
   }
 
-  Widget _face({required bool front}) {
+  /// Une face : l'aperçu flouté, puis la vraie image qui s'y substitue en
+  /// **fondu** — la « dissipation » de l'ancien écran de reveal, gardée ici
+  /// pour qu'il n'y ait jamais de coupe sèche entre le flou et l'image.
+  Widget _face({required bool front}) => AnimatedSwitcher(
+    duration: const Duration(milliseconds: 650),
+    switchInCurve: Curves.easeOutCubic,
+    child: KeyedSubtree(
+      key: ValueKey(
+        '${front ? 'recto' : 'verso'}:${(front ? _frontMedia : _backMedia) != null}',
+      ),
+      child: _faceContent(front: front),
+    ),
+  );
+
+  Widget _faceContent({required bool front}) {
     final media = front ? _frontMedia : _backMedia;
     // Face réelle si la vibe est révélée ET que l'ouverture a abouti.
     if (media != null) {

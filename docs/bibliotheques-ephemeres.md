@@ -256,7 +256,7 @@ fait que **retenir la clé**.
 | `features/library_vibes/library_target.dart` | La conversation visée ; sa présence bascule la capture en mode bibliothèque. |
 | `features/library_vibes/library_share_screen.dart` | Écran de partage simplifié — **aucun aperçu**, trois réglages. |
 | `features/library_vibes/conversation_library_screen.dart` | Albums datés, tuiles en placeholder, préchargement. |
-| `features/library_vibes/revealed_vibe_screen.dart` | Ouverture avec **défloutage animé** sur la vraie image. |
+| `features/library_vibes/vibe_faces_screen.dart` | **Le visionneur unique** (depuis le 2026-09-24) : aperçus floutés, vraies faces en fondu une fois révélée, recto/verso retournables. `revealed_vibe_screen.dart` est **supprimé** : il ne montrait que le recto. |
 | `cards/card_capture_screen.dart` | Mode bibliothèque : pas de récap, pas de fond coloré, pas d'import galerie. |
 | `conversations/chat_screen.dart` | Bouton « plus » → ajout ; bouton en haut à droite → bibliothèque ; rendu de l'annonce `library_add`. |
 | `core/models/message.dart` | `MessageKind.libraryAdd` + `fromDb` rendu **tolérant** (voir ci-dessous). |
@@ -279,8 +279,9 @@ Deux pièges évités à l'écriture, invisibles pour `flutter analyze` :
    à faire côté serveur, et la règle « pas de notification si personne n'a rien
    ajouté » est satisfaite d'office : le client ne planifie que s'il connaît au
    moins une vibe.
-2. **Vidéo au reveal** — `RevealedVibeScreen` n'affiche aujourd'hui que les
-   images. Le fichier déchiffré est déjà écrit en `.mp4` quand il le faut : il
+2. **Vidéo au reveal** — *(texte d'avant le 2026-09-24 : `RevealedVibeScreen`,
+   supprimé depuis, n'affichait que les images ; le visionneur unique
+   `VibeFacesScreen` ouvre photos et vidéos.)* Le fichier déchiffré est déjà écrit en `.mp4` quand il le faut : il
    reste à le passer au lecteur existant (`video_player_screen.dart`).
 3. **Sauvegarde au reveal** — le bouton décidé par Jay (garder une vibe révélée
    dans sa bibliothèque perso, soumis à `saveable_by_others` pour les autres,
@@ -315,14 +316,16 @@ C'est aussi ce qui rend la **dissipation** possible : un flou est un paramètre
 continu, qu'on fait tomber à zéro en fondu — une mosaïque ne se dissipe pas,
 elle saute d'une résolution à l'autre.
 
-`RevealedVibeScreen` enchaîne désormais trois couches sur une seule animation :
+*(Jusqu'au 2026-09-24 ; depuis, le visionneur unique `VibeFacesScreen` fait un
+fondu de 650 ms de l'aperçu vers l'image — et sait retourner la Vibe.)*
+`RevealedVibeScreen` enchaînait trois couches sur une seule animation :
 le placeholder flouté (déjà en mémoire, donc aucun temps de chargement), puis
 l'image réelle qui apparaît **sous le même flou** — l'échange est invisible —,
 puis le flou qui tombe à zéro. Le rayon de départ suit la taille d'affichage :
 ~7 sur une tuile, 44 en plein écran.
 
 **Réglages à ajuster au test** : `MaskedPlaceholder.sigma` par appel, et
-`_startSigma` dans `RevealedVibeScreen`. La largeur du placeholder
+`_sigma` dans `VibeFacesScreen`. La largeur du placeholder
 (`_placeholderWidth`, 20 px) peut monter à ~32 px pour des masses de couleur
 plus riches, au prix d'un peu plus d'indices avant l'heure.
 
@@ -456,8 +459,8 @@ Trois curseurs, tous indépendants :
 |---|---|---|---|
 | **Pixelisation** | `LibraryVibesRepository._placeholderWidth` | Largeur de la source. **C'est le seul paramètre de sécurité.** Plus bas = moins d'indices. Monter à 32 px donne des masses de couleur plus riches, au prix d'un peu plus d'information avant l'heure. | `20` |
 | **Flou, en grille** | `sigma` passé à `MaskedPlaceholder` dans `conversation_library_screen.dart` | Adoucit le damier sur une tuile. Aucun effet sur la sécurité. | `7` |
-| **Flou, en plein écran** | `_sigma` de `VibeFacesScreen`, `_startSigma` de `RevealedVibeScreen` | Le rayon est en pixels logiques : il doit suivre la taille d'affichage, d'où l'écart avec la grille. | `40` / `44` |
-| **Durée de la dissipation** | `AnimationController` de `RevealedVibeScreen` | Vitesse du dévoilement. | `1600 ms` |
+| **Flou, en plein écran** | `_sigma` de `VibeFacesScreen` | Le rayon est en pixels logiques : il doit suivre la taille d'affichage, d'où l'écart avec la grille. | `40` |
+| **Durée de la dissipation** | `AnimatedSwitcher` de `VibeFacesScreen._face` | Fondu de l'aperçu vers la vraie face. | `650 ms` |
 
 **Le point à retenir** : seule la largeur du placeholder protège. Les `sigma` et
 la durée sont esthétiques et se règlent librement, sans jamais affaiblir le

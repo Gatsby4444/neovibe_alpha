@@ -784,6 +784,7 @@ class _DropGrid extends ConsumerWidget {
         if (onAdd != null) _AddTile(onTap: onAdd!, first: ordered.isEmpty),
         for (final v in ordered)
           LibraryVibeTile(
+            key: ValueKey(v.id),
             vibe: v,
             onRefresh: () => ref.invalidate(
               conversationLibraryProvider(event.conversationId),
