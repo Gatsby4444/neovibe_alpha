@@ -35,6 +35,11 @@ class NeoAmbience extends StatefulWidget {
   /// 0 = éteint, 1 = la soirée ; au-delà, plus vif (entrée dans la soirée).
   final double intensity;
 
+  /// La force « dans la soirée » : celle du dernier écran de l'arrivée
+  /// (« Tu es dedans »), et celle de toute l'app sous Vice6 — Jay,
+  /// 2026-09-24 : *« mets la version plus vive dans toute l'app »*.
+  static const soiree = 1.4;
+
   /// La durée d'un tour complet.
   static const period = Duration(seconds: 14);
 

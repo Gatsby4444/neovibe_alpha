@@ -95,7 +95,10 @@ class NeoVibeApp extends ConsumerWidget {
       _DayCycleScope(child: child ?? const SizedBox.shrink());
 
   static Widget _ambienceBuilder(BuildContext context, Widget? child) =>
-      NeoAmbience(child: child ?? const SizedBox.shrink());
+      NeoAmbience(
+        intensity: NeoAmbience.soiree,
+        child: child ?? const SizedBox.shrink(),
+      );
 }
 
 /// Le fond dégradé vivant, sous l'app entière.

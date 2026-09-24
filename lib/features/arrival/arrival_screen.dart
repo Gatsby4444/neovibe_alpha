@@ -66,7 +66,7 @@ class _ArrivalStage extends ConsumerWidget {
       child: Scaffold(
         backgroundColor: Colors.transparent,
         body: NeoAmbience(
-          intensity: step == ArrivalStep.inside ? 1.4 : 1,
+          intensity: step == ArrivalStep.inside ? NeoAmbience.soiree : 1,
           child: SafeArea(
             child: Column(
               children: [
