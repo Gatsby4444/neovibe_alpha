@@ -23,30 +23,35 @@ ProviderContainer _container(Future<List<NearbyEvent>> Function() nearby) {
     overrides: [nearbyEventsProvider.overrideWith((ref) => nearby())],
   );
   addTearDown(c.dispose);
-  // autoDispose : on garde le parcours vivant pendant le test.
-  c.listen(arrivalFlowProvider, (_, _) {});
+  c.listen(arrivalFlowProvider(ArrivalMode.test), (_, _) {});
   return c;
 }
 
 void main() {
   test('on ne recule ni avant l\'accroche, ni depuis la soirée', () {
     final c = _container(() async => const []);
-    final flow = c.read(arrivalFlowProvider.notifier);
+    final flow = c.read(arrivalFlowProvider(ArrivalMode.test).notifier);
 
     expect(flow.back(), isFalse);
     flow.goTo(ArrivalStep.selfie);
     expect(flow.back(), isTrue);
-    expect(c.read(arrivalFlowProvider).step, ArrivalStep.name);
+    expect(
+      c.read(arrivalFlowProvider(ArrivalMode.test)).step,
+      ArrivalStep.name,
+    );
 
     flow.goTo(ArrivalStep.inside);
     expect(flow.back(), isFalse);
-    expect(c.read(arrivalFlowProvider).step, ArrivalStep.inside);
+    expect(
+      c.read(arrivalFlowProvider(ArrivalMode.test)).step,
+      ArrivalStep.inside,
+    );
   });
 
   test('le prénom est rogné, l\'initiale en majuscule', () {
     final c = _container(() async => const []);
-    c.read(arrivalFlowProvider.notifier).setName('  jay ');
-    final s = c.read(arrivalFlowProvider);
+    c.read(arrivalFlowProvider(ArrivalMode.test).notifier).setName('  jay ');
+    final s = c.read(arrivalFlowProvider(ArrivalMode.test));
     expect(s.firstName, 'jay');
     expect(s.initial, 'J');
   });
@@ -60,12 +65,12 @@ void main() {
       ],
     );
     await c
-        .read(arrivalFlowProvider.notifier)
+        .read(arrivalFlowProvider(ArrivalMode.test).notifier)
         .findVenue(minRadar: Duration.zero);
-    final venue = c.read(arrivalFlowProvider).venue!;
+    final venue = c.read(arrivalFlowProvider(ArrivalMode.test)).venue!;
     expect(venue.place, 'Le Plus Près');
     expect(venue.isDemo, isFalse);
-    expect(c.read(arrivalFlowProvider).searching, isFalse);
+    expect(c.read(arrivalFlowProvider(ArrivalMode.test)).searching, isFalse);
   });
 
   test('sans position ni soirée autour, c\'est la démo — qui le dit', () async {
@@ -76,10 +81,74 @@ void main() {
     ]) {
       final c = _container(nearby);
       await c
-          .read(arrivalFlowProvider.notifier)
+          .read(arrivalFlowProvider(ArrivalMode.test).notifier)
           .findVenue(minRadar: Duration.zero);
-      expect(c.read(arrivalFlowProvider).venue, ArrivalVenue.demo);
-      expect(c.read(arrivalFlowProvider).venue!.isDemo, isTrue);
+      expect(
+        c.read(arrivalFlowProvider(ArrivalMode.test)).venue,
+        ArrivalVenue.demo,
+      );
+      expect(
+        c.read(arrivalFlowProvider(ArrivalMode.test)).venue!.isDemo,
+        isTrue,
+      );
     }
+  });
+
+  group('mode réel', () {
+    test("« J'entre » ouvre l'inscription ; revenir à l'accroche la ferme", () {
+      final c = _container(() async => const []);
+      final flow = c.read(arrivalFlowProvider(ArrivalMode.real).notifier);
+      c.listen(arrivalFlowProvider(ArrivalMode.real), (_, _) {});
+
+      flow.begin(hasAccount: false);
+      var s = c.read(arrivalFlowProvider(ArrivalMode.real));
+      expect(s.active, isTrue);
+      expect(s.step, ArrivalStep.name);
+
+      expect(flow.back(), isTrue);
+      s = c.read(arrivalFlowProvider(ArrivalMode.real));
+      expect(s.step, ArrivalStep.threshold);
+      expect(s.active, isFalse, reason: "plus d'inscription en cours");
+    });
+
+    test('déjà connecté : pas de retour avant le prénom', () {
+      final c = _container(() async => const []);
+      final flow = c.read(arrivalFlowProvider(ArrivalMode.real).notifier);
+      c.listen(arrivalFlowProvider(ArrivalMode.real), (_, _) {});
+      flow.begin(hasAccount: true);
+      expect(flow.back(), isFalse);
+    });
+
+    test('une fois aux autorisations, on ne revient plus au compte', () {
+      final c = _container(() async => const []);
+      final flow = c.read(arrivalFlowProvider(ArrivalMode.real).notifier);
+      c.listen(arrivalFlowProvider(ArrivalMode.real), (_, _) {});
+      flow.begin(hasAccount: false);
+      flow.goTo(ArrivalStep.permissions);
+      expect(flow.back(), isFalse);
+    });
+
+    test("le test et l'inscription ne partagent pas leur mémoire", () {
+      final c = _container(() async => const []);
+      c.listen(arrivalFlowProvider(ArrivalMode.real), (_, _) {});
+      c
+          .read(arrivalFlowProvider(ArrivalMode.real).notifier)
+          .begin(hasAccount: false);
+      c.read(arrivalFlowProvider(ArrivalMode.test).notifier).setName('Test');
+      expect(c.read(arrivalFlowProvider(ArrivalMode.real)).firstName, '');
+      expect(c.read(arrivalFlowProvider(ArrivalMode.test)).active, isFalse);
+    });
+
+    test('la fin ouvre le radar UNE fois, et remet le parcours à zéro', () {
+      final c = _container(() async => const []);
+      c.listen(arrivalFlowProvider(ArrivalMode.real), (_, _) {});
+      final flow = c.read(arrivalFlowProvider(ArrivalMode.real).notifier);
+      flow.begin(hasAccount: true);
+      flow.finish();
+      expect(c.read(arrivalFlowProvider(ArrivalMode.real)).active, isFalse);
+      final wants = c.read(arrivalWantsFinderProvider.notifier);
+      expect(wants.take(), isTrue);
+      expect(wants.take(), isFalse);
+    });
   });
 }

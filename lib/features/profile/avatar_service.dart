@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -75,6 +76,45 @@ class AvatarService {
         builder: (_) => AvatarCropperScreen(source: File(picked.path)),
       ),
     );
+  }
+
+  /// **Le selfie de l'inscription, en photo de profil** (2026-09-24) : le
+  /// carré central, en 512 px PNG — le même format que ce que rend le
+  /// recadrage ([AvatarCropperScreen]), sans passer par lui. Le selfie est
+  /// pris DANS le rond : c'est déjà le cadrage voulu.
+  Future<Uint8List> squareFromPhoto(File source) async {
+    const output = 512;
+    // Décodé à 1024 de large au plus : assez pour un carré net de 512, sans
+    // charger en mémoire les 12 mégapixels d'un capteur.
+    final codec = await ui.instantiateImageCodec(
+      await source.readAsBytes(),
+      targetWidth: 1024,
+    );
+    final frame = await codec.getNextFrame();
+    final image = frame.image;
+    codec.dispose();
+    final side = image.width < image.height ? image.width : image.height;
+    final src = Rect.fromLTWH(
+      (image.width - side) / 2,
+      (image.height - side) / 2,
+      side.toDouble(),
+      side.toDouble(),
+    );
+    final recorder = ui.PictureRecorder();
+    ui.Canvas(recorder).drawImageRect(
+      image,
+      src,
+      const Rect.fromLTWH(0, 0, 512, 512),
+      ui.Paint()..filterQuality = FilterQuality.high,
+    );
+    image.dispose();
+    final picture = recorder.endRecording();
+    final rendered = await picture.toImage(output, output);
+    picture.dispose();
+    final data = await rendered.toByteData(format: ui.ImageByteFormat.png);
+    rendered.dispose();
+    if (data == null) throw StateError('Selfie illisible');
+    return data.buffer.asUint8List();
   }
 
   /// Dépose une nouvelle photo et met le profil à jour. Rend le chemin stocké.

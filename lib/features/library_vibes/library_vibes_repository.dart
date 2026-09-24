@@ -80,6 +80,7 @@ class LibraryVibesRepository {
     bool saveableByOthers = false,
     bool ephemeral = false,
     String? challengeId,
+    String? title,
   }) async {
     final me = _client.auth.currentUser!.id;
     // L'identifiant est fabriqué ICI : il nomme les fichiers dans le coffre,
@@ -155,6 +156,8 @@ class LibraryVibesRepository {
           'p_placeholder_back_path': placeholderBackPath,
           'p_sealed_back_path': sealedBackPath,
           'p_challenge_id': challengeId,
+          // Rogné et borné par le serveur, qui est seul juge.
+          'p_title': title,
         },
       );
       final vibe = LibraryVibe.fromJson(Map<String, dynamic>.from(row as Map));

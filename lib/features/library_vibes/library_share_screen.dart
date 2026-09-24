@@ -51,6 +51,16 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
   bool _busy = false;
   String? _error;
 
+  /// Le titre de la Vibe — Drop d'un ÉVÉNEMENT seulement (2026-09-24) : c'est
+  /// ce qu'affichent les tuiles de l'écran de soirée.
+  final _title = TextEditingController();
+
+  @override
+  void dispose() {
+    _title.dispose();
+    super.dispose();
+  }
+
   Future<void> _add() async {
     setState(() {
       _busy = true;
@@ -76,14 +86,27 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
             saveableByOthers: _saveableByOthers,
             ephemeral: _ephemeral,
             challengeId: widget.target.challengeId,
+            title: widget.target.isEvent ? _title.text.trim() : null,
           );
 
       ref.invalidate(conversationLibraryProvider(widget.target.conversationId));
       if (!mounted) return;
-      // Retour au chat, en fermant capture et partage d'un coup.
-      Navigator.of(context).popUntil((route) => route.isFirst);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ajoutée — visible à 18h30 ✓')),
+      final messenger = ScaffoldMessenger.of(context);
+      // Retour à l'écran d'où l'on venait (le chat, ou la soirée), en fermant
+      // capture et partage d'un coup : les deux ne sont qu'UNE route.
+      //
+      // ⚠️ C'était `popUntil(isFirst)` jusqu'au 2026-09-24 : le commentaire
+      // disait « retour au chat », le code ramenait à l'accueil — et depuis
+      // la soirée, il faisait sortir de l'écran de soirée à chaque Vibe.
+      Navigator.of(context).pop();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            widget.target.isEvent
+                ? 'Ajoutée au Drop ✓'
+                : 'Ajoutée — visible à 18h30 ✓',
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -130,6 +153,20 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
             ).textTheme.bodySmall?.copyWith(color: context.muted),
           ),
           const SizedBox(height: 28),
+
+          if (target.isEvent) ...[
+            TextField(
+              controller: _title,
+              maxLength: 60,
+              enabled: !_busy,
+              textCapitalization: TextCapitalization.sentences,
+              decoration: const InputDecoration(
+                labelText: 'Un titre (facultatif)',
+                hintText: 'le DJ a lâché le morceau',
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
 
           FilledButton.icon(
             onPressed: _busy ? null : _add,

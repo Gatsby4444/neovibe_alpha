@@ -157,23 +157,35 @@ class _Album extends ConsumerWidget {
           ),
           itemCount: vibes.length,
           itemBuilder: (_, i) =>
-              _VibeTile(vibe: vibes[i], onRefresh: onRefresh),
+              LibraryVibeTile(vibe: vibes[i], onRefresh: onRefresh),
         ),
       ],
     );
   }
 }
 
-class _VibeTile extends ConsumerStatefulWidget {
-  const _VibeTile({required this.vibe, required this.onRefresh});
+/// **Une tuile de Drop** : l'aperçu, et l'ouverture de la Vibe.
+///
+/// Publique depuis le 2026-09-24 : l'écran de soirée affiche le Drop de
+/// l'événement avec CETTE tuile — un seul chemin pour précharger et ouvrir une
+/// Vibe de Drop, quel que soit l'écran. [caption] se pose en bas, sur un voile
+/// (titre, auteur, heure) ; nul, la tuile est nue, comme dans les albums.
+class LibraryVibeTile extends ConsumerStatefulWidget {
+  const LibraryVibeTile({
+    super.key,
+    required this.vibe,
+    required this.onRefresh,
+    this.caption,
+  });
   final LibraryVibe vibe;
   final VoidCallback onRefresh;
+  final Widget? caption;
 
   @override
-  ConsumerState<_VibeTile> createState() => _VibeTileState();
+  ConsumerState<LibraryVibeTile> createState() => _LibraryVibeTileState();
 }
 
-class _VibeTileState extends ConsumerState<_VibeTile> {
+class _LibraryVibeTileState extends ConsumerState<LibraryVibeTile> {
   Uint8List? _placeholder;
 
   @override
@@ -257,6 +269,21 @@ class _VibeTileState extends ConsumerState<_VibeTile> {
                   shadows: [Shadow(color: Colors.black87, blurRadius: 8)],
                 ),
               ),
+            if (widget.caption != null) ...[
+              // Le voile sous la légende : elle se pose sur une photo, dont
+              // on ne connaît pas la couleur — même règle que le cadenas.
+              const DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black87],
+                    stops: [0.45, 1],
+                  ),
+                ),
+              ),
+              Positioned(left: 8, right: 8, bottom: 8, child: widget.caption!),
+            ],
           ],
         ),
       ),

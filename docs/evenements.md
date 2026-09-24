@@ -169,7 +169,9 @@ lib/features/events/
   event_presence_reporter.dart           l'acquisition : ma position, 1×/min au premier plan
   events_screen.dart                     la porte : en cours / mes événements / autour de moi
   create_event_screen.dart               créer un événement privé
-  event_screen.dart                      LE MODE ÉVÉNEMENT
+  event_finder_screen.dart               « Trouver ma soirée » : le radar, « Tu es au … » (2026-09-24)
+  event_screen.dart                      LE MODE ÉVÉNEMENT — l'écran de soirée (refait le 2026-09-24, §11)
+  event_people_sheet.dart                la liste des participants et leurs rôles (2026-09-24)
   event_settings_screen.dart             les réglages du créateur / du gérant
   event_invite_screen.dart               inviter ses amis
   event_banner.dart                      le bandeau dans le Cercle
@@ -235,3 +237,31 @@ Décisions de Jay (`docs/raison-d-entrer-2026-09-21.md` §5). Ce qui est
 - **Le compteur « N connectés ici » n'est vérifié que par ce qui est
   déposé** : position (natif, 1/min) et vues BLE (`report_sightings`). Un
   téléphone sans l'un ni l'autre sort au bout de 30 min.
+
+---
+
+## 11. Le 2026-09-24 — l'écran de soirée et l'entrée par le radar (v0.9.257)
+
+Jay, sur l'écran « Tu es dedans » de l'arrivée en soirée (test) : *« presque
+parfait […] les trois derniers écrans (trouver ma soirée, rejoindre la soirée
+puis l'interface de la soirée) pourront être réutilisés pour entrer dans un
+événement et pour l'interface d'événement actuelle. On remplace par cela. »*
+
+| Quoi | Où |
+|---|---|
+| **La scène de nuit**, toujours, quel que soit le thème (décision de Jay) | `NightStage` (`core/widgets/stage.dart`) : thème sombre forcé + lumières `NeoAmbience`, plus vives une fois dedans |
+| **Trouver ma soirée** : le radar, puis « Tu es au … » et « Rejoindre la soirée » | `EventFinderScreen` ; entrée en tête de l'écran Événements, et à la fin de l'inscription |
+| **Une soirée pas encore rejointe** (liste, carte) | `EventScreen` montre le même « Tu es au … » (`VenueFoundView`) ; une fois entré, il devient la soirée sans changer d'écran |
+| **L'écran de soirée** | `EventScreen` : « Tu es dedans. », les présents (le cadre ouvre `showEventPeople`), **le Drop en grand** (ma case « Ta Vibe ici », puis les Vibes avec titre, auteur, heure), les défis, et « Ajoute ta Vibe au Drop » superposé en bas |
+| **Ce que l'ancien écran avait** | chat et carte en haut ; réglages, inviter, quitter, fermer dans « ⋯ » ; rôles dans la liste des participants ; récap sous l'en-tête une fois fermé ; « Je suis là » en bas si l'on n'est pas dedans |
+| **Le titre d'une Vibe de Drop** | `library_vibes.title` (1 à 60 caractères, facultatif) + `p_title` dans `add_vibe_to_library` — migration `20260924140000_le_titre_d_une_vibe_de_drop.sql` ; champ « Un titre (facultatif) » sur l'écran d'ajout, **Drop d'un événement seulement** |
+| **La tuile de Drop, un seul chemin** | `LibraryVibeTile` (sortie de `conversation_library_screen.dart`), avec une légende facultative |
+
+⚠️ **Les tuiles montrent l'aperçu flouté** (le placeholder de 20 px) : c'est
+ce que le Drop affichait déjà. La Vibe s'ouvre nette au toucher. Une vraie
+vignette nette demanderait de déchiffrer chaque Vibe pour la grille.
+
+⚠️ **Retour après une Vibe** : l'écran d'ajout au Drop faisait
+`popUntil(isFirst)` — depuis la soirée, il ramenait à l'accueil. Il revient
+désormais à l'écran d'où l'on vient (la capture et l'ajout ne sont qu'une
+route).

@@ -27,6 +27,8 @@ class LibraryVibe {
     required this.backIsVideo,
     this.placeholderBackPath,
     this.sealedBackPath,
+    this.title,
+    this.challengeId,
   });
 
   final String id;
@@ -64,6 +66,13 @@ class LibraryVibe {
 
   final bool frontIsVideo;
   final bool backIsVideo;
+
+  /// Le titre posé par l'auteur au dépôt — facultatif, 60 caractères au plus
+  /// (Drop d'un événement, 2026-09-24). Nul pour les Vibes d'avant.
+  final String? title;
+
+  /// Le défi auquel cette Vibe répond, s'il y en a un (mode événement).
+  final String? challengeId;
 
   bool get hasBack => placeholderBackPath != null;
 
@@ -135,6 +144,8 @@ class LibraryVibe {
       type: CardType.fromDb(json['card_type'] as String? ?? 'standard'),
       frontIsVideo: json['front_is_video'] as bool? ?? false,
       backIsVideo: json['back_is_video'] as bool? ?? false,
+      title: json['title'] as String?,
+      challengeId: json['challenge_id'] as String?,
     );
   }
 

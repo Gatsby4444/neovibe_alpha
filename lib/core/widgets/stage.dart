@@ -1,13 +1,16 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-import '../../core/motion.dart';
-import '../../core/palette.dart';
-import '../../core/theme.dart';
-import '../../core/typography.dart';
+import '../motion.dart';
+import '../palette.dart';
+import '../theme.dart';
+import '../typography.dart';
+import 'ambience.dart';
 
-/// Les pièces visuelles de l'arrivée en soirée (test développeur).
+/// **La scène de nuit** : les pièces visuelles de l'arrivée en soirée (test
+/// du 2026-09-24, validé par Jay), devenues celles du mode événement.
 ///
 /// **Le fil conducteur : LE ROND.** La direction « le rond » (2026-08-29)
 /// devient ici un objet : un halo de lumière aux couleurs de la signature, vu
@@ -17,14 +20,30 @@ import '../../core/typography.dart';
 /// ⚠️ Aucune couleur n'est écrite ici : tout vient de [NeoPalette] (règle de
 /// `palette.dart`).
 
-// Les lumières d'ambiance vivent dans `core/widgets/ambience.dart`
-// (`NeoAmbience`) depuis qu'elles servent aussi l'identité Vice6.
+/// **La scène** : toujours la nuit, quel que soit le thème (Jay, 2026-09-24 :
+/// le mode événement est « l'autre face » de l'app, on le reconnaît à sa
+/// scène). Thème sombre forcé, icônes système claires, lumières d'ambiance.
+class NightStage extends StatelessWidget {
+  const NightStage({super.key, required this.child, this.intensity = 1});
+
+  final Widget child;
+  final double intensity;
+
+  @override
+  Widget build(BuildContext context) => Theme(
+    data: NeoTheme.of(NeoIdentity.sombre, Brightness.dark),
+    child: AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: NeoAmbience(intensity: intensity, child: child),
+    ),
+  );
+}
 
 /// **Le halo** : un rond de lumière qui respire, cerclé d'un anneau aux
 /// couleurs de la signature qui tourne lentement. Ce qu'il contient change à
 /// chaque étape ([child]).
-class ArrivalHalo extends StatefulWidget {
-  const ArrivalHalo({
+class StageHalo extends StatefulWidget {
+  const StageHalo({
     super.key,
     required this.size,
     this.child,
@@ -42,11 +61,10 @@ class ArrivalHalo extends StatefulWidget {
   final double ringSpeed;
 
   @override
-  State<ArrivalHalo> createState() => _ArrivalHaloState();
+  State<StageHalo> createState() => _StageHaloState();
 }
 
-class _ArrivalHaloState extends State<ArrivalHalo>
-    with TickerProviderStateMixin {
+class _StageHaloState extends State<StageHalo> with TickerProviderStateMixin {
   late final _breath = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 2800),
@@ -328,12 +346,8 @@ class GlowButton extends StatelessWidget {
 }
 
 /// La progression : une barre par étape, remplie au dégradé.
-class ArrivalProgress extends StatelessWidget {
-  const ArrivalProgress({
-    super.key,
-    required this.current,
-    required this.total,
-  });
+class StageProgress extends StatelessWidget {
+  const StageProgress({super.key, required this.current, required this.total});
 
   final int current;
   final int total;
@@ -364,8 +378,8 @@ class ArrivalProgress extends StatelessWidget {
 }
 
 /// Un titre de l'arrivée : grand, rond, et qui se dit en une phrase.
-class ArrivalTitle extends StatelessWidget {
-  const ArrivalTitle(this.text, {super.key, this.gradient = false});
+class StageTitle extends StatelessWidget {
+  const StageTitle(this.text, {super.key, this.gradient = false});
 
   final String text;
   final bool gradient;
@@ -390,8 +404,8 @@ class ArrivalTitle extends StatelessWidget {
 }
 
 /// La pastille « démo » : ce qui est simulé le dit.
-class DemoChip extends StatelessWidget {
-  const DemoChip(this.text, {super.key});
+class StageChip extends StatelessWidget {
+  const StageChip(this.text, {super.key});
 
   final String text;
 

@@ -10,6 +10,7 @@ import '../../core/utils/formats.dart';
 import '../../core/widgets/top_banner.dart';
 import '../proximity/geo/live_position.dart';
 import 'create_event_screen.dart';
+import 'event_finder_screen.dart';
 import 'event_screen.dart';
 import 'events_map_screen.dart';
 import 'events_providers.dart';
@@ -71,6 +72,21 @@ class EventsScreen extends ConsumerWidget {
           padding: const EdgeInsets.only(bottom: 32),
           children: [
             if (currentId != null) _EnCours(eventId: currentId),
+            // Le radar de l'arrivée en soirée (2026-09-24) : l'entrée
+            // principale quand on n'est dans aucune soirée.
+            if (currentId == null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.radar_rounded),
+                  label: const Text('Trouver ma soirée'),
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const EventFinderScreen(),
+                    ),
+                  ),
+                ),
+              ),
             const _Titre('Mes événements'),
             events.when(
               loading: () => const _Chargement(),

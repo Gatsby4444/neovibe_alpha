@@ -11,10 +11,11 @@ import 'core/prefs.dart';
 import 'core/supabase_providers.dart';
 import 'core/theme.dart';
 import 'core/widgets/ambience.dart';
-import 'features/auth/auth_screen.dart';
-import 'features/auth/onboarding_screen.dart';
+import 'features/arrival/arrival_flow.dart';
+import 'features/arrival/arrival_screen.dart';
 import 'features/home/home_shell.dart';
 import 'features/auth/suspended_screen.dart';
+import 'features/events/event_finder_screen.dart';
 import 'features/events/event_presence_reporter.dart';
 import 'features/gallery/gallery_keeper.dart';
 import 'features/proximity/net/friend_book_watcher.dart';
@@ -174,7 +175,22 @@ class _RootGateState extends ConsumerState<RootGate> {
   Widget build(BuildContext context) {
     ref.watch(authStateProvider);
     final user = ref.watch(currentUserProvider);
-    if (user == null) return const AuthScreen();
+
+    // 🚪 **L'ARRIVÉE EN SOIRÉE — 2026-09-24.** Pas de compte → le parcours
+    // d'arrivée (prénom, selfie, compte, autorisations), qui remplace l'ancien
+    // écran d'inscription et l'ancien écran « Ton profil ».
+    //
+    // ⚠️ **Une inscription EN COURS garde la main**, même quand le compte puis
+    // le profil apparaissent (c'est le parcours qui les crée) : sans cette
+    // ligne, l'app basculerait vers l'accueil au milieu, et les autorisations
+    // ne seraient jamais demandées. Les trois branches rendent le MÊME widget
+    // à la même place : Flutter garde donc son état d'une branche à l'autre.
+    final signingUp = ref.watch(
+      arrivalFlowProvider(ArrivalMode.real).select((s) => s.active),
+    );
+    if (signingUp || user == null) {
+      return const ArrivalScreen(mode: ArrivalMode.real);
+    }
 
     // ------------------------------------------------------------------
     // ⚠️ **CE QUI DOIT VIVRE AUSSI LONGTEMPS QUE LA SESSION**
@@ -263,7 +279,9 @@ class _RootGateState extends ConsumerState<RootGate> {
         ),
       ),
       data: (p) {
-        if (p == null) return const OnboardingScreen();
+        // Un compte sans profil (inscription interrompue, compte ancien) :
+        // le parcours reprend au prénom, sans étape compte.
+        if (p == null) return const ArrivalScreen(mode: ArrivalMode.real);
         // Un compte suspendu par l'administration (2026-09-21) ne va pas
         // plus loin : le serveur refuse déjà ses gestes, l'écran le dit.
         final suspension = ref.watch(mySuspensionProvider).value;
@@ -273,6 +291,16 @@ class _RootGateState extends ConsumerState<RootGate> {
             reason: suspension.reason,
           );
         }
+        // Le parcours réel vient de finir : le vrai radar s'ouvre
+        // par-dessus l'accueil, une fois. Lu APRÈS l'image (modifier un
+        // provider pendant la construction est interdit).
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          if (!ref.read(arrivalWantsFinderProvider.notifier).take()) return;
+          navigatorKey.currentState?.push(
+            MaterialPageRoute(builder: (_) => const EventFinderScreen()),
+          );
+        });
         return const HomeShell();
       },
     );

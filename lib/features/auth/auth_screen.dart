@@ -6,6 +6,13 @@ import 'auth_repository.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/gradient.dart';
 
+/// **Se connecter à un compte existant.**
+///
+/// Depuis le 2026-09-24, l'INSCRIPTION n'est plus ici : elle passe par
+/// l'arrivée en soirée (`ArrivalScreen`, mode réel — prénom, selfie
+/// obligatoire, compte, autorisations). Cet écran s'ouvre par « J'ai déjà un
+/// compte » et se referme de lui-même une fois connecté : `RootGate` prend
+/// alors la suite (l'accueil, ou le parcours si le compte n'a pas de profil).
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
 
@@ -16,7 +23,6 @@ class AuthScreen extends ConsumerStatefulWidget {
 class _AuthScreenState extends ConsumerState<AuthScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
-  var _isSignUp = false;
   var _loading = false;
 
   @override
@@ -36,16 +42,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     setState(() => _loading = true);
     final auth = ref.read(authRepositoryProvider);
     try {
-      if (_isSignUp) {
-        final outcome = await auth.signUp(email: email, password: password);
-        if (outcome == SignUpOutcome.mustConfirmEmail && mounted) {
-          // Ne devrait plus arriver (confirmation coupée le 2026-09-24) —
-          // mais si le réglage serveur revenait, on dit la vérité.
-          _showError('Compte créé : confirme ton email puis connecte-toi.');
-          setState(() => _isSignUp = false);
-        }
-      } else {
-        await auth.signIn(email: email, password: password);
+      await auth.signIn(email: email, password: password);
+      // Connecté : cet écran était poussé par-dessus le parcours d'arrivée,
+      // que `RootGate` vient de remplacer. On le referme.
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
       }
     } on AuthException catch (e) {
       _showError(e.message);
@@ -66,6 +67,8 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      // Poussé par « J'ai déjà un compte » : le retour ramène à l'arrivée.
+      appBar: AppBar(),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -111,15 +114,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                           width: 22,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Text(_isSignUp ? 'Créer mon compte' : 'Se connecter'),
-                ),
-                TextButton(
-                  onPressed: () => setState(() => _isSignUp = !_isSignUp),
-                  child: Text(
-                    _isSignUp
-                        ? 'Déjà un compte ? Se connecter'
-                        : 'Pas de compte ? S\'inscrire',
-                  ),
+                      : const Text('Se connecter'),
                 ),
               ],
             ),

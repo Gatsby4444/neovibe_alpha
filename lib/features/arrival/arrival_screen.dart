@@ -11,9 +11,11 @@ import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/ambience.dart';
 import '../cards/native_camera.dart';
+import '../../core/supabase_providers.dart';
+import '../auth/auth_screen.dart';
 import 'arrival_flow.dart';
 import 'arrival_permissions.dart';
-import 'arrival_widgets.dart';
+import '../../core/widgets/stage.dart';
 
 /// **L'arrivée en soirée — l'interface de test (Développeur › Outils).**
 ///
@@ -24,44 +26,108 @@ import 'arrival_widgets.dart';
 /// ⚠️ **La soirée se passe la nuit** : le parcours est toujours en identité
 /// sombre, quel que soit le thème choisi — c'est une scène, pas un écran de
 /// réglages. Voir [ArrivalFlow] pour ce qui est réel et ce qui est simulé.
-class ArrivalScreen extends ConsumerWidget {
-  const ArrivalScreen({super.key});
+class ArrivalScreen extends ConsumerStatefulWidget {
+  const ArrivalScreen({super.key, this.mode = ArrivalMode.test});
+
+  /// Test (Développeur, n'écrit rien) ou réel (l'inscription) — voir
+  /// [ArrivalMode].
+  final ArrivalMode mode;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Theme(
-      data: NeoTheme.of(NeoIdentity.sombre, Brightness.dark),
-      child: const AnnotatedRegion<SystemUiOverlayStyle>(
-        value: SystemUiOverlayStyle.light,
-        child: _ArrivalStage(),
+  ConsumerState<ArrivalScreen> createState() => _ArrivalScreenState();
+}
+
+class _ArrivalScreenState extends ConsumerState<ArrivalScreen> {
+  @override
+  void initState() {
+    super.initState();
+    final flow = ref.read(arrivalFlowProvider(widget.mode).notifier);
+    if (widget.mode == ArrivalMode.test) {
+      // Le test repart de zéro à chaque ouverture.
+      Future.microtask(flow.startTest);
+    } else if (ref.read(currentUserIdProvider) != null) {
+      // Déjà connecté mais sans profil : on part du prénom, sans compte.
+      Future.microtask(() => flow.begin(hasAccount: true));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _ModeScope(
+      mode: widget.mode,
+      child: Theme(
+        data: NeoTheme.of(NeoIdentity.sombre, Brightness.dark),
+        child: const AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle.light,
+          child: _ArrivalStage(),
+        ),
       ),
     );
   }
+}
+
+/// Le mode du parcours, transmis à toutes ses étapes : chacune lit SA mémoire
+/// (`arrivalFlowProvider(mode)`), jamais celle de l'autre mode.
+class _ModeScope extends InheritedWidget {
+  const _ModeScope({required this.mode, required super.child});
+
+  final ArrivalMode mode;
+
+  @override
+  bool updateShouldNotify(_ModeScope old) => old.mode != mode;
+}
+
+extension on BuildContext {
+  // Lu SANS abonnement : le mode ne change jamais pendant la vie de l'écran,
+  // et c'est ce qui permet de le lire aussi dans les `initState`.
+  ArrivalMode get arrivalMode =>
+      getInheritedWidgetOfExactType<_ModeScope>()?.mode ?? ArrivalMode.test;
+
+  bool get isRealArrival => arrivalMode == ArrivalMode.real;
 }
 
 class _ArrivalStage extends ConsumerWidget {
   const _ArrivalStage();
 
   /// Les étapes qui comptent dans la barre de progression.
-  static const _counted = [
+  static List<ArrivalStep> _counted(bool real, bool hasAccount) => [
     ArrivalStep.name,
     ArrivalStep.selfie,
-    ArrivalStep.account,
+    if (!(real && hasAccount)) ArrivalStep.account,
     ArrivalStep.permissions,
-    ArrivalStep.radar,
+    if (!real) ArrivalStep.radar,
   ];
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final step = ref.watch(arrivalFlowProvider.select((s) => s.step));
-    final flow = ref.read(arrivalFlowProvider.notifier);
-    final progress = _counted.indexOf(step);
+    final mode = context.arrivalMode;
+    final real = mode == ArrivalMode.real;
+    final step = ref.watch(arrivalFlowProvider(mode).select((s) => s.step));
+    final hasAccount = ref.watch(
+      arrivalFlowProvider(mode).select((s) => s.hasAccount),
+    );
+    final flow = ref.read(arrivalFlowProvider(mode).notifier);
+    final counted = _counted(real, hasAccount);
+    final progress = counted.indexOf(step);
+
+    void leave() {
+      if (flow.back()) return;
+      if (real) {
+        // Le parcours réel EST la racine de l'app : « retour » en sort.
+        SystemNavigator.pop();
+      } else {
+        flow.reset();
+        Navigator.of(context).pop();
+      }
+    }
+
+    final showBack = !(real && step == ArrivalStep.threshold);
 
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        if (!flow.back()) Navigator.of(context).pop();
+        leave();
       },
       child: Scaffold(
         backgroundColor: Colors.transparent,
@@ -74,29 +140,33 @@ class _ArrivalStage extends ConsumerWidget {
                   height: 52,
                   child: Row(
                     children: [
-                      IconButton(
-                        icon: Icon(
-                          step == ArrivalStep.threshold
-                              ? Icons.close_rounded
-                              : Icons.arrow_back_rounded,
-                        ),
-                        onPressed: () {
-                          if (!flow.back()) Navigator.of(context).pop();
-                        },
-                      ),
+                      if (showBack)
+                        IconButton(
+                          icon: Icon(
+                            step == ArrivalStep.threshold
+                                ? Icons.close_rounded
+                                : Icons.arrow_back_rounded,
+                          ),
+                          onPressed: leave,
+                        )
+                      else
+                        const SizedBox(width: 48),
                       Expanded(
                         child: AnimatedOpacity(
                           duration: NeoMotion.normal,
                           opacity: progress >= 0 ? 1 : 0,
-                          child: ArrivalProgress(
+                          child: StageProgress(
                             current: progress < 0 ? 0 : progress,
-                            total: _counted.length,
+                            total: counted.length,
                           ),
                         ),
                       ),
                       const SizedBox(width: NeoSpace.lg),
-                      const DemoChip('TEST'),
-                      const SizedBox(width: NeoSpace.lg),
+                      if (!real) ...[
+                        const StageChip('TEST'),
+                        const SizedBox(width: NeoSpace.lg),
+                      ] else
+                        const SizedBox(width: 48),
                     ],
                   ),
                 ),
@@ -198,8 +268,8 @@ class _Me extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final s = ref.watch(arrivalFlowProvider);
-    return ArrivalHalo(
+    final s = ref.watch(arrivalFlowProvider(context.arrivalMode));
+    return StageHalo(
       size: size,
       child: s.selfie != null
           ? Image.file(s.selfie!, fit: BoxFit.cover)
@@ -215,17 +285,32 @@ class _Threshold extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final flow = ref.read(arrivalFlowProvider.notifier);
+    final flow = ref.read(arrivalFlowProvider(context.arrivalMode).notifier);
+    final real = context.isRealArrival;
     return _StepFrame(
-      action: GlowButton(
-        label: 'J\'entre',
-        icon: Icons.arrow_forward_rounded,
-        onPressed: () => flow.goTo(ArrivalStep.name),
+      action: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          GlowButton(
+            label: 'J\'entre',
+            icon: Icons.arrow_forward_rounded,
+            onPressed: () => real
+                ? flow.begin(hasAccount: false)
+                : flow.goTo(ArrivalStep.name),
+          ),
+          if (real)
+            TextButton(
+              onPressed: () => Navigator.of(
+                context,
+              ).push(MaterialPageRoute(builder: (_) => const AuthScreen())),
+              child: const Text('J\'ai déjà un compte'),
+            ),
+        ],
       ),
       children: const [
-        ArrivalHalo(size: 190, child: HaloInitial('', size: 190)),
+        StageHalo(size: 190, child: HaloInitial('', size: 190)),
         SizedBox(height: NeoSpace.section + 8),
-        ArrivalTitle('Ce soir,\nça se passe ici.', gradient: true),
+        StageTitle('Ce soir,\nça se passe ici.', gradient: true),
         SizedBox(height: NeoSpace.lg),
         _Lead(
           'NeoVibe ne marche que quand tu es vraiment là.\n'
@@ -247,7 +332,7 @@ class _NameStep extends ConsumerStatefulWidget {
 
 class _NameStepState extends ConsumerState<_NameStep> {
   late final _controller = TextEditingController(
-    text: ref.read(arrivalFlowProvider).firstName,
+    text: ref.read(arrivalFlowProvider(context.arrivalMode)).firstName,
   );
 
   @override
@@ -258,13 +343,17 @@ class _NameStepState extends ConsumerState<_NameStep> {
 
   void _next() {
     if (_controller.text.trim().isEmpty) return;
-    ref.read(arrivalFlowProvider.notifier).goTo(ArrivalStep.selfie);
+    ref
+        .read(arrivalFlowProvider(context.arrivalMode).notifier)
+        .goTo(ArrivalStep.selfie);
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final name = ref.watch(arrivalFlowProvider.select((s) => s.firstName));
+    final name = ref.watch(
+      arrivalFlowProvider(context.arrivalMode).select((s) => s.firstName),
+    );
     return _StepFrame(
       action: GlowButton(
         label: 'C\'est moi',
@@ -273,7 +362,7 @@ class _NameStepState extends ConsumerState<_NameStep> {
       children: [
         const _Me(size: 132),
         const SizedBox(height: NeoSpace.section),
-        const ArrivalTitle('C\'est quoi\nton prénom ?'),
+        const StageTitle('C\'est quoi\nton prénom ?'),
         const SizedBox(height: NeoSpace.xxl),
         TextField(
           controller: _controller,
@@ -282,7 +371,9 @@ class _NameStepState extends ConsumerState<_NameStep> {
           textAlign: TextAlign.center,
           textCapitalization: TextCapitalization.words,
           textInputAction: TextInputAction.next,
-          onChanged: ref.read(arrivalFlowProvider.notifier).setName,
+          onChanged: ref
+              .read(arrivalFlowProvider(context.arrivalMode).notifier)
+              .setName,
           onSubmitted: (_) => _next(),
           style: TextStyle(
             fontFamily: NeoType.display,
@@ -306,7 +397,13 @@ class _NameStepState extends ConsumerState<_NameStep> {
           ),
         ),
         const SizedBox(height: NeoSpace.md),
-        const _Lead('C\'est ce que verront les gens de la soirée.'),
+        if (ref.watch(
+              arrivalFlowProvider(context.arrivalMode).select((s) => s.error),
+            )
+            case final error?)
+          _ErrorLine(error)
+        else
+          const _Lead('C\'est ce que verront les gens de la soirée.'),
       ],
     );
   }
@@ -333,7 +430,9 @@ class _SelfieStepState extends ConsumerState<_SelfieStep> {
   void initState() {
     super.initState();
     _camera.addListener(_onCamera);
-    if (ref.read(arrivalFlowProvider).selfie == null) unawaited(_open());
+    if (ref.read(arrivalFlowProvider(context.arrivalMode)).selfie == null) {
+      unawaited(_open());
+    }
   }
 
   void _onCamera() {
@@ -366,7 +465,9 @@ class _SelfieStepState extends ConsumerState<_SelfieStep> {
     try {
       final File photo = await _camera.takePicture();
       if (!mounted) return;
-      ref.read(arrivalFlowProvider.notifier).setSelfie(photo);
+      ref
+          .read(arrivalFlowProvider(context.arrivalMode).notifier)
+          .setSelfie(photo);
       await _camera.close();
     } catch (_) {
       if (mounted) setState(() => _cam = _CamState.failed);
@@ -381,7 +482,7 @@ class _SelfieStepState extends ConsumerState<_SelfieStep> {
   }
 
   Future<void> _retake() async {
-    ref.read(arrivalFlowProvider.notifier).clearSelfie();
+    ref.read(arrivalFlowProvider(context.arrivalMode).notifier).clearSelfie();
     await _open();
   }
 
@@ -395,7 +496,7 @@ class _SelfieStepState extends ConsumerState<_SelfieStep> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final s = ref.watch(arrivalFlowProvider);
+    final s = ref.watch(arrivalFlowProvider(context.arrivalMode));
     final taken = s.selfie != null;
     const size = 250.0;
 
@@ -421,11 +522,16 @@ class _SelfieStepState extends ConsumerState<_SelfieStep> {
         children: [
           GlowButton(
             label: 'Je garde',
+            busy: s.busy,
             onPressed: () => ref
-                .read(arrivalFlowProvider.notifier)
-                .goTo(ArrivalStep.account),
+                .read(arrivalFlowProvider(context.arrivalMode).notifier)
+                .keepSelfie(),
           ),
-          TextButton(onPressed: _retake, child: const Text('Reprendre')),
+          if (s.error != null) _ErrorLine(s.error!),
+          TextButton(
+            onPressed: s.busy ? null : _retake,
+            child: const Text('Reprendre'),
+          ),
         ],
       );
     } else if (_cam == _CamState.refused) {
@@ -453,7 +559,7 @@ class _SelfieStepState extends ConsumerState<_SelfieStep> {
         Stack(
           alignment: Alignment.center,
           children: [
-            ArrivalHalo(
+            StageHalo(
               size: size,
               breathing: taken,
               ringSpeed: taken ? 0.4 : 1.6,
@@ -476,7 +582,7 @@ class _SelfieStepState extends ConsumerState<_SelfieStep> {
           ],
         ),
         const SizedBox(height: NeoSpace.section),
-        ArrivalTitle(
+        StageTitle(
           taken
               ? 'Salut ${s.firstName} 👋'
               : _cam == _CamState.refused
@@ -544,7 +650,6 @@ class _AccountStepState extends ConsumerState<_AccountStep> {
   final _email = TextEditingController();
   final _password = TextEditingController();
   var _hidden = true;
-  var _busy = false;
 
   @override
   void initState() {
@@ -560,14 +665,9 @@ class _AccountStepState extends ConsumerState<_AccountStep> {
       _email.text.contains('.') &&
       _password.text.length >= 6;
 
-  Future<void> _create() async {
-    setState(() => _busy = true);
-    // Le test n'écrit rien : le temps d'un vrai aller-retour, pour sentir
-    // le rythme.
-    await Future<void>.delayed(const Duration(milliseconds: 700));
-    if (!mounted) return;
-    ref.read(arrivalFlowProvider.notifier).goTo(ArrivalStep.permissions);
-  }
+  Future<void> _create() => ref
+      .read(arrivalFlowProvider(context.arrivalMode).notifier)
+      .createAccount(email: _email.text.trim(), password: _password.text);
 
   @override
   void dispose() {
@@ -595,25 +695,29 @@ class _AccountStepState extends ConsumerState<_AccountStep> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final real = context.isRealArrival;
+    final s = ref.watch(arrivalFlowProvider(context.arrivalMode));
     return _StepFrame(
       action: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (s.error != null) _ErrorLine(s.error!),
           GlowButton(
             label: 'Créer mon compte',
-            busy: _busy,
+            busy: s.busy,
             onPressed: _valid ? _create : null,
           ),
-          TextButton(
-            onPressed: _busy ? null : _create,
-            child: const Text('Passer (test)'),
-          ),
+          if (!real)
+            TextButton(
+              onPressed: s.busy ? null : _create,
+              child: const Text('Passer (test)'),
+            ),
         ],
       ),
       children: [
         const _Me(size: 96),
         const SizedBox(height: NeoSpace.xxl),
-        const ArrivalTitle('Dernière chose\npour toi'),
+        const StageTitle('Dernière chose\npour toi'),
         const SizedBox(height: NeoSpace.md),
         const _Lead('Pas de mail à aller confirmer : tu entres tout de suite.'),
         const SizedBox(height: NeoSpace.xxl),
@@ -642,8 +746,10 @@ class _AccountStepState extends ConsumerState<_AccountStep> {
             ),
           ),
         ),
-        const SizedBox(height: NeoSpace.lg),
-        const DemoChip('TEST — aucun compte n\'est créé'),
+        if (!real) ...[
+          const SizedBox(height: NeoSpace.lg),
+          const StageChip('TEST — aucun compte n\'est créé'),
+        ],
       ],
     );
   }
@@ -667,12 +773,14 @@ class _PermissionsStepState extends ConsumerState<_PermissionsStep> {
   @override
   void initState() {
     super.initState();
-    unawaited(ref.read(arrivalFlowProvider.notifier).readGrants());
+    unawaited(
+      ref.read(arrivalFlowProvider(context.arrivalMode).notifier).readGrants(),
+    );
   }
 
   Future<void> _ask(int index) async {
     setState(() => _busy = true);
-    final flow = ref.read(arrivalFlowProvider.notifier);
+    final flow = ref.read(arrivalFlowProvider(context.arrivalMode).notifier);
     try {
       switch (index) {
         case 0:
@@ -694,7 +802,7 @@ class _PermissionsStepState extends ConsumerState<_PermissionsStep> {
 
   @override
   Widget build(BuildContext context) {
-    final s = ref.watch(arrivalFlowProvider);
+    final s = ref.watch(arrivalFlowProvider(context.arrivalMode));
     final grants = [s.location, s.bluetooth, s.notifications];
     // La carte active : la première ni accordée, ni déjà demandée.
     var active = -1;
@@ -712,9 +820,16 @@ class _PermissionsStepState extends ConsumerState<_PermissionsStep> {
           ? GlowButton(
               label: 'Trouver ma soirée',
               icon: Icons.radar_rounded,
-              onPressed: () => ref
-                  .read(arrivalFlowProvider.notifier)
-                  .goTo(ArrivalStep.radar),
+              onPressed: () {
+                final flow = ref.read(
+                  arrivalFlowProvider(context.arrivalMode).notifier,
+                );
+                if (context.isRealArrival) {
+                  flow.finish();
+                } else {
+                  flow.goTo(ArrivalStep.radar);
+                }
+              },
             )
           : GlowButton(
               label: 'Autoriser',
@@ -722,7 +837,7 @@ class _PermissionsStepState extends ConsumerState<_PermissionsStep> {
               onPressed: active >= 0 ? () => _ask(active) : null,
             ),
       children: [
-        const ArrivalTitle('Trois oui,\net tu es dedans.'),
+        const StageTitle('Trois oui,\net tu es dedans.'),
         const SizedBox(height: NeoSpace.xxl),
         _PermissionCard(
           icon: Icons.place_rounded,
@@ -875,13 +990,15 @@ class _RadarStepState extends ConsumerState<_RadarStep> {
   @override
   void initState() {
     super.initState();
-    unawaited(ref.read(arrivalFlowProvider.notifier).findVenue());
+    unawaited(
+      ref.read(arrivalFlowProvider(context.arrivalMode).notifier).findVenue(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final s = ref.watch(arrivalFlowProvider);
+    final s = ref.watch(arrivalFlowProvider(context.arrivalMode));
     final venue = s.searching ? null : s.venue;
 
     return _StepFrame(
@@ -900,7 +1017,7 @@ class _RadarStepState extends ConsumerState<_RadarStep> {
                 onPressed: () {
                   unawaited(HapticFeedback.heavyImpact());
                   ref
-                      .read(arrivalFlowProvider.notifier)
+                      .read(arrivalFlowProvider(context.arrivalMode).notifier)
                       .goTo(ArrivalStep.inside);
                 },
               ),
@@ -921,7 +1038,7 @@ class _RadarStepState extends ConsumerState<_RadarStep> {
               ? const Column(
                   key: ValueKey('searching'),
                   children: [
-                    ArrivalTitle('On cherche\nta soirée…'),
+                    StageTitle('On cherche\nta soirée…'),
                     SizedBox(height: NeoSpace.md),
                     _Lead('Avec ta position, et les téléphones autour de toi.'),
                   ],
@@ -934,7 +1051,7 @@ class _RadarStepState extends ConsumerState<_RadarStep> {
                       style: TextStyle(color: p.inkMuted, fontSize: 16),
                     ),
                     const SizedBox(height: NeoSpace.xs),
-                    ArrivalTitle(venue.place, gradient: true),
+                    StageTitle(venue.place, gradient: true),
                     const SizedBox(height: NeoSpace.sm),
                     Text(
                       '${venue.title} · ${venue.presentCount} présents',
@@ -942,7 +1059,7 @@ class _RadarStepState extends ConsumerState<_RadarStep> {
                     ),
                     if (venue.isDemo) ...[
                       const SizedBox(height: NeoSpace.md),
-                      const DemoChip('DÉMO — aucune soirée trouvée autour'),
+                      const StageChip('DÉMO — aucune soirée trouvée autour'),
                     ],
                   ],
                 ),
@@ -987,8 +1104,9 @@ class _InsideStepState extends ConsumerState<_InsideStep>
     );
     if (!mounted || replay == null) return;
     if (replay) {
-      ref.invalidate(arrivalFlowProvider);
+      ref.read(arrivalFlowProvider(context.arrivalMode).notifier).startTest();
     } else {
+      ref.read(arrivalFlowProvider(context.arrivalMode).notifier).reset();
       Navigator.of(context).pop();
     }
   }
@@ -996,7 +1114,7 @@ class _InsideStepState extends ConsumerState<_InsideStep>
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final s = ref.watch(arrivalFlowProvider);
+    final s = ref.watch(arrivalFlowProvider(context.arrivalMode));
     final venue = s.venue ?? ArrivalVenue.demo;
     final others = (venue.presentCount - 1).clamp(0, 9999);
 
@@ -1014,7 +1132,7 @@ class _InsideStepState extends ConsumerState<_InsideStep>
               0,
               Column(
                 children: [
-                  const ArrivalTitle('Tu es dedans.', gradient: true),
+                  const StageTitle('Tu es dedans.', gradient: true),
                   const SizedBox(height: NeoSpace.xs),
                   Text(
                     '${venue.place} · ${venue.title}',
@@ -1022,7 +1140,7 @@ class _InsideStepState extends ConsumerState<_InsideStep>
                   ),
                   if (venue.isDemo) ...[
                     const SizedBox(height: NeoSpace.sm),
-                    const DemoChip('DÉMO'),
+                    const StageChip('DÉMO'),
                   ],
                 ],
               ),
@@ -1146,7 +1264,7 @@ class _Presents extends StatelessWidget {
                       size: size,
                     ),
                   ),
-                ArrivalHalo(
+                StageHalo(
                   size: size,
                   breathing: false,
                   ringSpeed: 0.5,
@@ -1349,7 +1467,7 @@ class _EndOfTest extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const ArrivalTitle('Fin du test'),
+            const StageTitle('Fin du test'),
             const SizedBox(height: NeoSpace.md),
             Text(
               'Ici s\'ouvrirait la caméra, en mode Drop : ta première Vibe '
@@ -1372,4 +1490,25 @@ class _EndOfTest extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Ce que le serveur a refusé, dit en une phrase, juste au-dessus du geste.
+class _ErrorLine extends StatelessWidget {
+  const _ErrorLine(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: NeoSpace.md),
+    child: Text(
+      text,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        color: context.palette.warm,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+      ),
+    ),
+  );
 }

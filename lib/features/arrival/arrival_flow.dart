@@ -2,22 +2,36 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/models/event.dart';
+import '../../core/supabase_providers.dart';
+import '../auth/auth_repository.dart';
 import '../events/events_providers.dart';
+import '../profile/avatar_service.dart';
+import '../profile/profile_repository.dart';
 import 'arrival_permissions.dart';
 
-/// **L'arrivée en soirée — le parcours de test (développeur, 2026-09-24).**
+/// **L'arrivée en soirée** — le parcours d'entrée dans NeoVibe (2026-09-24).
 ///
-/// Consigne de Jay : *« un test activable depuis les paramètres développeur
-/// pour l'initialisation en soirée de l'app […] carte blanche, c'est à part,
-/// c'est une interface test »*.
+/// Né comme interface de test (Développeur › Outils), validé par Jay le même
+/// jour et devenu **la vraie inscription** : *« l'UI de test est validée, on
+/// l'implémente »*.
 ///
-/// ⚠️ **Ce parcours n'écrit RIEN** : ni compte, ni profil, ni présence dans un
-/// événement. Il lit de vraies choses (les autorisations, la position, les
-/// soirées autour) et simule le reste — ce qui est simulé porte le mot
-/// « démo » à l'écran. Le selfie reste un fichier temporaire de la caméra,
-/// effacé à la sortie du test.
+/// ## Deux modes, deux mémoires — jamais la même
+///
+/// | | [ArrivalMode.test] | [ArrivalMode.real] |
+/// |---|---|---|
+/// | ouvert par | Développeur › Outils | `RootGate` : pas de compte, ou pas de profil |
+/// | écrit | **rien** | le compte, le profil, la photo |
+/// | après les autorisations | radar et soirée **simulés** | la vraie app, puis le vrai radar (`EventFinderScreen`) |
+///
+/// Chaque mode a SA mémoire (`arrivalFlowProvider(mode)`) : un test lancé
+/// depuis les réglages ne peut pas toucher à une inscription, ni l'inverse
+/// (règle 2 : deux objets aux règles différentes ne partagent pas le même
+/// rangement).
+enum ArrivalMode { test, real }
+
 enum ArrivalStep {
   /// L'accroche : « ce soir, ça se passe ici ».
   threshold,
@@ -28,7 +42,7 @@ enum ArrivalStep {
   /// Le selfie, obligatoire — la photo de profil temporaire.
   selfie,
 
-  /// Le compte (simulé dans le test).
+  /// Le compte (simulé dans le test ; sauté si on a déjà un compte).
   account,
 
   /// Position, Bluetooth, notifications — une à la fois.
@@ -94,6 +108,10 @@ class ArrivalState {
     this.notifications,
     this.venue,
     this.searching = false,
+    this.active = false,
+    this.hasAccount = false,
+    this.busy = false,
+    this.error,
   });
 
   final ArrivalStep step;
@@ -110,6 +128,21 @@ class ArrivalState {
   final ArrivalVenue? venue;
   final bool searching;
 
+  /// **Mode réel** : une inscription est en cours. Tant que c'est vrai,
+  /// `RootGate` garde ce parcours à l'écran, même quand le compte puis le
+  /// profil apparaissent — sans ça, l'app basculerait vers l'accueil au milieu
+  /// de l'inscription et les autorisations ne seraient jamais demandées.
+  final bool active;
+
+  /// On arrive déjà connecté (compte sans profil) : pas d'étape « compte ».
+  final bool hasAccount;
+
+  /// Une écriture est en cours (compte, profil, photo).
+  final bool busy;
+
+  /// Ce que le serveur a répondu de travers, en une phrase lisible.
+  final String? error;
+
   String get initial =>
       firstName.isEmpty ? '' : firstName.characters.first.toUpperCase();
 
@@ -123,6 +156,11 @@ class ArrivalState {
     ArrivalGrant? notifications,
     ArrivalVenue? venue,
     bool? searching,
+    bool? active,
+    bool? hasAccount,
+    bool? busy,
+    String? error,
+    bool clearError = false,
   }) => ArrivalState(
     step: step ?? this.step,
     firstName: firstName ?? this.firstName,
@@ -132,19 +170,61 @@ class ArrivalState {
     notifications: notifications ?? this.notifications,
     venue: venue ?? this.venue,
     searching: searching ?? this.searching,
+    active: active ?? this.active,
+    hasAccount: hasAccount ?? this.hasAccount,
+    busy: busy ?? this.busy,
+    error: clearError ? null : (error ?? this.error),
   );
 }
 
 /// Le serveur du parcours : il enchaîne les étapes et demande à la cuisine
 /// ([ArrivalPermissions], les soirées autour). **Il ne dessine rien.**
 class ArrivalFlow extends Notifier<ArrivalState> {
+  ArrivalFlow(this.mode);
+
+  final ArrivalMode mode;
+
+  bool get _real => mode == ArrivalMode.real;
+
   @override
   ArrivalState build() {
-    // Le selfie du test est un fichier temporaire de la caméra : il ne
-    // survit pas au test. Lu au moment de la fermeture, pas à la
-    // construction — c'est le dernier pris qui compte.
+    // Le selfie est un fichier temporaire de la caméra : il ne survit pas au
+    // parcours. Lu au moment de la fermeture, pas à la construction — c'est
+    // le dernier pris qui compte.
     ref.onDispose(() => _discard(_selfie));
     return const ArrivalState();
+  }
+
+  /// Le profil a déjà été créé pendant ce passage : une nouvelle tentative
+  /// (photo qui a échoué) ne doit pas le recréer.
+  var _profileCreated = false;
+
+  /// Le test repart de zéro à chaque ouverture (sa mémoire vit plus longtemps
+  /// que l'écran : elle est partagée par mode, pas par écran).
+  void startTest() {
+    assert(!_real);
+    reset();
+  }
+
+  /// Remet le parcours à son début et efface le selfie.
+  void reset() {
+    _discard(_selfie);
+    _selfie = null;
+    _profileCreated = false;
+    state = const ArrivalState();
+  }
+
+  /// **Mode réel** : l'inscription commence. [hasAccount] : on est déjà
+  /// connecté (compte sans profil) — on part du prénom, sans étape compte.
+  void begin({required bool hasAccount}) {
+    assert(_real);
+    if (state.active) return;
+    state = state.copyWith(
+      active: true,
+      hasAccount: hasAccount,
+      step: ArrivalStep.name,
+      clearError: true,
+    );
   }
 
   /// Le dernier selfie pris, tenu hors de l'état pour pouvoir l'effacer à la
@@ -161,15 +241,156 @@ class ArrivalFlow extends Notifier<ArrivalState> {
   void goTo(ArrivalStep step) => state = state.copyWith(step: step);
 
   /// Revenir d'une étape — jamais avant l'accroche, jamais depuis la soirée.
+  ///
+  /// En mode réel, jamais non plus en deçà de ce qui est déjà écrit : une fois
+  /// le compte et le profil créés (étape autorisations), revenir au selfie ou
+  /// au compte n'aurait plus de sens. Et quand on arrive déjà connecté, le
+  /// prénom est la première étape.
   bool back() {
+    if (state.busy) return true;
     final i = state.step.index;
     if (i == 0 || state.step == ArrivalStep.inside) return false;
+    if (_real) {
+      if (state.step == ArrivalStep.permissions) return false;
+      if (state.hasAccount && state.step == ArrivalStep.name) return false;
+      if (state.step == ArrivalStep.name) {
+        // Retour à l'accroche : l'inscription n'est plus en cours.
+        state = state.copyWith(
+          step: ArrivalStep.threshold,
+          active: false,
+          clearError: true,
+        );
+        return true;
+      }
+    }
     // La recherche se relance d'elle-même : on revient aux autorisations.
     goTo(ArrivalStep.values[i - 1]);
     return true;
   }
 
-  void setName(String value) => state = state.copyWith(firstName: value.trim());
+  // ─── Mode réel : les écritures ─────────────────────────────────────────
+
+  /// « Je garde » sur le selfie. Déjà connecté : le profil se crée maintenant.
+  /// Sinon, direction le compte.
+  Future<void> keepSelfie() async {
+    if (!_real) {
+      goTo(ArrivalStep.account);
+      return;
+    }
+    if (!state.hasAccount) {
+      goTo(ArrivalStep.account);
+      return;
+    }
+    await _write(() async {
+      await _createProfile();
+      state = state.copyWith(step: ArrivalStep.permissions);
+    });
+  }
+
+  /// Crée le compte, puis le profil (prénom + selfie). **Le serveur borne les
+  /// comptes par téléphone** (`hook_before_user_created`) : son refus devient
+  /// [ArrivalState.error].
+  Future<void> createAccount({
+    required String email,
+    required String password,
+  }) async {
+    if (!_real) {
+      state = state.copyWith(busy: true);
+      // Le test n'écrit rien : le temps d'un vrai aller-retour, pour sentir
+      // le rythme.
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      state = state.copyWith(busy: false, step: ArrivalStep.permissions);
+      return;
+    }
+    await _write(() async {
+      final outcome = await ref
+          .read(authRepositoryProvider)
+          .signUp(email: email, password: password);
+      if (outcome == SignUpOutcome.mustConfirmEmail) {
+        throw const _Readable(
+          'Compte créé, mais le serveur demande de confirmer le mail. '
+          'Confirme-le, puis connecte-toi.',
+        );
+      }
+      // Le compte existe désormais : si le profil échoue (prénom déjà pris),
+      // on ne repasse PAS par l'inscription — elle répondrait « déjà
+      // inscrit ». Le selfie gardé créera le profil (voir [keepSelfie]).
+      state = state.copyWith(hasAccount: true);
+      await _createProfile();
+      state = state.copyWith(step: ArrivalStep.permissions);
+    });
+  }
+
+  /// Le profil : le prénom, puis le selfie comme **photo de profil
+  /// temporaire** (Jay, 2026-09-24). Même ordre que l'ancien écran : la ligne
+  /// d'abord, la photo ensuite (`AvatarService.upload` met à jour la ligne).
+  Future<void> _createProfile() async {
+    final userId = ref.read(supabaseProvider).auth.currentUser?.id;
+    if (userId == null) throw const _Readable('Pas de session ouverte.');
+    if (!_profileCreated) {
+      await ref
+          .read(profileRepositoryProvider)
+          .create(userId: userId, displayName: state.firstName);
+      _profileCreated = true;
+    }
+    final selfie = state.selfie;
+    if (selfie != null) {
+      final avatars = ref.read(avatarServiceProvider);
+      await avatars.upload(await avatars.squareFromPhoto(selfie));
+    }
+    ref.invalidate(myProfileProvider);
+  }
+
+  /// **Mode réel** : fin du parcours. `RootGate` reprend la main (l'accueil),
+  /// et le vrai radar s'ouvre par-dessus ([arrivalWantsFinderProvider]).
+  void finish() {
+    assert(_real);
+    ref.read(arrivalWantsFinderProvider.notifier).request();
+    reset();
+  }
+
+  Future<void> _write(Future<void> Function() body) async {
+    state = state.copyWith(busy: true, clearError: true);
+    try {
+      await body();
+      state = state.copyWith(busy: false);
+    } catch (e) {
+      // ⚠️ **Le nom affiché est UNIQUE dans NeoVibe** (index
+      // `profiles_username_unique` sur `lower(display_name)`, relevé en base
+      // le 2026-09-24). Avec un prénom, c'est fréquent : on renvoie au prénom,
+      // compte et selfie conservés.
+      if ('$e'.contains('profiles_username_unique')) {
+        state = state.copyWith(
+          busy: false,
+          step: ArrivalStep.name,
+          error:
+              '« ${state.firstName} » est déjà pris sur NeoVibe. Ajoute '
+              'l\'initiale de ton nom, par exemple « ${state.firstName} B. ».',
+        );
+        return;
+      }
+      state = state.copyWith(busy: false, error: _readable(e));
+    }
+  }
+
+  static String _readable(Object e) {
+    if (e is _Readable) return e.message;
+    if (e is AuthException) {
+      final m = e.message.toLowerCase();
+      if (m.contains('already registered') || m.contains('already exists')) {
+        return 'Ce mail a déjà un compte : connecte-toi.';
+      }
+      if (m.contains('password')) {
+        return 'Mot de passe refusé : 6 caractères au moins.';
+      }
+      // Les refus du plafond par téléphone arrivent déjà en français.
+      return e.message;
+    }
+    return 'Ça n\'a pas marché : $e';
+  }
+
+  void setName(String value) =>
+      state = state.copyWith(firstName: value.trim(), clearError: true);
 
   void setSelfie(File file) {
     if (_selfie?.path != file.path) _discard(_selfie);
@@ -233,8 +454,39 @@ class ArrivalFlow extends Notifier<ArrivalState> {
   }
 }
 
+/// **Une mémoire par mode** (voir [ArrivalMode]). Pas d'`autoDispose` : en
+/// mode réel, le parcours doit survivre aux reconstructions de `RootGate`
+/// (le compte, puis le profil, apparaissent pendant l'inscription).
 final arrivalFlowProvider =
-    NotifierProvider.autoDispose<ArrivalFlow, ArrivalState>(ArrivalFlow.new);
+    NotifierProvider.family<ArrivalFlow, ArrivalState, ArrivalMode>(
+      ArrivalFlow.new,
+    );
+
+/// Le parcours réel vient de se terminer : ouvrir le vrai radar par-dessus
+/// l'accueil, une fois. Lu et remis à zéro par `RootGate`.
+class ArrivalWantsFinder extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void request() => state = true;
+
+  /// Rend vrai une seule fois.
+  bool take() {
+    if (!state) return false;
+    state = false;
+    return true;
+  }
+}
+
+final arrivalWantsFinderProvider = NotifierProvider<ArrivalWantsFinder, bool>(
+  ArrivalWantsFinder.new,
+);
+
+/// Une erreur dont le message est déjà écrit pour Jay.
+class _Readable implements Exception {
+  const _Readable(this.message);
+  final String message;
+}
 
 /// Le contenu simulé de la soirée de démonstration.
 ///
