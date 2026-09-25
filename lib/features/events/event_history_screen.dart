@@ -10,6 +10,7 @@ import '../cards/saved_items_screen.dart';
 import '../connections/connections_repository.dart';
 import '../gallery/moment_store.dart';
 import '../library_vibes/conversation_library_screen.dart';
+import 'event_recap_screen.dart';
 import 'events_providers.dart';
 
 /// **L'historique de mes événements** — les soirées où j'ai été, en albums :
@@ -247,6 +248,19 @@ class MomentScreen extends ConsumerWidget {
                 ),
               ),
             ),
+            // Le générique de fin, tant que le serveur garde l'événement :
+            // une soirée terminée n'est plus dans « Mes événements »
+            // (2026-09-25), c'est d'ici qu'on le revoit.
+            if (live.isClosed)
+              TextButton.icon(
+                icon: const Icon(Icons.movie_outlined, size: 18),
+                label: const Text('Revoir le générique'),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => EventRecapScreen(eventId: live.id),
+                  ),
+                ),
+              ),
           ],
           if (m.friends.isNotEmpty) ...[
             const SizedBox(height: 20),

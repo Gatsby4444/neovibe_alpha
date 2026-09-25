@@ -102,14 +102,30 @@ class EventsScreen extends ConsumerWidget {
               loading: () => const _Chargement(),
               error: (e, _) => _Message(messageServeur(e)),
               data: (list) {
+                // En cours ou à venir seulement (Jay, 2026-09-25) : une
+                // soirée terminée vit dans l'Historique, pas ici.
                 final miens = [
                   for (final e in list)
-                    if (e.id != currentId) e,
+                    if (e.id != currentId && !e.isClosed) e,
                 ];
                 if (miens.isEmpty) {
-                  return const _Message(
-                    'Aucun événement pour l\'instant. Crée une soirée avec '
-                    'tes amis, ou rejoins un lieu autour de toi.',
+                  final passees = list.any((e) => e.isClosed);
+                  return _Message(
+                    passees
+                        ? 'Aucun événement en cours ou à venir. Tes soirées '
+                              'passées sont dans l\'Historique.'
+                        : 'Aucun événement pour l\'instant. Crée une soirée '
+                              'avec tes amis, ou rejoins un lieu autour de toi.',
+                    action: passees
+                        ? TextButton(
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => const EventHistoryScreen(),
+                              ),
+                            ),
+                            child: const Text('Ouvrir l\'Historique'),
+                          )
+                        : null,
                   );
                 }
                 return Column(
