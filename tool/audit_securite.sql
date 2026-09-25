@@ -58,6 +58,8 @@ select pg_temp.essai('Vibe 1/1 sauvegardable', 'refusé',
   $q$insert into cards (owner_id, card_type, front_path, saveable) values ('e1fcb9b0-619d-40d5-9e6c-25ea35cb8a0c', 'one_of_one', 'x', true)$q$);
 select pg_temp.essai('Oneshot avec durée de lecture', 'refusé',
   $q$insert into cards (owner_id, card_type, front_path, back_path, view_duration_seconds) values ('e1fcb9b0-619d-40d5-9e6c-25ea35cb8a0c', 'oneshot', 'x', 'y', 5)$q$);
+select pg_temp.essai('soirée d''une taille inventée (77 m)', 'refusé',
+  $q$select public.create_open_event('Audit', 45.76, 4.83, now() + interval '2 hours', 77, 10)$q$);
 select pg_temp.essai('soirée ouverte avec une position à ± 2 km', 'refusé',
   $q$select public.create_open_event('Audit', 45.76, 4.83, now() + interval '2 hours', null, 2000)$q$);
 insert into ev select public.create_open_event('Soirée de Charles', 45.76, 4.83, now() + interval '3 hours', null, 10);
@@ -84,6 +86,10 @@ select pg_temp.essai('un inconnu change la description d''une soirée', 'refusé
   $q$select public.set_event_details('120dbec7-08ca-4a38-8d93-c743dc0793df', 'piraté', null)$q$);
 select pg_temp.essai('un inconnu dépose une affiche pour la soirée d''un autre', 'refusé',
   $q$insert into storage.objects (bucket_id, name, owner_id) values ('event_posters', '00000000-0000-4000-8000-000000000092/120dbec7-08ca-4a38-8d93-c743dc0793df/poster_x.jpg', '00000000-0000-4000-8000-000000000092')$q$);
+
+-- La taille d'une soirée (2026-09-25).
+select pg_temp.essai('un inconnu change la taille d''une soirée', 'refusé',
+  format($q$select public.set_event_size(%L, 'plein_air')$q$, (select id from ev)));
 
 select n, cas, attendu, resultat,
        (attendu = 'accepté') = (resultat = 'accepté') as ok

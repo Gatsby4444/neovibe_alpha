@@ -9,6 +9,7 @@ import '../../core/utils/formats.dart';
 import '../../core/widgets/top_banner.dart';
 import '../proximity/geo/live_position.dart';
 import 'event_poster.dart';
+import 'event_size_picker.dart';
 import 'events_providers.dart';
 import 'events_repository.dart';
 
@@ -153,6 +154,17 @@ class _EventSettingsScreenState extends ConsumerState<EventSettingsScreen> {
                     ),
                   ),
           ),
+          // La taille (2026-09-25) : jusqu'où l'on entre, et d'où l'on sort.
+          if (event.hasPlace)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: EventSizePicker(
+                value: EventSize.fromRadius(event.radiusM) ?? EventSize.bar,
+                onChanged: _busy
+                    ? null
+                    : (s) => _apply((r) => r.setSize(event.id, s)),
+              ),
+            ),
           ListTile(
             leading: const Icon(Icons.schedule),
             title: Text(prive ? 'Fin prévue' : 'Horaire de fermeture'),

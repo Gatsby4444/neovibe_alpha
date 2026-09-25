@@ -77,6 +77,38 @@ enum PersonRelation {
   };
 }
 
+/// **La taille d'une soirée** (Jay, 2026-09-25) : son rayon d'ENTRÉE. On en
+/// sort à deux fois ce rayon (`event_rules.exit_factor`). Les nombres sont
+/// ceux du serveur (`event_rules.size_*_m`), qui refuse toute autre valeur.
+enum EventSize {
+  bar(50, 'Bar / appartement', 'On entre à 50 m'),
+  grand(120, 'Grand lieu', 'Club, salle — 120 m'),
+  pleinAir(300, 'Plein air / festival', 'Parc, festival — 300 m');
+
+  const EventSize(this.radiusM, this.label, this.detail);
+  final int radiusM;
+  final String label;
+  final String detail;
+
+  /// La marge de précision à l'entrée (`event_rules.entry_margin_max_m`).
+  static const entryMarginM = 30;
+
+  /// Le nom attendu par `set_event_size`.
+  String get dbValue => switch (this) {
+    EventSize.bar => 'bar',
+    EventSize.grand => 'grand',
+    EventSize.pleinAir => 'plein_air',
+  };
+
+  /// La taille d'un rayon ; nul si ce n'en est pas une (soirée d'avant).
+  static EventSize? fromRadius(int? radiusM) {
+    for (final s in values) {
+      if (s.radiusM == radiusM) return s;
+    }
+    return null;
+  }
+}
+
 /// L'événement, tel que `my_events()` le rend.
 @immutable
 class NeoEvent {
@@ -414,7 +446,11 @@ class NearbyEvent {
 
   /// Assez près pour entrer — le serveur reste seul juge, ceci ne sert qu'à
   /// dire à l'utilisateur ce qui va se passer.
-  bool get withinReach => distanceM <= radiusM + 100;
+  ///
+  /// La marge est celle du serveur pour ENTRER (`event_rules.entry_margin_max_m`,
+  /// 30 m depuis le 2026-09-25) — elle valait 100 m ici, et « Tu y es »
+  /// s'affichait à des soirées où le serveur refusait l'entrée.
+  bool get withinReach => distanceM <= radiusM + EventSize.entryMarginM;
 
   factory NearbyEvent.fromJson(Map<String, dynamic> json) => NearbyEvent(
     id: json['id'] as String,

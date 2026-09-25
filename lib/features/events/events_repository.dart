@@ -149,6 +149,7 @@ class EventsRepository {
     required double lon,
     required DateTime endsAt,
     required double accuracy,
+    EventSize size = EventSize.bar,
     String? placeName,
   }) async {
     final id =
@@ -162,6 +163,8 @@ class EventsRepository {
                 // La précision de la position : le serveur refuse au-delà
                 // de `event_rules.place_max_accuracy_m` (2026-09-25).
                 'p_acc': accuracy,
+                // La taille : un des trois rayons, le serveur refuse le reste.
+                'p_radius_m': size.radiusM,
               },
             )
             as String;
@@ -169,6 +172,18 @@ class EventsRepository {
     _eventsChanged();
     ref.invalidate(nearbyEventsProvider);
     return id;
+  }
+
+  /// **La taille de la soirée** (2026-09-25) — son rayon d'entrée ; on en
+  /// sort à deux fois. Organisateur seul, soirée en cours, et avec un lieu
+  /// (`set_event_size`).
+  Future<void> setSize(String eventId, EventSize size) async {
+    await _client.rpc(
+      'set_event_size',
+      params: {'p_event': eventId, 'p_size': size.dbValue},
+    );
+    _eventsChanged();
+    ref.invalidate(nearbyEventsProvider);
   }
 
   /// **Le nom du lieu** (2026-09-25) : posé par le créateur, il figure sur

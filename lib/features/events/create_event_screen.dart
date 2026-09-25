@@ -13,7 +13,9 @@ import '../../core/widgets/top_banner.dart';
 import '../connections/connections_repository.dart';
 import '../proximity/geo/coarse_location.dart';
 import '../proximity/geo/live_position.dart';
+import '../../core/models/event.dart';
 import 'event_poster.dart';
+import 'event_size_picker.dart';
 import 'event_screen.dart';
 import 'events_repository.dart';
 
@@ -57,6 +59,10 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   /// entre sur place ; visible de qui passe à portée. Là où je suis, tout de
   /// suite, et une heure de fin.
   var _open = false;
+
+  /// La taille de la soirée (2026-09-25) : Bar par défaut. N'a de sens
+  /// qu'avec un lieu.
+  var _size = EventSize.bar;
   var _openHours = 4;
 
   @override
@@ -179,6 +185,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               lat: _place!.latitude,
               lon: _place!.longitude,
               accuracy: _place!.accuracy,
+              size: _size,
               endsAt: DateTime.now().add(Duration(hours: _openHours)),
               placeName: _placeName.text,
             )
@@ -191,6 +198,15 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               memberIds: _selected.toList(),
               placeName: _placeName.text,
             );
+      // Une soirée privée avec un lieu : sa taille, si ce n'est pas celle
+      // par défaut (l'ouverte la reçoit à la création).
+      if (!_open && _place != null && _size != EventSize.bar) {
+        try {
+          await repo.setSize(id, _size);
+        } catch (_) {
+          // La soirée existe, en taille Bar : réglable ensuite.
+        }
+      }
       // L'affiche et la description : la soirée existe déjà ; un échec ici
       // ne l'annule pas, il se dit et se corrige dans les réglages.
       if (_poster != null || _description.text.trim().isNotEmpty) {
@@ -362,6 +378,13 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
                     onPressed: () => setState(() => _place = null),
                   ),
           ),
+          if (_open || _place != null) ...[
+            const SizedBox(height: 4),
+            EventSizePicker(
+              value: _size,
+              onChanged: _loading ? null : (s) => setState(() => _size = s),
+            ),
+          ],
           const SizedBox(height: 8),
           if (_open)
             Text(
