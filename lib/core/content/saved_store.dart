@@ -5,6 +5,8 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../location/capture_places.dart';
+import '../location/city_index.dart';
 import '../models/card.dart';
 import '../supabase_providers.dart';
 
@@ -16,6 +18,31 @@ import '../supabase_providers.dart';
 /// clé ne désigne aucun contenu serveur, et une constante posée chez celui qui
 /// s'en sert ne peut pas dériver de celui qui la fabrique.
 const localIdPrefix = 'local-';
+
+/// **Quand, où, et de quelle soirée** — ce que la galerie montre d'une Vibe
+/// (Jay, 2026-09-25 : *« des Vibes datées et localisées »*).
+///
+/// Tout est facultatif : une Vibe reçue d'un ami n'a pas de lieu (le sien ne
+/// nous est pas partagé), une sauvegarde d'avant le 2026-09-25 n'a rien.
+class SavedPlace {
+  const SavedPlace({
+    this.takenAt,
+    this.lat,
+    this.lon,
+    this.placeName,
+    this.eventId,
+    this.eventTitle,
+  });
+
+  final DateTime? takenAt;
+  final double? lat;
+  final double? lon;
+
+  /// Le nom du lieu posé par le créateur d'un événement (« Le Sucre »).
+  final String? placeName;
+  final String? eventId;
+  final String? eventTitle;
+}
 
 /// Une sauvegarde : une copie **locale et en clair** d'un contenu.
 ///
@@ -35,6 +62,13 @@ class SavedItem {
     this.backIsVideo = false,
     this.authorName,
     this.mine = false,
+    this.takenAt,
+    this.lat,
+    this.lon,
+    this.city,
+    this.placeName,
+    this.eventId,
+    this.eventTitle,
   });
 
   /// Content ID — ou identifiant de Card pour une Vibe reçue en chat.
@@ -53,7 +87,29 @@ class SavedItem {
   /// Mon propre contenu, par opposition à celui de quelqu'un d'autre.
   final bool mine;
 
+  /// Quand la Vibe a été prise (ou postée, pour celle d'un autre) — nulle
+  /// pour une sauvegarde d'avant le 2026-09-25 : on retombe sur [savedAt].
+  final DateTime? takenAt;
+  final double? lat;
+  final double? lon;
+
+  /// La ville, trouvée SUR le téléphone à l'enregistrement (`CityIndex`).
+  final String? city;
+
+  /// Le nom du lieu d'un événement (posé par son créateur).
+  final String? placeName;
+  final String? eventId;
+  final String? eventTitle;
+
   bool get hasBack => backPath != null;
+
+  /// La date que la galerie range et affiche.
+  DateTime get when => takenAt ?? savedAt;
+
+  /// Ce que la galerie écrit sous la Vibe : le lieu nommé, sinon la ville.
+  String? get where => placeName ?? city;
+
+  bool get fromEvent => eventId != null;
 
   Map<String, dynamic> toJson() => {
     'cardType': cardType.dbValue,
@@ -64,6 +120,13 @@ class SavedItem {
     'savedAt': savedAt.toIso8601String(),
     'authorName': authorName,
     'mine': mine,
+    'takenAt': takenAt?.toIso8601String(),
+    'lat': lat,
+    'lon': lon,
+    'city': city,
+    'placeName': placeName,
+    'eventId': eventId,
+    'eventTitle': eventTitle,
   };
 
   factory SavedItem.fromJson(String id, Map<String, dynamic> j) => SavedItem(
@@ -76,6 +139,13 @@ class SavedItem {
     savedAt: DateTime.tryParse(j['savedAt'] as String? ?? '') ?? DateTime.now(),
     authorName: j['authorName'] as String?,
     mine: j['mine'] as bool? ?? false,
+    takenAt: DateTime.tryParse(j['takenAt'] as String? ?? ''),
+    lat: (j['lat'] as num?)?.toDouble(),
+    lon: (j['lon'] as num?)?.toDouble(),
+    city: j['city'] as String?,
+    placeName: j['placeName'] as String?,
+    eventId: j['eventId'] as String?,
+    eventTitle: j['eventTitle'] as String?,
   );
 }
 
@@ -141,8 +211,63 @@ class SavedStore {
           ),
         )
         .toList();
-    list.sort((a, b) => b.savedAt.compareTo(a.savedAt));
+    // Le plus récemment PRIS d'abord (2026-09-25) ; à défaut, enregistré.
+    list.sort((a, b) => b.when.compareTo(a.when));
     return list;
+  }
+
+  /// **Le seul endroit qui date et situe une sauvegarde** (2026-09-25).
+  ///
+  /// Ce que l'appelant sait, sinon — pour MA Vibe — son lieu de prise dans
+  /// le journal privé (`capture_places`) ; la ville se trouve sur le
+  /// téléphone. Ne lève jamais : une sauvegarde sans lieu reste une
+  /// sauvegarde.
+  Future<({SavedPlace? place, String? city})> _resoudre(
+    String contentId,
+    bool mine,
+    SavedPlace? place,
+  ) async {
+    var p = place;
+    try {
+      if (p == null && mine && !contentId.startsWith(localIdPrefix)) {
+        final stamp = await ref.read(capturePlacesProvider).of(contentId);
+        if (stamp != null) {
+          p = SavedPlace(
+            takenAt: stamp.takenAt,
+            lat: stamp.anchor?.lat,
+            lon: stamp.anchor?.lng,
+          );
+        }
+      }
+      final lat = p?.lat;
+      final lon = p?.lon;
+      final city = lat == null || lon == null
+          ? null
+          : (await ref.read(cityIndexProvider.future)).nearest(lat, lon);
+      return (place: p, city: city);
+    } catch (_) {
+      return (place: p, city: null);
+    }
+  }
+
+  /// Complète la date, le lieu et la soirée d'une sauvegarde qui n'en a pas
+  /// — les Vibes de soirée gardées avant le 2026-09-25. Ne touche à rien de
+  /// ce qui est déjà là.
+  Future<void> annotate(String contentId, SavedPlace place) async {
+    final index = await _load();
+    final raw = (index[contentId] as Map?)?.cast<String, dynamic>();
+    if (raw == null || raw['eventId'] != null) return;
+    final lieu = await _resoudre(contentId, false, place);
+    raw
+      ..['takenAt'] ??= place.takenAt?.toIso8601String()
+      ..['lat'] ??= place.lat
+      ..['lon'] ??= place.lon
+      ..['city'] ??= lieu.city
+      ..['placeName'] ??= place.placeName
+      ..['eventId'] = place.eventId
+      ..['eventTitle'] ??= place.eventTitle;
+    index[contentId] = raw;
+    await _save();
   }
 
   Future<bool> isSaved(String contentId) async =>
@@ -164,6 +289,7 @@ class SavedStore {
     bool backIsVideo = false,
     String? authorName,
     bool mine = false,
+    SavedPlace? place,
   }) async {
     // Le bouton se remplit à l'appui, pas à la fin de l'écriture : c'est ici
     // que « en cours » commence, et c'est le magasin qui le dit — pas chaque
@@ -183,6 +309,7 @@ class SavedStore {
         await writeBack(File(backPath));
       }
 
+      final lieu = await _resoudre(contentId, mine, place);
       final index = await _load();
       index[contentId] = SavedItem(
         contentId: contentId,
@@ -194,6 +321,13 @@ class SavedStore {
         savedAt: DateTime.now(),
         authorName: authorName,
         mine: mine,
+        takenAt: lieu.place?.takenAt,
+        lat: lieu.place?.lat,
+        lon: lieu.place?.lon,
+        city: lieu.city,
+        placeName: lieu.place?.placeName,
+        eventId: lieu.place?.eventId,
+        eventTitle: lieu.place?.eventTitle,
       ).toJson();
       await _save();
     } finally {

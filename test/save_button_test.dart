@@ -30,6 +30,7 @@ class _MagasinLent extends SavedStore {
     bool backIsVideo = false,
     String? authorName,
     bool mine = false,
+    SavedPlace? place,
   }) async {
     ref.read(savingIdsProvider.notifier).start(contentId);
     try {

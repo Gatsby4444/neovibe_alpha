@@ -12,6 +12,7 @@ import 'package:permission_handler/permission_handler.dart';
 import '../../core/diagnostics/app_log.dart';
 import '../../core/drafts/draft_store.dart';
 import '../../core/location/anchor.dart';
+import '../../core/location/capture_places.dart';
 import '../../core/motion.dart';
 import '../../core/utils/ids.dart';
 
@@ -174,6 +175,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   ContentAnchor? _anchor;
   Future<void>? _anchorLookup;
 
+  /// L'heure de la prise — la première face posée (2026-09-25, la galerie
+  /// date chaque Vibe).
+  DateTime? _takenAt;
+
   /// D'où vient chaque face : caméra, galerie ou fond uni (2026-09-25 — le
   /// Drop n'accepte que la caméra, et le serveur le vérifie).
   var _frontOrigin = FaceOrigin.camera;
@@ -334,6 +339,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       _step = s.step == 'capture' ? (s.front == null ? 0 : 1) : 2;
       _resumedStep = s.step;
       _anchor = s.anchor;
+      _takenAt = s.takenAt;
       _keeper = VibeDraftKeeper(
         ProviderScope.containerOf(
           context,
@@ -455,6 +461,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   Future<File> _adoptFace(File f) async {
     // La position, une fois par prise, sans attendre : elle sera là pour
     // « À qui ? » — ou pas, et la puce « Localisée » le dira.
+    _takenAt ??= DateTime.now();
     _anchorLookup ??= ref.read(anchorSourceProvider).current().then((a) {
       if (mounted && a != null) setState(() => _anchor = a);
     });
@@ -483,7 +490,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         ..backIsVideo = _backIsVideo
         ..frontOrigin = _frontOrigin
         ..backOrigin = _backOrigin
-        ..anchor = _anchor;
+        ..anchor = _anchor
+        ..takenAt = _takenAt;
       // Le récap dit lui-même « edit » ou « share » ; ici on ne sait que
       // « une face manque » ou « tout est là ».
       if (_step < 2) {
@@ -1427,6 +1435,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       _backIsVideo = false;
       _timerSeconds = _timerRestore;
       _step = 0;
+      // ⚠️ La prise suivante a SON lieu et SON heure (2026-09-25) : la
+      // caméra reste ouverte après l'envoi, et gardait jusqu'ici la position
+      // de la Vibe précédente — prise ailleurs, elle en aurait hérité.
+      _anchor = null;
+      _anchorLookup = null;
+      _takenAt = null;
     });
     _ensureLens(back: true);
   }
@@ -1806,6 +1820,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                 cameraOnly:
                     _frontOrigin == FaceOrigin.camera &&
                     (_back == null || _backOrigin == FaceOrigin.camera),
+                stamp: CaptureStamp(
+                  takenAt: _takenAt ?? DateTime.now(),
+                  anchor: _anchor,
+                ),
               )
             : _ShareStep(
                 front: _front!,
@@ -1825,6 +1843,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                 keeper: _keeper,
                 resumedAt: _resumedStep,
                 anchor: _anchor,
+                takenAt: _takenAt,
               ),
       );
     }
@@ -2650,12 +2669,14 @@ class _ShareStep extends StatefulWidget {
     this.keeper,
     this.resumedAt,
     this.anchor,
+    this.takenAt,
   });
   final File front;
   final File? back; // null = face unique
 
   /// Où la prise a été faite (gommée), pour « Localisée ».
   final ContentAnchor? anchor;
+  final DateTime? takenAt;
 
   /// Le gardien du brouillon (retouches et plan de partage y vont).
   final VibeDraftKeeper? keeper;
@@ -2899,6 +2920,7 @@ class _ShareStepState extends State<_ShareStep> {
       frontIsVideo: widget.frontIsVideo,
       backIsVideo: widget.backIsVideo,
       anchor: widget.anchor,
+      takenAt: widget.takenAt,
       localId: _localId,
     );
     return RecipientPickerScreen(

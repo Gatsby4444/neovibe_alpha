@@ -165,11 +165,11 @@ class ProfileScreen extends ConsumerWidget {
                   onKeep: () =>
                       ref.read(arrivalAvatarProvider.notifier).forget(),
                 ),
-              // Ma galerie (2026-09-21) : les moments, en albums.
+              // Ma galerie : mes Vibes, datées et situées (2026-09-25).
               ListTile(
                 leading: const Icon(Icons.auto_awesome_motion_outlined),
                 title: const Text('Ma galerie'),
-                subtitle: const Text('Mes moments : où, quand, avec qui'),
+                subtitle: const Text('Mes Vibes : quand, où, quelle soirée'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const GalleryScreen()),

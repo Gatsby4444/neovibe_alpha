@@ -232,21 +232,27 @@ class _DropVibeEditSheetState extends ConsumerState<_DropVibeEditSheet> {
               ),
               const SizedBox(height: NeoSpace.sm),
             ],
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Sauvegardable par les autres'),
-              subtitle: Text(
-                'Ils pourront la garder. Toi, tu le peux toujours.',
-                style: TextStyle(color: context.muted),
+            // Drop d'événement : suit « éphémère » (2026-09-25).
+            if (!evenement)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Sauvegardable par les autres'),
+                subtitle: Text(
+                  'Ils pourront la garder. Toi, tu le peux toujours.',
+                  style: TextStyle(color: context.muted),
+                ),
+                value: _saveable,
+                onChanged: _busy ? null : (v) => setState(() => _saveable = v),
               ),
-              value: _saveable,
-              onChanged: _busy ? null : (v) => setState(() => _saveable = v),
-            ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Éphémère'),
               subtitle: Text(
-                _ephemeral
+                evenement
+                    ? (_ephemeral
+                          ? 'Personne ne la gardera dans sa galerie.'
+                          : 'Chaque participant la garde dans sa galerie.')
+                    : _ephemeral
                     ? 'Elle disparaîtra 24 h après le reveal.'
                     : 'Elle restera dans le Drop, en souvenir.',
                 style: TextStyle(color: context.muted),

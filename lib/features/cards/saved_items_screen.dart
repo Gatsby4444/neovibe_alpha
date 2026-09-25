@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/formats.dart';
 import '../../core/content/saved_store.dart';
 import '../../core/models/card.dart';
 import '../../core/theme.dart';
@@ -13,106 +15,11 @@ import '../../core/widgets/pull_down_to_close.dart';
 import 'flippable_card.dart';
 import '../../core/widgets/system_bars.dart';
 
-enum _SavedFilter { mine, others }
-
-/// Enregistrements : la bibliothèque PRIVÉE, visible de moi seul.
-///
-/// ⚠️ Entièrement **locale** depuis le 2026-08-11. Cet écran ne fait plus
-/// aucun appel serveur : les fichiers sont sur l'appareil, en clair, et
-/// s'affichent hors ligne. C'est le volet 3 de Jay — « plus besoin d'appeler
-/// le serveur pour les afficher, pas d'espace serveur dédié ».
-///
-/// Ce que ça corrige : `saved_cards` était en `ON DELETE CASCADE`. Si l'auteur
-/// supprimait sa Vibe, tous ceux qui l'avaient enregistrée la perdaient — alors
-/// qu'« Enregistrer » promet de garder. Désormais une sauvegarde ne dépend que
-/// de son propriétaire ; seule la **modération** peut la retirer.
-class SavedItemsScreen extends ConsumerStatefulWidget {
-  const SavedItemsScreen({super.key});
-
-  @override
-  ConsumerState<SavedItemsScreen> createState() => _SavedItemsScreenState();
-}
-
-class _SavedItemsScreenState extends ConsumerState<SavedItemsScreen> {
-  var _filter = _SavedFilter.mine;
-
-  @override
-  Widget build(BuildContext context) {
-    final saved = ref.watch(savedItemsProvider);
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Enregistrements')),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(12),
-            child: SegmentedButton<_SavedFilter>(
-              segments: const [
-                ButtonSegment(
-                  value: _SavedFilter.mine,
-                  label: Text('Moi'),
-                  icon: Icon(Icons.person, size: 16),
-                ),
-                ButtonSegment(
-                  value: _SavedFilter.others,
-                  label: Text('Les autres'),
-                  icon: Icon(Icons.people, size: 16),
-                ),
-              ],
-              selected: {_filter},
-              onSelectionChanged: (s) => setState(() => _filter = s.first),
-            ),
-          ),
-          Expanded(
-            child: saved.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text('Erreur : $e'),
-                ),
-              ),
-              data: (all) {
-                final list = all
-                    .where((i) => i.mine == (_filter == _SavedFilter.mine))
-                    .toList();
-                if (list.isEmpty) {
-                  return Center(
-                    child: Padding(
-                      padding: const EdgeInsets.all(32),
-                      child: Text(
-                        _filter == _SavedFilter.mine
-                            ? 'Rien d\'enregistré.\nCoche « Enregistrer pour '
-                                  'moi » à l\'envoi pour garder une Vibe ici, '
-                                  'définitivement.'
-                            : 'Rien d\'enregistré.\nOuvre une Vibe, une story '
-                                  'ou une publication que son auteur a rendue '
-                                  'sauvegardable, puis touche le signet.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: context.muted),
-                      ),
-                    ),
-                  );
-                }
-                return GridView.builder(
-                  padding: const EdgeInsets.fromLTRB(10, 0, 10, 80),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    mainAxisSpacing: 10,
-                    crossAxisSpacing: 10,
-                    childAspectRatio: kVibeFaceRatio,
-                  ),
-                  itemCount: list.length,
-                  itemBuilder: (context, i) => SavedTile(item: list[i]),
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+// ⚠️ **L'écran « Enregistrements » a été RETIRÉ le 2026-09-25** : la galerie
+// (`features/gallery/gallery_screen.dart`) montre désormais ces mêmes Vibes,
+// datées et situées (Jay). Deux écrans pour une même donnée, c'étaient deux
+// chemins qui auraient divergé. Restent ici la vignette et le lecteur d'un
+// Enregistrement, que la galerie et l'historique des soirées utilisent.
 
 /// Vignette d'un Enregistrement : le fichier est en clair sur l'appareil,
 /// donc rien à déchiffrer ni à télécharger.
@@ -252,6 +159,22 @@ class SavedViewerScreenState extends State<SavedViewerScreen> {
                   back: face(item.backPath!, item.backIsVideo, !_showFront),
                 )
               : TiltableCard(child: front),
+        ),
+        // Quand, où, et de quelle soirée (2026-09-25) — ce que la galerie
+        // range. Une sauvegarde d'avant n'a que sa date d'enregistrement.
+        bottomNavigationBar: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 14),
+            child: Text(
+              [
+                dayAndTime(item.when),
+                ?item.where,
+                ?item.eventTitle,
+              ].join(' · '),
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+          ),
         ),
       ),
     );

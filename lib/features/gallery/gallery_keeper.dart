@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/content/saved_store.dart';
 import '../../core/diagnostics/app_log.dart';
 import '../../core/models/event.dart';
+import '../../core/models/library_vibe.dart';
 import '../../core/supabase_providers.dart';
 import '../events/events_providers.dart';
 import '../events/events_repository.dart';
@@ -21,11 +22,11 @@ import 'moment_store.dart';
 ///    figé à sa fermeture ;
 /// 2. **garde les Vibes du Drop** à la fermeture, dans mes Enregistrements
 ///    (`SavedStore`, le cinquième contexte : en clair sur l'appareil,
-///    permanent) — **celles que leur auteur a laissées sauvegardables, et
-///    les miennes**. Les autres se regardent dans le Drop tant qu'il vit
-///    (cinq jours), puis disparaissent : c'est la règle de sauvegarde qui
-///    existe déjà, appliquée telle quelle. Jay, 2026-09-21 : *« le serveur
-///    dépose les Vibes partagées avec les amis dessus »* — c'est ce dépôt.
+///    permanent) — **toutes, sauf les éphémères** (Jay, 2026-09-25 : dans le
+///    Drop d'un événement, « sauvegardable » n'est plus une option, il suit
+///    « éphémère » — le serveur le tient, `add_vibe_to_library`). Chacune
+///    avec sa date, le lieu nommé par le créateur et le nom de la soirée :
+///    c'est ce que la galerie range et cherche.
 ///
 /// ⚠️ Il ne décide rien de la galerie : il écrit ce que le serveur dit, et
 /// la galerie lit le magasin. Rien ne remonte au serveur.
@@ -114,10 +115,24 @@ class GalleryKeeper extends Notifier<int> {
     final saved = ref.read(savedStoreProvider);
     final kept = [...already];
     final vibes = await repo.vibesOf(e.conversationId);
+    SavedPlace lieu(LibraryVibe v) => SavedPlace(
+      takenAt: v.createdAt,
+      lat: e.lat,
+      lon: e.lon,
+      placeName: e.venueName,
+      eventId: e.id,
+      eventTitle: e.title,
+    );
     for (final v in vibes) {
-      if (kept.contains(v.id)) continue;
+      if (kept.contains(v.id)) {
+        // Gardée avant le 2026-09-25, sans date ni soirée : on complète.
+        await saved.annotate(v.id, lieu(v));
+        continue;
+      }
       final mine = v.authorId == me;
-      if (!mine && !v.saveableByOthers) continue;
+      // Éphémère : elle vit le temps du Drop, la galerie ne la garde pas —
+      // la mienne comprise (Jay, 2026-09-25).
+      if (v.ephemeral) continue;
       if (!v.revealedMaintenant) continue;
       try {
         final front = await repo.openRevealed(v, isVideo: v.frontIsVideo);
@@ -132,6 +147,7 @@ class GalleryKeeper extends Notifier<int> {
           frontIsVideo: v.frontIsVideo,
           backIsVideo: v.backIsVideo,
           mine: mine,
+          place: lieu(v),
         );
         kept.add(v.id);
       } catch (err) {

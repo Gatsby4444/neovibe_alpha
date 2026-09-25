@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/prefs.dart';
-import '../../cards/saved_items_screen.dart';
+import '../../gallery/gallery_screen.dart';
 import '../settings_common.dart';
 import '../storage_screen.dart';
 
@@ -40,14 +40,17 @@ class VibesSettingsScreen extends ConsumerWidget {
           const SettingsHeader('Où vivent mes Vibes'),
           ListTile(
             leading: const Icon(Icons.bookmark),
-            title: const Text('Enregistrements'),
+            title: const Text('Ma galerie'),
             subtitle: const Text(
-              'Ta bibliothèque privée — visible de toi seul',
+              'Tes Vibes enregistrées et celles de tes soirées — '
+              'visibles de toi seul',
             ),
             trailing: const Icon(Icons.chevron_right),
+            // L'ancien écran « Enregistrements » : c'est la galerie depuis
+            // le 2026-09-25 (mêmes Vibes, un seul écran).
             onTap: () => Navigator.of(
               context,
-            ).push(MaterialPageRoute(builder: (_) => const SavedItemsScreen())),
+            ).push(MaterialPageRoute(builder: (_) => const GalleryScreen())),
           ),
           ListTile(
             leading: const Icon(Icons.storage),

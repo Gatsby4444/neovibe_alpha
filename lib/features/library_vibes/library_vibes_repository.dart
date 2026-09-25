@@ -15,6 +15,7 @@ import '../../core/models/library_vibe.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
 import '../../core/content/removals.dart';
+import '../../core/location/capture_places.dart';
 import '../conversations/conversations_repository.dart';
 import '../cards/card_media_cache.dart';
 import '../cards/native_media.dart';
@@ -85,6 +86,7 @@ class LibraryVibesRepository {
     String? challengeId,
     String? title,
     required bool cameraOnly,
+    CaptureStamp? stamp,
   }) async {
     final me = _client.auth.currentUser!.id;
     // L'identifiant est fabriqué ICI : il nomme les fichiers dans le coffre,
@@ -168,6 +170,9 @@ class LibraryVibesRepository {
         },
       );
       final vibe = LibraryVibe.fromJson(Map<String, dynamic>.from(row as Map));
+      if (stamp != null) {
+        await ref.read(capturePlacesProvider).record(vibe.id, stamp);
+      }
       AppLog.instance.server(
         'Vibe enregistrée',
         'vibe=${vibe.id} · reveal=${vibe.revealAt.toLocal()}',

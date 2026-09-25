@@ -104,6 +104,13 @@ class _SaveForMeButtonState extends ConsumerState<SaveForMeButton> {
         frontIsVideo: draft.frontIsVideo,
         backIsVideo: draft.backIsVideo,
         mine: true,
+        // Avant l'envoi, le journal des lieux n'a encore rien : la prise
+        // le dit elle-même.
+        place: SavedPlace(
+          takenAt: draft.takenAt,
+          lat: draft.anchor?.lat,
+          lon: draft.anchor?.lng,
+        ),
       );
       if (!mounted) return;
       setState(() {

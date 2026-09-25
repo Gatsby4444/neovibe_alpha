@@ -101,6 +101,15 @@ class SettingsScreen extends ConsumerWidget {
             builder: _developer,
           ),
           const Divider(),
+          // Les licences des œuvres embarquées (2026-09-25) : la liste des
+          // villes de GeoNames (CC BY 4.0) doit être citée.
+          ListTile(
+            leading: const Icon(Icons.description_outlined),
+            title: const Text('Licences'),
+            subtitle: const Text('Les œuvres et données utilisées par NeoVibe'),
+            onTap: () =>
+                showLicensePage(context: context, applicationName: 'NeoVibe'),
+          ),
           ListTile(
             leading: const Icon(Icons.logout),
             title: const Text('Se déconnecter'),

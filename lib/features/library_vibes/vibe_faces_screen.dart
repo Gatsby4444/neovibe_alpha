@@ -12,6 +12,8 @@ import '../../core/widgets/pull_down_to_close.dart';
 import '../cards/flippable_card.dart';
 import '../../core/content/removals.dart';
 import '../../core/utils/erreur_serveur.dart';
+import '../../core/utils/formats.dart';
+import '../events/events_providers.dart';
 import 'drop_vibe_options.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
@@ -161,6 +163,9 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
     // Même correction que dans la bibliothèque (2026-08-31) : l'heure est une
     // source qu'on surveille, sinon l'écran reste sur « masqué » après 18h30.
     final revealed = vibe.revealedAt(ref.watch(expiryClockProvider));
+    final evenement = ref.watch(
+      eventByConversationProvider(vibe.conversationId),
+    );
 
     // Tirer vers le bas ferme — le geste unique des visionneurs plein écran
     // (Jay, 2026-09-14). Même conséquence que la croix.
@@ -210,14 +215,36 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
         bottomNavigationBar: SafeArea(
           child: Padding(
             padding: const EdgeInsets.only(bottom: 12, left: 24, right: 24),
-            child: Text(
-              vibe.hasBack
-                  ? (revealed
-                        ? 'Swipe pour retourner'
-                        : 'Swipe pour retourner — les deux faces restent floutées')
-                  : (revealed ? '' : 'Tout se découvre à 18h30'),
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.white38, fontSize: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Le lieu nommé par le créateur, et l'heure (2026-09-25) —
+                // Drop d'événement seulement.
+                if (evenement != null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      [
+                        ?evenement.venueName,
+                        dayAndTime(vibe.createdAt),
+                      ].join(' · '),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                Text(
+                  vibe.hasBack
+                      ? (revealed
+                            ? 'Swipe pour retourner'
+                            : 'Swipe pour retourner — les deux faces restent floutées')
+                      : (revealed ? '' : 'Tout se découvre à 18h30'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white38, fontSize: 12),
+                ),
+              ],
             ),
           ),
         ),

@@ -1,3 +1,4 @@
+import 'core/location/city_index.dart';
 import 'dart:async';
 import 'dart:ui' show PlatformDispatcher;
 
@@ -29,6 +30,8 @@ import 'features/events/event_recap_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // La liste des villes embarquée (GeoNames, CC BY 4.0) se cite.
+  registerGeoNamesLicense();
 
   // Moteur Rive : chargement de la bibliothèque native. Obligatoire avant tout
   // `File.asset` / `RiveWidget`, et une seule fois pour toute l'app.

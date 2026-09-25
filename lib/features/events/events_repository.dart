@@ -148,6 +148,7 @@ class EventsRepository {
     required double lat,
     required double lon,
     required DateTime endsAt,
+    String? placeName,
   }) async {
     final id =
         await _client.rpc(
@@ -160,9 +161,33 @@ class EventsRepository {
               },
             )
             as String;
+    await _nommerLeLieu(id, placeName);
     _eventsChanged();
     ref.invalidate(nearbyEventsProvider);
     return id;
+  }
+
+  /// **Le nom du lieu** (2026-09-25) : posé par le créateur, il figure sur
+  /// les Vibes du Drop et dans la galerie de chacun (« Le Sucre »). Une
+  /// fonction à part (`set_event_place`) : le créateur peut le changer
+  /// ensuite, et les fonctions de création ne changent pas de forme.
+  Future<void> setPlace(String eventId, String? placeName) async {
+    await _client.rpc(
+      'set_event_place',
+      params: {'p_event': eventId, 'p_place_name': placeName},
+    );
+    _eventsChanged();
+  }
+
+  Future<void> _nommerLeLieu(String id, String? placeName) async {
+    final nom = placeName?.trim();
+    if (nom == null || nom.isEmpty) return;
+    try {
+      await setPlace(id, nom);
+    } catch (e) {
+      // L'événement existe : un nom de lieu refusé ne l'annule pas.
+      AppLog.instance.error('Nom du lieu non posé', 'event=$id · $e');
+    }
   }
 
   // ─── Le groupe d'événement privé ────────────────────────────────────────
@@ -174,6 +199,7 @@ class EventsRepository {
     double? lat,
     double? lon,
     required List<String> memberIds,
+    String? placeName,
   }) => AppLog.instance.trace('create_private_event', () async {
     final id =
         await _client.rpc(
@@ -190,6 +216,7 @@ class EventsRepository {
               },
             )
             as String;
+    await _nommerLeLieu(id, placeName);
     _eventsChanged();
     return id;
   }, details: '${memberIds.length} invité(s)');

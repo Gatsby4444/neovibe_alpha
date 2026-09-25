@@ -29,6 +29,7 @@ class VibeDraftState {
     this.edit,
     this.plan,
     this.anchor,
+    this.takenAt,
   });
 
   factory VibeDraftState.fromJson(Map<String, dynamic> j) {
@@ -43,6 +44,7 @@ class VibeDraftState {
       frontOrigin: _origin(j, 'front'),
       backOrigin: _origin(j, 'back'),
       step: j['step'] as String? ?? 'capture',
+      takenAt: DateTime.tryParse(j['takenAt'] as String? ?? ''),
       anchor: j['anchor'] == null
           ? null
           : ContentAnchor.fromJson(
@@ -94,6 +96,9 @@ class VibeDraftState {
   /// Où la prise a été faite (gommée), si la position était disponible.
   ContentAnchor? anchor;
 
+  /// L'heure de la prise (2026-09-25) — nulle dans un brouillon plus ancien.
+  DateTime? takenAt;
+
   Map<String, dynamic> toJson() => {
     'type': type.name,
     'front': front?.path,
@@ -104,6 +109,7 @@ class VibeDraftState {
     'backOrigin': backOrigin.name,
     'step': step,
     'anchor': anchor?.toJson(),
+    'takenAt': takenAt?.toIso8601String(),
     'edit': edit == null
         ? null
         : {

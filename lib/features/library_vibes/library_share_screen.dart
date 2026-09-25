@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/card.dart';
 import '../../core/theme.dart';
 import '../../core/utils/erreur_serveur.dart';
+import '../../core/location/capture_places.dart';
 import 'library_target.dart';
 import 'library_vibes_repository.dart';
 
@@ -29,6 +30,7 @@ class LibraryShareScreen extends ConsumerStatefulWidget {
     this.frontIsVideo = false,
     this.backIsVideo = false,
     required this.cameraOnly,
+    required this.stamp,
   });
 
   final File front;
@@ -41,6 +43,9 @@ class LibraryShareScreen extends ConsumerStatefulWidget {
   /// Les faces viennent toutes de la caméra : dit par la capture, vérifié
   /// par le serveur (2026-09-25).
   final bool cameraOnly;
+
+  /// Quand et où la prise a été faite — noté dans le journal privé des lieux.
+  final CaptureStamp stamp;
 
   @override
   ConsumerState<LibraryShareScreen> createState() => _LibraryShareScreenState();
@@ -94,6 +99,7 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
             challengeId: widget.target.challengeId,
             title: widget.target.isEvent ? _title.text.trim() : null,
             cameraOnly: widget.cameraOnly,
+            stamp: widget.stamp,
           );
 
       ref.invalidate(conversationLibraryProvider(widget.target.conversationId));
@@ -214,24 +220,33 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
           const SizedBox(height: 28),
           const Divider(),
 
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Sauvegardable par les autres'),
-            subtitle: Text(
-              'Ils pourront la garder après le reveal. Toi, tu le peux '
-              'toujours.',
-              style: TextStyle(color: context.muted),
+          // Drop d'ÉVÉNEMENT : plus d'option — chaque participant la garde
+          // dans sa galerie, sauf si elle est éphémère (Jay, 2026-09-25 ;
+          // le serveur le tient).
+          if (!target.isEvent)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Sauvegardable par les autres'),
+              subtitle: Text(
+                'Ils pourront la garder après le reveal. Toi, tu le peux '
+                'toujours.',
+                style: TextStyle(color: context.muted),
+              ),
+              value: _saveableByOthers,
+              onChanged: _busy
+                  ? null
+                  : (v) => setState(() => _saveableByOthers = v),
             ),
-            value: _saveableByOthers,
-            onChanged: _busy
-                ? null
-                : (v) => setState(() => _saveableByOthers = v),
-          ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
             title: const Text('Éphémère'),
             subtitle: Text(
-              _ephemeral
+              target.isEvent
+                  ? (_ephemeral
+                        ? 'Elle ne restera pas : personne ne la gardera dans '
+                              'sa galerie.'
+                        : 'Chaque participant la gardera dans sa galerie.')
+                  : _ephemeral
                   ? 'Elle disparaîtra 24 h après le reveal.'
                   : 'Elle restera dans le Drop, en souvenir.',
               style: TextStyle(color: context.muted),

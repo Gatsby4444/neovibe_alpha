@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../../../core/content/saved_store.dart';
 import '../../../core/location/anchor.dart';
+import '../../../core/location/capture_places.dart';
 import '../../../core/models/card.dart';
 import '../../../core/utils/ids.dart';
 
@@ -43,13 +44,22 @@ class VibeDraft {
     required this.frontIsVideo,
     required this.backIsVideo,
     this.anchor,
+    DateTime? takenAt,
     String? localId,
-  }) : localId = localId ?? newLocalId();
+  }) : localId = localId ?? newLocalId(),
+       takenAt = takenAt ?? DateTime.now();
 
   /// Où la prise a été faite, gommée à 100 m ([ContentAnchor]) ; nulle si la
   /// position n'était pas disponible. Publiée SEULEMENT si l'utilisateur
   /// coche « Localiser » dans les réglages de la bibliothèque.
   final ContentAnchor? anchor;
+
+  /// L'heure de la prise (la première face), pour la galerie (2026-09-25).
+  final DateTime takenAt;
+
+  /// Quand et où — ce que chaque objet né de cette prise note dans le
+  /// journal privé des lieux ([CapturePlaces]).
+  CaptureStamp get stamp => CaptureStamp(takenAt: takenAt, anchor: anchor);
 
   final File front;
 
@@ -106,6 +116,7 @@ class VibeDraft {
     frontIsVideo: frontIsVideo,
     backIsVideo: backIsVideo,
     anchor: anchor,
+    takenAt: takenAt,
     localId: localId,
   );
 

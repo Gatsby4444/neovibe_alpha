@@ -35,6 +35,9 @@ class CreateEventScreen extends ConsumerStatefulWidget {
 
 class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   final _title = TextEditingController();
+
+  /// Le nom du lieu (2026-09-25) — il figurera sur les Vibes du Drop.
+  final _placeName = TextEditingController();
   final _selected = <String>{};
   DateTime? _startsAt;
   CoarseFix? _place;
@@ -50,6 +53,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   @override
   void dispose() {
     _title.dispose();
+    _placeName.dispose();
     super.dispose();
   }
 
@@ -165,6 +169,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               lat: _place!.latitude,
               lon: _place!.longitude,
               endsAt: DateTime.now().add(Duration(hours: _openHours)),
+              placeName: _placeName.text,
             )
           : await repo.createPrivate(
               title: title,
@@ -172,6 +177,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               lat: _place?.latitude,
               lon: _place?.longitude,
               memberIds: _selected.toList(),
+              placeName: _placeName.text,
             );
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -214,6 +220,16 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
             decoration: const InputDecoration(
               labelText: 'Nom',
               hintText: 'Soirée chez Léa, week-end à Lisbonne…',
+            ),
+          ),
+          TextField(
+            controller: _placeName,
+            maxLength: 60,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Nom du lieu (facultatif)',
+              hintText: "Le Sucre, chez Léa, le parc de la Tête d'Or…",
+              helperText: 'Il figurera sur les Vibes du Drop.',
             ),
           ),
           const SizedBox(height: 8),

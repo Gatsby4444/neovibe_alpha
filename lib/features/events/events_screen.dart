@@ -10,6 +10,7 @@ import '../../core/utils/formats.dart';
 import '../../core/widgets/top_banner.dart';
 import '../proximity/geo/live_position.dart';
 import 'create_event_screen.dart';
+import 'event_history_screen.dart';
 import 'event_finder_screen.dart';
 import 'event_screen.dart';
 import 'events_map_screen.dart';
@@ -46,6 +47,15 @@ class EventsScreen extends ConsumerWidget {
         centerTitle: true,
         title: const Text('Événements'),
         actions: [
+          // L'historique (2026-09-25) : les soirées passées et leur récap —
+          // sortis de la galerie, qui ne montre plus que des Vibes (Jay).
+          IconButton(
+            icon: const Icon(Icons.history),
+            tooltip: 'Historique',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const EventHistoryScreen()),
+            ),
+          ),
           // La carte (2026-09-21) : les soirées à portée, posées sur un plan.
           IconButton(
             icon: const Icon(Icons.map_outlined),

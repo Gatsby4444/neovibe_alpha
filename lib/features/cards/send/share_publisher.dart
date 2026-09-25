@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/content/saved_store.dart';
+import '../../../core/location/capture_places.dart';
 import '../../../core/models/card.dart';
 import '../../conversations/conversations_repository.dart';
 import '../../library/library_repository.dart';
@@ -104,7 +105,12 @@ class SharePublisher {
     // identifiant local : elle prend le premier vrai identifiant créé, pour que
     // la révocation de modération puisse la retrouver.
     String? premierId;
+    // Chaque objet né de cette prise note quand et où elle a été faite
+    // (journal privé, 2026-09-25) — c'est `rekey`, appelé à chaque création,
+    // qui l'y inscrit : un seul endroit par objet.
+    final places = ref.read(capturePlacesProvider);
     Future<void> rekey(String id) async {
+      await places.record(id, draft.stamp);
       if (premierId != null) return;
       premierId = id;
       try {
@@ -245,6 +251,7 @@ class SharePublisher {
                 backIsVideo: draft.backIsVideo,
                 saveableByOthers: conv.saveable,
                 cameraOnly: draft.cameraOnly,
+                stamp: draft.stamp,
               );
         }),
       );

@@ -5,324 +5,327 @@ import '../../core/content/saved_store.dart';
 import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/utils/formats.dart';
-import '../../core/widgets/avatar.dart';
+import '../../core/widgets/vibe_face.dart';
 import '../cards/saved_items_screen.dart';
-import '../connections/connections_repository.dart';
-import '../events/events_providers.dart';
-import '../library_vibes/conversation_library_screen.dart';
-import 'moment_store.dart';
 
-/// **Ma galerie** — « NeoVibe serait un peu comme une super galerie » (Jay,
-/// 2026-09-21) : mes moments en albums, **où, quand, avec qui**, et ce
-/// qu'on y a fait.
+/// **Ma galerie** — les Vibes, datées et situées (Jay, 2026-09-25).
 ///
-/// Tout vient du téléphone ([momentsProvider]) : les albums survivent à la
-/// purge des événements côté serveur. Un moment ouvert renvoie au Drop de
-/// l'événement (vivant) ; un moment fermé montre ses nombres, mes amis qui y
-/// étaient, les gens rencontrés là, et les Vibes gardées.
-class GalleryScreen extends ConsumerWidget {
+/// > « Le but n'est pas d'afficher à nouveau la porte d'entrée vers le récap
+/// > de l'événement, mais uniquement les Vibes datées et localisées. On peut
+/// > tout voir directement ; on peut aussi trier pour n'afficher que les
+/// > événements, et retrouver une date ou un lieu précis. »
+///
+/// Ce qu'elle montre, et seulement ça (décisions du même jour) :
+/// - **les Vibes que j'ai enregistrées moi-même** (« Enregistrer ») — jamais
+///   une Vibe gardée à mon insu (règle du 2026-09-20) ;
+/// - **les Vibes des Drops d'événement où j'étais**, sauf les éphémères,
+///   gardées à la fermeture par `GalleryKeeper`.
+///
+/// Tout vient du téléphone ([savedItemsProvider]) : rien n'y dépend du
+/// serveur, tout s'ouvre hors ligne. Le récap d'une soirée vit dans
+/// l'historique des événements (`EventHistoryScreen`), plus ici.
+///
+/// Remplace aussi l'ancien écran « Enregistrements » : les mêmes Vibes par
+/// deux écrans, c'étaient deux chemins vers une même donnée.
+class GalleryScreen extends ConsumerStatefulWidget {
   const GalleryScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final moments = ref.watch(momentsProvider);
-    return Scaffold(
-      appBar: AppBar(centerTitle: true, title: const Text('Ma galerie')),
-      body: moments.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Erreur : $e')),
-        data: (list) => list.isEmpty
-            ? Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Text(
-                    'Rien encore.\nChaque soirée où tu vas, chaque moment '
-                    'passé avec des amis, devient un album ici : où, quand, '
-                    'avec qui — et les Vibes que tu as pu garder.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: context.muted),
-                  ),
-                ),
-              )
-            : ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: list.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 12),
-                itemBuilder: (context, i) => _AlbumTile(moment: list[i]),
-              ),
-      ),
-    );
-  }
+  ConsumerState<GalleryScreen> createState() => _GalleryScreenState();
 }
 
-class _AlbumTile extends ConsumerWidget {
-  const _AlbumTile({required this.moment});
-  final Moment moment;
+class _GalleryScreenState extends ConsumerState<GalleryScreen> {
+  /// Tout, ou les Vibes des soirées seulement, rangées par soirée.
+  var _soirees = false;
+  DateTime? _jour;
+  String? _lieu;
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final p = context.palette;
-    final m = moment;
-    final friends = ref.watch(friendProfilesProvider).value ?? const {};
-    final noms = [
-      for (final id in m.friends.take(3))
-        if (friends[id] != null) friends[id]!.chatName,
-    ];
-    final avecQui = m.friends.isEmpty
-        ? null
-        : 'Avec ${noms.join(', ')}'
-              '${m.friends.length > noms.length ? ' et ${m.friends.length - noms.length} autre${m.friends.length - noms.length > 1 ? 's' : ''}' : ''}';
-    return Material(
-      color: p.surface,
-      borderRadius: BorderRadius.circular(NeoRadius.md),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(NeoRadius.md),
-        onTap: () => Navigator.of(
-          context,
-        ).push(MaterialPageRoute(builder: (_) => MomentScreen(momentId: m.id))),
-        child: Container(
-          padding: const EdgeInsets.all(NeoSpace.lg),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(NeoRadius.md),
-            border: Border.all(color: p.line),
-          ),
-          child: Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: p.field,
-                child: Icon(
-                  m.autoCreated
-                      ? Icons.auto_awesome
-                      : m.kind == 'venue'
-                      ? Icons.storefront
-                      : m.kind == 'open'
-                      ? Icons.celebration
-                      : Icons.group,
-                  color: p.ink,
+  static DateTime _jourDe(DateTime d) {
+    final l = d.toLocal();
+    return DateTime(l.year, l.month, l.day);
+  }
+
+  List<SavedItem> _filtrer(List<SavedItem> tout) => [
+    for (final s in tout)
+      if ((!_soirees || s.fromEvent) &&
+          (_jour == null || _jourDe(s.when) == _jour) &&
+          (_lieu == null || s.where == _lieu))
+        s,
+  ]..sort((a, b) => b.when.compareTo(a.when));
+
+  Future<void> _choisirJour(List<SavedItem> tout) async {
+    if (tout.isEmpty) return;
+    final jours = tout.map((s) => _jourDe(s.when)).toList()..sort();
+    final choisi = await showDatePicker(
+      context: context,
+      initialDate: _jour ?? jours.last,
+      firstDate: jours.first,
+      lastDate: jours.last,
+      helpText: 'Retrouver un jour',
+      // Seuls les jours où il y a une Vibe se choisissent.
+      selectableDayPredicate: (d) => jours.contains(_jourDe(d)),
+    );
+    if (choisi != null) setState(() => _jour = _jourDe(choisi));
+  }
+
+  Future<void> _choisirLieu(List<SavedItem> tout) async {
+    final compte = <String, int>{};
+    for (final s in tout) {
+      final w = s.where;
+      if (w != null) compte[w] = (compte[w] ?? 0) + 1;
+    }
+    final lieux = compte.keys.toList()
+      ..sort((a, b) => compte[b]!.compareTo(compte[a]!));
+    final choisi = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: lieux.isEmpty
+            ? Padding(
+                padding: const EdgeInsets.all(NeoSpace.xl),
+                child: Text(
+                  'Aucune Vibe n\'a encore de lieu.',
+                  style: TextStyle(color: context.muted),
                 ),
-              ),
-              const SizedBox(width: NeoSpace.md),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      m.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    Text(
-                      '${dayAndTime(m.startedAt)}'
-                      '${m.venueName != null ? ' · ${m.venueName}' : ''}',
-                      style: TextStyle(color: context.muted, fontSize: 12),
-                    ),
-                    if (avecQui != null)
-                      Text(
-                        avecQui,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: context.muted, fontSize: 12),
-                      ),
-                  ],
-                ),
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
+              )
+            : ListView(
+                shrinkWrap: true,
                 children: [
-                  Text(
-                    '${m.vibeCount} Vibe${m.vibeCount > 1 ? 's' : ''}',
-                    style: context.sectionMeta,
-                  ),
-                  if (m.isOpen)
-                    Text(
-                      'En cours',
-                      style: TextStyle(color: p.action, fontSize: 12),
+                  for (final l in lieux)
+                    ListTile(
+                      leading: const Icon(Icons.place_outlined),
+                      title: Text(l),
+                      trailing: Text(
+                        '${compte[l]}',
+                        style: TextStyle(color: context.muted),
+                      ),
+                      onTap: () => Navigator.pop(context, l),
                     ),
                 ],
               ),
-            ],
+      ),
+    );
+    if (choisi != null) setState(() => _lieu = choisi);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = ref.watch(savedItemsProvider);
+    final tout = items.value ?? const <SavedItem>[];
+    return Scaffold(
+      appBar: AppBar(
+        centerTitle: true,
+        title: const Text('Ma galerie'),
+        actions: [
+          IconButton(
+            tooltip: 'Retrouver un jour',
+            icon: const Icon(Icons.calendar_month_outlined),
+            onPressed: () => _choisirJour(tout),
           ),
-        ),
+          IconButton(
+            tooltip: 'Retrouver un lieu',
+            icon: const Icon(Icons.place_outlined),
+            onPressed: () => _choisirLieu(tout),
+          ),
+        ],
+      ),
+      body: items.when(
+        loading: () => const Center(child: CircularProgressIndicator()),
+        error: (e, _) => Center(child: Text('Erreur : $e')),
+        data: (_) {
+          final vues = _filtrer(tout);
+          return CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(child: _barre()),
+              if (vues.isEmpty)
+                SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: _vide(tout.isEmpty),
+                )
+              else
+                for (final g in _grouper(vues)) ...[
+                  SliverToBoxAdapter(child: _EnTete(groupe: g)),
+                  SliverPadding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: NeoSpace.lg,
+                    ),
+                    sliver: SliverGrid(
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            mainAxisSpacing: 8,
+                            crossAxisSpacing: 8,
+                            childAspectRatio: kVibeFaceRatio,
+                          ),
+                      delegate: SliverChildBuilderDelegate(
+                        (_, i) => _Tuile(item: g.items[i], soirees: _soirees),
+                        childCount: g.items.length,
+                      ),
+                    ),
+                  ),
+                ],
+              const SliverToBoxAdapter(child: SizedBox(height: NeoSpace.xxl)),
+            ],
+          );
+        },
       ),
     );
   }
+
+  /// Tout · Soirées, et les filtres actifs (qui se retirent d'un appui).
+  Widget _barre() => Padding(
+    padding: const EdgeInsets.fromLTRB(
+      NeoSpace.lg,
+      NeoSpace.sm,
+      NeoSpace.lg,
+      0,
+    ),
+    child: Wrap(
+      spacing: NeoSpace.sm,
+      runSpacing: NeoSpace.xs,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: false, label: Text('Tout')),
+            ButtonSegment(value: true, label: Text('Soirées')),
+          ],
+          selected: {_soirees},
+          showSelectedIcon: false,
+          onSelectionChanged: (s) => setState(() => _soirees = s.first),
+        ),
+        if (_jour != null)
+          InputChip(
+            avatar: const Icon(Icons.calendar_month_outlined, size: 16),
+            label: Text(albumDayLabel(_jour!)),
+            onDeleted: () => setState(() => _jour = null),
+          ),
+        if (_lieu != null)
+          InputChip(
+            avatar: const Icon(Icons.place_outlined, size: 16),
+            label: Text(_lieu!),
+            onDeleted: () => setState(() => _lieu = null),
+          ),
+      ],
+    ),
+  );
+
+  Widget _vide(bool rienDuTout) => Padding(
+    padding: const EdgeInsets.all(32),
+    child: Center(
+      child: Text(
+        rienDuTout
+            ? 'Rien encore.\nLes Vibes que tu enregistres, et celles des '
+                  'soirées où tu vas, arrivent ici — avec leur date et leur '
+                  'lieu.'
+            : 'Aucune Vibe pour ce choix.',
+        textAlign: TextAlign.center,
+        style: TextStyle(color: context.muted),
+      ),
+    ),
+  );
+
+  /// Par jour (Tout), ou par soirée (Soirées) — les groupes dans l'ordre
+  /// de leur Vibe la plus récente.
+  List<_Groupe> _grouper(List<SavedItem> vues) {
+    final groupes = <String, _Groupe>{};
+    for (final s in vues) {
+      final cle = _soirees ? s.eventId! : _jourDe(s.when).toIso8601String();
+      (groupes[cle] ??= _Groupe(
+        titre: _soirees
+            ? (s.eventTitle ?? 'Soirée')
+            : albumDayLabel(_jourDe(s.when)),
+        sousTitre: _soirees
+            ? [
+                if (s.where != null) s.where!,
+                albumDayLabel(_jourDe(s.when)),
+              ].join(' · ')
+            : null,
+      )).items.add(s);
+    }
+    return groupes.values.toList();
+  }
 }
 
-/// **Un moment** : où, quand, avec qui, ce qu'on y a fait, et ce qu'il en
-/// reste — le Drop tant qu'il vit, les Vibes gardées pour toujours.
-class MomentScreen extends ConsumerWidget {
-  const MomentScreen({super.key, required this.momentId});
-  final String momentId;
+class _Groupe {
+  _Groupe({required this.titre, this.sousTitre});
+  final String titre;
+  final String? sousTitre;
+  final items = <SavedItem>[];
+}
+
+class _EnTete extends StatelessWidget {
+  const _EnTete({required this.groupe});
+  final _Groupe groupe;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final moment = (ref.watch(momentsProvider).value ?? const [])
-        .where((m) => m.id == momentId)
-        .firstOrNull;
-    if (moment == null) {
-      return Scaffold(
-        appBar: AppBar(),
-        body: Center(
-          child: Text(
-            'Ce moment n\'est plus là.',
-            style: TextStyle(color: context.muted),
-          ),
-        ),
-      );
-    }
-    final m = moment;
-    final p = context.palette;
-    final friends = ref.watch(friendProfilesProvider).value ?? const {};
-    final live = ref.watch(eventByIdProvider(m.id));
-    final rencontres = (ref.watch(myMeetingsProvider).value ?? const [])
-        .where((r) => r.eventId == m.id)
-        .toList();
-    final saved = (ref.watch(savedItemsProvider).value ?? const [])
-        .where((s) => m.keptVibeIds.contains(s.contentId))
-        .toList();
-
-    Widget chiffre(int n, String mot, String pluriel) => Expanded(
-      child: Column(
-        children: [
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(
+      NeoSpace.lg,
+      NeoSpace.lg,
+      NeoSpace.lg,
+      NeoSpace.sm,
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(groupe.titre, style: context.sectionTitle),
+        if (groupe.sousTitre != null && groupe.sousTitre!.isNotEmpty)
           Text(
-            '$n',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          Text(
-            n > 1 ? pluriel : mot,
+            groupe.sousTitre!,
             style: TextStyle(color: context.muted, fontSize: 12),
-            textAlign: TextAlign.center,
           ),
-        ],
-      ),
-    );
+      ],
+    ),
+  );
+}
 
-    return Scaffold(
-      appBar: AppBar(centerTitle: true, title: Text(m.title)),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-        children: [
-          Text(
-            '${dayAndTime(m.startedAt)}'
-            '${m.closedAt != null ? ' → ${shortTime(m.closedAt!)}' : ' · en cours'}'
-            '${m.venueName != null ? '\n${m.venueName}' : ''}',
-            style: TextStyle(color: context.muted),
+/// Une Vibe de la galerie : sa vignette, et en bas son lieu (et sa soirée
+/// quand on regarde « Tout »).
+class _Tuile extends StatelessWidget {
+  const _Tuile({required this.item, required this.soirees});
+  final SavedItem item;
+  final bool soirees;
+
+  @override
+  Widget build(BuildContext context) {
+    final legende = [
+      if (!soirees && item.eventTitle != null) item.eventTitle!,
+      if (!soirees && item.where != null) item.where!,
+      if (soirees) shortTime(item.when.toLocal()),
+    ].join(' · ');
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        SavedTile(item: item),
+        if (legende.isNotEmpty)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: IgnorePointer(
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(6, 14, 6, 5),
+                decoration: const BoxDecoration(
+                  borderRadius: BorderRadius.vertical(
+                    bottom: Radius.circular(12),
+                  ),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black87],
+                  ),
+                ),
+                child: Text(
+                  legende,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: Colors.white, fontSize: 10.5),
+                ),
+              ),
+            ),
           ),
-          const SizedBox(height: 16),
-          Container(
-            decoration: BoxDecoration(
-              color: p.surface,
-              borderRadius: BorderRadius.circular(NeoRadius.md),
-              border: Border.all(color: p.line),
-            ),
-            padding: const EdgeInsets.all(NeoSpace.lg),
-            child: Row(
-              children: [
-                chiffre(m.presentCount, 'présent', 'présents'),
-                chiffre(m.vibeCount, 'Vibe', 'Vibes'),
-                chiffre(m.metCount, 'rencontré', 'rencontrés'),
-                chiffre(m.newFriendCount, 'nouvel ami', 'nouveaux amis'),
-              ],
-            ),
-          ),
-          if (live != null) ...[
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              icon: const Icon(Icons.photo_library_outlined, size: 18),
-              label: Text(
-                m.isOpen ? 'Ouvrir le Drop' : 'Le Drop, encore quelques jours',
-              ),
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ConversationLibraryScreen(
-                    conversationId: live.conversationId,
-                    title: live.title,
-                  ),
-                ),
-              ),
-            ),
-          ],
-          if (m.friends.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            Text('Avec', style: context.sectionTitle),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              runSpacing: 8,
-              children: [
-                for (final id in m.friends)
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Avatar(
-                        stored: friends[id]?.avatarUrl,
-                        radius: 22,
-                        fallback: Text(
-                          (friends[id]?.chatName ?? '?').characters.first
-                              .toUpperCase(),
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        friends[id]?.chatName ?? '…',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                    ],
-                  ),
-              ],
-            ),
-          ],
-          if (rencontres.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            Text('Rencontrés là', style: context.sectionTitle),
-            for (final r in rencontres)
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Avatar(
-                  stored: r.avatarUrl,
-                  fallback: Text(
-                    r.displayName.isEmpty
-                        ? '?'
-                        : r.displayName.characters.first.toUpperCase(),
-                  ),
-                ),
-                title: Text(r.displayName),
-                subtitle: Text(
-                  r.connected ? 'Ami depuis' : 'Rencontré(e) ici',
-                  style: TextStyle(color: context.muted, fontSize: 12),
-                ),
-              ),
-          ],
-          const SizedBox(height: 20),
-          Text('Vibes gardées', style: context.sectionTitle),
-          const SizedBox(height: 8),
-          if (saved.isEmpty)
-            Text(
-              m.kept
-                  ? 'Aucune Vibe à garder : leurs auteurs ne les ont pas '
-                        'laissées sauvegardables.'
-                  : 'Les Vibes sauvegardables du Drop seront gardées ici à la '
-                        'fin de l\'événement.',
-              style: TextStyle(color: context.muted),
-            )
-          else
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: 9 / 16,
-              ),
-              itemCount: saved.length,
-              itemBuilder: (context, i) => SavedTile(item: saved[i]),
-            ),
-        ],
-      ),
+      ],
     );
   }
 }
