@@ -27,6 +27,8 @@ class MainActivity : FlutterFragmentActivity() {
     /// le service et ses fichiers survivent à l'activité (2026-09-19).
     private var publish: PublishBridge? = null
     private var eventPresence: EventPresenceBridge? = null
+    /// La boussole de la carte (2026-09-25) : n'écoute que si la carte écoute.
+    private var heading: com.neovibe.neovibe.location.HeadingSensor? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -100,6 +102,10 @@ class MainActivity : FlutterFragmentActivity() {
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
+        heading = com.neovibe.neovibe.location.HeadingSensor(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
     }
 
     override fun onDestroy() {
@@ -117,6 +123,8 @@ class MainActivity : FlutterFragmentActivity() {
         publish = null
         eventPresence?.dispose()
         eventPresence = null
+        heading?.dispose()
+        heading = null
         // Le pont s'en va, le service reste : c'est tout l'intérêt.
         proximity?.dispose()
         proximity = null

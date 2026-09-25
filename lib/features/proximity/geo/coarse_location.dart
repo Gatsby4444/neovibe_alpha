@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -427,11 +428,24 @@ class CoarseLocation {
   ///
   /// `distanceFilter: 0` : on veut aussi les relevés qui ne bougent pas, parce
   /// que c'est **la précision** qui progresse quand on reste immobile.
+  ///
+  /// **Un relevé par seconde** sur Android (2026-09-25) : sans réglage, le
+  /// paquet en demande un toutes les CINQ secondes, et le point de la carte
+  /// avançait par bonds de cinq secondes — c'est ce que Jay voyait « se
+  /// téléporter ». Ce flux n'est ouvert que par un lecteur en continu (la
+  /// carte, app au premier plan — décision du 2026-09-22) : le coût ne court
+  /// que tant qu'on la regarde.
   Stream<CoarseFix> watch() => Geolocator.getPositionStream(
-    locationSettings: const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 0,
-    ),
+    locationSettings: defaultTargetPlatform == TargetPlatform.android
+        ? AndroidSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 0,
+            intervalDuration: const Duration(seconds: 1),
+          )
+        : const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 0,
+          ),
   ).map((p) => CoarseFix.of(p, FixSource.best));
 
   /// **Pourquoi le meilleur palier n'a rien rendu, la dernière fois.**

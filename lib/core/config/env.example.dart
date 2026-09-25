@@ -5,6 +5,7 @@
 abstract final class Env {
   static const supabaseUrl = 'https://VOTRE-PROJET.supabase.co';
   static const supabasePublishableKey = 'sb_publishable_...';
+
   /// Jeton PUBLIC Mapbox (`pk.`), pour la carte. Compte de Jay ;
   /// valeur dans `docdev/mapbox.txt`.
   static const mapboxToken = 'pk....';

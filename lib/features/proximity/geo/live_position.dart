@@ -62,6 +62,8 @@ class LivePositionState {
     this.received = 0,
     this.error,
     this.precision,
+    this.track,
+    this.trackAt,
   });
 
   /// Le meilleur relevé retenu, ou `null` si aucun n'est encore arrivé.
@@ -84,6 +86,25 @@ class LivePositionState {
 
   /// La dernière erreur du flux, ou `null`. Voir [LivePosition.acquire].
   final String? error;
+
+  /// **Le relevé à SUIVRE** — pour montrer quelqu'un qui bouge (la carte).
+  ///
+  /// ## ⚠️ À ne pas confondre avec [fix]
+  ///
+  /// [fix] est **le meilleur** relevé récent : ce qu'il faut pour une
+  /// décision ponctuelle (créer une soirée, entrer dans une soirée). Il
+  /// ignore pendant trente secondes un relevé un peu moins précis.
+  ///
+  /// Pour suivre un déplacement, c'est faux : en marchant, la précision
+  /// varie un peu d'un relevé à l'autre (8 m, puis 12 m), et [fix] restait
+  /// figé jusqu'à trente secondes avant de sauter d'un coup — le point qui
+  /// « se téléporte » que Jay a vu le 2026-09-25. [track] prend chaque
+  /// relevé qui n'est pas *nettement* plus flou ([LivePosition.suit]) : il
+  /// suit la marche, et refuse toujours le saut d'antenne à 500 m.
+  final CoarseFix? track;
+
+  /// Quand [track] a été retenu.
+  final DateTime? trackAt;
 
   /// **La finesse qu'Android accorde réellement**, ou `null` si pas encore lue.
   ///
@@ -139,10 +160,13 @@ class LivePositionState {
       other.at == at &&
       other.received == received &&
       other.error == error &&
-      other.precision == precision;
+      other.precision == precision &&
+      other.track == track &&
+      other.trackAt == trackAt;
 
   @override
-  int get hashCode => Object.hash(fix, at, received, error, precision);
+  int get hashCode =>
+      Object.hash(fix, at, received, error, precision, track, trackAt);
 }
 
 /// La vue dérivée. **Retient le meilleur relevé récent ; ne mesure rien
@@ -222,6 +246,26 @@ class LivePosition extends Notifier<LivePositionState> {
   /// À revoir quand on aura mesuré, à deux téléphones — `RAPPELS.md` #158.
   static const degradationMax = 2;
 
+  /// **La règle du relevé à suivre** ([LivePositionState.track]) : on prend
+  /// tout relevé qui n'est pas *nettement* plus flou que celui qu'on suit —
+  /// sans attendre, contrairement à [retient].
+  ///
+  /// 1. rien de suivi, ou ce qu'on suit est **périmé** → on prend ;
+  /// 2. pas plus de [degradationMax] fois plus flou → on prend : c'est la
+  ///    marche, dont la précision varie un peu d'un relevé à l'autre ;
+  /// 3. sinon → on garde : c'est un changement de palier (le GPS lâche,
+  ///    l'antenne répond à ± 500 m), pas un déplacement.
+  static bool suit({
+    required CoarseFix? garde,
+    required DateTime? gardeAt,
+    required CoarseFix venu,
+    required DateTime now,
+  }) {
+    if (garde == null || gardeAt == null) return true;
+    if (!CoarseLocation.isFreshEnough(gardeAt, now)) return true;
+    return venu.accuracy <= garde.accuracy * degradationMax;
+  }
+
   /// **Quelqu'un a besoin d'une position vivante.** À relâcher par [release].
   ///
   /// ⚠️ Compté, pas booléen : la carte et le ping peuvent en avoir besoin en
@@ -245,6 +289,8 @@ class LivePosition extends Notifier<LivePositionState> {
               received: state.received,
               error: e.toString(),
               precision: state.precision,
+              track: state.track,
+              trackAt: state.trackAt,
             );
           },
           cancelOnError: false,
@@ -280,6 +326,8 @@ class LivePosition extends Notifier<LivePositionState> {
       received: state.received,
       error: state.error,
       precision: lu,
+      track: state.track,
+      trackAt: state.trackAt,
     );
   }
 
@@ -377,6 +425,12 @@ class LivePosition extends Notifier<LivePositionState> {
       venu: venu,
       now: now,
     );
+    final suivi = suit(
+      garde: state.track,
+      gardeAt: state.trackAt,
+      venu: venu,
+      now: now,
+    );
     state = LivePositionState(
       fix: garde ? venu : state.fix,
       at: garde ? now : state.at,
@@ -387,6 +441,8 @@ class LivePosition extends Notifier<LivePositionState> {
       // l'avertissement de finesse à chaque relevé, c'est-à-dire plusieurs
       // fois par seconde.
       precision: state.precision,
+      track: suivi ? venu : state.track,
+      trackAt: suivi ? now : state.trackAt,
     );
   }
 }

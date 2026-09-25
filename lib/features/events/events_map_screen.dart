@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
@@ -13,10 +14,12 @@ import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/utils/erreur_serveur.dart';
 import '../proximity/geo/coarse_location.dart';
+import '../proximity/geo/heading_source.dart';
 import '../proximity/geo/live_position.dart';
 import '../proximity/geo/precision_notice.dart';
 import 'event_screen.dart';
 import 'events_providers.dart';
+import 'my_point_motion.dart';
 
 /// **La carte** (étape 5 du programme du 2026-09-21) : les soirées à portée
 /// autour de moi, et — dans l'événement où je suis — ses points chauds.
@@ -63,22 +66,48 @@ class EventsMapScreen extends ConsumerStatefulWidget {
 const _initialZoom = 16.0;
 
 class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   MapboxMap? _map;
 
   /// Les calques, du dessous au dessus : l'incertitude, les points chauds,
   /// mon point, les soirées. Un calque par nature d'objet : mon point bouge
-  /// toutes les quelques secondes, et le redessiner ne doit pas redessiner
-  /// les soirées.
+  /// en continu, et le redessiner ne doit pas redessiner les soirées.
   PolygonAnnotationManager? _halo;
   CircleAnnotationManager? _chauds;
-  CircleAnnotationManager? _moi;
+  PointAnnotationManager? _moi;
   PointAnnotationManager? _soirees;
   Cancelable? _tapSoirees;
 
   /// Ce qui est dessiné dans chaque calque — on ne redessine qu'un calque
   /// dont le contenu a CHANGÉ (la reconstruction de l'écran n'en dit rien).
-  Object? _dessineHalo, _dessineChauds, _dessineMoi, _dessineSoirees;
+  Object? _dessineChauds, _dessineSoirees;
+
+  // ─── Mon point, qui GLISSE (2026-09-25) ──────────────────────────────────
+
+  /// Où dessiner mon point entre deux relevés, et vers où tourner la flèche.
+  final _motion = MyPointMotion();
+
+  /// L'horloge de l'animation : elle ne tourne que tant que quelque chose
+  /// bouge encore ([MyPointMotion.settledAt]).
+  late final Ticker _ticker;
+
+  /// Mon point et son halo : créés une fois, puis DÉPLACÉS — jamais effacés
+  /// et recréés à chaque relevé (c'était un clignotement à chaque seconde).
+  PointAnnotation? _moiPoint;
+  PolygonAnnotation? _haloPoly;
+
+  /// Un envoi à la carte à la fois, et pas plus de 30 par seconde : la carte
+  /// est un objet natif, chaque déplacement est un message.
+  bool _envoiEnCours = false;
+  Duration _dernierEnvoi = Duration.zero;
+
+  /// Les deux images de mon point (avec et sans flèche) sont-elles posées
+  /// dans le style, et pour quel thème ?
+  bool? _imagesMoiSombre;
+
+  /// La boussole : écoutée tant que la carte est à l'écran, app au premier
+  /// plan.
+  ProviderSubscription<AsyncValue<HeadingReading>>? _boussole;
 
   /// Les dessins en attente, un à la fois.
   Future<void> _file = Future.value();
@@ -119,12 +148,38 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     _position.acquire();
     _abonne = true;
     WidgetsBinding.instance.addObserver(this);
+    _ticker = createTicker(_tick);
+    // Chaque relevé NEUF relance le glissement — pas chaque reconstruction.
+    ref.listenManual(livePositionProvider, (avant, apres) {
+      // Le relevé à SUIVRE, pas le meilleur : voir [LivePositionState.track].
+      final fix = apres.track;
+      if (fix == null || identical(fix, avant?.track)) return;
+      _motion.setFix(fix.latitude, fix.longitude, fix.accuracy, DateTime.now());
+      _reveiller();
+    }, fireImmediately: true);
+    _ecouterBoussole();
+  }
+
+  void _ecouterBoussole() {
+    _boussole ??= ref.listenManual(headingProvider, (_, lu) {
+      final h = lu.value;
+      if (h == null) return;
+      _motion.setHeading(h.degrees);
+      _reveiller();
+    });
+  }
+
+  void _couperBoussole() {
+    _boussole?.close();
+    _boussole = null;
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _tapSoirees?.cancel();
+    _ticker.dispose();
+    _couperBoussole();
     // ⚠️ Relâché ici, et le notifier est retenu depuis [initState] : lire un
     // provider pendant `dispose` n'est pas garanti.
     // ⚠️ Et **seulement si on tient encore l'abonnement** : l'écran peut être
@@ -151,6 +206,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         _position.acquire();
       }
       unawaited(_position.relisPrecision());
+      _ecouterBoussole();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       // ⚠️ Relâché **une seule fois**, sinon le compteur d'abonnés passerait
@@ -159,6 +215,8 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         _abonne = false;
         _position.release();
       }
+      // La boussole aussi : personne ne regarde la flèche.
+      _couperBoussole();
     }
   }
 
@@ -203,7 +261,13 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     final a = map.annotations;
     _halo = await a.createPolygonAnnotationManager();
     _chauds = await a.createCircleAnnotationManager();
-    _moi = await a.createCircleAnnotationManager();
+    _moi = await a.createPointAnnotationManager();
+    // La flèche est posée À PLAT sur la carte et orientée par rapport au
+    // nord — pas par rapport à l'écran : carte inclinée, elle reste au sol.
+    await _moi!.setIconRotationAlignment(IconRotationAlignment.MAP);
+    await _moi!.setIconPitchAlignment(IconPitchAlignment.MAP);
+    await _moi!.setIconAllowOverlap(true);
+    await _moi!.setIconIgnorePlacement(true);
     _soirees = await a.createPointAnnotationManager();
     _tapSoirees = _soirees!.tapEvents(
       onTap: (annotation) {
@@ -218,12 +282,15 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       },
     );
     if (mounted) setState(() {});
+    _reveiller();
   }
 
   /// Le style chargé : on règle sa lumière et ses étiquettes. Rappelé à
   /// chaque rechargement du style (le réglage vit DANS le style).
   void _onStyleLoaded(StyleLoadedEventData _) {
     _lumiere = null;
+    // Les images vivent DANS le style : un style rechargé les a perdues.
+    _imagesMoiSombre = null;
     if (mounted) setState(() {});
   }
 
@@ -254,34 +321,10 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// Redessine chaque calque **dont le contenu a changé**, et seulement lui.
   Future<void> _dessiner({
     required NeoPalette p,
-    required LivePositionState live,
     required List<HotSpot> spots,
     required List<NearbyEvent> nearby,
     required NeoEvent? event,
   }) async {
-    final me = live.fix;
-
-    // ⚠️ **Le halo d'incertitude, en MÈTRES.** L'appareil ne sait pas où il
-    // est au mètre près (21 m au mieux, 100 m et plus en intérieur). Un point
-    // net sans halo affirme une précision qu'on n'a pas.
-    final halo = me == null
-        ? null
-        : (me.latitude, me.longitude, me.accuracy.round(), p.cool);
-    if (_halo != null && halo != _dessineHalo) {
-      _dessineHalo = halo;
-      await _halo!.deleteAll();
-      if (me != null) {
-        await _halo!.create(
-          PolygonAnnotationOptions(
-            geometry: _cercle(me.latitude, me.longitude, me.accuracy),
-            fillColor: p.cool.toARGB32(),
-            fillOpacity: 0.12,
-            fillOutlineColor: p.cool.withValues(alpha: 0.4).toARGB32(),
-          ),
-        );
-      }
-    }
-
     // Les points chauds : un cercle par cellule de 50 m, proportionnel au
     // monde qu'il y a. ⚠️ **Seulement là où il y a du monde (2026-09-24)** :
     // le serveur rend aussi le LIEU, à 0 personne — dessiné pareil, il
@@ -306,25 +349,6 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
               circleStrokeWidth: 1.5,
             ),
         ]);
-      }
-    }
-
-    // Mon point : plein, cerclé de la couleur du fond, pour rester visible
-    // sur une carte claire COMME sombre.
-    final moi = me == null ? null : (me.latitude, me.longitude, p.cool);
-    if (_moi != null && moi != _dessineMoi) {
-      _dessineMoi = moi;
-      await _moi!.deleteAll();
-      if (me != null) {
-        await _moi!.create(
-          CircleAnnotationOptions(
-            geometry: _pt(me.latitude, me.longitude),
-            circleRadius: 6,
-            circleColor: p.cool.toARGB32(),
-            circleStrokeColor: p.ground.toARGB32(),
-            circleStrokeWidth: 3,
-          ),
-        );
       }
     }
 
@@ -369,6 +393,162 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
           ),
       ]);
     }
+  }
+
+  /// Quelque chose bouge : on relance l'horloge si elle dort.
+  void _reveiller() {
+    if (mounted && !_ticker.isActive) _ticker.start();
+  }
+
+  /// Un battement de l'animation : où est mon point MAINTENANT, et on
+  /// l'envoie à la carte — au plus 30 fois par seconde, un envoi à la fois.
+  void _tick(Duration ecoule) {
+    if (_moi == null || _halo == null || _map == null) return;
+    if (_envoiEnCours || ecoule - _dernierEnvoi < _pas) return;
+    final now = DateTime.now();
+    final frame = _motion.frameAt(now);
+    if (frame == null) {
+      _ticker.stop();
+      return;
+    }
+    _dernierEnvoi = ecoule;
+    _envoiEnCours = true;
+    final arrive = _motion.settledAt(now);
+    _poserMoi(frame, context.palette).whenComplete(() {
+      _envoiEnCours = false;
+      // Arrivé : l'horloge s'endort jusqu'au prochain relevé ou au prochain
+      // mouvement de boussole.
+      if (arrive && mounted && _motion.settledAt(DateTime.now())) {
+        _ticker.stop();
+      }
+    });
+  }
+
+  static const _pas = Duration(milliseconds: 33);
+
+  /// Pose mon point et son halo à [frame] : créés la première fois, puis
+  /// seulement déplacés.
+  Future<void> _poserMoi(MyPointFrame frame, NeoPalette p) async {
+    try {
+      if (_imagesMoiSombre != p.isDark) {
+        await _poserImagesMoi(p);
+        _imagesMoiSombre = p.isDark;
+      }
+      final ou = _pt(frame.lat, frame.lon);
+      final image = frame.heading == null ? _imgPoint : _imgFleche;
+      final cap = frame.heading ?? 0;
+      final point = _moiPoint;
+      if (point == null) {
+        _moiPoint = await _moi!.create(
+          PointAnnotationOptions(
+            geometry: ou,
+            iconImage: image,
+            iconRotate: cap,
+          ),
+        );
+      } else {
+        point
+          ..geometry = ou
+          ..iconImage = image
+          ..iconRotate = cap;
+        await _moi!.update(point);
+      }
+      // ⚠️ **Le halo d'incertitude, en MÈTRES.** L'appareil ne sait pas où
+      // il est au mètre près (21 m au mieux, 100 m et plus en intérieur).
+      // Un point net sans halo affirme une précision qu'on n'a pas.
+      final cercle = _cercle(frame.lat, frame.lon, frame.accuracy);
+      final halo = _haloPoly;
+      if (halo == null) {
+        _haloPoly = await _halo!.create(
+          PolygonAnnotationOptions(
+            geometry: cercle,
+            fillColor: p.cool.toARGB32(),
+            fillOpacity: 0.12,
+            fillOutlineColor: p.cool.withValues(alpha: 0.4).toARGB32(),
+          ),
+        );
+      } else {
+        halo.geometry = cercle;
+        await _halo!.update(halo);
+      }
+    } catch (_) {
+      // Carte détruite en plein envoi (écran refermé) : rien à rattraper.
+    }
+  }
+
+  static const _imgPoint = 'neovibe-moi-point';
+  static const _imgFleche = 'neovibe-moi-fleche';
+
+  /// Les deux images de mon point, posées dans le style : sans flèche (pas
+  /// de boussole) et avec — un cône qui s'ouvre vers où je regarde, comme
+  /// sur Google Maps. Dessinées à la densité de l'écran.
+  Future<void> _poserImagesMoi(NeoPalette p) async {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    for (final (id, fleche) in [(_imgPoint, false), (_imgFleche, true)]) {
+      final png = await _imageMoi(p, dpr, fleche: fleche);
+      final cote = (_coteMoi * dpr).round();
+      await _map!.style.addStyleImage(
+        id,
+        dpr,
+        MbxImage(width: cote, height: cote, data: png),
+        false,
+        [],
+        [],
+        null,
+      );
+    }
+  }
+
+  /// Côté de l'image de mon point, en points : la place du cône.
+  static const _coteMoi = 72.0;
+
+  static Future<Uint8List> _imageMoi(
+    NeoPalette p,
+    double dpr, {
+    required bool fleche,
+  }) async {
+    final cote = _coteMoi * dpr;
+    final c = Offset(cote / 2, cote / 2);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    if (fleche) {
+      // Le cône : 70° d'ouverture, vers le HAUT de l'image (le nord, avant
+      // rotation), qui s'efface en s'éloignant du point.
+      final rayon = cote / 2;
+      final cone = Path()
+        ..moveTo(c.dx, c.dy)
+        ..arcTo(
+          Rect.fromCircle(center: c, radius: rayon),
+          -math.pi / 2 - 35 * math.pi / 180,
+          70 * math.pi / 180,
+          false,
+        )
+        ..close();
+      canvas.drawPath(
+        cone,
+        Paint()
+          ..shader = ui.Gradient.radial(c, rayon, [
+            p.cool.withValues(alpha: 0.55),
+            p.cool.withValues(alpha: 0),
+          ]),
+      );
+    }
+    // Le point : plein, cerclé de la couleur du fond, pour rester visible
+    // sur une carte claire COMME sombre.
+    canvas.drawCircle(
+      c,
+      9 * dpr,
+      Paint()..color = Colors.black.withValues(alpha: 0.25),
+    );
+    canvas.drawCircle(c, 8 * dpr, Paint()..color = p.ground);
+    canvas.drawCircle(c, 5.5 * dpr, Paint()..color = p.cool);
+    final image = await recorder.endRecording().toImage(
+      cote.round(),
+      cote.round(),
+    );
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    return data!.buffer.asUint8List();
   }
 
   /// Un cercle de [rayonM] mètres, en polygone (la carte ne sait dessiner un
@@ -494,7 +674,6 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
           .then(
             (_) => _dessiner(
               p: p,
-              live: live,
               spots: spots,
               nearby: nearby.value ?? const [],
               event: event,
@@ -514,6 +693,13 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
             key: const ValueKey('carte'),
             styleUri: MapboxStyles.STANDARD,
             viewport: _vue,
+            // ⚠️ **Le mode d'affichage le plus récent** (2026-09-25, Jay :
+            // « pas assez fluide »). Par défaut, le paquet passe par l'écran
+            // virtuel d'Android (`VD`), la méthode la plus ancienne ; le
+            // mode par couche de texture est celui que Flutter recommande.
+            // Hypothèse à vérifier sur le téléphone, pas une mesure.
+            // ignore: experimental_member_use
+            androidHostingMode: AndroidPlatformViewHostingMode.TLHC_HC,
             onMapCreated: _onMapCreated,
             onStyleLoadedListener: _onStyleLoaded,
           ),
@@ -617,7 +803,8 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
 /// « le GPS est mauvais ici », alors qu'il veut dire « Android a reçu l'ordre
 /// de ne rien dire de mieux » — et la seconde cause se répare en un geste.
 String _libelleFix(LivePositionState live) {
-  final fix = live.fix!;
+  // Le point AFFICHÉ est le relevé suivi ([LivePositionState.track]).
+  final fix = live.track ?? live.fix!;
   final repli = live.brouillee
       ? 'approché · '
       : switch (fix.source) {
@@ -625,7 +812,8 @@ String _libelleFix(LivePositionState live) {
           FixSource.network => 'réseau · ',
           FixSource.lastKnown => 'mémoire · ',
         };
-  final age = live.ageAt(DateTime.now());
+  final depuis = live.trackAt ?? live.at;
+  final age = depuis == null ? null : DateTime.now().difference(depuis);
   final vu = age == null ? '' : ' · ${age.inSeconds} s';
   return '$repli± ${fix.accuracy.round()} m$vu · ${live.received} relevés';
 }

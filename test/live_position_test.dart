@@ -220,4 +220,38 @@ void main() {
       );
     });
   });
+
+  group('le relevé à SUIVRE (carte, 2026-09-25)', () {
+    bool suit(CoarseFix? garde, Duration? age, CoarseFix venu) =>
+        LivePosition.suit(
+          garde: garde,
+          gardeAt: age == null ? null : maintenant.subtract(age),
+          venu: venu,
+          now: maintenant,
+        );
+
+    test('en marchant, un relevé un peu moins net est suivi AUSSITÔT', () {
+      // 🔴 Le point qui « se téléportait » : 8 m puis 12 m, une seconde
+      // après. La règle du meilleur relevé l'ignore trente secondes ; celle
+      // du suivi le prend tout de suite.
+      expect(retient(fix(8), const Duration(seconds: 1), fix(12)), isFalse);
+      expect(suit(fix(8), const Duration(seconds: 1), fix(12)), isTrue);
+    });
+
+    test("le saut d'antenne reste refusé, même pour suivre", () {
+      expect(suit(fix(10), const Duration(seconds: 1), fix(500)), isFalse);
+    });
+
+    test('le premier relevé est suivi', () {
+      expect(suit(null, null, fix(675)), isTrue);
+    });
+  });
+
+  test('un relevé est rangé à la fois comme meilleur ET comme suivi', () {
+    final a = LivePositionState(fix: fix(8), at: maintenant, track: fix(12));
+    final b = LivePositionState(fix: fix(8), at: maintenant, track: fix(8));
+    // L'égalité porte le suivi : sans ça, la carte ne verrait pas bouger
+    // le point quand seul le suivi change.
+    expect(a == b, isFalse);
+  });
 }
