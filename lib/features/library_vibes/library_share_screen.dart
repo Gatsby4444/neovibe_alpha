@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/card.dart';
 import '../../core/theme.dart';
+import '../../core/utils/erreur_serveur.dart';
 import 'library_target.dart';
 import 'library_vibes_repository.dart';
 
@@ -27,6 +28,7 @@ class LibraryShareScreen extends ConsumerStatefulWidget {
     required this.target,
     this.frontIsVideo = false,
     this.backIsVideo = false,
+    required this.cameraOnly,
   });
 
   final File front;
@@ -35,6 +37,10 @@ class LibraryShareScreen extends ConsumerStatefulWidget {
   final LibraryTarget target;
   final bool frontIsVideo;
   final bool backIsVideo;
+
+  /// Les faces viennent toutes de la caméra : dit par la capture, vérifié
+  /// par le serveur (2026-09-25).
+  final bool cameraOnly;
 
   @override
   ConsumerState<LibraryShareScreen> createState() => _LibraryShareScreenState();
@@ -87,6 +93,7 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
             ephemeral: _ephemeral,
             challengeId: widget.target.challengeId,
             title: widget.target.isEvent ? _title.text.trim() : null,
+            cameraOnly: widget.cameraOnly,
           );
 
       ref.invalidate(conversationLibraryProvider(widget.target.conversationId));
@@ -112,7 +119,8 @@ class _LibraryShareScreenState extends ConsumerState<LibraryShareScreen> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = '$e';
+        // Le refus du serveur, lisible (Drop fermé, origine refusée…).
+        _error = messageServeur(e);
       });
     }
   }

@@ -15,7 +15,7 @@ void main() {
         front: File('recto'),
         back: backVideo == null ? null : File('verso'),
         type: type,
-        imported: false,
+        frontOrigin: FaceOrigin.camera,
         frontIsVideo: frontVideo,
         backIsVideo: backVideo ?? false,
       );

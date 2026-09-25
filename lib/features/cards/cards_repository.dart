@@ -330,6 +330,53 @@ class CardsRepository {
   Future<void> grantReplay(String deliveryId) =>
       _client.rpc('grant_replay', params: {'delivery_id': deliveryId});
 
+  // ─── Gérer une Vibe envoyée (2026-09-25) ───────────────────────────────
+  //
+  // Le serveur est seul juge (`delete_sent_vibe`, `update_sent_vibe` : son
+  // auteur ; `hide_message` : un membre du chat). ⚠️ L'invalidation
+  // appartient à l'ÉCRITURE : cacher un message n'émet aucun événement temps
+  // réel (rien ne change dans `messages`), la lecture du chat est donc
+  // relancée ici — sans quoi le container resterait affiché jusqu'au
+  // prochain renouvellement du jeton.
+
+  /// Supprime MA Vibe **pour tout le monde** : ses containers quittent tous
+  /// les chats, ses octets partent au balai serveur.
+  Future<void> deleteSent(CardModel card) async {
+    await _client.rpc('delete_sent_vibe', params: {'p_card_id': card.id});
+    ref.invalidate(cardByIdProvider(card.id));
+    // Une même Vibe peut être partie dans plusieurs chats : tous relisent.
+    ref.invalidate(messagesStreamProvider);
+  }
+
+  /// Modifie les règles de MA Vibe envoyée — mêmes bornes qu'à l'envoi,
+  /// tenues par le serveur (Oneshot sans durée, 1/1 jamais sauvegardable).
+  Future<void> updateSent(
+    CardModel card, {
+    required int? maxViews,
+    required int? viewDurationSeconds,
+    required bool scrubbable,
+    required bool saveable,
+  }) async {
+    await _client.rpc(
+      'update_sent_vibe',
+      params: {
+        'p_card_id': card.id,
+        'p_max_views': maxViews,
+        'p_view_duration_seconds': viewDurationSeconds,
+        'p_scrubbable': scrubbable,
+        'p_saveable': saveable,
+      },
+    );
+    ref.invalidate(cardByIdProvider(card.id));
+  }
+
+  /// **Supprimer pour moi** : ce container disparaît de MON chat ; la Vibe
+  /// reste pour les autres, et ailleurs.
+  Future<void> hideMessage(String messageId, String conversationId) async {
+    await _client.rpc('hide_message', params: {'p_message_id': messageId});
+    ref.invalidate(messagesStreamProvider(conversationId));
+  }
+
   /// Demandes de replay en attente sur MES cards (émetteur).
   Future<List<CardDelivery>> pendingReplayRequests() async {
     final me = _client.auth.currentUser!.id;

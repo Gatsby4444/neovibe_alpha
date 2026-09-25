@@ -122,6 +122,15 @@ enum CardType {
       this == CardType.oneshot || this == CardType.bereal;
 }
 
+/// **La durée de lecture a-t-elle un sens ?** Une face **photo** d'une Vibe
+/// standard : oui. Un **Oneshot** : jamais (Jay, 2026-09-14) ; une face vidéo
+/// non plus (2026-07-12). Un seul endroit décide — pour la roue ⚙︎ de
+/// l'envoi, pour l'envoi lui-même, et pour « Modifier » une Vibe envoyée
+/// (2026-09-25) : deux avis divergents laisseraient un curseur qui ne règle
+/// rien.
+bool acceptsViewDuration(CardType type, {required bool hasPhoto}) =>
+    type != CardType.oneshot && hasPhoto;
+
 class CardModel {
   const CardModel({
     required this.id,
@@ -151,6 +160,16 @@ class CardModel {
   /// Card à une seule face : pas de retournement, seulement le jeu d'angle.
   /// C'est le contenu qui le dit, plus le type (refonte du 2026-08-10).
   bool get singleFace => backPath == null;
+
+  /// Au moins une face vidéo — la barre de lecture a un sens.
+  bool get hasVideo => frontIsVideo || (!singleFace && backIsVideo);
+
+  /// La durée de lecture a-t-elle un sens ? Même règle qu'à l'envoi
+  /// ([acceptsViewDuration]) : c'est elle que « Modifier » applique.
+  bool get acceptsDuration => acceptsViewDuration(
+    type,
+    hasPhoto: !frontIsVideo || (!singleFace && !backIsVideo),
+  );
 
   /// Durée de lecture par vue en secondes (null = illimitée). Défaut 10 s.
   final int? viewDurationSeconds;

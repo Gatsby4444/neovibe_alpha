@@ -6,6 +6,7 @@ import '../../core/models/library_vibe.dart';
 import '../../core/clock.dart';
 import '../../core/theme.dart';
 import '../../core/utils/formats.dart';
+import 'drop_vibe_options.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
 import 'vibe_faces_screen.dart';
@@ -266,6 +267,9 @@ class _LibraryVibeTileState extends ConsumerState<LibraryVibeTile> {
     final revealed = vibe.revealedAt(ref.watch(expiryClockProvider));
 
     return GestureDetector(
+      // Appui long : les options de la Vibe (2026-09-25), la même feuille
+      // que le « … » du visionneur.
+      onLongPress: () => DropVibeMenu.open(context, ref, vibe),
       // Ouvrable À TOUT MOMENT depuis le 2026-08-10 (demande de Jay).
       //
       // ⚠️ **Un seul visionneur depuis le 2026-09-24** : `VibeFacesScreen`,

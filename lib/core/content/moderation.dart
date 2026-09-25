@@ -22,6 +22,37 @@ enum ReportReason {
   String get dbValue => name;
 }
 
+/// **Ce qu'on signale.** Quatre objets, quatre tables côté serveur — un
+/// signalement porte sur UN objet, jamais sur « un contenu » au sens vague.
+sealed class ReportTarget {
+  const ReportTarget();
+}
+
+/// Un contenu du socle (story, publication).
+class ContentReportTarget extends ReportTarget {
+  const ContentReportTarget(this.contentId);
+  final String contentId;
+}
+
+/// Une personne.
+class ProfileReportTarget extends ReportTarget {
+  const ProfileReportTarget(this.userId);
+  final String userId;
+}
+
+/// Une Vibe posée dans un Drop (2026-09-25).
+class DropVibeReportTarget extends ReportTarget {
+  const DropVibeReportTarget(this.vibeId);
+  final String vibeId;
+}
+
+/// Une Vibe reçue dans un chat (2026-09-25). Jusqu'ici elle ne se signalait
+/// que par le profil de son expéditeur.
+class SentVibeReportTarget extends ReportTarget {
+  const SentVibeReportTarget(this.cardId);
+  final String cardId;
+}
+
 /// Signalement et blocage — le socle de modération (2026-08-11).
 ///
 /// Point signalé comme **bloquant** avant l'ouverture de la propagation hors
@@ -45,6 +76,42 @@ class ModerationRepository {
       'reason': reason.dbValue,
       if (details != null && details.isNotEmpty) 'details': details,
     });
+  }
+
+  /// Signale une cible, quelle qu'elle soit. Pour les Vibes, l'auteur est
+  /// relevé par le serveur (`report_drop_vibe` / `report_sent_vibe`), jamais
+  /// fourni par l'app ; un doublon n'y est pas une erreur.
+  Future<void> report(
+    ReportTarget target,
+    ReportReason reason, {
+    String? details,
+  }) async {
+    final client = ref.read(supabaseProvider);
+    final d = details != null && details.isNotEmpty ? details : null;
+    switch (target) {
+      case ContentReportTarget(:final contentId):
+        await reportContent(contentId, reason, details: d);
+      case ProfileReportTarget(:final userId):
+        await reportProfile(userId, reason, details: d);
+      case DropVibeReportTarget(:final vibeId):
+        await client.rpc(
+          'report_drop_vibe',
+          params: {
+            'p_vibe_id': vibeId,
+            'p_reason': reason.dbValue,
+            'p_details': d,
+          },
+        );
+      case SentVibeReportTarget(:final cardId):
+        await client.rpc(
+          'report_sent_vibe',
+          params: {
+            'p_card_id': cardId,
+            'p_reason': reason.dbValue,
+            'p_details': d,
+          },
+        );
+    }
   }
 
   Future<void> reportProfile(

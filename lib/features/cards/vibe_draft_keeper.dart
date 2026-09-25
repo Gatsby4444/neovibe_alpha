@@ -9,6 +9,7 @@ import 'editor/overlay_model.dart';
 import 'editor/vibe_edit_draft.dart';
 import 'native_media.dart';
 import 'send/share_plan.dart';
+import 'send/vibe_draft.dart';
 import 'send/share_plan_codec.dart';
 
 /// **Ce qu'un brouillon de Vibe contient** : les faces telles que
@@ -22,8 +23,8 @@ class VibeDraftState {
     this.back,
     this.frontIsVideo = false,
     this.backIsVideo = false,
-    this.frontImported = false,
-    this.backImported = false,
+    this.frontOrigin = FaceOrigin.camera,
+    this.backOrigin = FaceOrigin.camera,
     this.step = 'capture',
     this.edit,
     this.plan,
@@ -39,8 +40,8 @@ class VibeDraftState {
       back: j['back'] == null ? null : File(j['back'] as String),
       frontIsVideo: j['frontIsVideo'] as bool? ?? false,
       backIsVideo: j['backIsVideo'] as bool? ?? false,
-      frontImported: j['frontImported'] as bool? ?? false,
-      backImported: j['backImported'] as bool? ?? false,
+      frontOrigin: _origin(j, 'front'),
+      backOrigin: _origin(j, 'back'),
       step: j['step'] as String? ?? 'capture',
       anchor: j['anchor'] == null
           ? null
@@ -68,8 +69,21 @@ class VibeDraftState {
   File? back;
   bool frontIsVideo;
   bool backIsVideo;
-  bool frontImported;
-  bool backImported;
+  FaceOrigin frontOrigin;
+  FaceOrigin backOrigin;
+
+  /// Un brouillon d'avant le 2026-09-25 ne connaît que `…Imported` : il ne
+  /// savait pas distinguer un fond uni d'une photo — on le lit comme la
+  /// caméra, ce qu'il disait déjà.
+  static FaceOrigin _origin(Map<String, dynamic> j, String face) {
+    final name = j['${face}Origin'] as String?;
+    if (name != null) {
+      return FaceOrigin.values.asNameMap()[name] ?? FaceOrigin.camera;
+    }
+    return (j['${face}Imported'] as bool? ?? false)
+        ? FaceOrigin.gallery
+        : FaceOrigin.camera;
+  }
 
   /// `capture` (il manque une face), `edit` (dans l'éditeur), `share`
   /// (sur « À qui ? »).
@@ -86,8 +100,8 @@ class VibeDraftState {
     'back': back?.path,
     'frontIsVideo': frontIsVideo,
     'backIsVideo': backIsVideo,
-    'frontImported': frontImported,
-    'backImported': backImported,
+    'frontOrigin': frontOrigin.name,
+    'backOrigin': backOrigin.name,
     'step': step,
     'anchor': anchor?.toJson(),
     'edit': edit == null

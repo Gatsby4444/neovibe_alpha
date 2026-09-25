@@ -424,7 +424,11 @@ class SharePlan {
   /// ⚠️ **Les règles sont vérifiées ICI, pas à l'envoi.** Ouvrir la porte puis
   /// échouer laisse l'utilisateur devant un refus qu'il ne pouvait pas prévoir
   /// — et lui fait perdre sa prise.
-  List<String> problemes(CardType type, {required bool importe}) {
+  List<String> problemes(
+    CardType type, {
+    required bool importe,
+    bool cameraOnly = true,
+  }) {
     final out = <String>[];
 
     if (isEmpty || conversations.any((c) => c.vide)) {
@@ -452,6 +456,13 @@ class SharePlan {
       out.add(
         'Le Drop n\'accepte pas les imports de la '
         'galerie.',
+      );
+    } else if (bibliothequeDeGroupe && !cameraOnly) {
+      // Un fond uni (2026-09-25) : la caméra du Drop ne le propose pas, la
+      // caméra principale le laissait passer. Le serveur refuse aussi.
+      out.add(
+        'Le Drop n\'accepte pas les fonds unis : prends une vraie photo ou '
+        'vidéo.',
       );
     }
     if (bibliothequeDeGroupe && type == CardType.bereal) {

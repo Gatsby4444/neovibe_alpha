@@ -292,14 +292,20 @@ class _ReportsState extends ConsumerState<_Reports> {
                           vertical: 6,
                         ),
                         child: ListTile(
-                          leading: Icon(
-                            kind == 'content'
-                                ? Icons.image_outlined
-                                : Icons.person_outline,
-                          ),
+                          leading: Icon(switch (kind) {
+                            'content' => Icons.image_outlined,
+                            // Vibe du Drop / Vibe envoyée (2026-09-25).
+                            'drop_vibe' || 'sent_vibe' => Icons.style_outlined,
+                            _ => Icons.person_outline,
+                          }),
                           title: Text(
                             '${r['reason']} — '
-                            '${kind == 'content' ? 'contenu (${r['content_context'] ?? 'supprimé'}) de' : 'compte'} '
+                            '${switch (kind) {
+                              'content' => 'contenu (${r['content_context'] ?? 'supprimé'}) de',
+                              'drop_vibe' => 'Vibe du Drop${r['content_id'] == null ? ' (supprimée)' : ''} de',
+                              'sent_vibe' => 'Vibe envoyée${r['content_id'] == null ? ' (supprimée)' : ''} de',
+                              _ => 'compte',
+                            }} '
                             '${r['target_name'] ?? '?'}'
                             '${r['target_suspended'] == true ? ' · SUSPENDU' : ''}',
                           ),

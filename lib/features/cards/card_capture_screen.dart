@@ -173,8 +173,11 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// publiée seulement si l'utilisateur coche « Localisée » (2026-09-20).
   ContentAnchor? _anchor;
   Future<void>? _anchorLookup;
-  var _frontImported = false; // face issue de la galerie
-  var _backImported = false;
+
+  /// D'où vient chaque face : caméra, galerie ou fond uni (2026-09-25 — le
+  /// Drop n'accepte que la caméra, et le serveur le vérifie).
+  var _frontOrigin = FaceOrigin.camera;
+  var _backOrigin = FaceOrigin.camera;
   var _frontIsVideo = false; // face vidéo (mode vidéo, consigne Jay)
   var _backIsVideo = false;
   var _step = 0; // 0 = recto, 1 = verso, 2 = récap
@@ -325,8 +328,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       _back = s.back;
       _frontIsVideo = s.frontIsVideo;
       _backIsVideo = s.backIsVideo;
-      _frontImported = s.frontImported;
-      _backImported = s.backImported;
+      _frontOrigin = s.frontOrigin;
+      _backOrigin = s.backOrigin;
       _lockedType = s.type;
       _step = s.step == 'capture' ? (s.front == null ? 0 : 1) : 2;
       _resumedStep = s.step;
@@ -467,7 +470,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     if (keeper == null || _front == null) return;
     final signature =
         '${_front?.path}|${_back?.path}|$_frontIsVideo|$_backIsVideo|'
-        '$_frontImported|$_backImported|${_cardType.name}|$_step|'
+        '$_frontOrigin|$_backOrigin|${_cardType.name}|$_step|'
         '${_anchor?.lat},${_anchor?.lng}';
     if (signature == _keptSignature) return;
     _keptSignature = signature;
@@ -478,8 +481,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         ..back = _back
         ..frontIsVideo = _frontIsVideo
         ..backIsVideo = _backIsVideo
-        ..frontImported = _frontImported
-        ..backImported = _backImported
+        ..frontOrigin = _frontOrigin
+        ..backOrigin = _backOrigin
         ..anchor = _anchor;
       // Le récap dit lui-même « edit » ou « share » ; ici on ne sait que
       // « une face manque » ou « tout est là ».
@@ -1078,10 +1081,10 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         final shots = await _camera.stopGlDualVideo();
         _front = await _adoptFace(shots.back);
         _frontIsVideo = true;
-        _frontImported = false;
+        _frontOrigin = FaceOrigin.camera;
         _back = await _adoptFace(shots.front);
         _backIsVideo = true;
-        _backImported = false;
+        _backOrigin = FaceOrigin.camera;
         _berealTimer?.cancel();
         await NativeCameraController.log(
           'Oneshot : double vidéo GPU écrite — '
@@ -1093,7 +1096,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
         if (mounted) setState(() => _step = 2);
       } else {
         final shot = await _camera.stopVideo();
-        await _applyFace(shot, imported: false, isVideo: true);
+        await _applyFace(shot, origin: FaceOrigin.camera, isVideo: true);
       }
     } catch (e) {
       if (mounted) {
@@ -1325,7 +1328,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   /// vidéo) et avance le flux comme après une photo.
   Future<void> _applyFace(
     File file, {
-    required bool imported,
+    required FaceOrigin origin,
     bool isVideo = false,
   }) async {
     _lockType(); // une face posée = le type de la card est décidé
@@ -1333,13 +1336,13 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     if (_step != 0) {
       // On est au verso.
       _back = file;
-      _backImported = imported;
+      _backOrigin = origin;
       _backIsVideo = isVideo;
       _berealTimer?.cancel();
       setState(() => _step = 2);
     } else {
       _front = file;
-      _frontImported = imported;
+      _frontOrigin = origin;
       _frontIsVideo = isVideo;
       if (_retakeOnly) {
         _retakeOnly = false;
@@ -1357,7 +1360,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     if (_busy || _recording || _step != 1) return;
     setState(() {
       _front = null;
-      _frontImported = false;
+      _frontOrigin = FaceOrigin.camera;
       _frontIsVideo = false;
       _timerSeconds = _timerRestore; // retardateur rétabli (consigne Jay)
       _step = 0;
@@ -1380,7 +1383,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
   void _skipBackFace() {
     if (_busy || !_canSkipBackFace) return;
     _back = null;
-    _backImported = false;
+    _backOrigin = FaceOrigin.camera;
     _backIsVideo = false;
     _berealTimer?.cancel();
     if (!_facesMatchType()) return;
@@ -1418,8 +1421,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     setState(() {
       _front = null;
       _back = null;
-      _frontImported = false;
-      _backImported = false;
+      _frontOrigin = FaceOrigin.camera;
+      _backOrigin = FaceOrigin.camera;
       _frontIsVideo = false;
       _backIsVideo = false;
       _timerSeconds = _timerRestore;
@@ -1454,12 +1457,12 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       _timerSeconds = _timerRestore;
       if (isFront) {
         _front = null;
-        _frontImported = false;
+        _frontOrigin = FaceOrigin.camera;
         _frontIsVideo = false;
         _step = 0;
       } else {
         _back = null;
-        _backImported = false;
+        _backOrigin = FaceOrigin.camera;
         _backIsVideo = false;
         _step = 1;
       }
@@ -1478,7 +1481,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     setState(() => _busy = true);
     try {
       final file = await _background.render();
-      await _applyFace(file, imported: false);
+      await _applyFace(file, origin: FaceOrigin.color);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1556,7 +1559,7 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
       ),
     );
     if (adjusted == null || !mounted) return;
-    await _applyFace(adjusted, imported: true);
+    await _applyFace(adjusted, origin: FaceOrigin.gallery);
   }
 
   @override
@@ -1800,6 +1803,9 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                 target: target,
                 frontIsVideo: _frontIsVideo,
                 backIsVideo: _backIsVideo,
+                cameraOnly:
+                    _frontOrigin == FaceOrigin.camera &&
+                    (_back == null || _backOrigin == FaceOrigin.camera),
               )
             : _ShareStep(
                 front: _front!,
@@ -1807,8 +1813,8 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
                 // Type FIGÉ à la prise — surtout pas _type (que le sélecteur peut
                 // encore refléter) : c'est ce qui a produit une Mono à deux faces.
                 type: _cardType,
-                frontImported: _frontImported,
-                backImported: _backImported,
+                frontOrigin: _frontOrigin,
+                backOrigin: _backOrigin,
                 frontIsVideo: _frontIsVideo,
                 backIsVideo: _backIsVideo,
                 directConversationId: widget.directConversationId,
@@ -2632,8 +2638,8 @@ class _ShareStep extends StatefulWidget {
     required this.front,
     required this.back,
     required this.type,
-    this.frontImported = false,
-    this.backImported = false,
+    this.frontOrigin = FaceOrigin.camera,
+    this.backOrigin = FaceOrigin.camera,
     this.frontIsVideo = false,
     this.backIsVideo = false,
     this.directConversationId,
@@ -2667,8 +2673,8 @@ class _ShareStep extends StatefulWidget {
   /// en brouillon si l'utilisateur l'a demandé.
   final void Function(bool keepDraft) onAbandon;
   final CardType type;
-  final bool frontImported;
-  final bool backImported;
+  final FaceOrigin frontOrigin;
+  final FaceOrigin backOrigin;
   final bool frontIsVideo;
   final bool backIsVideo;
 
@@ -2888,7 +2894,8 @@ class _ShareStepState extends State<_ShareStep> {
       front: _front,
       back: _back,
       type: widget.type,
-      imported: widget.frontImported || widget.backImported,
+      frontOrigin: widget.frontOrigin,
+      backOrigin: widget.backOrigin,
       frontIsVideo: widget.frontIsVideo,
       backIsVideo: widget.backIsVideo,
       anchor: widget.anchor,

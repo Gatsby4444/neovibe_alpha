@@ -264,14 +264,18 @@ class VibeTypeChip extends StatelessWidget {
 class ViewingRulesEditor extends StatefulWidget {
   const ViewingRulesEditor({
     super.key,
-    required this.draft,
+    required this.acceptsDuration,
+    required this.hasVideo,
     required this.maxViews,
     required this.viewDuration,
     required this.scrubbable,
     required this.onChanged,
   });
 
-  final VibeDraft draft;
+  /// Posées par l'appelant, d'après la prise (envoi) ou la Vibe (Modifier,
+  /// 2026-09-25) — la règle elle-même est [acceptsViewDuration].
+  final bool acceptsDuration;
+  final bool hasVideo;
   final int? maxViews;
   final int? viewDuration;
   final bool scrubbable;
@@ -301,7 +305,6 @@ class _ViewingRulesEditorState extends State<ViewingRulesEditor> {
 
   @override
   Widget build(BuildContext context) {
-    final draft = widget.draft;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -332,12 +335,12 @@ class _ViewingRulesEditorState extends State<ViewingRulesEditor> {
         // La durée de lecture ne concerne que les faces photo d'une Vibe
         // standard : une face vidéo se lit en entier (2026-07-12), un Oneshot
         // n'a pas de chrono (2026-09-14). Voir [VibeDraft.acceptsDuration].
-        if (draft.acceptsDuration) ...[
+        if (widget.acceptsDuration) ...[
           const SizedBox(height: 8),
           Text(
             _duration == 21
-                ? 'Durée de lecture${draft.hasVideo ? ' (face photo)' : ''} : illimitée'
-                : 'Durée de lecture${draft.hasVideo ? ' (face photo)' : ''} : $_duration s',
+                ? 'Durée de lecture${widget.hasVideo ? ' (face photo)' : ''} : illimitée'
+                : 'Durée de lecture${widget.hasVideo ? ' (face photo)' : ''} : $_duration s',
             style: Theme.of(context).textTheme.titleSmall,
           ),
           Text(
@@ -360,7 +363,7 @@ class _ViewingRulesEditorState extends State<ViewingRulesEditor> {
           ),
         ],
 
-        if (draft.hasVideo) ...[
+        if (widget.hasVideo) ...[
           const SizedBox(height: 4),
           ScrubbableSwitch(
             value: _scrubbable,

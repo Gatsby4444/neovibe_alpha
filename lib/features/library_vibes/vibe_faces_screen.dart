@@ -10,6 +10,8 @@ import '../../core/theme.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../../core/widgets/pull_down_to_close.dart';
 import '../cards/flippable_card.dart';
+import '../../core/utils/erreur_serveur.dart';
+import 'drop_vibe_options.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
 import '../../core/widgets/system_bars.dart';
@@ -104,7 +106,10 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
       final front = await repo.openRevealed(vibe, isVideo: vibe.frontIsVideo);
       if (mounted) setState(() => _frontMedia = front);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      // Supprimée entre-temps par son auteur (le Drop ne l'annonce pas en
+      // direct) : on relit le Drop pour que la tuile disparaisse.
+      ref.invalidate(conversationLibraryProvider(vibe.conversationId));
+      if (mounted) setState(() => _error = messageServeur(e));
       return;
     }
     if (vibe.hasBack) {
@@ -149,6 +154,14 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
             revealed ? vibe.type.tag : 'Visible à 18h30',
             style: const TextStyle(fontSize: 15),
           ),
+          // Modifier / supprimer, ou supprimer pour moi / signaler
+          // (2026-09-25). Supprimée ou cachée : le visionneur se ferme.
+          actions: [
+            DropVibeMenu(
+              vibe: vibe,
+              onGone: () => Navigator.of(context).maybePop(),
+            ),
+          ],
         ),
         body: Center(
           child: Padding(

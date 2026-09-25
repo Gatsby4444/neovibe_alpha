@@ -247,6 +247,37 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
         : _plan.copyWith(effacerLibrary: true);
   });
 
+  /// **Le chat d'un événement ne se choisit que depuis ce chat** (Jay,
+  /// 2026-09-25) : son bouton Vibe ouvre la capture avec la conversation
+  /// pré-cochée. Partout ailleurs, un événement n'offre que son Drop — et
+  /// seulement celui où je suis ([RecipientCatalog.currentEvent]).
+  bool _estEvenement(Recipient r) => r is GroupRecipient && r.isEvent;
+  bool _chatPermis(Recipient r) =>
+      !_estEvenement(r) || _keyOf(r) == _ctx.presetConversationId;
+
+  /// Ce que le plan ne peut pas contenir pour un événement, quel que soit le
+  /// chemin qui l'y a mis (un brouillon repris, par exemple). Le serveur
+  /// refuse aussi le Drop d'un événement quitté ou fermé.
+  String? _problemeEvenement(RecipientCatalog? catalogue) {
+    if (catalogue == null) return null;
+    final courant = catalogue.currentEvent?.conversationId;
+    final evenements = {
+      for (final g in catalogue.groups)
+        if (g.isEvent) g.conversationId,
+    };
+    for (final c in _plan.conversations) {
+      if (!evenements.contains(c.conversationId)) continue;
+      if (c.dansLeChat && c.conversationId != _ctx.presetConversationId) {
+        return 'Une Vibe ne va dans le chat d\'un événement que depuis ce '
+            'chat.';
+      }
+      if (c.aussiDansLaBibliotheque && c.conversationId != courant) {
+        return 'Tu n\'es plus dans cet événement : son Drop t\'est fermé.';
+      }
+    }
+    return null;
+  }
+
   /// Le chat d'où la capture a été ouverte : coché à l'arrivée, modifiable.
   void _preselectionne(RecipientCatalog catalog) {
     final id = _ctx.presetConversationId;
@@ -360,10 +391,24 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
           _dire('Choisis au moins une conversation.');
           return;
         }
+        final evenement = _problemeEvenement(ref.read(recipientsProvider));
+        if (evenement != null) {
+          _dire(evenement);
+          return;
+        }
         Navigator.of(context).pop(_plan);
       case VibeShareContext(:final draft):
+        final evenement = _problemeEvenement(ref.read(recipientsProvider));
+        if (evenement != null) {
+          _dire(evenement);
+          return;
+        }
         final type = _typeEffectif;
-        final soucis = _plan.problemes(type, importe: draft.imported);
+        final soucis = _plan.problemes(
+          type,
+          importe: draft.imported,
+          cameraOnly: draft.cameraOnly,
+        );
         if (soucis.isNotEmpty) {
           _dire(soucis.first);
           return;
@@ -438,12 +483,17 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
                           onChanged: (v) => setState(() => _recherche = v),
                         ),
 
-                      // 2. L'événement où je suis — tout en haut.
-                      if (visible.currentEvent != null && !_ctx.libraryOnly)
+                      // 2. L'événement où je suis — tout en haut. Son Drop
+                      // seulement, sauf depuis son chat (2026-09-25).
+                      if (visible.currentEvent != null &&
+                          !_ctx.libraryOnly &&
+                          (_ctx.allowsConversationLibrary ||
+                              _chatPermis(visible.currentEvent!)))
                         _EventRow(
                           group: visible.currentEvent!,
                           share: _shareOf(visible.currentEvent!.conversationId),
-                          dualTargets: _ctx.allowsConversationLibrary,
+                          chat: _chatPermis(visible.currentEvent!),
+                          drop: _ctx.allowsConversationLibrary,
                           onChat: () =>
                               _toggleCible(visible.currentEvent!, chat: true),
                           onLibrary: () =>
@@ -537,16 +587,21 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
                         ],
                         // L'événement en cours est déjà tout en haut : il ne
                         // figure pas une seconde fois dans les listes.
+                        // Un autre événement n'y figure que s'il est le chat
+                        // d'où la capture a été ouverte — et pour ce chat
+                        // seulement (2026-09-25).
                         if (visible.groups.any(
-                          (g) => g != visible.currentEvent,
+                          (g) => g != visible.currentEvent && _chatPermis(g),
                         )) ...[
                           const _SousTitre('Groupes'),
                           for (final g in visible.groups)
-                            if (g != visible.currentEvent)
+                            if (g != visible.currentEvent && _chatPermis(g))
                               _RecipientRow(
                                 recipient: g,
                                 share: _shareOf(_keyOf(g)),
-                                dualTargets: _ctx.allowsConversationLibrary,
+                                dualTargets:
+                                    _ctx.allowsConversationLibrary &&
+                                    !_estEvenement(g),
                                 onChat: () => _toggleCible(g, chat: true),
                                 onLibrary: () => _toggleCible(g, chat: false),
                               ),
@@ -556,11 +611,13 @@ class _RecipientPickerScreenState extends ConsumerState<RecipientPickerScreen> {
                             enRecherche ? 'Résultats' : 'Tout le monde',
                           ),
                           for (final r in visible.everyone)
-                            if (r != visible.currentEvent)
+                            if (r != visible.currentEvent && _chatPermis(r))
                               _RecipientRow(
                                 recipient: r,
                                 share: _shareOf(_keyOf(r)),
-                                dualTargets: _ctx.allowsConversationLibrary,
+                                dualTargets:
+                                    _ctx.allowsConversationLibrary &&
+                                    !_estEvenement(r),
                                 onChat: () => _toggleCible(r, chat: true),
                                 onLibrary: () => _toggleCible(r, chat: false),
                               ),
@@ -1183,19 +1240,24 @@ class _RecipientRow extends StatelessWidget {
 }
 
 /// « Nom de l'événement » — tout en haut, avant « Publier » (Jay). Drop par
-/// défaut : celui du groupe d'événement ; 💬 disponible.
+/// défaut : celui du groupe d'événement. 💬 **seulement** quand la capture a
+/// été ouverte depuis le chat de l'événement (Jay, 2026-09-25).
 class _EventRow extends StatelessWidget {
   const _EventRow({
     required this.group,
     required this.share,
-    required this.dualTargets,
+    required this.chat,
+    required this.drop,
     required this.onChat,
     required this.onLibrary,
   });
 
   final GroupRecipient group;
   final ConversationShare? share;
-  final bool dualTargets;
+
+  /// Les cibles permises ici — au moins une (sinon la ligne n'est pas posée).
+  final bool chat;
+  final bool drop;
   final VoidCallback onChat;
   final VoidCallback onLibrary;
 
@@ -1203,8 +1265,9 @@ class _EventRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final accent = Theme.of(context).colorScheme.primary;
     final coche = share != null;
-    final chat = share?.dansLeChat ?? false;
+    final dansLeChat = share?.dansLeChat ?? false;
     final lib = share?.aussiDansLaBibliotheque ?? false;
+    final deux = chat && drop;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         NeoSpace.lg,
@@ -1215,7 +1278,7 @@ class _EventRow extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(NeoRadius.md),
         // Par défaut, le DROP de l'événement (Jay, 2026-09-14).
-        onTap: dualTargets ? onLibrary : onChat,
+        onTap: drop ? onLibrary : onChat,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           padding: const EdgeInsets.symmetric(
@@ -1259,10 +1322,10 @@ class _EventRow extends StatelessWidget {
                   ],
                 ),
               ),
-              if (dualTargets) ...[
+              if (deux) ...[
                 _Cible(
                   icone: Icons.chat_bubble_outline,
-                  actif: chat,
+                  actif: dansLeChat,
                   tooltip: 'Dans le chat de l\'événement',
                   onTap: onChat,
                 ),

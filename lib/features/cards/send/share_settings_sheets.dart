@@ -494,7 +494,8 @@ class _RecipientSettingsSheetState
             _Bloc(
               'Règles de visionnage',
               child: ViewingRulesEditor(
-                draft: widget.draft,
+                acceptsDuration: widget.draft.acceptsDuration,
+                hasVideo: widget.draft.hasVideo,
                 maxViews: _regles.maxViews,
                 viewDuration: _regles.viewDurationSeconds,
                 scrubbable: _regles.scrubbable,

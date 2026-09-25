@@ -32,25 +32,43 @@ import 'report_sheet.dart';
 /// volontairement au même endroit partout : quelqu'un qui tombe sur un contenu
 /// choquant ne doit pas avoir à chercher.
 ///
-/// ⚠️ **Le profil est le point d'entrée de dernier recours** : une Vibe reçue
-/// en DM n'a pas de Content ID (elle ne rejoindra le socle que le jour où
-/// `cards` y migrera), elle se signale donc par le profil de son expéditeur.
-/// Ce chemin est resté inatteignable de la v0.9.53 au 2026-08-12 — le menu
-/// n'existait que sur les stories et les publications.
+/// ⚠️ **Le profil reste le point d'entrée de dernier recours.** Une Vibe
+/// reçue en DM n'a pas de Content ID ; jusqu'au 2026-09-25 elle ne se
+/// signalait QUE par le profil de son expéditeur. Elle a désormais son propre
+/// signalement ([SentVibeReportTarget]).
+///
+/// ### Les Vibes, depuis le 2026-09-25
+///
+/// Même menu pour une Vibe du Drop et une Vibe reçue en chat (Jay) : à son
+/// auteur **Modifier** ([onEdit]) et **Supprimer** ([onRemove]) ; aux autres
+/// **Supprimer pour moi** ([onHide]), **Signaler** ([reportTarget]) et
+/// **Bloquer** — et, à l'organisateur d'une soirée, **Supprimer du Drop**
+/// ([onModeratorRemove]). Le menu ne décide d'aucun droit : le serveur
+/// refuse ce qui ne l'est pas ; il n'affiche que ce qui a un sens.
 class ContentOverflowMenu extends ConsumerWidget {
   const ContentOverflowMenu({
     super.key,
     this.contentId,
+    this.reportTarget,
     required this.authorId,
     this.authorName,
     this.color = Colors.white,
     this.mine = false,
     this.onRemove,
+    this.removeLabel = 'Retirer',
+    this.removeDetail = 'Cette publication disparaît pour tout le monde.',
+    this.onEdit,
+    this.onHide,
+    this.onModeratorRemove,
     this.dense = false,
   });
 
   /// Nul quand le menu porte sur une personne et non sur un contenu.
   final String? contentId;
+
+  /// Ce que « Signaler » vise, quand ce n'est ni un contenu du socle ni la
+  /// personne (une Vibe du Drop, une Vibe reçue).
+  final ReportTarget? reportTarget;
   final String authorId;
   final String? authorName;
   final Color color;
@@ -61,16 +79,27 @@ class ContentOverflowMenu extends ConsumerWidget {
 
   /// « Retirer », quand c'est le mien. Nul = l'option n'existe pas ici.
   final VoidCallback? onRemove;
+  final String removeLabel;
+  final String removeDetail;
+
+  /// « Modifier », quand c'est le mien.
+  final VoidCallback? onEdit;
+
+  /// « Supprimer pour moi », quand ce n'est pas le mien.
+  final VoidCallback? onHide;
+
+  /// « Supprimer du Drop », pour l'organisateur quand ce n'est pas le sien.
+  final VoidCallback? onModeratorRemove;
 
   /// Resserré, pour l'en-tête d'une cellule du fil (voir [ActionMetrics]).
   final bool dense;
 
+  bool get _vide => mine && onRemove == null && onEdit == null;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     // Mon contenu sans aucune option de propriétaire : pas de menu vide.
-    if (mine && onRemove == null) {
-      return const SizedBox.shrink();
-    }
+    if (_vide) return const SizedBox.shrink();
     // ⚠️ Lu ICI, pas seulement dans la feuille : un `read` sur un provider
     // que personne n'a demandé rend `null` — la feuille aurait proposé
     // « Bloquer » à quelqu'un de déjà bloqué, une fois sur deux.
@@ -81,7 +110,7 @@ class ContentOverflowMenu extends ConsumerWidget {
       color: color,
       dense: dense,
       tooltip: 'Plus',
-      onPressed: () => _ouvrir(context, ref),
+      onPressed: () => open(context, ref),
     );
   }
 
@@ -94,10 +123,22 @@ class ContentOverflowMenu extends ConsumerWidget {
   /// arrivent là où l'œil n'est pas. Une feuille arrive toujours du même
   /// bord, à portée du pouce, et peut grandir — ce qui compte quand on sait
   /// que les options vont se multiplier.
-  Future<void> _ouvrir(BuildContext context, WidgetRef ref) async {
+  ///
+  /// Publique (2026-09-25) : un appui long sur une tuile du Drop ou sur un
+  /// container de Vibe ouvre la même feuille que le « … ».
+  Future<void> open(BuildContext context, WidgetRef ref) async {
+    if (_vide) return;
     final blocked = mine
         ? false
-        : ref.read(isBlockedProvider(authorId)).value ?? false;
+        : await ref
+              .read(isBlockedProvider(authorId).future)
+              .catchError((_) => false);
+    if (!context.mounted) return;
+    final vise = reportTarget;
+    final labelSignaler = switch (vise) {
+      DropVibeReportTarget() || SentVibeReportTarget() => 'Signaler',
+      _ => contentId != null ? 'Signaler ce contenu' : 'Signaler',
+    };
 
     final choix = await showModalBottomSheet<String>(
       context: context,
@@ -107,18 +148,31 @@ class ContentOverflowMenu extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (mine) ...[
+              if (onEdit != null)
+                _Option(
+                  icon: Icons.tune,
+                  label: 'Modifier',
+                  onTap: () => Navigator.pop(context, 'edit'),
+                ),
               if (onRemove != null)
                 _Option(
                   icon: Icons.delete_outline,
-                  label: 'Retirer',
-                  detail: 'Cette publication disparaît pour tout le monde.',
+                  label: removeLabel,
+                  detail: removeDetail,
                   danger: true,
                   onTap: () => Navigator.pop(context, 'remove'),
                 ),
             ] else ...[
+              if (onHide != null)
+                _Option(
+                  icon: Icons.visibility_off_outlined,
+                  label: 'Supprimer pour moi',
+                  detail: 'Elle disparaît pour toi seulement.',
+                  onTap: () => Navigator.pop(context, 'hide'),
+                ),
               _Option(
                 icon: Icons.flag_outlined,
-                label: contentId != null ? 'Signaler ce contenu' : 'Signaler',
+                label: labelSignaler,
                 onTap: () => Navigator.pop(context, 'report'),
               ),
               _Option(
@@ -131,6 +185,16 @@ class ContentOverflowMenu extends ConsumerWidget {
                 onTap: () =>
                     Navigator.pop(context, blocked ? 'unblock' : 'block'),
               ),
+              if (onModeratorRemove != null)
+                _Option(
+                  icon: Icons.delete_outline,
+                  label: 'Supprimer du Drop',
+                  detail:
+                      'Tu organises cette soirée : elle disparaît pour '
+                      'tout le monde.',
+                  danger: true,
+                  onTap: () => Navigator.pop(context, 'moderate'),
+                ),
             ],
             const SizedBox(height: NeoSpace.sm),
           ],
@@ -144,13 +208,20 @@ class ContentOverflowMenu extends ConsumerWidget {
   Future<void> _appliquer(BuildContext context, WidgetRef ref, String v) async {
     final repo = ref.read(moderationRepositoryProvider);
     switch (v) {
+      case 'edit':
+        onEdit?.call();
       case 'remove':
         onRemove?.call();
+      case 'hide':
+        onHide?.call();
+      case 'moderate':
+        onModeratorRemove?.call();
       case 'report':
         await showReportSheet(
           context,
           ref,
           contentId: contentId,
+          target: reportTarget,
           targetUserId: authorId,
           targetName: authorName,
         );

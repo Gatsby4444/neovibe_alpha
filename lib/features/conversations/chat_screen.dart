@@ -24,6 +24,7 @@ import '../../core/utils/formats.dart';
 import '../cards/card_capture_screen.dart';
 import '../cards/card_viewer_screen.dart';
 import '../cards/cards_repository.dart';
+import '../cards/sent_vibe_options.dart';
 import '../library_vibes/conversation_library_screen.dart';
 import '../library_vibes/library_target.dart';
 import '../connections/connections_repository.dart';
@@ -1097,12 +1098,17 @@ class _CardContainer extends ConsumerWidget {
           borderRadius: BorderRadius.circular(14),
           // Une Card détruite ne se rouvre pas — les autres états ouvrent le
           // viewer (qui gère épuisement et demande de replay).
+          // Appui long : les options de la Vibe (2026-09-25) — même
+          // feuille que le « … » du visionneur.
+          onLongPress: () =>
+              SentVibeMenu.open(context, ref, card, message: message),
           onTap: blocked
               ? null
               : () => Navigator.of(context)
                     .push(
                       MaterialPageRoute(
-                        builder: (_) => CardViewerScreen(card: card),
+                        builder: (_) =>
+                            CardViewerScreen(card: card, message: message),
                       ),
                     )
                     .then((_) {

@@ -19,6 +19,8 @@ import 'card_media_cache.dart';
 import 'cards_repository.dart';
 import '../../core/widgets/pull_down_to_close.dart';
 import 'flippable_card.dart';
+import 'sent_vibe_options.dart';
+import '../../core/models/message.dart';
 import '../../core/widgets/system_bars.dart';
 
 /// Étapes d'affichage d'une Card.
@@ -46,9 +48,14 @@ class CardViewerScreen extends ConsumerStatefulWidget {
     required this.card,
     this.fromLibrary = false,
     this.chromeless = false,
+    this.message,
   });
 
   final CardModel card;
+
+  /// Le container du chat d'où l'on vient : c'est lui que « Supprimer pour
+  /// moi » retire (2026-09-25). Nul hors d'un chat.
+  final Message? message;
 
   /// Ouvert depuis une bibliothèque : visionnage illimité (consigne Jay).
   final bool fromLibrary;
@@ -625,6 +632,13 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
                       backIsVideo: widget.card.backIsVideo,
                       mine: isOwner,
                     ),
+                  // Modifier / supprimer, ou supprimer pour moi / signaler
+                  // (2026-09-25). Disparue pour moi : le visionneur se ferme.
+                  SentVibeMenu(
+                    card: widget.card,
+                    message: widget.message,
+                    onGone: () => Navigator.of(context).maybePop(),
+                  ),
                 ],
                 bottom: showGauge
                     ? PreferredSize(

@@ -244,6 +244,7 @@ class SharePublisher {
                 back: draft.back,
                 backIsVideo: draft.backIsVideo,
                 saveableByOthers: conv.saveable,
+                cameraOnly: draft.cameraOnly,
               );
         }),
       );

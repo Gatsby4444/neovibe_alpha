@@ -20,7 +20,7 @@ void main() {
     front: File('front.jpg'),
     back: null,
     type: CardType.standard,
-    imported: false,
+    frontOrigin: FaceOrigin.camera,
     frontIsVideo: false,
     backIsVideo: false,
   );

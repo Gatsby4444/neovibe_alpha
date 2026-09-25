@@ -83,6 +83,7 @@ class LibraryVibesRepository {
     bool ephemeral = false,
     String? challengeId,
     String? title,
+    required bool cameraOnly,
   }) async {
     final me = _client.auth.currentUser!.id;
     // L'identifiant est fabriqué ICI : il nomme les fichiers dans le coffre,
@@ -160,6 +161,9 @@ class LibraryVibesRepository {
           'p_challenge_id': challengeId,
           // Rogné et borné par le serveur, qui est seul juge.
           'p_title': title,
+          // Les faces viennent-elles toutes de la caméra ? Le serveur refuse
+          // sinon (2026-09-25) — ni import, ni fond uni dans un Drop.
+          'p_camera_only': cameraOnly,
         },
       );
       final vibe = LibraryVibe.fromJson(Map<String, dynamic>.from(row as Map));
@@ -173,8 +177,69 @@ class LibraryVibesRepository {
       return vibe;
     } catch (e) {
       AppLog.instance.error('add_vibe_to_library a échoué', '$e');
+      // Refusée (Drop fermé, origine refusée…) : les fichiers déjà déposés
+      // ne seront jamais référencés — on les retire, sans attendre ni lever.
+      unawaited(
+        _client.storage
+            .from(_bucket)
+            .remove([
+              placeholderPath,
+              sealedPath,
+              ?placeholderBackPath,
+              ?sealedBackPath,
+            ])
+            .then((_) {}, onError: (_) {}),
+      );
       rethrow;
     }
+  }
+
+  // ─── Gérer une Vibe du Drop (2026-09-25) ───────────────────────────────
+  //
+  // Le serveur est seul juge des droits (`delete_drop_vibe` : l'auteur ou
+  // l'organisateur ; `update_drop_vibe` : l'auteur). ⚠️ L'invalidation
+  // appartient à l'ÉCRITURE : chaque méthode rafraîchit le Drop elle-même,
+  // quel que soit l'écran qui l'a appelée.
+
+  /// Supprime la Vibe **pour tout le monde**. Ses octets partent au balai
+  /// serveur ; ici, on oublie aussi le scellé et la vignette locaux.
+  Future<void> deleteVibe(LibraryVibe vibe) async {
+    await _client.rpc('delete_drop_vibe', params: {'p_vibe_id': vibe.id});
+    await _forget(vibe);
+  }
+
+  /// **Supprimer pour moi** : la Vibe n'est plus lisible par moi (règle de
+  /// lecture côté serveur), elle reste pour les autres.
+  Future<void> hideVibe(LibraryVibe vibe) async {
+    await _client.rpc('hide_drop_vibe', params: {'p_vibe_id': vibe.id});
+    await _forget(vibe);
+  }
+
+  /// Modifie les réglages de MA Vibe : le titre (rogné et borné par le
+  /// serveur), « sauvegardable par les autres » et « éphémère ».
+  Future<void> updateVibe(
+    LibraryVibe vibe, {
+    required String? title,
+    required bool saveableByOthers,
+    required bool ephemeral,
+  }) async {
+    await _client.rpc(
+      'update_drop_vibe',
+      params: {
+        'p_vibe_id': vibe.id,
+        'p_title': title,
+        'p_saveable_by_others': saveableByOthers,
+        'p_ephemeral': ephemeral,
+      },
+    );
+    ref.invalidate(conversationLibraryProvider(vibe.conversationId));
+  }
+
+  Future<void> _forget(LibraryVibe vibe) async {
+    _keys.remove(vibe.id);
+    _photos.remove(vibe.id);
+    await ref.read(libraryVaultCacheProvider).purge(vibe.id);
+    ref.invalidate(conversationLibraryProvider(vibe.conversationId));
   }
 
   // ─── Lecture ────────────────────────────────────────────────────────────

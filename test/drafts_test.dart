@@ -8,6 +8,7 @@ import 'package:neovibe/core/models/card.dart';
 import 'package:neovibe/features/cards/editor/vibe_edit_draft.dart';
 import 'package:neovibe/features/cards/send/share_plan.dart';
 import 'package:neovibe/features/cards/send/share_plan_codec.dart';
+import 'package:neovibe/features/cards/send/vibe_draft.dart';
 import 'package:neovibe/features/cards/vibe_draft_keeper.dart';
 import 'package:neovibe/features/connections/friendship.dart';
 import 'package:neovibe/features/cards/editor/media_edit.dart';
@@ -234,6 +235,17 @@ void main() {
   });
 
   group('VibeDraftState', () {
+    test("un brouillon d'avant les origines se relit (importée = galerie)", () {
+      final back = VibeDraftState.fromJson({
+        'type': 'standard',
+        'front': '/drafts/v/a.jpg',
+        'frontImported': false,
+        'backImported': true,
+      });
+      expect(back.frontOrigin, FaceOrigin.camera);
+      expect(back.backOrigin, FaceOrigin.gallery);
+    });
+
     test('la prise, les retouches et le plan se relisent tels quels', () {
       final state = VibeDraftState(
         type: CardType.oneshot,
@@ -241,8 +253,8 @@ void main() {
         back: File('/drafts/v/b_back.mp4'),
         frontIsVideo: true,
         backIsVideo: true,
-        frontImported: false,
-        backImported: true,
+        frontOrigin: FaceOrigin.color,
+        backOrigin: FaceOrigin.gallery,
         step: 'share',
         edit: VibeEditDraft(
           front: MediaEdit(
@@ -263,7 +275,8 @@ void main() {
       expect(back.type, CardType.oneshot);
       expect(back.front!.path, '/drafts/v/a_front.mp4');
       expect(back.back!.path, '/drafts/v/b_back.mp4');
-      expect(back.backImported, isTrue);
+      expect(back.frontOrigin, FaceOrigin.color);
+      expect(back.backOrigin, FaceOrigin.gallery);
       expect(back.step, 'share');
       expect(back.edit!.front.filter, MediaFilter.clarendon);
       expect(back.edit!.back, isNull);

@@ -5,6 +5,22 @@ import '../../../core/location/anchor.dart';
 import '../../../core/models/card.dart';
 import '../../../core/utils/ids.dart';
 
+/// **D'où vient une face** (2026-09-25).
+///
+/// Le Drop n'accepte que des faces prises à la caméra (Jay, 2026-08-10 :
+/// « le but est de prendre de vraies photos ou vidéos »). Jusqu'ici l'app ne
+/// retenait que « importée ou non » : un **fond uni** passait pour une vraie
+/// photo, et la caméra principale le laissait entrer dans un Drop. Trois
+/// origines, trois valeurs — le serveur reçoit la conclusion
+/// (`p_camera_only`), l'écran la règle correspondante.
+enum FaceOrigin {
+  camera,
+  gallery,
+
+  /// Un fond uni ou dégradé composé dans l'app.
+  color,
+}
+
 /// Ce qui sort de la capture et entre dans l'envoi.
 ///
 /// **Immuable.** Aucun écran de paramétrage ne le modifie : la prise est faite,
@@ -22,7 +38,8 @@ class VibeDraft {
     required this.front,
     required this.back,
     required this.type,
-    required this.imported,
+    required this.frontOrigin,
+    this.backOrigin = FaceOrigin.camera,
     required this.frontIsVideo,
     required this.backIsVideo,
     this.anchor,
@@ -43,8 +60,19 @@ class VibeDraft {
   /// devenir `oneOfOne` **à l'envoi seulement**, et seulement dans le cercle.
   final CardType type;
 
+  /// D'où viennent les faces. [backOrigin] n'a de sens que s'il y a un verso.
+  final FaceOrigin frontOrigin;
+  final FaceOrigin backOrigin;
+
   /// Au moins une face vient de la galerie.
-  final bool imported;
+  bool get imported =>
+      frontOrigin == FaceOrigin.gallery ||
+      (back != null && backOrigin == FaceOrigin.gallery);
+
+  /// Toutes les faces viennent de la caméra — la condition d'entrée d'un Drop.
+  bool get cameraOnly =>
+      frontOrigin == FaceOrigin.camera &&
+      (back == null || backOrigin == FaceOrigin.camera);
 
   /// Faces vidéo : la durée de visionnage ne s'applique qu'aux faces photo ;
   /// une face vidéo se lit en entier (consigne Jay 2026-07-12).
@@ -73,7 +101,8 @@ class VibeDraft {
     front: front,
     back: back,
     type: type,
-    imported: imported,
+    frontOrigin: frontOrigin,
+    backOrigin: backOrigin,
     frontIsVideo: frontIsVideo,
     backIsVideo: backIsVideo,
     anchor: anchor,
@@ -95,7 +124,7 @@ class VibeDraft {
   /// n'en ont jamais eu (2026-07-12). Un seul endroit décide, pour la roue
   /// ⚙︎ **et** pour l'envoi : deux avis divergents auraient laissé un
   /// curseur qui ne règle rien, ou une durée envoyée sans curseur.
-  bool get acceptsDuration => type != CardType.oneshot && hasPhoto;
+  bool get acceptsDuration => acceptsViewDuration(type, hasPhoto: hasPhoto);
 
   /// Le préfixe `local-` n'est pas décoratif : il **dit** que cet identifiant
   /// ne désigne rien côté serveur, et c'est sur lui que `SavedStore` s'appuie

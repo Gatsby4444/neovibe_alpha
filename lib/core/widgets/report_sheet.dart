@@ -17,25 +17,34 @@ Future<void> showReportSheet(
   BuildContext context,
   WidgetRef ref, {
   String? contentId,
+  ReportTarget? target,
   required String targetUserId,
   String? targetName,
 }) async {
+  // La cible : donnée telle quelle, sinon déduite comme avant (un contenu du
+  // socle, ou la personne).
+  final cible =
+      target ??
+      (contentId != null
+          ? ContentReportTarget(contentId)
+          : ProfileReportTarget(targetUserId));
+  final titre = switch (cible) {
+    ContentReportTarget() => 'Signaler ce contenu',
+    ProfileReportTarget() => 'Signaler ce profil',
+    DropVibeReportTarget() || SentVibeReportTarget() => 'Signaler cette Vibe',
+  };
   final result = await showModalBottomSheet<({ReportReason r, String d})>(
     context: context,
     isScrollControlled: true,
     // Fond laissé au thème (`bottomSheetTheme`) : la valeur écrite ici était
     // un gris violacé fixe, qui restait sombre en thème clair.
-    builder: (_) => _ReportSheet(isContent: contentId != null),
+    builder: (_) => _ReportSheet(title: titre),
   );
   if (result == null || !context.mounted) return;
 
   final repo = ref.read(moderationRepositoryProvider);
   try {
-    if (contentId != null) {
-      await repo.reportContent(contentId, result.r, details: result.d);
-    } else {
-      await repo.reportProfile(targetUserId, result.r, details: result.d);
-    }
+    await repo.report(cible, result.r, details: result.d);
   } catch (e) {
     if (!context.mounted) return;
     // Un doublon (déjà signalé) n'est pas une erreur pour l'utilisateur : son
@@ -84,8 +93,8 @@ Future<void> showReportSheet(
 }
 
 class _ReportSheet extends StatefulWidget {
-  const _ReportSheet({required this.isContent});
-  final bool isContent;
+  const _ReportSheet({required this.title});
+  final String title;
 
   @override
   State<_ReportSheet> createState() => _ReportSheetState();
@@ -113,7 +122,7 @@ class _ReportSheetState extends State<_ReportSheet> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 4),
               child: Text(
-                widget.isContent ? 'Signaler ce contenu' : 'Signaler ce profil',
+                widget.title,
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),
