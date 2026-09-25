@@ -291,7 +291,9 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               currentPosterPath: null,
               enabled: !_loading,
               onPick: () async {
-                final f = await ref.read(eventPosterServiceProvider).pick();
+                final f = await ref
+                    .read(eventPosterServiceProvider)
+                    .choose(context);
                 if (f != null && mounted) setState(() => _poster = f);
               },
               onClear: () => setState(() => _poster = null),

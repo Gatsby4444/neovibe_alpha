@@ -719,7 +719,9 @@ implémentation du même accord, sans point de contact, est une divergence promi
   relancer `scanForPeripherals` sur `centralManagerDidUpdateState(.poweredOn)`.
 
 - **`LocationBeat.kt`** — *(nouveau, 2026-09-22)* **mesurer où l'on est et
-  republier la balise `ping_beacons`, sans le Dart.** Jusque-là, la balise
+  republier la balise `ping_beacons`, sans le Dart.** Sa position vient de
+  `location/PositionEngine.kt` depuis le 2026-09-25 (fenêtre : pas de 1 s,
+  âge max 10 s). Jusque-là, la balise
   était publiée par le Dart toutes les 60 s, app ouverte seulement — or le
   jeton public ne vaut rien sans elle : **fermer l'app rendait invisible aux
   inconnus au bout de 5 min, en silence** (`graceBattement`). Le croisement
@@ -1517,7 +1519,8 @@ relance à son retour.
 
 | Fichier | Rôle |
 |---|---|
-| `events/EventPresenceService.kt` | le service : **moteur fusionné de Google** (`FusedLocationProviderClient`, haute précision, toutes les 20 s) et `LocationManager` (GPS + réseau) **en repli seulement** — corrigé le 2026-09-25 : le moteur brut ne donnait plus rien à l'intérieur, la présence restait figée 30 min (même leçon que `LocationBeat`, 2026-09-22). Un tick par minute, dépôt sur un fil de travail, notification « Présent à … » (canal `neovibe_event_presence`, importance basse). **Carnet sur disque** `event_presence.log` (`ServiceJournal`) : démarré / arrêté / chaque dépôt ou `no_fix`, avec moteur, précision et âge de la position. `START_STICKY` ; relancé sans intention, il s'arrête |
+| `location/PositionEngine.kt` | *(2026-09-25)* **le moteur de position, en un seul exemplaire**, partagé par `LocationBeat` (proximité) et `EventPresenceService` (soirée) : Google fusionné d'abord, `LocationManager` en repli, garde le meilleur point (le plus précis s'il est récent), publie `moteur` (`google` / `android` / `aucun`). Chaque service lui passe ses propres intervalles. Il était écrit deux fois, et la correction du 2026-09-22 n'avait atteint qu'une copie. iOS : un `CLLocationManager` partagé de la même façon |
+| `events/EventPresenceService.kt` | le service : **moteur fusionné de Google** via `PositionEngine` (haute précision, toutes les 20 s) et `LocationManager` (GPS + réseau) **en repli seulement** — corrigé le 2026-09-25 : le moteur brut ne donnait plus rien à l'intérieur, la présence restait figée 30 min (même leçon que `LocationBeat`, 2026-09-22). Un tick par minute, dépôt sur un fil de travail, notification « Présent à … » (canal `neovibe_event_presence`, importance basse). **Carnet sur disque** `event_presence.log` (`ServiceJournal`) : démarré / arrêté / chaque dépôt ou `no_fix`, avec moteur, précision et âge de la position. `START_STICKY` ; relancé sans intention, il s'arrête |
 | `events/EventPresenceBridge.kt` | `start(eventId, title)` (démarre ou re-cible), `stop()`, `running`, `journal` (le carnet, pour le diagnostic — 2026-09-25) ; événements `{eventId, outcome}` (`present`, `away`, `none`, `no_fix`, `offline`, `auth`, `rejected`, `error`, `stopped`) |
 | `EventPresenceHub` (même fichier) | l'`object` par lequel le service publie, que le pont soit là ou non |
 | `publish/SupabaseHttp.rpcText` | un appel RPC dont on lit la réponse (ajouté pour ce service) |

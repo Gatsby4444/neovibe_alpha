@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/diagnostics/app_log.dart';
 import '../../core/supabase_providers.dart';
+import '../../core/widgets/image_cropper_screen.dart';
 import '../../core/work_dir.dart';
 import '../cards/native_media.dart';
 import 'events_repository.dart';
@@ -35,34 +36,33 @@ class EventPosterService {
   static const width = 900;
   static const height = 1200;
 
-  /// Choisir une image dans la galerie, la recadrer au centre en 3:4.
-  /// Rend le JPEG prêt à déposer, ou nul si l'utilisateur renonce.
-  Future<File?> pick() async {
+  /// Choisir une image dans la galerie, puis **la recadrer à la main** en
+  /// 3:4 (2026-09-25 — c'était le centre, imposé). Rend le JPEG prêt à
+  /// déposer, ou nul si l'utilisateur renonce.
+  Future<File?> choose(BuildContext context) async {
     final picked = await ImagePicker().pickImage(
       source: ImageSource.gallery,
       imageQuality: 95,
     );
-    if (picked == null) return null;
-    return _crop(File(picked.path));
+    if (picked == null || !context.mounted) return null;
+    return Navigator.of(context).push<File>(
+      MaterialPageRoute(
+        builder: (_) => ImageCropperScreen<File>(
+          source: File(picked.path),
+          aspect: width / height,
+          // Assez pour zoomer net sur une affiche de 900 px de large, sans
+          // charger en mémoire les 50 mégapixels d'un capteur récent.
+          decodeWidth: 2400,
+          produce: render,
+        ),
+      ),
+    );
   }
 
-  /// Le rectangle 3:4 central, rendu à [width]×[height], encodé en JPEG par
-  /// le natif (le rendu `dart:ui` ne sait produire que du PNG, trois fois
+  /// Le rectangle [src] de [image], rendu à [width]×[height], encodé en JPEG
+  /// par le natif (le rendu `dart:ui` ne sait produire que du PNG, trois fois
   /// plus lourd).
-  Future<File> _crop(File source) async {
-    final codec = await ui.instantiateImageCodec(
-      await source.readAsBytes(),
-      targetWidth: 1600,
-    );
-    final frame = await codec.getNextFrame();
-    final image = frame.image;
-    codec.dispose();
-    const ratio = width / height;
-    final w = image.width.toDouble();
-    final h = image.height.toDouble();
-    final Rect src = w / h > ratio
-        ? Rect.fromLTWH((w - h * ratio) / 2, 0, h * ratio, h)
-        : Rect.fromLTWH(0, (h - w / ratio) / 2, w, w / ratio);
+  Future<File> render(ui.Image image, Rect src) async {
     final recorder = ui.PictureRecorder();
     ui.Canvas(recorder).drawImageRect(
       image,
@@ -70,7 +70,6 @@ class EventPosterService {
       const Rect.fromLTWH(0, 0, width + 0.0, height + 0.0),
       ui.Paint()..filterQuality = FilterQuality.high,
     );
-    image.dispose();
     final picture = recorder.endRecording();
     final rendered = await picture.toImage(width, height);
     picture.dispose();
@@ -457,7 +456,9 @@ class _EventProfileEditScreenState
             currentPosterPath: _cleared ? null : widget.posterPath,
             enabled: !_busy,
             onPick: () async {
-              final f = await ref.read(eventPosterServiceProvider).pick();
+              final f = await ref
+                  .read(eventPosterServiceProvider)
+                  .choose(context);
               if (f != null && mounted) {
                 setState(() {
                   _poster = f;

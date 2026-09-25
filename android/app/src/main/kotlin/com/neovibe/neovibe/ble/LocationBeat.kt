@@ -1,23 +1,12 @@
 package com.neovibe.neovibe.ble
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
-import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
 import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
-import com.google.android.gms.common.ConnectionResult
-import com.google.android.gms.common.GoogleApiAvailability
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
+import com.neovibe.neovibe.location.PositionEngine
 import com.neovibe.neovibe.publish.SessionStore
 import com.neovibe.neovibe.publish.SupabaseHttp
 import java.util.concurrent.Executors
@@ -183,12 +172,10 @@ class LocationBeat(
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
-    private var last: Location? = null
-    private var listening = false
     private var cadence = 0L
 
     /**
-     * Le battement est-il **arme** ? A ne pas confondre avec [listening],
+     * Le battement est-il **arme** ? A ne pas confondre avec [PositionEngine.listening],
      * qui ne dit que si la fenetre est ouverte a cet instant - dix secondes
      * par minute depuis la rafale. Voir la garde de [start].
      */
@@ -221,25 +208,6 @@ class LocationBeat(
     var dernierEchec: String? = null
         private set
 
-    private val listener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            val prev = last
-            // Le meilleur des deux fournisseurs : le plus précis s'il est
-            // récent, sinon le plus récent. (Même règle que l'événement.)
-            last = if (prev == null || location.accuracy <= prev.accuracy ||
-                location.time - prev.time > 30_000L
-            ) {
-                location
-            } else {
-                prev
-            }
-        }
-
-        @Deprecated("Deprecated in Java")
-        override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
-    }
 
     /**
      * **Un tour : on ouvre la fenêtre, on écoute, on referme, on publie.**
@@ -317,150 +285,42 @@ class LocationBeat(
             PackageManager.PERMISSION_GRANTED
 
     /**
-     * **Quel moteur mesure la position** : `google`, `android`, ou `aucun`.
+     * **Le moteur de position** — partagé avec la présence en soirée depuis
+     * le 2026-09-25 ([PositionEngine]). Ses réglages sont ceux de la FENÊTRE :
      *
-     * ## ⚠️ Pourquoi c'est publié et pas déduit
-     *
-     * Les deux moteurs rendent le même objet [Location], avec les mêmes
-     * champs. Une position fusionnée par Google et une position d'antenne
-     * brute ont **exactement la même apparence** — seule leur incertitude
-     * diffère, et une incertitude seule ne dit pas qui l'a produite.
-     *
-     * Le 2026-09-22, il a fallu lire le code d'un paquet pour savoir lequel
-     * répondait. Ça ne se reproduit pas : le diagnostic le dit.
+     * ⚠️ **L'intervalle est celui de la fenêtre, pas celui du battement** —
+     * corrigé le 2026-09-22 au soir avec le passage à la rafale. Il valait
+     * `cadence / 2` : une fenêtre de dix secondes aurait demandé un relevé
+     * toutes les trente, donc **zéro ou un**, et les dix secondes n'auraient
+     * rien affiné. On veut au contraire le maximum de relevés PENDANT la
+     * fenêtre, pour que le point se resserre — c'est toute la raison de
+     * l'ouvrir.
      */
-    @Volatile
-    var moteur = "aucun"
-        private set
-
-    private var fused: FusedLocationProviderClient? = null
-
-    private val rappelGoogle = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            result.lastLocation?.let { listener.onLocationChanged(it) }
-        }
-    }
+    private val position = PositionEngine(
+        context,
+        intervalMs = PAS_FENETRE_MS,
+        minIntervalMs = PAS_FENETRE_MS,
+        maxAgeMs = FENETRE_MS,
+        androidIntervalMs = PAS_FENETRE_MS,
+    )
 
     /**
-     * On écoute avec le **moteur de Google** si le téléphone l'a, sinon avec
-     * celui d'Android. Pas un choix de confort : voir [demarreGoogle].
+     * **Quel moteur mesure la position** : `google`, `android`, ou `aucun` —
+     * lu par le diagnostic (`beaconMoteur`). Voir [PositionEngine.moteur].
      */
+    val moteur: String get() = position.moteur
+
     private fun startListening() {
-        if (listening) return
-        listening = demarreGoogle() || demarreAndroid()
-        if (!listening) moteur = "aucun"
+        position.start()
     }
 
-    /**
-     * **Le moteur fusionné de Google** — celui qui sert Google Maps et Snap.
-     *
-     * ## 🔴 Ce qu'il change, et pourquoi on a mis un mois à le voir
-     *
-     * [LocationManager] (ci-dessous) ne croise **rien** : il rend le GPS brut,
-     * ou l'estimation d'antenne brute. Sous terre, dans un bâtiment, dans une
-     * rue étroite, ça fait des centaines de mètres. Le moteur de Google croise
-     * GPS, Wi-Fi, antennes et capteurs, et s'appuie sur la base de données
-     * Wi-Fi mondiale de Google.
-     *
-     * Constaté par Jay le 2026-09-22, dans le métro : NeoVibe à deux rues de
-     * l'endroit réel, Google Maps juste, au même instant sur le même téléphone.
-     *
-     * ⚠️ **`setWaitForAccurateLocation(false)`, volontairement.** Demander à
-     * n'être réveillé que sur une position précise ferait taire le moteur tant
-     * qu'il n'a rien de bon — or on préfère un point médiocre tout de suite
-     * **et** les meilleurs ensuite : c'est [listener] qui garde le meilleur.
-     * Laisser le tri au moteur, c'est lui déléguer une décision d'usage.
-     *
-     * @return `false` si les services Google Play manquent — Huawei, ROM
-     *   chinoise, appareil dégooglisé. Ce n'est pas une panne : c'est le cas
-     *   où [demarreAndroid] est la seule option, et il faut alors que le
-     *   diagnostic le dise plutôt que d'afficher une position sans auteur.
-     */
-    @SuppressLint("MissingPermission")
-    private fun demarreGoogle(): Boolean {
-        val dispo = runCatching {
-            GoogleApiAvailability.getInstance()
-                .isGooglePlayServicesAvailable(context) == ConnectionResult.SUCCESS
-        }.getOrDefault(false)
-        if (!dispo) return false
-        return runCatching {
-            val client = fused
-                ?: LocationServices.getFusedLocationProviderClient(context)
-                    .also { fused = it }
-            // ⚠️ **L'intervalle est celui de la FENÊTRE, pas celui du
-            // battement** — corrigé le 2026-09-22 au soir avec le passage à la
-            // rafale. Il valait `cadence / 2` : une fenêtre de dix secondes
-            // aurait demandé un relevé toutes les trente, donc **zéro ou un**,
-            // et les dix secondes n'auraient rien affiné. On veut au contraire
-            // le maximum de relevés PENDANT la fenêtre, pour que le point se
-            // resserre — c'est toute la raison de l'ouvrir.
-            val requete = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, PAS_FENETRE_MS)
-                .setMinUpdateIntervalMillis(PAS_FENETRE_MS)
-                .setWaitForAccurateLocation(false)
-                .setMaxUpdateAgeMillis(FENETRE_MS)
-                .build()
-            client.requestLocationUpdates(requete, rappelGoogle, Looper.getMainLooper())
-            // Ce que le moteur tient déjà : sans ça, le premier battement après
-            // un démarrage n'a rien à publier et compte un `no_fix` pour rien.
-            client.lastLocation.addOnSuccessListener { p ->
-                p?.let { listener.onLocationChanged(it) }
-            }
-            moteur = "google"
-            true
-        }.getOrDefault(false)
-    }
-
-    /**
-     * Le moteur d'Android, **en repli seulement**. Voir [demarreGoogle] pour ce
-     * qu'il ne sait pas faire.
-     */
-    private fun demarreAndroid(): Boolean {
-        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-            ?: return false
-        // Nommee `pose` et non `arme` : `arme` est desormais un CHAMP de la
-        // classe (le battement est-il arme ?). Une locale du meme nom le
-        // masquerait ici sans que Kotlin ne dise rien, et la prochaine
-        // personne a lire ce fichier croirait modifier l'etat du battement.
-        var pose = false
-        for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
-            runCatching {
-                if (lm.isProviderEnabled(provider)) {
-                    lm.requestLocationUpdates(
-                        provider,
-                        PAS_FENETRE_MS,
-                        0f,
-                        listener,
-                        Looper.getMainLooper(),
-                    )
-                    lm.getLastKnownLocation(provider)?.let { listener.onLocationChanged(it) }
-                    pose = true
-                }
-            }
-        }
-        if (pose) moteur = "android"
-        return pose
-    }
-
-    /**
-     * ⚠️ **Les deux moteurs sont coupés, pas seulement celui qui tournait.**
-     * Règle 8 de `CLAUDE.md` : un abonnement qu'on croit arrêté parce qu'on a
-     * arrêté l'autre continue de réveiller la radio, et rien ne le signale —
-     * la batterie descend, c'est tout.
-     */
     private fun stopListening() {
-        if (!listening) return
-        runCatching { fused?.removeLocationUpdates(rappelGoogle) }
-        runCatching {
-            (context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager)
-                ?.removeUpdates(listener)
-        }
-        listening = false
-        moteur = "aucun"
+        position.stop()
     }
 
     /** Dépose la balise. **Constate et compte** ; ne décide de rien d'autre. */
     private fun publie() {
-        val fix = last
+        val fix = position.last
         if (fix == null || System.currentTimeMillis() - fix.time > PERIMEE_MS) {
             note("no_fix")
             return

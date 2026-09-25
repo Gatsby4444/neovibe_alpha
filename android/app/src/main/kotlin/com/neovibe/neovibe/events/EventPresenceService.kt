@@ -1,7 +1,5 @@
 package com.neovibe.neovibe.events
 
-import android.Manifest
-import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,27 +7,16 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
-import com.google.android.gms.common.ConnectionResult
-import com.google.android.gms.common.GoogleApiAvailability
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import com.neovibe.neovibe.MainActivity
 import com.neovibe.neovibe.ble.ServiceJournal
+import com.neovibe.neovibe.location.PositionEngine
 import com.neovibe.neovibe.publish.AuthExpired
 import com.neovibe.neovibe.publish.Rejected
 import com.neovibe.neovibe.publish.SessionStore
@@ -101,17 +88,21 @@ class EventPresenceService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private var eventId: String? = null
     private var title: String = "Événement"
-    private var last: Location? = null
-    private var listening = false
-
-    /** `google`, `android` ou `aucun` — écrit au carnet, jamais deviné. */
-    private var moteur = "aucun"
-    private var fused: FusedLocationProviderClient? = null
-    private val rappelGoogle = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            result.lastLocation?.let { listener.onLocationChanged(it) }
-        }
+    /**
+     * **Le moteur de position** — le même que la proximité depuis le
+     * 2026-09-25 ([PositionEngine]) : c'est parce qu'il était écrit deux fois
+     * que la correction du 2026-09-22 n'avait pas atteint ce service.
+     */
+    private val position by lazy {
+        PositionEngine(
+            this,
+            intervalMs = EVERY_MS / 3,
+            minIntervalMs = EVERY_MS / 6,
+            maxAgeMs = null,
+            androidIntervalMs = EVERY_MS / 2,
+        )
     }
+    private val moteur: String get() = position.moteur
 
     private fun journal(evenement: String, detail: String? = null) =
         ServiceJournal.note(
@@ -121,21 +112,6 @@ class EventPresenceService : Service() {
             System.currentTimeMillis(),
             android.os.SystemClock.elapsedRealtime(),
         )
-
-    private val listener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            val prev = last
-            // Le meilleur des deux fournisseurs : le plus précis s'il est
-            // récent, sinon le plus récent.
-            last = if (prev == null || location.accuracy <= prev.accuracy ||
-                location.time - prev.time > 30_000L) location else prev
-        }
-
-        @Deprecated("Deprecated in Java")
-        override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
-        override fun onProviderEnabled(provider: String) {}
-        override fun onProviderDisabled(provider: String) {}
-    }
 
     private val tick = object : Runnable {
         override fun run() {
@@ -182,74 +158,16 @@ class EventPresenceService : Service() {
         super.onDestroy()
     }
 
-    private fun hasPermission(): Boolean =
-        ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) ==
-            PackageManager.PERMISSION_GRANTED
-
-    /** Le moteur de Google s'il est là, celui d'Android sinon. */
     private fun startListening() {
-        if (listening || !hasPermission()) return
-        listening = demarreGoogle() || demarreAndroid()
-        if (!listening) moteur = "aucun"
-    }
-
-    /**
-     * **Le moteur fusionné de Google** — même raison et mêmes réglages de
-     * principe que `LocationBeat.demarreGoogle` : une position médiocre tout
-     * de suite plutôt que rien, puis les meilleures ; c'est [listener] qui
-     * garde la meilleure.
-     */
-    @SuppressLint("MissingPermission")
-    private fun demarreGoogle(): Boolean {
-        val dispo = runCatching {
-            GoogleApiAvailability.getInstance()
-                .isGooglePlayServicesAvailable(this) == ConnectionResult.SUCCESS
-        }.getOrDefault(false)
-        if (!dispo) return false
-        return runCatching {
-            val client = fused ?: LocationServices.getFusedLocationProviderClient(this)
-                .also { fused = it }
-            val requete = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, EVERY_MS / 3)
-                .setMinUpdateIntervalMillis(EVERY_MS / 6)
-                .setWaitForAccurateLocation(false)
-                .build()
-            client.requestLocationUpdates(requete, rappelGoogle, Looper.getMainLooper())
-            client.lastLocation.addOnSuccessListener { p -> p?.let { listener.onLocationChanged(it) } }
-            moteur = "google"
-            true
-        }.getOrDefault(false)
-    }
-
-    /** Le moteur d'Android, **en repli seulement** (appareil sans Google). */
-    @SuppressLint("MissingPermission")
-    private fun demarreAndroid(): Boolean {
-        val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return false
-        var pose = false
-        for (provider in listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)) {
-            runCatching {
-                if (lm.isProviderEnabled(provider)) {
-                    lm.requestLocationUpdates(provider, EVERY_MS / 2, 0f, listener, Looper.getMainLooper())
-                    lm.getLastKnownLocation(provider)?.let { listener.onLocationChanged(it) }
-                    pose = true
-                }
-            }
-        }
-        if (pose) moteur = "android"
-        return pose
+        position.start()
     }
 
     private fun stopListening() {
-        if (!listening) return
-        runCatching { fused?.removeLocationUpdates(rappelGoogle) }
-        runCatching {
-            (getSystemService(Context.LOCATION_SERVICE) as LocationManager).removeUpdates(listener)
-        }
-        listening = false
+        position.stop()
     }
-
     /** Dépose la dernière position ; ce que le serveur répond décide de la suite. */
     private fun report() {
-        val fix = last
+        val fix = position.last
         val id = eventId ?: return
         if (fix == null || System.currentTimeMillis() - fix.time > STALE_MS) {
             journal(
