@@ -106,6 +106,13 @@ class MyPointMotion {
     );
   }
 
+  /// **Où mon point est dessiné** à [now] — ce que vise « recentrer ». Ne
+  /// fait pas avancer la flèche. Nul avant le premier relevé.
+  ({double lat, double lon})? positionAt(DateTime now) {
+    final ici = _positionAt(now);
+    return ici == null ? null : (lat: ici.$1, lon: ici.$2);
+  }
+
   /// La position affichée à [now], sans toucher à la flèche.
   (double, double, double)? _positionAt(DateTime now) {
     if (_versLat == null) return null;

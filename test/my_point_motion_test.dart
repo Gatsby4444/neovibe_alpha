@@ -70,4 +70,18 @@ void main() {
       ..setHeading(null);
     expect(m.frameAt(t0.add(ms(16)))!.heading, isNull);
   });
+
+  test(
+    '« recentrer » vise exactement le point dessiné, même en plein glissement',
+    () {
+      final m = MyPointMotion()
+        ..setFix(50.6368, 3.0708, 20, t0)
+        ..setFix(50.6369, 3.0708, 20, t0.add(ms(1000)));
+      final t = t0.add(ms(1400));
+      final vise = m.positionAt(t)!;
+      final dessine = m.frameAt(t)!;
+      expect(vise.lat, dessine.lat);
+      expect(vise.lon, dessine.lon);
+    },
+  );
 }

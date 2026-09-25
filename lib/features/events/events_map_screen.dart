@@ -232,10 +232,26 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     );
   }
 
-  /// Recentrer **redemande** d'abord : c'est le geste de quelqu'un qui trouve
-  /// que le point est faux, pas celui de quelqu'un qui veut revoir le même
-  /// point.
+  /// Recentrer va **là où mon point est dessiné** — la même source que le
+  /// point, jamais une autre.
+  ///
+  /// 🔴 **Corrigé le 2026-09-25 au soir** (constat de Jay) : le bouton
+  /// demandait `LivePosition.current()`, c'est-à-dire le MEILLEUR relevé
+  /// gardé — que l'app conserve jusqu'à 5 minutes quand les suivants sont
+  /// moins précis. Depuis v0.9.275, le point, lui, suit le relevé à SUIVRE
+  /// (`LivePositionState.track`). Deux sources : le point était juste, le
+  /// bouton ramenait à une ancienne position. Défaut créé par moi le jour
+  /// même, en ajoutant la seconde source sans rejouer ses lecteurs.
+  ///
+  /// Redemander une mesure ici n'apporte rien : carte ouverte, le flux en
+  /// livre déjà une par seconde. Avant le premier relevé seulement, on la
+  /// demande.
   Future<void> _recentrer() async {
+    final ici = _motion.positionAt(DateTime.now());
+    if (ici != null) {
+      _allerA(ici.lat, ici.lon);
+      return;
+    }
     final me = await _position.current();
     if (me == null || !mounted) return;
     _allerA(me.latitude, me.longitude);
@@ -630,7 +646,9 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         : ref.watch(eventHotSpotsProvider(eventId)).value ?? const [];
 
     final live = ref.watch(livePositionProvider);
-    final me = live.fix;
+    // Sur la carte, UNE position : celle que suit mon point ([track]) — le
+    // centrage d'arrivée, le bouton et le libellé lisent la même.
+    final me = live.track ?? live.fix;
 
     // La position arrive après coup : la carte s'est ouverte sur le centre de
     // secours, on l'amène sur le premier relevé reçu — une fois, et seulement
