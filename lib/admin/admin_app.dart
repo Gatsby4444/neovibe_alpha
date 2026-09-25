@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'admin_repository.dart';
+import 'evidence_view.dart';
 
 /// **La console** : connexion, puis quatre onglets — Signalements, Comptes,
 /// Événements, Journal — et une ligne de compteurs. Sobre : des tables, des
@@ -318,6 +319,18 @@ class _ReportsState extends ConsumerState<_Reports> {
                               ? Wrap(
                                   spacing: 4,
                                   children: [
+                                    // Le média signalé, sous scellé tant
+                                    // que le signalement est ouvert — même
+                                    // supprimé par son auteur (2026-09-25).
+                                    if (kind != 'profile')
+                                      TextButton(
+                                        onPressed: () => showEvidence(
+                                          context,
+                                          kind: kind,
+                                          reportId: r['id'] as String,
+                                        ),
+                                        child: const Text('Voir la preuve'),
+                                      ),
                                     if (kind == 'content' &&
                                         r['content_id'] != null)
                                       TextButton(

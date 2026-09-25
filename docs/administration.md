@@ -100,10 +100,18 @@ et l'invalidation à l'écriture), `admin_app.dart` (les écrans).
    `purgeRevoked` au prochain démarrage de chaque app — vérifier que le
    chemin couvre bien les Vibes de chat et de Drop, pas seulement les
    publications.
-3. **Voir le contenu signalé** depuis la console : aujourd'hui elle montre
-   le contexte et l'auteur, pas le média (il est scellé ; le déchiffrer
-   pour un admin est une décision — et une clé de service côté serveur,
-   RAPPELS #154).
+3. ✅ **Voir le contenu signalé** — construit le 2026-09-25 (décision de
+   Jay : le **scellé sur place**, gardé **jusqu'au traitement**). À la
+   naissance d'un signalement, le serveur relève les fichiers visés et
+   recopie leur clé dans `moderation_holds` (aucune politique : personne ne
+   la lit). Tant qu'il est ouvert, le propriétaire ne peut plus effacer ces
+   fichiers, le balai les saute, et un admin les lit (`moderation_read_held`
+   + `admin_report_evidence`, journalisé `view_evidence`). Tranché ou
+   écarté : libéré, le fichier retourne au balai. **Aucune clé de service
+   n'a été nécessaire** : l'admin lit comme un utilisateur, le serveur sait
+   qu'il est admin. Console : « Voir la preuve », déchiffrée en mémoire dans
+   le navigateur (`lib/core/crypto/sealed_bytes.dart`). Migration
+   `20260925120000_le_scelle_de_moderation.sql`.
 4. **Les rôles** : un seul niveau (admin). Modérateur / administrateur, et
    qui peut nommer qui.
 5. **Les bannissements durables** (suppression de compte, blocage de

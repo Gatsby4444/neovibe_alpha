@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -23,6 +25,25 @@ class AdminRepository {
         await _c.rpc('admin_reports', params: {'p_status': status}) as List;
     return [for (final r in rows) (r as Map).cast<String, dynamic>()];
   }
+
+  /// **La preuve d'un signalement** (scellé de modération, 2026-09-25) :
+  /// ses fichiers et leurs clés, tant que le signalement est ouvert. Le
+  /// serveur journalise chaque ouverture (`view_evidence`).
+  Future<List<Map<String, dynamic>>> evidence(String kind, String id) async {
+    final rows =
+        await _c.rpc(
+              'admin_report_evidence',
+              params: {'p_kind': kind, 'p_report': id},
+            )
+            as List;
+    return [for (final r in rows) (r as Map).cast<String, dynamic>()];
+  }
+
+  /// Les octets SCELLÉS d'un fichier sous scellé — lisibles par un
+  /// administrateur seulement (`moderation_read_held`). Déchiffrés en
+  /// mémoire par l'appelant ([SealedBytes]), jamais écrits.
+  Future<Uint8List> heldBytes(String bucket, String path) =>
+      _c.storage.from(bucket).download(path);
 
   Future<void> resolveReport(
     String kind,
