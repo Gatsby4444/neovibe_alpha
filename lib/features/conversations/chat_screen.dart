@@ -353,7 +353,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           if (!isProximity && conversation != null)
             IconButton(
               icon: const Icon(Icons.collections_outlined),
-              tooltip: 'Le Drop — révélé à 18h30',
+              // Le Drop d'une soirée est visible tout de suite (2026-09-21) :
+              // « 18h30 » n'y est vrai que pour un groupe ou un ami.
+              tooltip: conversation.type == ConversationType.event
+                  ? 'Le Drop de la soirée'
+                  : 'Le Drop — révélé à 18h30',
               onPressed: () => _openLibrary(conversation, me),
             ),
           if (isGroup)
@@ -450,6 +454,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                         isFirstOfGroup: !_sameGroup(previous, message),
                         isLastOfGroup: !_sameGroup(message, next),
                         showSenderName: isGroup,
+                        dropImmediat:
+                            conversation?.type == ConversationType.event,
                       );
                     },
                   ),
@@ -821,9 +827,14 @@ class _MessageBubble extends ConsumerWidget {
     required this.isFirstOfGroup,
     required this.isLastOfGroup,
     required this.showSenderName,
+    this.dropImmediat = false,
   });
 
   final Message message;
+
+  /// Le Drop de cette conversation se voit TOUT DE SUITE (une soirée) : son
+  /// annonce ne promet pas « 18h30 » (relevé par Jay le 2026-09-25).
+  final bool dropImmediat;
   final bool isMine;
   final bool isFirstOfGroup;
   final bool isLastOfGroup;
@@ -847,12 +858,18 @@ class _MessageBubble extends ConsumerWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.lock_clock_outlined, size: 13, color: context.faint),
+            Icon(
+              dropImmediat
+                  ? Icons.collections_outlined
+                  : Icons.lock_clock_outlined,
+              size: 13,
+              color: context.faint,
+            ),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
                 '${isMine ? 'Tu as' : '${author?.displayName ?? 'Quelqu\'un'} a'} '
-                'ajouté une vibe — 18h30',
+                '${dropImmediat ? 'ajouté une Vibe au Drop' : 'ajouté une vibe — 18h30'}',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: context.faint,

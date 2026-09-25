@@ -6,6 +6,7 @@ import '../../core/models/library_vibe.dart';
 import '../../core/clock.dart';
 import '../../core/theme.dart';
 import '../../core/utils/formats.dart';
+import '../events/events_providers.dart';
 import 'drop_vibe_options.dart';
 import 'library_vibes_repository.dart';
 import 'masked_placeholder.dart';
@@ -43,11 +44,17 @@ class ConversationLibraryScreen extends ConsumerWidget {
         ),
         data: (list) {
           if (list.isEmpty) {
-            return const _Empty(
+            // Le Drop d'une soirée se voit tout de suite (2026-09-21) : il ne
+            // promet pas « 18h30 » (relevé par Jay le 2026-09-25).
+            final soiree =
+                ref.watch(eventByConversationProvider(conversationId)) != null;
+            return _Empty(
               icon: Icons.collections_outlined,
-              message:
-                  'Rien pour l\'instant.\nAjoute une vibe : elle se révélera '
-                  'à 18h30, pour tout le monde en même temps.',
+              message: soiree
+                  ? "Rien pour l'instant.\nAjoute une Vibe : les présents la "
+                        'verront tout de suite.'
+                  : "Rien pour l'instant.\nAjoute une vibe : elle se révélera "
+                        'à 18h30, pour tout le monde en même temps.',
             );
           }
 

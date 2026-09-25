@@ -57,6 +57,12 @@ class EventPresenceBridge(
                 result.success(null)
             }
             "running" -> result.success(EventPresenceService.running)
+            // Le carnet du service (2026-09-25), pour le diagnostic.
+            "journal" -> result.success(
+                com.neovibe.neovibe.ble.ServiceJournal.lire(
+                    java.io.File(context.filesDir, EventPresenceService.JOURNAL),
+                ),
+            )
             else -> result.notImplemented()
         }
     }

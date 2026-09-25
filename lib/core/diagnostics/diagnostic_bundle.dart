@@ -465,6 +465,29 @@ class DiagnosticBundle {
       '${d.minute.toString().padLeft(2, '0')}:'
       '${d.second.toString().padLeft(2, '0')}';
 
+  /// **La présence en soirée, telle que le service l'a vécue** (2026-09-25)
+  /// — chaque minute : déposée, sans position, ou ce que le serveur a
+  /// répondu, avec le moteur de position et la précision. Sans ce carnet,
+  /// une présence figée pendant 30 minutes ne laissait aucune trace.
+  static Future<String> eventPresence() async {
+    try {
+      final texte =
+          await const MethodChannel(
+            'neovibe/event_presence',
+          ).invokeMethod<String>('journal') ??
+          '';
+      if (texte.trim().isEmpty) return '(carnet vide — aucune soirée rejointe)';
+      final lignes = texte.trimRight().split('\n');
+      if (lignes.length <= 120) return lignes.join('\n');
+      return [
+        '[…] ${lignes.length - 120} lignes plus anciennes',
+        ...lignes.skip(lignes.length - 120),
+      ].join('\n');
+    } catch (e) {
+      return '(carnet illisible : $e)';
+    }
+  }
+
   static Future<String> location() async {
     final buffer = StringBuffer();
     try {
@@ -817,6 +840,8 @@ class DiagnosticBundle {
         ..writeln(await presences())
         ..writeln('\n===== CONNEXIONS — DEMANDES ET SYNCHRONISATION =====')
         ..writeln(connections())
+        ..writeln('\n===== SOIRÉE — LA PRÉSENCE, MINUTE PAR MINUTE =====')
+        ..writeln(await eventPresence())
         ..writeln('\n===== POSITION — CE QU\'ANDROID A ACCORDÉ =====')
         ..writeln(await location())
         // ⚠️ Ajouté le 2026-09-22 : l'après-midi du 21, le service est mort

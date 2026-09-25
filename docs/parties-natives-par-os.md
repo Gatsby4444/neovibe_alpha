@@ -1517,8 +1517,8 @@ relance à son retour.
 
 | Fichier | Rôle |
 |---|---|
-| `events/EventPresenceService.kt` | le service : `LocationManager` (GPS + réseau, mise à jour toutes les 30 s), un tick par minute, dépôt sur un fil de travail, notification « Présent à … » (canal `neovibe_event_presence`, importance basse). `START_STICKY` ; relancé sans intention, il s'arrête |
-| `events/EventPresenceBridge.kt` | `start(eventId, title)`, `stop()`, `running` ; événements `{eventId, outcome}` (`present`, `away`, `none`, `no_fix`, `offline`, `auth`, `rejected`, `error`, `stopped`) |
+| `events/EventPresenceService.kt` | le service : **moteur fusionné de Google** (`FusedLocationProviderClient`, haute précision, toutes les 20 s) et `LocationManager` (GPS + réseau) **en repli seulement** — corrigé le 2026-09-25 : le moteur brut ne donnait plus rien à l'intérieur, la présence restait figée 30 min (même leçon que `LocationBeat`, 2026-09-22). Un tick par minute, dépôt sur un fil de travail, notification « Présent à … » (canal `neovibe_event_presence`, importance basse). **Carnet sur disque** `event_presence.log` (`ServiceJournal`) : démarré / arrêté / chaque dépôt ou `no_fix`, avec moteur, précision et âge de la position. `START_STICKY` ; relancé sans intention, il s'arrête |
+| `events/EventPresenceBridge.kt` | `start(eventId, title)` (démarre ou re-cible), `stop()`, `running`, `journal` (le carnet, pour le diagnostic — 2026-09-25) ; événements `{eventId, outcome}` (`present`, `away`, `none`, `no_fix`, `offline`, `auth`, `rejected`, `error`, `stopped`) |
 | `EventPresenceHub` (même fichier) | l'`object` par lequel le service publie, que le pont soit là ou non |
 | `publish/SupabaseHttp.rpcText` | un appel RPC dont on lit la réponse (ajouté pour ce service) |
 

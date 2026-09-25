@@ -48,15 +48,22 @@ class EventPresenceReporter extends Notifier<EventReporterState> {
   StreamSubscription<dynamic>? _sub;
   String? _started;
 
+  /// ⚠️ **Ne se reconstruit QUE quand l'événement change** (2026-09-25).
+  ///
+  /// Il lisait aussi le titre de l'événement (`ref.watch(eventByIdProvider)`)
+  /// et arrêtait le service dans `ref.onDispose` — or Riverpod appelle
+  /// `onDispose` à CHAQUE reconstruction. Chaque rafraîchissement de la
+  /// soirée (un présent de plus, une description) faisait donc « arrêter le
+  /// service, le relancer » à quelques millisecondes d'écart. Un arrêt arrivé
+  /// avant que le service ait fini de démarrer, et Android le tuait :
+  /// `ForegroundServiceDidNotStartInTimeException`, relevé au diagnostic de
+  /// Jay le 2026-09-25 (08:40). Désormais : le titre se LIT une fois (il ne
+  /// sert qu'à la notification), on ne s'arrête que quand je ne suis plus
+  /// dans AUCUN événement, et passer d'une soirée à une autre re-cible le
+  /// service sans l'arrêter (`EventPresenceService.start` le sait).
   @override
   EventReporterState build() {
     final eventId = ref.watch(currentEventIdProvider);
-    final title = eventId == null
-        ? null
-        : ref.watch(eventByIdProvider(eventId))?.title;
-
-    ref.onDispose(_stop);
-
     if (eventId == null) {
       _stop();
       return const EventReporterState.idle();
@@ -68,6 +75,7 @@ class EventPresenceReporter extends Notifier<EventReporterState> {
     );
     if (_started != eventId) {
       _started = eventId;
+      final title = ref.read(eventByIdProvider(eventId))?.title;
       unawaited(_start(eventId, title ?? 'Événement'));
     }
     return EventReporterState.watching(eventId);
