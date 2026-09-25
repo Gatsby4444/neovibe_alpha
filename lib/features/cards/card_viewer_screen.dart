@@ -20,6 +20,7 @@ import 'cards_repository.dart';
 import '../../core/widgets/pull_down_to_close.dart';
 import 'flippable_card.dart';
 import 'sent_vibe_options.dart';
+import '../../core/content/removals.dart';
 import '../../core/models/message.dart';
 import '../../core/widgets/system_bars.dart';
 
@@ -583,10 +584,36 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
     return VibePhotoFace(bytes: media.photoBytes!, type: type);
   }
 
+  /// Fermé une fois, pas deux : « Supprimer » ferme le visionneur ET le
+  /// serveur annonce la disparition — deux fermetures auraient aussi fermé
+  /// le chat d'en dessous.
+  var _closed = false;
+  void _close([String? pourquoi]) {
+    if (_closed || !mounted) return;
+    _closed = true;
+    if (pourquoi != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(pourquoi)));
+    }
+    Navigator.of(context).maybePop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final type = widget.card.type;
     final me = ref.watch(currentUserIdProvider);
+    // Supprimée par son auteur pendant qu'on la regarde : le visionneur se
+    // ferme aussitôt (Jay, 2026-09-25). Seulement depuis un chat : c'est
+    // son container qui est annoncé disparu.
+    final message = widget.message;
+    if (message != null) {
+      ref.listen(removalsProvider(message.conversationId), (_, next) {
+        if (next.value?.contains(message.id) ?? false) {
+          _close('Cette Vibe a été supprimée.');
+        }
+      });
+    }
     // Enregistrable : ses propres cards (1/1 exclue — le créateur la rouvre
     // depuis le chat à la place), ou une card reçue marquée sauvegardable par
     // son créateur.
@@ -637,7 +664,7 @@ class _CardViewerScreenState extends ConsumerState<CardViewerScreen> {
                   SentVibeMenu(
                     card: widget.card,
                     message: widget.message,
-                    onGone: () => Navigator.of(context).maybePop(),
+                    onGone: _close,
                   ),
                 ],
                 bottom: showGauge

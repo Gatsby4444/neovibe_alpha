@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/clock.dart';
+import '../../core/content/removals.dart';
 import '../../core/crypto/chunked_seal.dart';
 import '../../core/derived_list.dart';
 import '../../core/diagnostics/app_log.dart';
@@ -147,9 +148,15 @@ final visibleMessagesProvider = Provider.family<ValueList<Message>, String>((
 ) {
   final now = ref.watch(expiryClockProvider);
   final tous = ref.watch(messagesStreamProvider(conversationId)).value;
+  // Les containers retirés avant l'heure (2026-09-25) : le temps réel ne
+  // dit pas à ce chat qu'une ligne a disparu, le registre `removals` si.
+  final retires =
+      ref.watch(removalsProvider(conversationId)).value ?? const <String>{};
   if (tous == null) return const ValueList.empty();
   return ValueList(
-    tous.where((m) => m.expiresAt.isAfter(now)).toList(growable: false),
+    tous
+        .where((m) => m.expiresAt.isAfter(now) && !retires.contains(m.id))
+        .toList(growable: false),
   );
 });
 

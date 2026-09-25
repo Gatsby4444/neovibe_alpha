@@ -10,6 +10,7 @@ import '../../core/theme.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../../core/widgets/pull_down_to_close.dart';
 import '../cards/flippable_card.dart';
+import '../../core/content/removals.dart';
 import '../../core/utils/erreur_serveur.dart';
 import 'drop_vibe_options.dart';
 import 'library_vibes_repository.dart';
@@ -132,9 +133,31 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
     super.dispose();
   }
 
+  /// Fermé une fois, pas deux : « Supprimer » ferme le visionneur ET le
+  /// serveur annonce la disparition — deux fermetures auraient aussi fermé
+  /// l'écran d'en dessous.
+  var _closed = false;
+  void _close([String? pourquoi]) {
+    if (_closed || !mounted) return;
+    _closed = true;
+    if (pourquoi != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(pourquoi)));
+    }
+    Navigator.of(context).maybePop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final vibe = widget.vibe;
+    // Supprimée pendant qu'on la regarde (par son auteur ou l'organisateur) :
+    // le visionneur se ferme aussitôt (Jay, 2026-09-25).
+    ref.listen(removalsProvider(vibe.conversationId), (_, next) {
+      if (next.value?.contains(vibe.id) ?? false) {
+        _close('Cette Vibe a été supprimée.');
+      }
+    });
     // Même correction que dans la bibliothèque (2026-08-31) : l'heure est une
     // source qu'on surveille, sinon l'écran reste sur « masqué » après 18h30.
     final revealed = vibe.revealedAt(ref.watch(expiryClockProvider));
@@ -156,12 +179,7 @@ class _VibeFacesScreenState extends ConsumerState<VibeFacesScreen> {
           ),
           // Modifier / supprimer, ou supprimer pour moi / signaler
           // (2026-09-25). Supprimée ou cachée : le visionneur se ferme.
-          actions: [
-            DropVibeMenu(
-              vibe: vibe,
-              onGone: () => Navigator.of(context).maybePop(),
-            ),
-          ],
+          actions: [DropVibeMenu(vibe: vibe, onGone: _close)],
         ),
         body: Center(
           child: Padding(

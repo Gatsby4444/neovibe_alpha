@@ -14,6 +14,7 @@ import '../../core/models/card.dart';
 import '../../core/models/library_vibe.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
+import '../../core/content/removals.dart';
 import '../conversations/conversations_repository.dart';
 import '../cards/card_media_cache.dart';
 import '../cards/native_media.dart';
@@ -618,10 +619,24 @@ final libraryVibesRepositoryProvider = Provider((ref) {
 /// Les vibes d'une conversation. Rafraîchi par `ref.invalidate` après un ajout
 /// ou au passage du reveal.
 final conversationLibraryProvider =
-    FutureProvider.family<List<LibraryVibe>, String>(
-      (ref, conversationId) =>
-          ref.watch(libraryVibesRepositoryProvider).vibesOf(conversationId),
-    );
+    FutureProvider.family<List<LibraryVibe>, String>((
+      ref,
+      conversationId,
+    ) async {
+      final vibes = await ref
+          .watch(libraryVibesRepositoryProvider)
+          .vibesOf(conversationId);
+      // **Une suppression se voit tout de suite** (Jay, 2026-09-25) : une
+      // Vibe de cette liste annoncée disparue (`removals`) fait relire le
+      // Drop — chez tous ceux qui le regardent, quel que soit l'écran.
+      // Seule une Vibe PRÉSENTE ici réveille : les disparitions anciennes
+      // que rejoue l'abonnement à son ouverture ne relisent rien.
+      final ids = {for (final v in vibes) v.id};
+      ref.listen(removalsProvider(conversationId), (_, next) {
+        if (next.value?.any(ids.contains) ?? false) ref.invalidateSelf();
+      });
+      return vibes;
+    });
 
 /// **Le Drop en direct** (2026-09-24) : tant que quelqu'un l'observe, une
 /// Vibe ajoutée par N'IMPORTE QUI relit le Drop — sans tirer pour rafraîchir.
