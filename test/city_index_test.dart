@@ -8,9 +8,7 @@ import 'package:neovibe/core/location/city_index.dart';
 void main() {
   late CityIndex index;
   setUpAll(() {
-    index = CityIndex.parse(
-      File('assets/geo/cities.tsv.gz').readAsBytesSync(),
-    );
+    index = CityIndex.parse(File('assets/geo/cities.tsv.gz').readAsBytesSync());
   });
 
   test('la liste est complète', () {

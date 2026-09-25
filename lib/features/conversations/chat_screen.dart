@@ -322,7 +322,16 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         peer != null &&
         (ref.watch(isFriendProvider(peer.id)).value ?? false);
 
-    final canalFerme = desormaisAmis || horsDePortee;
+    // Le chat d'une soirée TERMINÉE (2026-09-25) : le serveur refuse tout
+    // message (`can_write_in_conversation`) ; l'écran le dit au lieu de
+    // laisser écrire pour échouer.
+    final soireeTerminee =
+        conversation?.type == ConversationType.event &&
+        (ref
+                .watch(eventByConversationProvider(widget.conversationId))
+                ?.isClosed ??
+            false);
+    final canalFerme = desormaisAmis || horsDePortee || soireeTerminee;
 
     return Scaffold(
       appBar: AppBar(
@@ -404,7 +413,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               color: Colors.orange.withValues(alpha: 0.15),
               padding: const EdgeInsets.all(10),
               child: Text(
-                desormaisAmis
+                soireeTerminee
+                    ? "Cette soirée est terminée — son chat est fermé. "
+                          "Tu peux relire, plus écrire."
+                    : desormaisAmis
                     ? "Vous êtes connectés — cette conversation de proximité "
                           "s'arrête ici. Continuez dans votre conversation."
                     : "Canal fermé — vous n'êtes plus à proximité. "
@@ -476,10 +488,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               onSend: _sendText,
               // Le canal de proximité est limité au texte : ni Card, ni pièce
               // jointe (règle serveur, pas un choix d'écran).
-              onCard: isProximity || conversation == null
+              onCard: isProximity || conversation == null || canalFerme
                   ? null
                   : () => _sendCard(conversation, me),
-              onLibrary: isProximity || conversation == null
+              onLibrary: isProximity || conversation == null || canalFerme
                   ? null
                   : () => _addToLibrary(conversation, me),
               // Le vocal : DM, groupes, et le chat d'un événement PRIVÉ —

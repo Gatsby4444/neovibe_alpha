@@ -93,8 +93,10 @@ et l'invalidation à l'écriture), `admin_app.dart` (les écrans).
 
 1. **Toutes les portes** : messages, demandes d'ami, likes, commentaires,
    waves — soit des RPC enveloppées, soit une politique RLS qui lit
-   `suspended_at`. Aujourd'hui un suspendu est muet en publication, pas en
-   chat.
+   `suspended_at`. ✅ Depuis le 2026-09-25, un suspendu est muet PARTOUT : chat (déclencheur
+   de `messages`, tous chemins), Vibes envoyées, likes, saluts, demandes
+   d'ami et recommandations (`private.refuse_si_suspendu`) — et il ne peut
+   plus lever sa propre suspension (colonnes de `profiles` restreintes).
 2. **La révocation chez les autres** : un contenu retiré disparaît du
    serveur ; les copies locales (Enregistrements) sont révoquées par
    `purgeRevoked` au prochain démarrage de chaque app — vérifier que le

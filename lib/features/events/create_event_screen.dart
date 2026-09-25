@@ -168,6 +168,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               title: title,
               lat: _place!.latitude,
               lon: _place!.longitude,
+              accuracy: _place!.accuracy,
               endsAt: DateTime.now().add(Duration(hours: _openHours)),
               placeName: _placeName.text,
             )
@@ -176,6 +177,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               startsAt: _startsAt,
               lat: _place?.latitude,
               lon: _place?.longitude,
+              accuracy: _place?.accuracy,
               memberIds: _selected.toList(),
               placeName: _placeName.text,
             );

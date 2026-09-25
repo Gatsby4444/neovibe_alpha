@@ -148,6 +148,7 @@ class EventsRepository {
     required double lat,
     required double lon,
     required DateTime endsAt,
+    required double accuracy,
     String? placeName,
   }) async {
     final id =
@@ -158,6 +159,9 @@ class EventsRepository {
                 'p_lat': lat,
                 'p_lon': lon,
                 'p_ends_at': endsAt.toUtc().toIso8601String(),
+                // La précision de la position : le serveur refuse au-delà
+                // de `event_rules.place_max_accuracy_m` (2026-09-25).
+                'p_acc': accuracy,
               },
             )
             as String;
@@ -198,6 +202,7 @@ class EventsRepository {
     DateTime? endsAt,
     double? lat,
     double? lon,
+    double? accuracy,
     required List<String> memberIds,
     String? placeName,
   }) => AppLog.instance.trace('create_private_event', () async {
@@ -213,6 +218,7 @@ class EventsRepository {
                 'p_lat': lat,
                 'p_lon': lon,
                 'p_member_ids': memberIds,
+                'p_acc': accuracy,
               },
             )
             as String;
@@ -310,50 +316,13 @@ class EventsRepository {
   // (`EventPresenceService`, 2026-09-21) — un seul écrivain ; l'app ne
   // l'appelle plus d'ici.
 
-  // ─── L'établissement — le contrat de la plateforme ──────────────────────
-
-  Future<String> createVenue({
-    required String name,
-    required double lat,
-    required double lon,
-    int radiusM = 60,
-    String? address,
-  }) async {
-    return await _client.rpc(
-          'create_venue',
-          params: {
-            'p_name': name,
-            'p_lat': lat,
-            'p_lon': lon,
-            'p_radius_m': radiusM,
-            'p_address': address,
-          },
-        )
-        as String;
-  }
-
-  Future<String> openVenueEvent({
-    required String venueId,
-    required String title,
-    required DateTime closesAt,
-    DateTime? startsAt,
-  }) async {
-    final id =
-        await _client.rpc(
-              'open_venue_event',
-              params: {
-                'p_venue': venueId,
-                'p_title': title,
-                'p_closes_at': closesAt.toUtc().toIso8601String(),
-                'p_starts_at': (startsAt ?? DateTime.now())
-                    .toUtc()
-                    .toIso8601String(),
-              },
-            )
-            as String;
-    _eventsChanged();
-    return id;
-  }
+  // ─── L'établissement ────────────────────────────────────────────────────
+  //
+  // ⚠️ `createVenue` / `openVenueEvent` ont été RETIRÉS le 2026-09-25 : aucun
+  // écran ne les appelait, et `create_venue` est désormais réservé à
+  // l'administration (n'importe quel compte posait un « club » n'importe où).
+  // Déclarer un lieu et ouvrir sa soirée appartient à la plateforme des
+  // établissements (`docs/plateforme-etablissements.md`), un produit à part.
 
   // ─── Invalidation — ici, jamais chez l'appelant ─────────────────────────
 

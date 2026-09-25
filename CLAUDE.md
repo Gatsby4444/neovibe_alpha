@@ -534,6 +534,42 @@ Tests de référence : `test/derived_list_test.dart`,
 
 ---
 
+## Règle impérative : LA RÈGLE VIT AU SERVEUR, JAMAIS SEULEMENT DANS L'ÉCRAN
+
+*Consigne de Jay, 2026-09-25 — impérative, applicable à toute fonctionnalité.*
+
+> « Il faut des sécurités backend, pas juste dire que puisque ce n'est pas
+> affiché à l'utilisateur, c'est sécurisé. Revois tout avec ce principe. »
+
+**Ce qu'un écran cache, une requête l'atteint.** Un bouton absent, un champ
+désactivé, un filtre dans un provider ne protègent de rien : l'app n'est
+qu'un des clients possibles de la base. Toute règle de produit (qui peut
+écrire où, quand, quoi) s'énonce **dans la base** — politique RLS,
+contrainte, déclencheur ou fonction — et l'écran ne fait que l'**annoncer**.
+
+1. **Avant d'écrire une règle dans l'app, écrire où le serveur la tient.**
+   Si la réponse est « nulle part », ce n'est pas encore une règle.
+2. **Une règle qui doit valoir pour tous les chemins se pose là où tous
+   passent** : le déclencheur d'une table, pas la politique (que les
+   fonctions `security definer` contournent), ni chaque fonction une à une.
+   *Constaté le 2026-09-25 : le partage d'un contenu et le vocal sautaient
+   la règle d'écriture du chat.*
+3. **Une porte directe à côté d'une fonction qui porte la règle est une
+   faille** : si l'app passe par `publish_*`, l'insertion directe se ferme.
+4. **Une colonne modifiable est une décision** : on n'accorde que les
+   colonnes que l'app modifie. *Constaté : `suspended_at` était modifiable
+   par le suspendu lui-même.*
+5. **Une nouvelle « origine » rejoue tous les `if kind = …`** — mieux : une
+   seule fonction répond « qui gère ? » pour toutes. *Constaté : l'événement
+   ouvert avait été oublié par deux vérifications, qui laissaient passer
+   tout le monde.*
+6. **Ce que le serveur ne voit pas, il l'exige déclaré** (origine d'une
+   face, précision d'une position) — et on DIT la limite : une app modifiée
+   qui mentirait n'est pas arrêtée.
+7. **Chaque faille se reproduit en base sous identité avant correction**, et
+   rejoint `tool/audit_securite.sql`, rejoué avant chaque livraison qui
+   touche au serveur.
+
 ## Règle impérative : UN DÉFAUT TROUVÉ SE RÉPARE TOUT DE SUITE
 
 *Consigne de Jay, 2026-08-30 — impérative, sans exception.*
