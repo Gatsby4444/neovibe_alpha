@@ -232,11 +232,12 @@ class _LibraryVibeTileState extends ConsumerState<LibraryVibeTile> {
     } catch (_) {
       // Placeholder indisponible : la tuile reste un cadre neutre.
     }
-    // ⚡ **La vignette NETTE** (option A, 2026-09-24) : la photo révélée,
-    // déchiffrée en mémoire depuis le scellé (téléchargé au passage). Elle
-    // remplace l'aperçu flouté en fondu.
+    // ⚡ **La vignette NETTE** (option A, 2026-09-24) : la photo révélée — ou
+    // une image du début de la vidéo (2026-09-25) —, déchiffrée en mémoire
+    // depuis le scellé (téléchargé au passage). Elle remplace l'aperçu
+    // flouté en fondu.
     try {
-      final sharp = await repo.sharpPhoto(vibe);
+      final sharp = await repo.sharpThumbnail(vibe);
       if (mounted && sharp != null && widget.vibe.id == vibe.id) {
         setState(() => _sharp = sharp);
       }

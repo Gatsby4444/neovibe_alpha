@@ -16,6 +16,7 @@ import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
 import '../conversations/conversations_repository.dart';
 import '../cards/card_media_cache.dart';
+import '../cards/native_media.dart';
 import 'library_vault_cache.dart';
 import '../../core/work_dir.dart';
 
@@ -212,7 +213,8 @@ class LibraryVibesRepository {
   /// posent UNE question au serveur.
   final _batches = <String, Future<void>>{};
 
-  /// Les photos déchiffrées récemment (vignettes et ouverture), bornées.
+  /// Les vignettes nettes déchiffrées récemment (photo, ou image d'une
+  /// vidéo), bornées.
   final _photos = <String, Uint8List>{};
   static const _photoCacheMax = 48;
 
@@ -258,23 +260,45 @@ class LibraryVibesRepository {
     return _keys[vibe.id] = single;
   }
 
-  /// **La vignette nette** d'une Vibe révélée : sa photo, déchiffrée en
-  /// mémoire à partir du scellé déjà téléchargé. `null` pour une vidéo (pas
-  /// d'image à extraire sans la lire) ou une Vibe pas encore révélée — la
+  /// **La vignette nette** d'une Vibe révélée, déchiffrée en mémoire à partir
+  /// du scellé déjà téléchargé. `null` pour une Vibe pas encore révélée — la
   /// tuile garde alors son aperçu flouté.
-  Future<Uint8List?> sharpPhoto(LibraryVibe vibe) async {
-    if (vibe.frontIsVideo || !vibe.revealedMaintenant) return null;
+  ///
+  /// - **Photo** : la photo elle-même.
+  /// - **Vidéo** (Jay, 2026-09-25) : une image du début, extraite par le
+  ///   natif de la vidéo SCELLÉE et rescellée aussitôt avec la clé de la Vibe
+  ///   ([LibraryVaultCache.posterFile]) — le même chemin que les vignettes
+  ///   des Vibes vidéo du profil (`video_poster.dart`). Extraite une fois,
+  ///   relue ensuite ; jamais un pixel en clair sur le disque.
+  Future<Uint8List?> sharpThumbnail(LibraryVibe vibe) async {
+    if (!vibe.revealedMaintenant) return null;
     final hit = _photos.remove(vibe.id);
     if (hit != null) return _photos[vibe.id] = hit;
     try {
       final (key, sealed) = await (_keyFor(vibe), cacheFace(vibe)).wait;
-      final media = await MediaOpen.open(
-        sealed,
-        key,
-        isVideo: false,
-        cacheId: vibe.id,
-      );
-      final bytes = media.photoBytes;
+      final Uint8List? bytes;
+      if (vibe.frontIsVideo) {
+        final poster = await ref
+            .read(libraryVaultCacheProvider)
+            .posterFile(vibe.id);
+        if (!await poster.exists()) {
+          final ok = await NativeMedia.sealedPoster(
+            sealed: sealed.path,
+            key: key,
+            dest: poster.path,
+          );
+          if (!ok) return null;
+        }
+        bytes = await NativeMedia.readAll(sealed: poster.path, key: key);
+      } else {
+        final media = await MediaOpen.open(
+          sealed,
+          key,
+          isVideo: false,
+          cacheId: vibe.id,
+        );
+        bytes = media.photoBytes;
+      }
       if (bytes == null) return null;
       _photos[vibe.id] = bytes;
       while (_photos.length > _photoCacheMax) {

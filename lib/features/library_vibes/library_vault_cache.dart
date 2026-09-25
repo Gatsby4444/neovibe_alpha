@@ -65,6 +65,14 @@ class LibraryVaultCache {
     '${vibeId}_${front ? 'front' : 'back'}.seal',
   );
 
+  /// La place de la **couverture scellée** d'une Vibe vidéo (2026-09-25) :
+  /// une image du recto, rescellée avec la clé de la Vibe par le natif
+  /// (`NativeMedia.sealedPoster`). Du chiffré, comme les faces — même
+  /// dossier, donc même plafond, même balayage, même effacement.
+  Future<File> posterFile(String vibeId) async => File(
+    '${(await _dir()).path}${Platform.pathSeparator}${vibeId}_poster.seal',
+  );
+
   /// Le scellé de cette face, s'il est déjà sur l'appareil.
   ///
   /// Touche la date de dernier accès : l'éviction est un LRU, et une vibe
@@ -96,12 +104,15 @@ class LibraryVaultCache {
     return target;
   }
 
-  /// Oublie les deux faces d'une vibe — à la suppression, ou quand le serveur
-  /// ne la sert plus.
+  /// Oublie les deux faces d'une vibe, et sa couverture — à la suppression,
+  /// ou quand le serveur ne la sert plus.
   Future<void> purge(String vibeId) async {
-    for (final front in [true, false]) {
+    for (final file in [
+      await _file(vibeId, true),
+      await _file(vibeId, false),
+      await posterFile(vibeId),
+    ]) {
       try {
-        final file = await _file(vibeId, front);
         if (await file.exists()) await file.delete();
       } catch (_) {}
     }
