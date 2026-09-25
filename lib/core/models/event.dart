@@ -103,6 +103,9 @@ class NeoEvent {
     required this.iAmPresent,
     this.myRole,
     required this.iManage,
+    this.description,
+    this.posterPath,
+    this.friendsPresent = const [],
   });
 
   final String id;
@@ -143,6 +146,15 @@ class NeoEvent {
 
   /// Je gère l'établissement de cette soirée.
   final bool iManage;
+
+  /// Le « profil » de la soirée, posé par l'organisateur (2026-09-25) : une
+  /// description courte et une affiche 3:4 (chemin dans `event_posters`).
+  final String? description;
+  final String? posterPath;
+
+  /// MES amis présents en ce moment — jamais un inconnu (le serveur les
+  /// choisit, `private.friends_present`).
+  final List<String> friendsPresent;
 
   bool get isClosed => closedAt != null;
   bool get isOpen => closedAt == null;
@@ -193,7 +205,13 @@ class NeoEvent {
     iAmPresent: json['i_am_present'] as bool? ?? false,
     myRole: EventRole.fromDb(json['my_role'] as String?),
     iManage: json['i_manage'] as bool? ?? false,
+    description: json['description'] as String?,
+    posterPath: json['poster_path'] as String?,
+    friendsPresent: _ids(json['friends_present']),
   );
+
+  static List<String> _ids(Object? v) =>
+      v == null ? const [] : [for (final x in v as List) x as String];
 
   static DateTime? _date(Object? v) =>
       v == null ? null : DateTime.parse(v as String);
@@ -222,7 +240,10 @@ class NeoEvent {
       other.guestCount == guestCount &&
       other.iAmPresent == iAmPresent &&
       other.myRole == myRole &&
-      other.iManage == iManage;
+      other.iManage == iManage &&
+      other.description == description &&
+      other.posterPath == posterPath &&
+      listEquals(other.friendsPresent, friendsPresent);
 
   @override
   int get hashCode => Object.hashAll([
@@ -247,6 +268,9 @@ class NeoEvent {
     iAmPresent,
     myRole,
     iManage,
+    description,
+    posterPath,
+    Object.hashAll(friendsPresent),
   ]);
 }
 
@@ -361,6 +385,9 @@ class NearbyEvent {
     this.scheduledEndAt,
     required this.presentCount,
     required this.distanceM,
+    this.description,
+    this.posterPath,
+    this.friendsPresent = const [],
   });
 
   final String id;
@@ -377,6 +404,13 @@ class NearbyEvent {
   final DateTime? scheduledEndAt;
   final int presentCount;
   final int distanceM;
+
+  /// Le profil de la soirée (2026-09-25) — voir [NeoEvent.description].
+  final String? description;
+  final String? posterPath;
+
+  /// MES amis présents (jamais un inconnu).
+  final List<String> friendsPresent;
 
   /// Assez près pour entrer — le serveur reste seul juge, ceci ne sert qu'à
   /// dire à l'utilisateur ce qui va se passer.
@@ -397,6 +431,9 @@ class NearbyEvent {
         : DateTime.parse(json['scheduled_end_at'] as String),
     presentCount: (json['present_count'] as num?)?.toInt() ?? 0,
     distanceM: (json['distance_m'] as num?)?.toInt() ?? 0,
+    description: json['description'] as String?,
+    posterPath: json['poster_path'] as String?,
+    friendsPresent: NeoEvent._ids(json['friends_present']),
   );
 
   @override
@@ -412,7 +449,10 @@ class NearbyEvent {
       other.startsAt == startsAt &&
       other.scheduledEndAt == scheduledEndAt &&
       other.presentCount == presentCount &&
-      other.distanceM == distanceM;
+      other.distanceM == distanceM &&
+      other.description == description &&
+      other.posterPath == posterPath &&
+      listEquals(other.friendsPresent, friendsPresent);
 
   @override
   int get hashCode => Object.hash(
@@ -427,6 +467,9 @@ class NearbyEvent {
     scheduledEndAt,
     presentCount,
     distanceM,
+    description,
+    posterPath,
+    Object.hashAll(friendsPresent),
   );
 }
 

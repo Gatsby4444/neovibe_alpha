@@ -183,6 +183,29 @@ class EventsRepository {
     _eventsChanged();
   }
 
+  /// **Le profil de la soirée** (2026-09-25) : sa description et son
+  /// affiche. [posterPath] : une affiche déjà déposée
+  /// (`EventPosterService.upload`) ; [clearPoster] la retire. Le serveur
+  /// exige l'organisateur, et une soirée en cours (`set_event_details`).
+  Future<void> setDetails(
+    String eventId, {
+    required String? description,
+    String? posterPath,
+    bool clearPoster = false,
+  }) async {
+    await _client.rpc(
+      'set_event_details',
+      params: {
+        'p_event': eventId,
+        'p_description': description,
+        'p_poster_path': posterPath,
+        'p_clear_poster': clearPoster,
+      },
+    );
+    _eventsChanged();
+    ref.invalidate(nearbyEventsProvider);
+  }
+
   Future<void> _nommerLeLieu(String id, String? placeName) async {
     final nom = placeName?.trim();
     if (nom == null || nom.isEmpty) return;

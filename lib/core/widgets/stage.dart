@@ -325,13 +325,20 @@ class GlowButton extends StatelessWidget {
                             Icon(icon, color: p.onAction, size: 22),
                             const SizedBox(width: NeoSpace.sm),
                           ],
-                          Text(
-                            label,
-                            style: TextStyle(
-                              fontFamily: NeoType.display,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 18,
-                              color: p.onAction,
+                          // Un libellé long (« Approche-toi · à 900 m »)
+                          // se raccourcit au lieu de déborder du bouton
+                          // (relevé par test, 2026-09-25).
+                          Flexible(
+                            child: Text(
+                              label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontFamily: NeoType.display,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 18,
+                                color: p.onAction,
+                              ),
                             ),
                           ),
                         ],

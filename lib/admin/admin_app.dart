@@ -297,6 +297,7 @@ class _ReportsState extends ConsumerState<_Reports> {
                             'content' => Icons.image_outlined,
                             // Vibe du Drop / Vibe envoyée (2026-09-25).
                             'drop_vibe' || 'sent_vibe' => Icons.style_outlined,
+                            'event' => Icons.celebration_outlined,
                             _ => Icons.person_outline,
                           }),
                           title: Text(
@@ -305,6 +306,7 @@ class _ReportsState extends ConsumerState<_Reports> {
                               'content' => 'contenu (${r['content_context'] ?? 'supprimé'}) de',
                               'drop_vibe' => 'Vibe du Drop${r['content_id'] == null ? ' (supprimée)' : ''} de',
                               'sent_vibe' => 'Vibe envoyée${r['content_id'] == null ? ' (supprimée)' : ''} de',
+                              'event' => 'soirée${r['content_id'] == null ? ' (purgée)' : ''} de',
                               _ => 'compte',
                             }} '
                             '${r['target_name'] ?? '?'}'
@@ -322,6 +324,30 @@ class _ReportsState extends ConsumerState<_Reports> {
                                     // Le média signalé, sous scellé tant
                                     // que le signalement est ouvert — même
                                     // supprimé par son auteur (2026-09-25).
+                                    // L'affiche signalée d'une soirée : la
+                                    // retirer (avec sa description).
+                                    if (kind == 'event' &&
+                                        r['content_id'] != null)
+                                      TextButton(
+                                        onPressed: () async {
+                                          final m = await _motif(
+                                            context,
+                                            "Retirer l'affiche de la soirée ?",
+                                          );
+                                          if (m == null) return;
+                                          try {
+                                            await repo.removeEventPoster(
+                                              r['content_id'] as String,
+                                              m,
+                                            );
+                                          } catch (e) {
+                                            if (context.mounted) {
+                                              _erreur(context, e);
+                                            }
+                                          }
+                                        },
+                                        child: const Text("Retirer l'affiche"),
+                                      ),
                                     if (kind != 'profile')
                                       TextButton(
                                         onPressed: () => showEvidence(

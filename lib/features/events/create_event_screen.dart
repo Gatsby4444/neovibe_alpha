@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -11,6 +13,7 @@ import '../../core/widgets/top_banner.dart';
 import '../connections/connections_repository.dart';
 import '../proximity/geo/coarse_location.dart';
 import '../proximity/geo/live_position.dart';
+import 'event_poster.dart';
 import 'event_screen.dart';
 import 'events_repository.dart';
 
@@ -38,6 +41,12 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
 
   /// Le nom du lieu (2026-09-25) — il figurera sur les Vibes du Drop.
   final _placeName = TextEditingController();
+
+  /// Le profil de la soirée (2026-09-25) : l'affiche choisie (pas encore
+  /// déposée — elle le sera une fois la soirée créée, son chemin porte
+  /// l'identifiant de la soirée) et la description.
+  final _description = TextEditingController();
+  File? _poster;
   final _selected = <String>{};
   DateTime? _startsAt;
   CoarseFix? _place;
@@ -54,6 +63,7 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
   void dispose() {
     _title.dispose();
     _placeName.dispose();
+    _description.dispose();
     super.dispose();
   }
 
@@ -181,6 +191,27 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               memberIds: _selected.toList(),
               placeName: _placeName.text,
             );
+      // L'affiche et la description : la soirée existe déjà ; un échec ici
+      // ne l'annule pas, il se dit et se corrige dans les réglages.
+      if (_poster != null || _description.text.trim().isNotEmpty) {
+        try {
+          await saveEventProfile(
+            ref,
+            id,
+            description: _description.text,
+            newPoster: _poster,
+          );
+        } catch (e) {
+          if (mounted) {
+            TopBanner.show(
+              context,
+              "Soirée créée, mais l'affiche n'a pas pu être posée : "
+              '${messageServeur(e)}',
+              tone: TopBannerTone.already,
+            );
+          }
+        }
+      }
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => EventScreen(eventId: id)),
@@ -232,6 +263,22 @@ class _CreateEventScreenState extends ConsumerState<CreateEventScreen> {
               labelText: 'Nom du lieu (facultatif)',
               hintText: "Le Sucre, chez Léa, le parc de la Tête d'Or…",
               helperText: 'Il figurera sur les Vibes du Drop.',
+            ),
+          ),
+          const SizedBox(height: 8),
+          ListenableBuilder(
+            listenable: _title,
+            builder: (context, _) => EventProfileFields(
+              title: _title.text.trim(),
+              description: _description,
+              newPoster: _poster,
+              currentPosterPath: null,
+              enabled: !_loading,
+              onPick: () async {
+                final f = await ref.read(eventPosterServiceProvider).pick();
+                if (f != null && mounted) setState(() => _poster = f);
+              },
+              onClear: () => setState(() => _poster = null),
             ),
           ),
           const SizedBox(height: 8),

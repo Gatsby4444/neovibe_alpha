@@ -8,6 +8,7 @@ import '../../core/utils/erreur_serveur.dart';
 import '../../core/utils/formats.dart';
 import '../../core/widgets/top_banner.dart';
 import '../proximity/geo/live_position.dart';
+import 'event_poster.dart';
 import 'events_providers.dart';
 import 'events_repository.dart';
 
@@ -126,6 +127,31 @@ class _EventSettingsScreenState extends ConsumerState<EventSettingsScreen> {
             title: const Text('Nom'),
             subtitle: Text(event.title),
             onTap: _busy ? null : () => _rename(event),
+          ),
+          // L'affiche et la description (2026-09-25) : ce que voient ceux
+          // qui passent, dans le radar.
+          ListTile(
+            leading: const Icon(Icons.image_outlined),
+            title: const Text('Affiche et description'),
+            subtitle: Text(
+              event.posterPath == null && event.description == null
+                  ? "Aucune — ajoute-les pour qu'on reconnaisse ta soirée"
+                  : (event.description ?? 'Affiche posée'),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: _busy
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => EventProfileEditScreen(
+                        eventId: event.id,
+                        title: event.title,
+                        description: event.description,
+                        posterPath: event.posterPath,
+                      ),
+                    ),
+                  ),
           ),
           ListTile(
             leading: const Icon(Icons.schedule),

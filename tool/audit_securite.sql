@@ -78,6 +78,13 @@ select pg_temp.essai('un inconnu ferme la soirée ouverte d''un autre', 'refusé
 select pg_temp.essai('un compte ordinaire déclare un établissement', 'refusé',
   $q$select public.create_venue('Faux club', 48.85, 2.35, 60, 'Paris')$q$);
 
+-- Affiche d'une soirée (2026-09-25) : le bot 92 n'organise pas la soirée
+-- « Soirée test de Jay » (120dbec7…, organisée par le bot 93).
+select pg_temp.essai('un inconnu change la description d''une soirée', 'refusé',
+  $q$select public.set_event_details('120dbec7-08ca-4a38-8d93-c743dc0793df', 'piraté', null)$q$);
+select pg_temp.essai('un inconnu dépose une affiche pour la soirée d''un autre', 'refusé',
+  $q$insert into storage.objects (bucket_id, name, owner_id) values ('event_posters', '00000000-0000-4000-8000-000000000092/120dbec7-08ca-4a38-8d93-c743dc0793df/poster_x.jpg', '00000000-0000-4000-8000-000000000092')$q$);
+
 select n, cas, attendu, resultat,
        (attendu = 'accepté') = (resultat = 'accepté') as ok
   from out order by n;

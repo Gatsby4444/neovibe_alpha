@@ -45,6 +45,15 @@ class AdminRepository {
   Future<Uint8List> heldBytes(String bucket, String path) =>
       _c.storage.from(bucket).download(path);
 
+  /// Retire l'affiche ET la description d'une soirée (2026-09-25).
+  Future<void> removeEventPoster(String eventId, String reason) async {
+    await _c.rpc(
+      'admin_remove_event_poster',
+      params: {'p_event': eventId, 'p_reason': reason},
+    );
+    _changed();
+  }
+
   Future<void> resolveReport(
     String kind,
     String id, {

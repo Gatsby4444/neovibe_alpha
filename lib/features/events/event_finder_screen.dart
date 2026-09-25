@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +11,7 @@ import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/avatar.dart';
 import '../../core/widgets/stage.dart';
+import 'event_deck.dart';
 import 'event_screen.dart';
 import 'events_map_screen.dart';
 import 'events_providers.dart';
@@ -29,7 +31,8 @@ class EventFinderScreen extends ConsumerStatefulWidget {
   ConsumerState<EventFinderScreen> createState() => _EventFinderScreenState();
 }
 
-class _EventFinderScreenState extends ConsumerState<EventFinderScreen> {
+class _EventFinderScreenState extends ConsumerState<EventFinderScreen>
+    with SingleTickerProviderStateMixin {
   /// Le radar dure au moins ce temps : trouvé en 200 ms, il n'aurait pas eu
   /// le temps de dire ce qu'il fait.
   static const _minRadar = Duration(milliseconds: 2200);
@@ -46,44 +49,56 @@ class _EventFinderScreenState extends ConsumerState<EventFinderScreen> {
   /// soirée à 3 m). Reproduit : `test/event_finder_test.dart`.
   var _radarDone = false;
 
-  /// La soirée choisie à la main parmi celles à portée ; nulle = la plus
-  /// proche.
-  String? _chosenId;
+  /// **La révélation** (Jay, 2026-09-25) : ma photo s'enfonce dans le fond,
+  /// les ondes s'effacent, puis les cartes des soirées montent.
+  late final _reveal = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1500),
+  );
+  late final Animation<double> _sink = CurvedAnimation(
+    parent: _reveal,
+    curve: const Interval(0, 0.5, curve: Curves.easeInCubic),
+  );
+  late final Animation<double> _rise = CurvedAnimation(
+    parent: _reveal,
+    curve: const Interval(0.3, 1),
+  );
 
   @override
   void initState() {
     super.initState();
     // Une liste fraîche : celle du cache peut dater d'un autre endroit.
     Future.microtask(() => ref.invalidate(nearbyEventsProvider));
+    _startRadar();
+  }
+
+  void _startRadar() {
     Future<void>.delayed(_minRadar, () {
       if (mounted) setState(() => _radarDone = true);
     });
   }
 
   @override
+  void dispose() {
+    _reveal.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final nearby = ref.watch(nearbyEventsProvider);
     final searching = !_radarDone || nearby.isLoading;
-
-    final List<NearbyEvent> reachable;
-    final List<NearbyEvent> far;
     final Object? error = nearby.hasError ? nearby.error : null;
-    final list = nearby.value ?? const <NearbyEvent>[];
-    reachable = [
-      for (final e in list)
-        if (e.withinReach) e,
-    ]..sort((a, b) => a.distanceM.compareTo(b.distanceM));
-    far = [
-      for (final e in list)
-        if (!e.withinReach) e,
-    ]..sort((a, b) => a.distanceM.compareTo(b.distanceM));
+    // Toutes les soirées autour, de la plus proche à la plus lointaine :
+    // celles à portée viennent donc d'elles-mêmes en premier.
+    final events = [...?nearby.value]
+      ..sort((a, b) => a.distanceM.compareTo(b.distanceM));
 
-    NearbyEvent? found;
-    if (reachable.isNotEmpty) {
-      found = reachable.firstWhere(
-        (e) => e.id == _chosenId,
-        orElse: () => reachable.first,
-      );
+    // Trouvé : la révélation part, une fois.
+    if (!searching && events.isNotEmpty && _reveal.isDismissed) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _reveal.isDismissed) _reveal.forward();
+      });
     }
 
     return NightStage(
@@ -102,30 +117,55 @@ class _EventFinderScreenState extends ConsumerState<EventFinderScreen> {
               Expanded(
                 child: searching
                     ? const _Searching()
-                    : found != null
-                    ? VenueFoundView(
-                        event: found,
-                        others: [
-                          for (final e in reachable)
-                            if (e.id != found.id) e,
-                        ],
-                        onChoose: (e) => setState(() => _chosenId = e.id),
-                        onJoined: () => Navigator.of(context).pushReplacement(
-                          MaterialPageRoute(
-                            builder: (_) => EventScreen(eventId: found!.id),
-                          ),
-                        ),
-                      )
-                    : _NothingHere(
-                        nearest: far.isEmpty ? null : far.first,
+                    : events.isEmpty
+                    ? _NothingHere(
                         noPosition: error is StateError,
                         onRetry: () {
                           setState(() => _radarDone = false);
                           ref.invalidate(nearbyEventsProvider);
-                          Future<void>.delayed(_minRadar, () {
-                            if (mounted) setState(() => _radarDone = true);
-                          });
+                          _startRadar();
                         },
+                      )
+                    : Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          EventDeck(
+                            events: events,
+                            entrance: _rise,
+                            onJoined: (e) =>
+                                Navigator.of(context).pushReplacement(
+                                  MaterialPageRoute(
+                                    builder: (_) => EventScreen(eventId: e.id),
+                                  ),
+                                ),
+                          ),
+                          // Ma photo, qui s'enfonce dans le fond.
+                          AnimatedBuilder(
+                            animation: _sink,
+                            builder: (context, _) {
+                              final t = _sink.value;
+                              if (t >= 1) return const SizedBox.shrink();
+                              return IgnorePointer(
+                                child: Opacity(
+                                  opacity: 1 - t,
+                                  child: Transform.translate(
+                                    offset: Offset(0, -60 * t),
+                                    child: Transform.scale(
+                                      scale: 1 - 0.7 * t,
+                                      child: ImageFiltered(
+                                        imageFilter: ui.ImageFilter.blur(
+                                          sigmaX: 14 * t,
+                                          sigmaY: 14 * t,
+                                        ),
+                                        child: const _Searching(),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
               ),
             ],
@@ -336,20 +376,17 @@ class _VenueFoundViewState extends ConsumerState<VenueFoundView> {
 }
 
 class _NothingHere extends StatelessWidget {
-  const _NothingHere({
-    required this.nearest,
-    required this.noPosition,
-    required this.onRetry,
-  });
+  // ⚠️ Plus de « la plus proche : … » ici (2026-09-25) : le paquet montre
+  // TOUTES les soirées autour, à portée ou non. Cet écran ne dit donc plus
+  // que « rien à moins de 2 km ».
+  const _NothingHere({required this.noPosition, required this.onRetry});
 
-  final NearbyEvent? nearest;
   final bool noPosition;
   final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
-    final n = nearest;
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         NeoSpace.xxl - 4,
@@ -377,11 +414,8 @@ class _NothingHere extends StatelessWidget {
                       noPosition
                           ? 'Active la localisation pour trouver la soirée '
                                 'où tu es.'
-                          : n == null
-                          ? 'Rien autour de toi pour l\'instant. Réessaie '
-                                'une fois dans la soirée, ou regarde la carte.'
-                          : 'La plus proche : ${n.venueName ?? n.title}, '
-                                'à ${n.distanceM} m.',
+                          : 'Rien autour de toi pour l\'instant. Réessaie '
+                                'une fois dans la soirée, ou regarde la carte.',
                     ),
                     const SizedBox(height: NeoSpace.lg),
                     Wrap(

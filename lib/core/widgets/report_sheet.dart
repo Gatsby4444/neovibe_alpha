@@ -18,7 +18,7 @@ Future<void> showReportSheet(
   WidgetRef ref, {
   String? contentId,
   ReportTarget? target,
-  required String targetUserId,
+  String? targetUserId,
   String? targetName,
 }) async {
   // La cible : donnée telle quelle, sinon déduite comme avant (un contenu du
@@ -27,11 +27,12 @@ Future<void> showReportSheet(
       target ??
       (contentId != null
           ? ContentReportTarget(contentId)
-          : ProfileReportTarget(targetUserId));
+          : ProfileReportTarget(targetUserId!));
   final titre = switch (cible) {
     ContentReportTarget() => 'Signaler ce contenu',
     ProfileReportTarget() => 'Signaler ce profil',
     DropVibeReportTarget() || SentVibeReportTarget() => 'Signaler cette Vibe',
+    EventReportTarget() => 'Signaler cette soirée',
   };
   final result = await showModalBottomSheet<({ReportReason r, String d})>(
     context: context,
@@ -58,6 +59,15 @@ Future<void> showReportSheet(
     }
   }
   if (!context.mounted) return;
+  // Sans personne désignée (une soirée : 2026-09-25), rien à bloquer — le
+  // signalement suffit.
+  final bloquable = targetUserId;
+  if (bloquable == null) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Signalement envoyé. Merci.')));
+    return;
+  }
 
   final blockToo = await showDialog<bool>(
     context: context,
@@ -83,7 +93,7 @@ Future<void> showReportSheet(
   );
   if (blockToo != true || !context.mounted) return;
 
-  await ref.read(moderationRepositoryProvider).block(targetUserId);
+  await ref.read(moderationRepositoryProvider).block(bloquable);
   ref.invalidate(blockedProfilesProvider);
   if (context.mounted) {
     ScaffoldMessenger.of(context).showSnackBar(

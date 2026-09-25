@@ -53,6 +53,12 @@ class SentVibeReportTarget extends ReportTarget {
   final String cardId;
 }
 
+/// Une soirée — son affiche et sa description (2026-09-25).
+class EventReportTarget extends ReportTarget {
+  const EventReportTarget(this.eventId);
+  final String eventId;
+}
+
 /// Signalement et blocage — le socle de modération (2026-08-11).
 ///
 /// Point signalé comme **bloquant** avant l'ouverture de la propagation hors
@@ -98,6 +104,15 @@ class ModerationRepository {
           'report_drop_vibe',
           params: {
             'p_vibe_id': vibeId,
+            'p_reason': reason.dbValue,
+            'p_details': d,
+          },
+        );
+      case EventReportTarget(:final eventId):
+        await client.rpc(
+          'report_event',
+          params: {
+            'p_event': eventId,
             'p_reason': reason.dbValue,
             'p_details': d,
           },
