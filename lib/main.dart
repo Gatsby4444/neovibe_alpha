@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart'
+    show MapboxOptions;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -93,6 +95,9 @@ Future<void> main() async {
   // Le commentaire qui affirmait « le reste de l'app n'est pas écrit pour le
   // bord à bord » était donc faux : il n'avait jamais été vérifié.
   await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+
+  // La carte (Mapbox, 2026-09-25) : le jeton PUBLIC du compte de Jay.
+  MapboxOptions.setAccessToken(Env.mapboxToken);
 
   await Supabase.initialize(
     url: Env.supabaseUrl,

@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:math' as math;
+import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 import '../../core/models/event.dart';
+import '../../core/palette.dart';
 import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/utils/erreur_serveur.dart';
@@ -14,29 +17,38 @@ import '../proximity/geo/live_position.dart';
 import '../proximity/geo/precision_notice.dart';
 import 'event_screen.dart';
 import 'events_providers.dart';
-import 'map_tiles.dart';
 
 /// **La carte** (étape 5 du programme du 2026-09-21) : les soirées à portée
 /// autour de moi, et — dans l'événement où je suis — ses points chauds.
 ///
-/// ## 🔴 Refaite le 2026-09-22, sur les captures de Jay
+/// ## 🔴 Sur Mapbox depuis le 2026-09-25 — décision de Jay (option B)
 ///
-/// Ce que montraient ses quatre captures et ce qui change :
+/// Le fond venait d'OpenStreetMap, dont la politique interdit l'usage d'une
+/// vraie app (RAPPELS #157), et le sombre était fabriqué chez nous en
+/// inversant les couleurs. C'est désormais **la carte de Mapbox** — celle
+/// qu'utilise Snap : vectorielle (nette à tous les zooms, plus de tuiles
+/// floues ni de zoom borné par des images), style **Standard** avec ses
+/// bâtiments en 3D, mode **nuit** quand l'app est sombre, sans les étiquettes
+/// de commerces qui chargeaient l'ancienne.
 ///
-/// | Défaut | Correction |
-/// |---|---|
-/// | carte **claire** dans une app sombre | fond OpenStreetMap **assombri chez nous** selon le thème ([MapTiles]) — la tentative CARTO du matin exigeait une clé |
-/// | tout **flou** | on demande les tuiles du niveau au-dessus et on les dessine sur la même surface (OSM ne sert pas de @2x) |
-/// | le point affiché **à ~2 km** de l'endroit réel (14:39) | la carte prenait une photo au lieu de régler des jumelles ; elle **s'abonne** désormais (`LivePosition`), et dit sous la carte ce que vaut le point (`_libelleFix`) |
-/// | motifs géants puis **gris vide** en zoomant | le zoom est **borné** ([MapTiles.maxZoom]) : on ne peut plus dépasser le dernier niveau qui existe |
-/// | un viseur `my_location` posé sur la carte | un **point avec son halo d'incertitude** — ce que l'appareil sait vraiment |
-/// | la mention « © OpenStreetMap » sous la barre système | attribution remontée dans la zone sûre, sur un fond qui la détache |
+/// Compte de Jay, jeton public dans `Env.mapboxToken` (copie de
+/// `docdev/mapbox.txt`). Gratuit jusqu'à 25 000 utilisateurs de la carte par
+/// mois ; ⚠️ **Mapbox n'offre pas de plafond de dépense**, seulement des
+/// alertes par e-mail (vérifié le 2026-09-25 dans leur FAQ).
 ///
-/// Et un bouton **recentrer**, qui manquait : une fois perdu, on ne revenait
-/// chez soi qu'en refermant l'écran.
+/// ## Ce qui est resté, et pourquoi (captures de Jay du 2026-09-22)
 ///
-/// ⚠️ Toujours un fond gratuit sans contrat (RAPPELS #157). Rien n'est envoyé
-/// au serveur depuis cet écran ; il lit les mêmes vues que la liste.
+/// - la carte **s'abonne** à la position (`LivePosition`) au lieu de prendre
+///   des photos : le point se resserre comme chez les autres ;
+/// - mon point porte **son halo d'incertitude, en mètres** — ce que
+///   l'appareil sait vraiment ;
+/// - un bouton **recentrer**, et le bandeau quand la position est bridée ;
+/// - **ma position vient de NOTRE flux**, jamais du point bleu de Mapbox :
+///   le sien serait un second chemin vers la même donnée, avec son propre
+///   moteur — deux points qui divergent, et aucun ne dit lequel croire.
+///
+/// Rien n'est envoyé au serveur depuis cet écran ; il lit les mêmes vues que
+/// la liste.
 class EventsMapScreen extends ConsumerStatefulWidget {
   const EventsMapScreen({super.key, this.eventId});
 
@@ -47,14 +59,43 @@ class EventsMapScreen extends ConsumerStatefulWidget {
   ConsumerState<EventsMapScreen> createState() => _EventsMapScreenState();
 }
 
+/// Le zoom d'arrivée : la rue et ce qu'il y a autour.
+const _initialZoom = 16.0;
+
 class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     with WidgetsBindingObserver {
-  final _map = MapController();
+  MapboxMap? _map;
+
+  /// Les calques, du dessous au dessus : l'incertitude, les points chauds,
+  /// mon point, les soirées. Un calque par nature d'objet : mon point bouge
+  /// toutes les quelques secondes, et le redessiner ne doit pas redessiner
+  /// les soirées.
+  PolygonAnnotationManager? _halo;
+  CircleAnnotationManager? _chauds;
+  CircleAnnotationManager? _moi;
+  PointAnnotationManager? _soirees;
+  Cancelable? _tapSoirees;
+
+  /// Ce qui est dessiné dans chaque calque — on ne redessine qu'un calque
+  /// dont le contenu a CHANGÉ (la reconstruction de l'écran n'en dit rien).
+  Object? _dessineHalo, _dessineChauds, _dessineMoi, _dessineSoirees;
+
+  /// Les dessins en attente, un à la fois.
+  Future<void> _file = Future.value();
+
+  /// Les soirées dessinées, par identifiant : ce qu'ouvre un tap.
+  final _parId = <String, NearbyEvent>{};
+
+  /// Le mode de lumière appliqué (`day` / `night`).
+  String? _lumiere;
 
   /// ⚠️ **Posé une seule fois, au premier build utile.** Recalculer le centre
   /// à chaque reconstruction ramènerait la carte de force sous le doigt dès
   /// qu'une position arrive ou qu'un point chaud bouge.
-  LatLng? _centreInitial;
+  Point? _centreInitial;
+
+  /// La vue de départ, créée une fois (voir [build]).
+  CameraViewportState? _vue;
 
   /// La carte s'est-elle déjà posée sur le premier relevé reçu ?
   ///
@@ -67,16 +108,8 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// [didChangeAppLifecycleState].
   bool _abonne = false;
 
-  /// 🔴 **Ce que la carte faisait, et pourquoi c'était faux** — 2026-09-22.
-  ///
-  /// Elle demandait une position, prenait la première réponse, et recommençait
-  /// quinze secondes plus tard. Or chaque demande rouvre un abonnement neuf et
-  /// retombe sur la même réponse grossière : dans le métro, `± 675 m`, à deux
-  /// rues de l'endroit réel, pendant que Google Maps voyait juste.
-  ///
-  /// Quinze photos floues ne font pas une photo nette. Elle **s'abonne**
-  /// désormais — `LivePosition` garde le relevé le plus net et le point se
-  /// resserre, comme chez les autres.
+  /// La carte s'abonne à la position au lieu de prendre des photos : quinze
+  /// photos floues ne font pas une photo nette (métro, 2026-09-22).
   late final LivePosition _position;
 
   @override
@@ -91,6 +124,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _tapSoirees?.cancel();
     // ⚠️ Relâché ici, et le notifier est retenu depuis [initState] : lire un
     // provider pendant `dispose` n'est pas garanti.
     // ⚠️ Et **seulement si on tient encore l'abonnement** : l'écran peut être
@@ -103,19 +137,12 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   }
 
   /// **L'écoute continue s'arrête dès qu'on quitte l'app** — décision de Jay
-  /// du 2026-09-22 au soir : *« on peut faire en continu app ouverte sur maps
-  /// comme Google Maps […] et lorsque l'app est éteinte ou en arrière-plan, on
-  /// demande la position une fois par minute »*.
+  /// du 2026-09-22 au soir : en continu app ouverte sur la carte, une fois
+  /// par minute sinon. Sans ça, une carte laissée ouverte derrière une autre
+  /// app garderait le moteur de position allumé à pleine précision.
   ///
-  /// ⚠️ **Sans ça, « arrière-plan » resterait du continu.** Une carte laissée
-  /// ouverte derrière une autre app garderait le moteur de position allumé à
-  /// pleine précision, sans que personne ne la regarde — exactement ce que
-  /// cette décision supprime. Le ping, lui, continue de publier par rafales.
-  ///
-  /// ⚠️ **La finesse accordée se relit au retour.** Si on la change dans les
-  /// réglages système, rien ne nous prévient : sans cette relecture,
-  /// l'avertissement resterait affiché après avoir été corrigé — aussi
-  /// trompeur qu'un avertissement absent.
+  /// ⚠️ **La finesse accordée se relit au retour** : si on la change dans les
+  /// réglages système, rien ne nous prévient.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
@@ -135,13 +162,277 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     }
   }
 
+  static Point _pt(double lat, double lon) =>
+      Point(coordinates: Position(lon, lat));
+
+  void _allerA(double lat, double lon) {
+    unawaited(
+      _map?.flyTo(
+        CameraOptions(center: _pt(lat, lon), zoom: _initialZoom),
+        MapAnimationOptions(duration: 600),
+      ),
+    );
+  }
+
   /// Recentrer **redemande** d'abord : c'est le geste de quelqu'un qui trouve
   /// que le point est faux, pas celui de quelqu'un qui veut revoir le même
   /// point.
   Future<void> _recentrer() async {
     final me = await _position.current();
     if (me == null || !mounted) return;
-    _map.move(LatLng(me.latitude, me.longitude), MapTiles.initialZoom);
+    _allerA(me.latitude, me.longitude);
+  }
+
+  Future<void> _onMapCreated(MapboxMap map) async {
+    _map = map;
+    // Pas de rotation : une carte de travers ne sert à personne ici et
+    // s'attrape par accident à deux doigts. L'inclinaison reste (glisser à
+    // deux doigts) : c'est elle qui montre les bâtiments en 3D.
+    await map.gestures.updateSettings(GesturesSettings(rotateEnabled: false));
+    await map.setBounds(CameraBoundsOptions(minZoom: 4, maxZoom: 20));
+    await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
+    // ⚠️ **Le logo et l'attribution sont obligatoires, donc LISIBLES** : au
+    // bas de l'écran, ils passaient sous la barre de navigation du téléphone
+    // (même défaut que l'ancienne attribution, capture du 2026-09-22).
+    if (!mounted) return;
+    final bas = MediaQuery.paddingOf(context).bottom + 6;
+    await map.logo.updateSettings(LogoSettings(marginBottom: bas));
+    await map.attribution.updateSettings(
+      AttributionSettings(marginBottom: bas),
+    );
+    final a = map.annotations;
+    _halo = await a.createPolygonAnnotationManager();
+    _chauds = await a.createCircleAnnotationManager();
+    _moi = await a.createCircleAnnotationManager();
+    _soirees = await a.createPointAnnotationManager();
+    _tapSoirees = _soirees!.tapEvents(
+      onTap: (annotation) {
+        final id = annotation.customData?['id'];
+        final e = id is String ? _parId[id] : null;
+        if (e == null || !mounted) return;
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => EventScreen(eventId: e.id, preview: e),
+          ),
+        );
+      },
+    );
+    if (mounted) setState(() {});
+  }
+
+  /// Le style chargé : on règle sa lumière et ses étiquettes. Rappelé à
+  /// chaque rechargement du style (le réglage vit DANS le style).
+  void _onStyleLoaded(StyleLoadedEventData _) {
+    _lumiere = null;
+    if (mounted) setState(() {});
+  }
+
+  /// **Le style Standard, réglé pour un fond** : nuit si l'app est sombre
+  /// (une carte claire la nuit éblouit — capture de 21:43, 2026-09-22), et
+  /// sans commerces ni arrêts, qui chargeaient l'ancienne carte (pharmacies,
+  /// numéros). Les rues et les quartiers restent : c'est ce qui situe.
+  void _reglerStyle(bool dark) {
+    final map = _map;
+    final voulu = dark ? 'night' : 'day';
+    if (map == null || _lumiere == voulu) return;
+    _lumiere = voulu;
+    unawaited(
+      map.style
+          .setStyleImportConfigProperties('basemap', {
+            'lightPreset': voulu,
+            'showPointOfInterestLabels': false,
+            'showTransitLabels': false,
+            'showLandmarkIcons': false,
+          })
+          .catchError((Object _) {
+            // Style pas encore prêt : [_onStyleLoaded] rappellera.
+            _lumiere = null;
+          }),
+    );
+  }
+
+  /// Redessine chaque calque **dont le contenu a changé**, et seulement lui.
+  Future<void> _dessiner({
+    required NeoPalette p,
+    required LivePositionState live,
+    required List<HotSpot> spots,
+    required List<NearbyEvent> nearby,
+    required NeoEvent? event,
+  }) async {
+    final me = live.fix;
+
+    // ⚠️ **Le halo d'incertitude, en MÈTRES.** L'appareil ne sait pas où il
+    // est au mètre près (21 m au mieux, 100 m et plus en intérieur). Un point
+    // net sans halo affirme une précision qu'on n'a pas.
+    final halo = me == null
+        ? null
+        : (me.latitude, me.longitude, me.accuracy.round(), p.cool);
+    if (_halo != null && halo != _dessineHalo) {
+      _dessineHalo = halo;
+      await _halo!.deleteAll();
+      if (me != null) {
+        await _halo!.create(
+          PolygonAnnotationOptions(
+            geometry: _cercle(me.latitude, me.longitude, me.accuracy),
+            fillColor: p.cool.toARGB32(),
+            fillOpacity: 0.12,
+            fillOutlineColor: p.cool.withValues(alpha: 0.4).toARGB32(),
+          ),
+        );
+      }
+    }
+
+    // Les points chauds : un cercle par cellule de 50 m, proportionnel au
+    // monde qu'il y a. ⚠️ **Seulement là où il y a du monde (2026-09-24)** :
+    // le serveur rend aussi le LIEU, à 0 personne — dessiné pareil, il
+    // faisait un rond rose sur un endroit vide. Le lieu a son repère.
+    final chauds = [
+      for (final s in spots)
+        if (s.headcount > 0) (s.lat, s.lon, s.headcount),
+    ];
+    final cleChauds = (Object.hashAll(chauds), p.action);
+    if (_chauds != null && cleChauds != _dessineChauds) {
+      _dessineChauds = cleChauds;
+      await _chauds!.deleteAll();
+      if (chauds.isNotEmpty) {
+        await _chauds!.createMulti([
+          for (final (lat, lon, n) in chauds)
+            CircleAnnotationOptions(
+              geometry: _pt(lat, lon),
+              circleRadius: 12.0 + 4 * n.clamp(0, 10),
+              circleColor: p.action.toARGB32(),
+              circleOpacity: 0.25,
+              circleStrokeColor: p.action.toARGB32(),
+              circleStrokeWidth: 1.5,
+            ),
+        ]);
+      }
+    }
+
+    // Mon point : plein, cerclé de la couleur du fond, pour rester visible
+    // sur une carte claire COMME sombre.
+    final moi = me == null ? null : (me.latitude, me.longitude, p.cool);
+    if (_moi != null && moi != _dessineMoi) {
+      _dessineMoi = moi;
+      await _moi!.deleteAll();
+      if (me != null) {
+        await _moi!.create(
+          CircleAnnotationOptions(
+            geometry: _pt(me.latitude, me.longitude),
+            circleRadius: 6,
+            circleColor: p.cool.toARGB32(),
+            circleStrokeColor: p.ground.toARGB32(),
+            circleStrokeWidth: 3,
+          ),
+        );
+      }
+    }
+
+    // Les soirées à portée (nom · présents, un tap ouvre), ou le lieu de la
+    // soirée affichée — un repère, pas un point chaud.
+    final lieu = event?.lat != null && event?.lon != null
+        ? (event!.lat!, event.lon!)
+        : null;
+    final cleSoirees = (
+      Object.hashAll([
+        for (final e in nearby)
+          (e.id, e.title, e.presentCount, e.lat, e.lon, e.kind),
+      ]),
+      lieu,
+      p.isDark,
+    );
+    if (_soirees != null && cleSoirees != _dessineSoirees) {
+      _dessineSoirees = cleSoirees;
+      await _soirees!.deleteAll();
+      _parId
+        ..clear()
+        ..addEntries(nearby.map((e) => MapEntry(e.id, e)));
+      final fete = await _repere(p, Icons.celebration_rounded);
+      final boutique = nearby.any((e) => e.kind != EventKind.open)
+          ? await _repere(p, Icons.storefront_rounded)
+          : fete;
+      await _soirees!.createMulti([
+        if (lieu != null)
+          PointAnnotationOptions(geometry: _pt(lieu.$1, lieu.$2), image: fete),
+        for (final e in nearby)
+          PointAnnotationOptions(
+            geometry: _pt(e.lat, e.lon),
+            image: e.kind == EventKind.open ? fete : boutique,
+            textField: '${e.title} · ${e.presentCount}',
+            textSize: 12,
+            textAnchor: TextAnchor.TOP,
+            textOffset: [0, 1.3],
+            textColor: p.ink.toARGB32(),
+            textHaloColor: p.surface.toARGB32(),
+            textHaloWidth: 1.5,
+            customData: {'id': e.id},
+          ),
+      ]);
+    }
+  }
+
+  /// Un cercle de [rayonM] mètres, en polygone (la carte ne sait dessiner un
+  /// cercle qu'en PIXELS ; un halo d'incertitude se mesure en mètres).
+  static Polygon _cercle(double lat, double lon, double rayonM) {
+    const pas = 48;
+    final dLat = rayonM / 111320;
+    final dLon = rayonM / (111320 * math.cos(lat * math.pi / 180));
+    return Polygon(
+      coordinates: [
+        [
+          for (var i = 0; i <= pas; i++)
+            Position(
+              lon + dLon * math.sin(2 * math.pi * i / pas),
+              lat + dLat * math.cos(2 * math.pi * i / pas),
+            ),
+        ],
+      ],
+    );
+  }
+
+  /// Le repère d'une soirée : un rond au dégradé de l'app, l'icône dedans,
+  /// cerclé de la couleur du fond. Dessiné en image (la carte n'affiche que
+  /// des images), à la densité de l'écran pour rester net.
+  Future<Uint8List> _repere(NeoPalette p, IconData icone) async {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final taille = 34 * dpr;
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final centre = Offset(taille / 2, taille / 2);
+    final rect = Offset.zero & ui.Size(taille, taille);
+    canvas.drawCircle(
+      centre,
+      taille / 2 - 1,
+      Paint()..shader = p.signatureCourte.createShader(rect),
+    );
+    canvas.drawCircle(
+      centre,
+      taille / 2 - 1 * dpr,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2 * dpr
+        ..color = p.ground,
+    );
+    final texte = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(icone.codePoint),
+        style: TextStyle(
+          fontFamily: icone.fontFamily,
+          package: icone.fontPackage,
+          fontSize: 18 * dpr,
+          color: p.onAction,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+    )..layout();
+    texte.paint(canvas, centre - Offset(texte.width / 2, texte.height / 2));
+    final image = await recorder.endRecording().toImage(
+      taille.round(),
+      taille.round(),
+    );
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    return data!.buffer.asUint8List();
   }
 
   @override
@@ -164,22 +455,53 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     // La position arrive après coup : la carte s'est ouverte sur le centre de
     // secours, on l'amène sur le premier relevé reçu — une fois, et seulement
     // s'il n'y a pas d'événement à montrer, qui lui prime.
-    if (me != null && !_poseeSurMoi && event?.lat == null && spots.isEmpty) {
+    if (me != null &&
+        _map != null &&
+        !_poseeSurMoi &&
+        event?.lat == null &&
+        spots.isEmpty) {
       _poseeSurMoi = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _map.move(LatLng(me.latitude, me.longitude), MapTiles.initialZoom);
-        }
+        if (mounted) _allerA(me.latitude, me.longitude);
       });
     }
 
     _centreInitial ??= event?.lat != null
-        ? LatLng(event!.lat!, event.lon!)
+        ? _pt(event!.lat!, event.lon!)
         : spots.isNotEmpty
-        ? LatLng(spots.first.lat, spots.first.lon)
+        ? _pt(spots.first.lat, spots.first.lon)
         : me != null
-        ? LatLng(me.latitude, me.longitude)
+        ? _pt(me.latitude, me.longitude)
         : null;
+
+    // ⚠️ **Un seul objet, gardé** : la carte compare l'ancien et le nouveau
+    // par identité, et un objet neuf à chaque reconstruction la ferait
+    // revenir de force au point de départ sous le doigt.
+    _vue ??= CameraViewportState(
+      center: _centreInitial ?? _pt(50.63, 3.06),
+      zoom: _initialZoom,
+    );
+
+    // La carte est un objet natif : on lui parle APRÈS l'image, jamais
+    // pendant la construction de l'écran.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _reglerStyle(p.isDark);
+      // ⚠️ **À la file, jamais en parallèle** : deux dessins entrelacés
+      // (effacer, effacer, créer, créer) laisseraient deux fois le même
+      // point sur la carte.
+      _file = _file
+          .then(
+            (_) => _dessiner(
+              p: p,
+              live: live,
+              spots: spots,
+              nearby: nearby.value ?? const [],
+              event: event,
+            ),
+          )
+          .catchError((Object _) {});
+    });
 
     return Scaffold(
       appBar: AppBar(
@@ -188,105 +510,18 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       ),
       body: Stack(
         children: [
-          FlutterMap(
-            mapController: _map,
-            options: MapOptions(
-              initialCenter: _centreInitial ?? const LatLng(50.63, 3.06),
-              initialZoom: MapTiles.initialZoom,
-              // 🔴 **Les deux bornes qui manquaient.** Voir [MapTiles.maxZoom] :
-              // au-delà, aucune tuile n'existe et le moteur agrandissait la
-              // dernière — flou, puis motifs géants, puis gris vide.
-              minZoom: MapTiles.minZoom,
-              maxZoom: MapTiles.maxZoom,
-              // On ne sort pas du monde : sans ça, un doigt trop rapide laisse
-              // la carte dans le vide, sans moyen de revenir.
-              cameraConstraint: CameraConstraint.contain(
-                bounds: LatLngBounds(
-                  const LatLng(-85, -180),
-                  const LatLng(85, 180),
-                ),
-              ),
-              // Le fond entre deux tuiles suit le thème : une tuile qui arrive
-              // sur du blanc, la nuit, fait un éclair.
-              backgroundColor: p.ground,
-              interactionOptions: const InteractionOptions(
-                // Pas de rotation : une carte de travers ne sert à personne ici
-                // et s'attrape par accident à deux doigts.
-                flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
-              ),
-            ),
-            children: [
-              MapTiles.layer(context, dark: p.isDark),
-              // Les points chauds d'un événement : un cercle par cellule de
-              // 50 m, proportionnel au monde qu'il y a.
-              CircleLayer(
-                circles: [
-                  // ⚠️ **Seulement là où il y a du monde (2026-09-24).** Le
-                  // serveur rend aussi le LIEU de la soirée, avec 0 personne
-                  // (`event_hot_spots`) ; dessiné pareil, il faisait un
-                  // second rond rose — un endroit vide qui avait l'air
-                  // peuplé (capture de Jay). Le lieu a son propre repère,
-                  // plus bas.
-                  for (final s in spots)
-                    if (s.headcount > 0)
-                      CircleMarker(
-                        point: LatLng(s.lat, s.lon),
-                        radius: 12.0 + 4 * s.headcount.clamp(0, 10),
-                        color: p.action.withValues(alpha: 0.25),
-                        borderColor: p.action,
-                        borderStrokeWidth: 1.5,
-                      ),
-                  // ⚠️ **Le halo d'incertitude, en MÈTRES.** L'appareil ne sait
-                  // pas où il est au mètre près (`accuracy` : 21 m au mieux,
-                  // 100 m et plus en intérieur, relevé du 2026-09-22). Un point
-                  // net sans halo affirme une précision qu'on n'a pas.
-                  if (me != null)
-                    CircleMarker(
-                      point: LatLng(me.latitude, me.longitude),
-                      radius: me.accuracy,
-                      useRadiusInMeter: true,
-                      color: p.cool.withValues(alpha: 0.12),
-                      borderColor: p.cool.withValues(alpha: 0.4),
-                      borderStrokeWidth: 1,
-                    ),
-                ],
-              ),
-              MarkerLayer(
-                markers: [
-                  // Le lieu de la soirée : un repère, pas un point chaud.
-                  if (event?.lat != null && event?.lon != null)
-                    Marker(
-                      point: LatLng(event!.lat!, event.lon!),
-                      width: 34,
-                      height: 34,
-                      child: _LieuSoiree(couleur: p.action, fond: p.ground),
-                    ),
-                  if (me != null)
-                    Marker(
-                      point: LatLng(me.latitude, me.longitude),
-                      width: 18,
-                      height: 18,
-                      child: _PointMoi(couleur: p.cool, bord: p.ground),
-                    ),
-                  for (final e in nearby.value ?? const <NearbyEvent>[])
-                    Marker(
-                      point: LatLng(e.lat, e.lon),
-                      width: 140,
-                      height: 52,
-                      // L'épingle pointe le lieu : son bas doit tomber sur le
-                      // point, pas son milieu.
-                      alignment: Alignment.topCenter,
-                      child: _Epingle(event: e),
-                    ),
-                ],
-              ),
-            ],
+          MapWidget(
+            key: const ValueKey('carte'),
+            styleUri: MapboxStyles.STANDARD,
+            viewport: _vue,
+            onMapCreated: _onMapCreated,
+            onStyleLoadedListener: _onStyleLoaded,
           ),
           if (nearby.hasError)
             Positioned(
               left: 16,
               right: 16,
-              bottom: 40,
+              bottom: 64,
               child: Material(
                 color: p.surface,
                 borderRadius: BorderRadius.circular(NeoRadius.md),
@@ -303,21 +538,25 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
           if (me != null)
             Positioned(
               right: 16,
-              bottom: 48,
-              child: FloatingActionButton.small(
-                heroTag: 'recentrer',
-                onPressed: _recentrer,
-                backgroundColor: p.surface,
-                foregroundColor: p.ink,
-                child: const Icon(Icons.my_location),
+              bottom: 0,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 36),
+                  child: FloatingActionButton.small(
+                    heroTag: 'recentrer',
+                    onPressed: _recentrer,
+                    backgroundColor: p.surface,
+                    foregroundColor: p.ink,
+                    child: const Icon(Icons.my_location),
+                  ),
+                ),
               ),
             ),
-          // 🔴 **Le point est à trois kilomètres, et l'écran le DIT** — ajouté
-          // le 2026-09-22 au soir, sur le diagnostic de Jay
-          // (`finesse : approximate`, `± 2000 m`). Sans ce bandeau, la carte
-          // affichait un point faux avec exactement l'aplomb d'un point juste,
-          // et le seul écran qui annonçait la cause était celui du ping —
-          // que personne ne va consulter quand c'est la carte qui se trompe.
+          // 🔴 **Le point est à trois kilomètres, et l'écran le DIT** —
+          // 2026-09-22 au soir (`finesse : approximate`, `± 2000 m`). Sans ce
+          // bandeau, la carte affichait un point faux avec l'aplomb d'un
+          // point juste.
           if (live.brouillee)
             Positioned(
               left: 0,
@@ -330,20 +569,16 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
                 ),
               ),
             ),
-          // ⚠️ **L'attribution est obligatoire, donc elle doit être LISIBLE.**
-          // Elle était collée en bas à gauche, à moitié sous la barre de
-          // navigation du téléphone (capture du 2026-09-22). `SafeArea` la
-          // remonte, et un fond la détache de la carte.
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: SafeArea(
-              top: false,
-              child: Align(
-                alignment: Alignment.bottomLeft,
+          // Ce que vaut le point, dit en clair — à droite : le logo et
+          // l'attribution de Mapbox tiennent la gauche.
+          if (me != null)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: SafeArea(
+                top: false,
                 child: Container(
-                  margin: const EdgeInsets.only(left: 8, bottom: 4),
+                  margin: const EdgeInsets.only(right: 8, bottom: 6),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 6,
                     vertical: 2,
@@ -353,15 +588,12 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    me == null
-                        ? '© OpenStreetMap'
-                        : '© OpenStreetMap · ${_libelleFix(live)}',
+                    _libelleFix(live),
                     style: TextStyle(fontSize: 10, color: p.inkMuted),
                   ),
                 ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -370,34 +602,20 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
 
 /// Ce que vaut le point affiché, dit en clair sous la carte.
 ///
-/// ## ⚠️ Ce libellé ne dit plus « GPS », et c'est une correction
+/// ## ⚠️ Ce libellé ne dit pas « GPS », et c'est une correction
 ///
-/// Il affichait `GPS` / `réseau` / `mémoire`. Depuis que la carte s'abonne au
-/// flux, **tous** les relevés arrivent étiquetés [FixSource.best] — parce que
-/// c'est ce qu'on *demande*, pas ce qui répond. Android ne dit jamais quel
+/// Tous les relevés du flux arrivent étiquetés [FixSource.best] — parce que
+/// c'est ce qu'on *demande*, pas ce qui répond : Android ne dit jamais quel
 /// palier a réellement contribué (vérifié le 2026-09-22 dans
-/// `LocationMapper.java` du paquet : ni le fournisseur ni le nombre de
-/// satellites n'en sortent). Écrire « GPS » serait inventer une mesure, et un
-/// libellé qui ment coûte plus cher qu'un libellé absent.
+/// `LocationMapper.java`). Écrire « GPS » serait inventer une mesure.
 ///
-/// Restent trois choses qu'on sait vraiment, et les trois servent :
+/// Restent trois choses qu'on sait vraiment : **l'incertitude annoncée**,
+/// **l'âge** (un point juste et un point figé ont la même apparence) et **le
+/// nombre de relevés reçus** (« le flux tourne-t-il ? »).
 ///
-/// - **l'incertitude annoncée** — la seule mesure honnête de ce que vaut le
-///   point ; c'est elle qui valait `± 675 m` sur la capture de Jay ;
-/// - **l'âge** — un point juste et un point figé ont la même apparence ;
-/// - **le nombre de relevés reçus** — il répond à *« le flux tourne-t-il ? »*.
-///   Bloqué à 1, c'est le défaut du 2026-09-22 revenu ; qui monte sans que
-///   l'incertitude descende, c'est un réglage du téléphone.
-///
-/// Le mot du palier ne reparaît que lorsqu'il porte une information : un repli
-/// sur le réseau ou sur la mémoire signale que le meilleur palier a échoué.
-///
-/// 🔴 **Et « approché » passe DEVANT tout le reste** — 2026-09-22 au soir.
-/// Sur le diagnostic de Jay, `± 2000 m` s'affichait nu ; ce chiffre se lit
-/// comme « le GPS est mauvais ici », alors qu'il veut dire « Android a reçu
-/// l'ordre de ne rien dire de mieux ». Les deux causes n'ont ni le même
-/// remède, ni la même conclusion : la première ne se répare pas, la seconde
-/// se répare en un geste. Le mot désigne laquelle.
+/// 🔴 **« approché » passe DEVANT tout le reste** : `± 2000 m` nu se lit
+/// « le GPS est mauvais ici », alors qu'il veut dire « Android a reçu l'ordre
+/// de ne rien dire de mieux » — et la seconde cause se répare en un geste.
 String _libelleFix(LivePositionState live) {
   final fix = live.fix!;
   final repli = live.brouillee
@@ -410,92 +628,4 @@ String _libelleFix(LivePositionState live) {
   final age = live.ageAt(DateTime.now());
   final vu = age == null ? '' : ' · ${age.inSeconds} s';
   return '$repli± ${fix.accuracy.round()} m$vu · ${live.received} relevés';
-}
-
-/// Ma position : un point plein cerclé de la couleur du fond, pour rester
-/// visible sur une carte claire **comme** sombre.
-class _PointMoi extends StatelessWidget {
-  const _PointMoi({required this.couleur, required this.bord});
-  final Color couleur;
-  final Color bord;
-
-  @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: couleur,
-      shape: BoxShape.circle,
-      border: Border.all(color: bord, width: 3),
-      boxShadow: [
-        BoxShadow(color: Colors.black.withValues(alpha: 0.3), blurRadius: 4),
-      ],
-    ),
-  );
-}
-
-/// Une soirée sur la carte : son nom et « N ici ». Un tap ouvre son écran.
-class _Epingle extends StatelessWidget {
-  const _Epingle({required this.event});
-  final NearbyEvent event;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.palette;
-    return GestureDetector(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => EventScreen(eventId: event.id, preview: event),
-        ),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            event.kind == EventKind.open ? Icons.celebration : Icons.storefront,
-            color: p.action,
-            size: 22,
-          ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: p.surface,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: p.action, width: 1.5),
-            ),
-            child: Text(
-              '${event.title} · ${event.presentCount}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Le repère du lieu de la soirée : un rond au dégradé, avec la fête dedans.
-/// Distinct des points chauds (qui comptent des gens) et de mon point.
-class _LieuSoiree extends StatelessWidget {
-  const _LieuSoiree({required this.couleur, required this.fond});
-
-  final Color couleur;
-  final Color fond;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      gradient: context.palette.signatureCourte,
-      border: Border.all(color: fond, width: 2),
-      boxShadow: [
-        BoxShadow(color: couleur.withValues(alpha: 0.5), blurRadius: 10),
-      ],
-    ),
-    child: Icon(
-      Icons.celebration_rounded,
-      size: 18,
-      color: context.palette.onAction,
-    ),
-  );
 }

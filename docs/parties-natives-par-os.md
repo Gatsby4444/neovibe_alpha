@@ -54,6 +54,13 @@ qu'un moteur natif tiers pèse sur le portage autant qu'un fichier `.kt` à nous
 | Bloc | Paquet | Android | iOS |
 |---|---|---|---|
 | **Moteur de rendu Rive** | `rive` 0.14.11 → `rive_native` 0.1.11 | `.so` par ABI (~7,3 Mo en arm64) | fourni par le paquet — **rien à écrire** |
+| **Carte Mapbox** *(2026-09-25)* | `mapbox_maps_flutter` 2.31.1 → SDK Android `com.mapbox.maps:android-ndk27` 11.31.1 | `libmapbox-maps.so` (18,7 Mo) + `libmapbox-common.so` (7,0 Mo) en arm64 : **l'APK passe de 36,9 à 67,0 Mo** ; aucune permission ajoutée (vérifié sur l'artefact : `ACCESS_WIFI_STATE` vient de `nearby_connections`, `VIBRATE` des notifications) | fourni par le paquet (SDK iOS Mapbox, iOS 14+) — **rien à écrire**, mais le jeton se pose aussi (`MapboxOptions.setAccessToken`, `main()`) |
+
+⚠️ **Mapbox et AGP 9** : le paquet n'applique le plugin Kotlin que sous
+AGP 8 et suppose au-delà le Kotlin intégré, que ce projet désactive
+(`android.builtInKotlin=false`). `android/build.gradle.kts` le lui applique,
+à lui seul (`plugins.withId("com.android.library")`). Sans ce bloc :
+« Could not find method kotlin() » à la construction.
 
 Trois points à retenir pour le jour du portage :
 
