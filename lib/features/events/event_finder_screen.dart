@@ -34,7 +34,16 @@ class _EventFinderScreenState extends ConsumerState<EventFinderScreen> {
   /// le temps de dire ce qu'il fait.
   static const _minRadar = Duration(milliseconds: 2200);
 
-  late final _started = DateTime.now();
+  /// Le radar a tourné son temps minimum. **La seule horloge de l'écran.**
+  ///
+  /// ⚠️ **Il y en avait deux jusqu'au 2026-09-25** : ce drapeau, et un
+  /// `late final _started = DateTime.now()` relu dans `build`. Un `late` avec
+  /// initialiseur s'évalue au premier ACCÈS — le premier `build`, quelques
+  /// millisecondes APRÈS le départ du minuteur. Quand le minuteur sonnait,
+  /// moins de [_minRadar] s'étaient écoulées « selon `_started` » : l'écran
+  /// cherchait encore, et si la liste était déjà arrivée, plus rien ne le
+  /// redessinait. **Le radar tournait pour toujours** (Jay : 80 minutes,
+  /// soirée à 3 m). Reproduit : `test/event_finder_test.dart`.
   var _radarDone = false;
 
   /// La soirée choisie à la main parmi celles à portée ; nulle = la plus
@@ -54,10 +63,7 @@ class _EventFinderScreenState extends ConsumerState<EventFinderScreen> {
   @override
   Widget build(BuildContext context) {
     final nearby = ref.watch(nearbyEventsProvider);
-    final searching =
-        !_radarDone ||
-        nearby.isLoading ||
-        DateTime.now().difference(_started) < _minRadar;
+    final searching = !_radarDone || nearby.isLoading;
 
     final List<NearbyEvent> reachable;
     final List<NearbyEvent> far;
