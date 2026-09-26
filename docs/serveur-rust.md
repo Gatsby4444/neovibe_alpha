@@ -203,7 +203,7 @@ existante**. La plateforme complète vient ensuite.
 | 1. Les comptes | ✅ 2026-09-27 côté serveur — `/v1/auth/inscription · connexion · renouveler · deconnexion · moi` (badge Ed25519 1 h, jetons tournants, plafond par téléphone prouvé identique à l'ancien crochet SQL, bcrypt de Supabase accepté puis réécrit en argon2id, limite d'essais) ; `username_available`, `my_suspension`, `profile_stats`, `profiles_get · list`, `profile_create · update`, `dev_report_insert` — 25 situations identiques |
 | 2. Les fichiers | ✅ 2026-09-27 — `nv-entrepot` (tout entrepôt compatible S3 : liens de lecture et de dépôt signés, taille et type signés, envoi en morceaux avec reprise, suppression), vérifié contre SeaweedFS local ; les 24 règles des coffres traduites (`fichiers/regles.rs`), les questions d'accès réécrites en expressions composables (`acces.rs`) ; guichets `files_sign_read · sign_upload · remove · upload_open · parts · part_url · finish · abort`, `mes_octets_a_supprimer`, `octets_supprimes` ; **le réveil** (`nv-server/src/taches.rs` : verrou, une transaction par passage, journal `nv.job_runs`) et le **balai des fichiers** (le serveur efface lui-même : règle RAPPELS #111) — 48 situations identiques |
 | 3. Le direct | ✅ 2026-09-27 — `GET /v1/direct` (WebSocket : badge, abonnements `table:colonne=valeur`, diffusions `typing:…`, renouvellement du badge sans coupure) ; la base ANNONCE chaque changement des 10 tables suivies (`nv.annoncer`, canal `nv_direct` : tous les chemins y passent, cascades et balais compris) ; chaque ligne passe la règle de lecture de sa table (`nv-app/src/direct.rs`) ; `direct_instantane` (l'état à l'abonnement) — 15 situations identiques ; essai de bout en bout `outils/essai_direct.mjs` (deux comptes, message, « en train d'écrire », refus d'un non-membre, badge renouvelé) ✅. Écart voulu : « en train d'écrire » réservé aux membres de la conversation (avant : tout compte connaissant l'identifiant) |
-| 4. Relations et proximité | à faire |
+| 4. Relations et proximité | ✅ 2026-09-27 — les 16 opérations (ping, croisements, demandes d'ami, blocages, recommandations, paliers) et 9 gestes directs de l'app (`device_key_upsert`, `key_book_list`, `connection_delete`, `connection_requests_history`, `recommendations_list`, `recommendation_create`, `blocks_list`, `waves_list`, `wave_insert`) ; déclencheurs traduits (`on_ping_pair_born`, `oublie_ce_qui_derivait_du_lien`) ; balais `balai_ping`, `balai_vues`, `paliers` — 58 situations identiques. **Défaut de l'ancien serveur trouvé et réparé** (voir le journal) |
 | 5. Conversations | à faire |
 | 6. Vibes et contenus | à faire |
 | 7. Pulse | à faire |
@@ -232,6 +232,26 @@ preuve, chacun justifié) :
 - 2026-09-26 : `library_items` ajoutée au direct (« [Ami] a publié »). Le
   direct en Rust doit la diffuser. `enforce_library_card_rules` supprimée
   (orpheline) : rien à reporter.
+- 2026-09-27 : **une rencontre en soirée sans lieu faisait tout planter**
+  (`private.note_meeting` lisait une variable jamais remplie quand la
+  soirée n'a pas de lieu — une soirée privée) : `report_sightings` échouait
+  en entier, reconnaissances entre amis comprises. Trouvé par la preuve,
+  reproduit sur la base de dev sous identité, réparé
+  (`20260927100000_rencontre_en_soiree_sans_lieu.sql`). Le Rust le faisait
+  déjà juste.
+
+**Les fondations** — ce qui RESTE dans la base, parce qu'il doit voir tous
+les chemins, effacements en cascade compris : les contraintes (liens,
+unicité, formes), l'horodatage des profils (`set_updated_at`), les pierres
+tombales des fichiers (`inscrit_*`, `oublie_l_affiche`), l'annonce des
+disparitions (`annonce_une_disparition`), l'activité des conversations
+(`note_conversation_activity`), et les annonces du direct (`nv.annoncer`).
+Tout le reste des déclencheurs de l'ancien gardien est traduit en Rust ;
+**la preuve joue le nouveau côté avec ces déclencheurs coupés** (sinon
+l'ancien tiendrait à la place du Rust une règle oubliée), et le test
+`sans_ancien_gardien` vérifie que le Rust n'appelle aucune fonction de
+l'ancien gardien. Chaque situation peut exiger que l'ancien gardien ÉCRIVE
+(`doit_changer`) : une situation qui ne produit rien est « mal posée ».
 
 ## Mode d'emploi du chantier
 

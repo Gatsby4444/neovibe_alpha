@@ -231,6 +231,18 @@ pub mod q {
         )
     }
 
+    /// `private.relation_kind(moi, autre)` : ce que l'autre est pour moi —
+    /// `friend`, `event` (co-présent d'une soirée ouverte, ou membre d'un
+    /// même groupe de soirée privée ouverte), ou rien. Une VALEUR (texte),
+    /// `null` s'il n'est rien — ou s'il m'a bloqué.
+    pub fn relation(moi: &str, autre: &str) -> String {
+        format!(
+            "(case when {moi} is null or {autre} is null or {moi} = {autre} then null                when {bloque} then null                when {amis} then 'friend'                when exists (select 1 from public.event_presences rk_a join public.event_presences rk_b on rk_b.event_id = rk_a.event_id                             join public.events rk_e on rk_e.id = rk_a.event_id                             where rk_a.user_id = {moi} and rk_b.user_id = {autre} and rk_a.left_at is null and rk_b.left_at is null                               and rk_e.closed_at is null) then 'event'                when exists (select 1 from public.event_group_members rk_ga join public.event_group_members rk_gb on rk_gb.event_id = rk_ga.event_id                             join public.events rk_ge on rk_ge.id = rk_ga.event_id                             where rk_ga.user_id = {moi} and rk_gb.user_id = {autre} and rk_ge.kind = 'private' and rk_ge.closed_at is null) then 'event'                else null end)",
+            bloque = a_bloque(autre, moi),
+            amis = sont_amis(moi, autre),
+        )
+    }
+
     /// `private.owns_card(carte, compte)`.
     pub fn possede_carte(c: &str, uid: &str) -> String {
         format!("exists (select 1 from public.cards oc_ where oc_.id = {c} and oc_.owner_id = {uid})")

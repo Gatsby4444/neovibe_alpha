@@ -52,6 +52,10 @@ struct CasBrut {
     /// … et les champs de la réponse qu'il concerne (masqués des deux côtés).
     #[serde(default)]
     ecart_champs: Vec<String>,
+    /// Garde-fou : l'ancien gardien DOIT écrire dans ces tables (sinon la
+    /// situation ne teste rien).
+    #[serde(default)]
+    doit_changer: Vec<String>,
 }
 
 /// Une situation prête à jouer.
@@ -73,6 +77,58 @@ pub struct Cas {
     pub ignorer: Vec<String>,
     pub ecart: Option<String>,
     pub ecart_champs: Vec<String>,
+    pub doit_changer: Vec<String>,
+}
+
+fn creneau_textuel(s: &str, creneau: i64) -> String {
+    let mut sortie = s.to_string();
+    for d in (-400..=400).rev() {
+        let motif = if d == 0 { "{{creneau}}".to_string() } else if d > 0 { format!("{{{{creneau+{d}}}}}") } else { format!("{{{{creneau{d}}}}}") };
+        if sortie.contains(&motif) {
+            sortie = sortie.replace(&motif, &(creneau + d).to_string());
+        }
+    }
+    sortie
+}
+
+fn creneau_json(v: &Value, creneau: i64) -> Value {
+    match v {
+        Value::String(s) => {
+            let r = creneau_textuel(s, creneau);
+            // Une valeur qui n'était QUE le créneau devient un nombre.
+            if s.starts_with("{{creneau") && s.ends_with("}}") {
+                r.parse::<i64>().map(Value::from).unwrap_or(Value::String(r))
+            } else {
+                Value::String(r)
+            }
+        }
+        Value::Array(a) => Value::Array(a.iter().map(|x| creneau_json(x, creneau)).collect()),
+        Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), creneau_json(x, creneau))).collect()),
+        autre => autre.clone(),
+    }
+}
+
+/// La situation, avec le créneau de ping de sa transaction à la place de
+/// `{{creneau}}`, `{{creneau-1}}`, `{{creneau+2}}`…
+pub fn avec_creneau(c: &Cas, creneau: i64) -> Cas {
+    Cas {
+        fichier: c.fichier.clone(),
+        nom: c.nom.clone(),
+        qui: c.qui,
+        rpc: c.rpc.clone(),
+        op: c.op.clone(),
+        args: creneau_json(&c.args, creneau),
+        ancien: c.ancien.as_deref().map(|s| creneau_textuel(s, creneau)),
+        ancien_resultat: c.ancien_resultat.as_deref().map(|s| creneau_textuel(s, creneau)),
+        avant: c.avant.as_deref().map(|s| creneau_textuel(s, creneau)),
+        sans_ordre: c.sans_ordre,
+        sans_effet: c.sans_effet,
+        attendu: c.attendu.clone(),
+        ignorer: c.ignorer.clone(),
+        ecart: c.ecart.clone(),
+        ecart_champs: c.ecart_champs.clone(),
+        doit_changer: c.doit_changer.clone(),
+    }
 }
 
 fn dossier() -> PathBuf {
@@ -154,6 +210,7 @@ pub fn charger(filtre: &str) -> Result<Vec<Cas>, String> {
                 ignorer: c.ignorer,
                 ecart: c.ecart,
                 ecart_champs: c.ecart_champs,
+                doit_changer: c.doit_changer,
             });
         }
     }

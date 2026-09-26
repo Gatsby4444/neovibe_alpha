@@ -10,6 +10,38 @@ use nv_core::{Actor, Ctx, NvError};
 use crate::cas::Cas;
 use crate::compare::{self, Issue};
 
+/// Les déclencheurs de l'ANCIEN GARDIEN : des règles du produit, traduites
+/// en Rust, qui disparaîtront avec lui. Le nouveau côté les coupe.
+///
+/// Ne sont PAS dans cette liste les **fondations**, qui restent dans la base
+/// parce qu'elles doivent voir tous les chemins, effacements en cascade
+/// compris (docs/serveur-rust.md) : l'horodatage des profils
+/// (`profiles_updated_at`), les pierres tombales des fichiers
+/// (`*_octets_a_supprimer`, `events_affiche_au_balai`), l'annonce des
+/// disparitions (`*_annonce_disparition`), l'activité des conversations
+/// (`messages_activity`), et les annonces du direct et de la preuve.
+pub const DECLENCHEURS_DU_GARDIEN: &[(&str, &str)] = &[
+    ("public.messages", "messages_rules"),
+    ("public.card_deliveries", "card_deliveries_rules"),
+    ("public.cards", "cards_refuse_si_suspendu"),
+    ("public.connection_requests", "connection_requests_refuse_si_suspendu"),
+    ("public.content_likes", "content_likes_refuse_si_suspendu"),
+    ("public.recommendations", "recommendations_refuse_si_suspendu"),
+    ("public.waves", "waves_refuse_si_suspendu"),
+    ("public.card_reports", "card_reports_scelle"),
+    ("public.card_reports", "card_reports_libere"),
+    ("public.content_reports", "content_reports_scelle"),
+    ("public.content_reports", "content_reports_libere"),
+    ("public.event_reports", "event_reports_scelle"),
+    ("public.event_reports", "event_reports_libere"),
+    ("public.library_vibe_reports", "library_vibe_reports_scelle"),
+    ("public.library_vibe_reports", "library_vibe_reports_libere"),
+    ("public.connections", "connections_delete_oublie"),
+    ("public.ping_pairs", "ping_pairs_meeting"),
+    ("public.event_crossings", "event_crossings_meeting"),
+    ("auth.users", "record_device_signup"),
+];
+
 /// Une ligne du journal des changements.
 #[derive(Debug, Clone)]
 pub struct Change {
@@ -78,7 +110,9 @@ async fn appel_sql(db: &mut PgConnection, nom: &str, args: &Value) -> Result<(St
     .await
     .map_err(|e| e.to_string())?;
     let cles: HashSet<String> = args.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
-    let mut choix: Option<(Vec<(String, String)>, bool, bool)> = None;
+    // (paramètres, renvoie un ensemble, ne renvoie rien)
+    type Signature = (Vec<(String, String)>, bool, bool);
+    let mut choix: Option<Signature> = None;
     for r in rows {
         let ids: String = r.get("ids");
         let params: Vec<(String, String)> = if ids.trim().is_empty() {
@@ -192,6 +226,14 @@ async fn cote_nouveau(
     let run = *registre.get(c.op.as_str()).ok_or_else(|| format!("opération Rust « {} » absente", c.op))?;
     let mut tx = tx;
     exec(&mut tx, "savepoint nouveau").await?;
+    // ⚠️ Le nouveau gardien joue SANS les déclencheurs de l'ancien : s'il
+    // oubliait une règle qu'un déclencheur portait, l'ancien la tiendrait à
+    // sa place et la preuve passerait quand même — puis la règle
+    // disparaîtrait avec l'ancien gardien. (Annulé au retour au point de
+    // sauvegarde.)
+    for (table, declencheur) in DECLENCHEURS_DU_GARDIEN {
+        exec(&mut tx, &format!("alter table {table} disable trigger {declencheur}")).await?;
+    }
     let actor = c.qui.map(Actor::User).unwrap_or(Actor::Anonymous);
     let mut ctx = Ctx::open(tx, actor, Some(std::sync::Arc::new(crate::factice::EntrepotFactice))).await.map_err(|e| e.to_string())?;
     let resultat = run(&mut ctx, c.args.clone()).await;
@@ -202,6 +244,10 @@ async fn cote_nouveau(
             Cote { issue: Issue::Ok(v), changes: lire_journal(&mut tx).await? }
         }
         Err(NvError::Refused(m)) => Cote { issue: Issue::Refus { sqlstate: "P0001".into(), message: m }, changes: vec![] },
+        Err(e) if e.refus_de_la_base() => Cote {
+            issue: Issue::Refus { sqlstate: e.sqlstate().unwrap_or_default(), message: e.to_string() },
+            changes: vec![],
+        },
         Err(NvError::Db(e)) => Cote { issue: Issue::PanneNouveau(format!("base : {e}")), changes: vec![] },
         Err(NvError::Internal(e)) => Cote { issue: Issue::PanneNouveau(e), changes: vec![] },
         Err(autre) => Cote {
@@ -222,6 +268,13 @@ pub async fn jouer(
 ) -> Result<Vec<String>, String> {
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     exec(&mut tx, "set local nv_proof.capture = 'on'").await?;
+    // `{{creneau}}`, `{{creneau-1}}`… : le créneau de ping de CETTE
+    // transaction (15 minutes), pour les situations qui en dépendent.
+    let creneau: i64 = sqlx::query_scalar("select floor(extract(epoch from now()) / 900)::bigint")
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+    let c = &crate::cas::avec_creneau(c, creneau);
     if let Some(avant) = &c.avant {
         exec(&mut tx, avant).await?;
     }

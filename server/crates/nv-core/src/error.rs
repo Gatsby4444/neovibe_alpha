@@ -41,8 +41,26 @@ impl NvError {
         NvError::Refused(message.into())
     }
 
+    /// L'état SQL d'une erreur de la base (`23505`…), s'il y en a un.
+    pub fn sqlstate(&self) -> Option<String> {
+        match self {
+            NvError::Db(sqlx::Error::Database(d)) => d.code().map(|c| c.to_string()),
+            _ => None,
+        }
+    }
+
+    /// Une protection de fond de la base a refusé l'écriture (classe `23` :
+    /// doublon, colonne obligatoire, forme) ou la donnée (classe `22` :
+    /// valeur illisible). C'est un REFUS, pas une panne.
+    pub fn refus_de_la_base(&self) -> bool {
+        self.sqlstate().is_some_and(|c| c.starts_with("23") || c.starts_with("22"))
+    }
+
     /// Le code HTTP de la réponse.
     pub fn status(&self) -> u16 {
+        if self.refus_de_la_base() {
+            return 400;
+        }
         match self {
             NvError::Refused(_) | NvError::BadArgs(_) => 400,
             NvError::Unauthenticated => 401,
@@ -66,6 +84,9 @@ impl NvError {
 
     /// Ce que l'app reçoit : jamais le détail d'une panne.
     pub fn body(&self) -> serde_json::Value {
+        if self.refus_de_la_base() {
+            return json!({ "code": "refused", "message": "Demande refusée : une donnée n'est pas acceptée." });
+        }
         let message = match self {
             NvError::Db(_) | NvError::Internal(_) => {
                 "Le serveur a rencontré un problème. Réessaie dans un instant.".to_string()
@@ -77,6 +98,6 @@ impl NvError {
 
     /// Vrai pour un refus d'une règle ou une demande invalide (pas une panne).
     pub fn is_refusal(&self) -> bool {
-        !matches!(self, NvError::Db(_) | NvError::Internal(_))
+        self.refus_de_la_base() || !matches!(self, NvError::Db(_) | NvError::Internal(_))
     }
 }

@@ -1,0 +1,487 @@
+# Domaine 4 — relations et proximité (docs/serveur-rust.md, annexe A.3).
+# Charles et Testeur sont amis ; Charles et Jay2 ne le sont pas.
+
+# ─── Le ping ────────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "publier ma balise"
+qui = "charles"
+rpc = "publish_ping_beacon"
+args = { p_lat = 50.6368, p_lon = 3.0708, p_token = "jeton-c", p_slot = "{{creneau}}", p_acc = 12.5 }
+attendu = "accepte"
+
+[[cas]]
+nom = "publier ma balise en partageant ma position (la position des amis suit)"
+doit_changer = ["public.ping_beacons", "public.friend_locations"]
+qui = "charles"
+rpc = "publish_ping_beacon"
+args = { p_lat = 50.6368, p_lon = 3.0708, p_token = "jeton-c", p_slot = "{{creneau}}" }
+avant = "insert into public.location_sharing (user_id, sharing) values ('{{charles}}', true) on conflict (user_id) do update set sharing = true; delete from public.friend_locations where user_id = '{{charles}}'"
+
+[[cas]]
+nom = "publier une balise hors des bornes du monde"
+qui = "charles"
+rpc = "publish_ping_beacon"
+args = { p_lat = 91.0, p_lon = 3.0, p_token = "x", p_slot = "{{creneau}}" }
+attendu = "refuse"
+
+[[cas]]
+nom = "publier une balise sans jeton"
+qui = "charles"
+rpc = "publish_ping_beacon"
+args = { p_lat = 50.0, p_lon = 3.0, p_token = "", p_slot = "{{creneau}}" }
+attendu = "refuse"
+
+[[cas]]
+nom = "retirer ma balise"
+qui = "charles"
+rpc = "retire_ping_beacon"
+avant = "insert into public.ping_beacons (user_id, cell_lat, cell_lon, token, slot, lat, lon) values ('{{charles}}', 5063, 307, 'jeton-c', {{creneau}}, 50.63, 3.07) on conflict (user_id) do update set cell_lat = excluded.cell_lat, cell_lon = excluded.cell_lon, token = excluded.token, slot = excluded.slot, lat = excluded.lat, lon = excluded.lon, updated_at = now()"
+
+[[cas]]
+nom = "confirmer un jeton entendu (sans miroir : pas encore de paire)"
+qui = "charles"
+rpc = "confirm_ping"
+args = { p_tokens = ["jeton-j"], p_slot = "{{creneau}}" }
+avant = """insert into public.ping_beacons (user_id, cell_lat, cell_lon, token, slot, lat, lon) values
+  ('{{charles}}', 5063, 307, 'jeton-c', {{creneau}}, 50.63, 3.07),
+  ('{{jay2}}', 5063, 308, 'jeton-j', {{creneau}}, 50.63, 3.08) on conflict (user_id) do update set cell_lat = excluded.cell_lat, cell_lon = excluded.cell_lon, token = excluded.token, slot = excluded.slot, lat = excluded.lat, lon = excluded.lon, updated_at = now()"""
+
+[[cas]]
+nom = "confirmer avec le miroir : la paire NAÎT, la rencontre se note des deux côtés"
+doit_changer = ["public.ping_pairs", "public.meetings", "public.ping_confirmations"]
+qui = "charles"
+rpc = "confirm_ping"
+args = { p_tokens = ["jeton-j", "jeton-inconnu"], p_slot = "{{creneau}}" }
+avant = """delete from public.ping_pairs where user_low = least('{{charles}}'::uuid, '{{jay2}}'::uuid) and user_high = greatest('{{charles}}'::uuid, '{{jay2}}'::uuid);
+insert into public.ping_beacons (user_id, cell_lat, cell_lon, token, slot, lat, lon) values
+  ('{{charles}}', 5063, 307, 'jeton-c', {{creneau}}, 50.63, 3.07),
+  ('{{jay2}}', 5063, 308, 'jeton-j', {{creneau}}, 50.63, 3.08) on conflict (user_id) do update set cell_lat = excluded.cell_lat, cell_lon = excluded.cell_lon, token = excluded.token, slot = excluded.slot, lat = excluded.lat, lon = excluded.lon, updated_at = now();
+insert into public.ping_confirmations (observer_id, subject_id, slot) values ('{{jay2}}', '{{charles}}', {{creneau}})"""
+
+[[cas]]
+nom = "confirmer une paire qui existe déjà (elle se revoit, pas de nouvelle rencontre)"
+doit_changer = ["public.ping_pairs"]
+qui = "charles"
+rpc = "confirm_ping"
+args = { p_tokens = ["jeton-j"], p_slot = "{{creneau}}" }
+avant = """insert into public.ping_beacons (user_id, cell_lat, cell_lon, token, slot, lat, lon) values
+  ('{{charles}}', 5063, 307, 'jeton-c', {{creneau}}, 50.63, 3.07),
+  ('{{jay2}}', 5063, 308, 'jeton-j', {{creneau}}, 50.63, 3.08) on conflict (user_id) do update set cell_lat = excluded.cell_lat, cell_lon = excluded.cell_lon, token = excluded.token, slot = excluded.slot, lat = excluded.lat, lon = excluded.lon, updated_at = now();
+insert into public.ping_confirmations (observer_id, subject_id, slot) values ('{{jay2}}', '{{charles}}', {{creneau}});
+insert into public.ping_pairs (user_low, user_high, first_seen_at, last_seen_at) values (least('{{charles}}'::uuid, '{{jay2}}'::uuid), greatest('{{charles}}'::uuid, '{{jay2}}'::uuid), now() - interval '1 hour', now() - interval '1 hour') on conflict do nothing"""
+
+[[cas]]
+nom = "confirmer quelqu'un que j'ai bloqué : rien"
+qui = "charles"
+rpc = "confirm_ping"
+args = { p_tokens = ["jeton-j"], p_slot = "{{creneau}}" }
+avant = """insert into public.ping_beacons (user_id, cell_lat, cell_lon, token, slot, lat, lon) values
+  ('{{charles}}', 5063, 307, 'jeton-c', {{creneau}}, 50.63, 3.07),
+  ('{{jay2}}', 5063, 308, 'jeton-j', {{creneau}}, 50.63, 3.08) on conflict (user_id) do update set cell_lat = excluded.cell_lat, cell_lon = excluded.cell_lon, token = excluded.token, slot = excluded.slot, lat = excluded.lat, lon = excluded.lon, updated_at = now();
+insert into public.blocks (blocker_id, blocked_id) values ('{{charles}}', '{{jay2}}')"""
+
+[[cas]]
+nom = "confirmer un jeton trop loin (carreaux non voisins) : rien"
+qui = "charles"
+rpc = "confirm_ping"
+args = { p_tokens = ["jeton-j"], p_slot = "{{creneau}}" }
+avant = """insert into public.ping_beacons (user_id, cell_lat, cell_lon, token, slot, lat, lon) values
+  ('{{charles}}', 5063, 307, 'jeton-c', {{creneau}}, 50.63, 3.07),
+  ('{{jay2}}', 5070, 308, 'jeton-j', {{creneau}}, 50.70, 3.08) on conflict (user_id) do update set cell_lat = excluded.cell_lat, cell_lon = excluded.cell_lon, token = excluded.token, slot = excluded.slot, lat = excluded.lat, lon = excluded.lon, updated_at = now()"""
+
+[[cas]]
+nom = "confirmer sans balise à moi : rien (on n'écoute que si on s'annonce)"
+qui = "charles"
+rpc = "confirm_ping"
+args = { p_tokens = ["jeton-j"], p_slot = "{{creneau}}" }
+avant = "insert into public.ping_beacons (user_id, cell_lat, cell_lon, token, slot, lat, lon) values ('{{jay2}}', 5063, 308, 'jeton-j', {{creneau}}, 50.63, 3.08) on conflict (user_id) do update set cell_lat = excluded.cell_lat, cell_lon = excluded.cell_lon, token = excluded.token, slot = excluded.slot, lat = excluded.lat, lon = excluded.lon, updated_at = now()"
+
+[[cas]]
+nom = "confirmer un créneau antidaté : rien"
+qui = "charles"
+rpc = "confirm_ping"
+args = { p_tokens = ["jeton-j"], p_slot = "{{creneau-10}}" }
+avant = """insert into public.ping_beacons (user_id, cell_lat, cell_lon, token, slot, lat, lon) values
+  ('{{charles}}', 5063, 307, 'jeton-c', {{creneau-10}}, 50.63, 3.07),
+  ('{{jay2}}', 5063, 308, 'jeton-j', {{creneau-10}}, 50.63, 3.08) on conflict (user_id) do update set cell_lat = excluded.cell_lat, cell_lon = excluded.cell_lon, token = excluded.token, slot = excluded.slot, lat = excluded.lat, lon = excluded.lon, updated_at = now()"""
+
+[[cas]]
+nom = "ceux croisés en ping ces dix dernières minutes"
+qui = "charles"
+rpc = "ping_nearby"
+avant = """insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{jay2}}'::uuid), greatest('{{charles}}'::uuid, '{{jay2}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now();
+insert into public.ping_beacons (user_id, cell_lat, cell_lon, token, slot, lat, lon) values ('{{jay2}}', 5063, 308, 'jeton-j', {{creneau}}, 50.63, 3.08) on conflict (user_id) do update set cell_lat = excluded.cell_lat, cell_lon = excluded.cell_lon, token = excluded.token, slot = excluded.slot, lat = excluded.lat, lon = excluded.lon, updated_at = now()"""
+
+[[cas]]
+nom = "combien de balises autour de moi"
+qui = "charles"
+rpc = "ping_neighbour_count"
+avant = """insert into public.ping_beacons (user_id, cell_lat, cell_lon, token, slot, lat, lon) values
+  ('{{charles}}', 5063, 307, 'jeton-c', {{creneau}}, 50.63, 3.07),
+  ('{{jay2}}', 5063, 308, 'jeton-j', {{creneau}}, 50.63, 3.08),
+  ('{{bot01}}', 5064, 306, 'jeton-1', {{creneau}}, 50.64, 3.06),
+  ('{{bot02}}', 5090, 307, 'jeton-2', {{creneau}}, 50.90, 3.07) on conflict (user_id) do update set cell_lat = excluded.cell_lat, cell_lon = excluded.cell_lon, token = excluded.token, slot = excluded.slot, lat = excluded.lat, lon = excluded.lon, updated_at = now()"""
+
+# ─── Les croisements ───────────────────────────────────────────────────
+
+[[cas]]
+nom = "deux amis se reconnaissent : croisement, jour de rencontre, palier recalculé"
+doit_changer = ["public.sightings", "public.encounters", "public.meeting_days", "public.connections"]
+qui = "charles"
+rpc = "report_sightings"
+args = { items = [{ peer = "{{testeur}}", slot = "{{creneau}}", band = "proche" }] }
+avant = "delete from public.meeting_days where user_low = least('{{charles}}'::uuid, '{{testeur}}'::uuid) and user_high = greatest('{{charles}}'::uuid, '{{testeur}}'::uuid) and day = (now() at time zone 'utc')::date; insert into public.sightings (observer_id, seen_id, slot, band) values ('{{testeur}}', '{{charles}}', {{creneau}}, 'proche')"
+
+[[cas]]
+nom = "une vue sans réciproque : notée, pas de croisement"
+qui = "charles"
+rpc = "report_sightings"
+args = { items = [{ peer = "{{testeur}}", slot = "{{creneau}}" }] }
+
+[[cas]]
+nom = "deux inconnus présents à la même soirée : croisement en soirée et rencontre"
+doit_changer = ["public.event_sightings", "public.event_crossings", "public.meetings", "public.event_presences"]
+qui = "bot01"
+rpc = "report_sightings"
+args = { items = [{ peer = "{{bot02}}", slot = "{{creneau}}" }] }
+avant = """insert into public.event_presences (event_id, user_id) values ('1e585520-6edb-4aa3-a231-9ed749cd0aa5', '{{bot01}}'), ('1e585520-6edb-4aa3-a231-9ed749cd0aa5', '{{bot02}}');
+insert into public.event_sightings (event_id, observer_id, seen_id, slot) values ('1e585520-6edb-4aa3-a231-9ed749cd0aa5', '{{bot02}}', '{{bot01}}', {{creneau}})"""
+
+[[cas]]
+nom = "des vues illisibles ou hors fenêtre sont ignorées"
+qui = "charles"
+rpc = "report_sightings"
+args = { items = [{ peer = "{{charles}}", slot = "{{creneau}}" }, { slot = "{{creneau}}" }, { peer = "{{testeur}}", slot = "{{creneau-400}}" }] }
+
+[[cas]]
+nom = "un identifiant illisible fait échouer l'envoi"
+qui = "charles"
+rpc = "report_sightings"
+args = { items = [{ peer = "pas-un-id", slot = 1 }] }
+attendu = "refuse"
+
+[[cas]]
+nom = "ceux croisés récemment (ping et soirée)"
+qui = "charles"
+rpc = "crossed_recently"
+avant = """insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{jay2}}'::uuid), greatest('{{charles}}'::uuid, '{{jay2}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now();
+insert into public.event_crossings (event_id, event_title, user_low, user_high, first_at, last_at, source) values ('1e585520-6edb-4aa3-a231-9ed749cd0aa5', 'Une soirée', least('{{charles}}'::uuid, '{{bot01}}'::uuid), greatest('{{charles}}'::uuid, '{{bot01}}'::uuid), now(), now(), 'ping');
+insert into public.connection_requests (sender_id, receiver_id, status, expires_at) values ('{{charles}}', '{{jay2}}', 'pending', now() + interval '1 day')"""
+
+# ─── Les demandes d'ami ────────────────────────────────────────────────
+
+[[cas]]
+nom = "demander en ami après un ping mutuel"
+doit_changer = ["public.connection_requests"]
+qui = "charles"
+rpc = "request_connection_from_proximity"
+args = { peer = "{{jay2}}" }
+avant = "insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{jay2}}'::uuid), greatest('{{charles}}'::uuid, '{{jay2}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now()"
+attendu = "accepte"
+
+[[cas]]
+nom = "demander en ami sans s'être croisés"
+qui = "charles"
+rpc = "request_connection_from_proximity"
+args = { peer = "{{bot02}}" }
+attendu = "refuse"
+
+[[cas]]
+nom = "demander en ami quelqu'un qui l'est déjà"
+qui = "charles"
+rpc = "request_connection_from_proximity"
+args = { peer = "{{testeur}}" }
+attendu = "refuse"
+
+[[cas]]
+nom = "demander en ami quelqu'un qui m'a bloqué"
+qui = "charles"
+rpc = "request_connection_from_proximity"
+args = { peer = "{{jay2}}" }
+avant = "insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{jay2}}'::uuid), greatest('{{charles}}'::uuid, '{{jay2}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now(); insert into public.blocks (blocker_id, blocked_id) values ('{{jay2}}', '{{charles}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "demander en ami en étant suspendu"
+qui = "charles"
+rpc = "request_connection_from_proximity"
+args = { peer = "{{jay2}}" }
+avant = "insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{jay2}}'::uuid), greatest('{{charles}}'::uuid, '{{jay2}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now(); update public.profiles set suspended_at = now() where id = '{{charles}}'"
+attendu = "refuse"
+
+[[cas]]
+nom = "redemander : la demande en attente est rendue"
+qui = "charles"
+rpc = "request_connection_from_proximity"
+args = { peer = "{{jay2}}" }
+avant = "insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{jay2}}'::uuid), greatest('{{charles}}'::uuid, '{{jay2}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now(); insert into public.connection_requests (id, sender_id, receiver_id, status, expires_at) values ('22222222-2222-4222-8222-222222222222', '{{charles}}', '{{jay2}}', 'pending', now() + interval '1 day')"
+
+[[cas]]
+nom = "accepter une demande reçue"
+doit_changer = ["public.connection_requests", "public.connections"]
+qui = "jay2"
+rpc = "accept_connection_request"
+args = { req_id = "22222222-2222-4222-8222-222222222222" }
+avant = "insert into public.connection_requests (id, sender_id, receiver_id, status, expires_at) values ('22222222-2222-4222-8222-222222222222', '{{charles}}', '{{jay2}}', 'pending', now() + interval '1 day')"
+attendu = "accepte"
+
+[[cas]]
+nom = "accepter la demande d'un autre"
+qui = "testeur"
+rpc = "accept_connection_request"
+args = { req_id = "22222222-2222-4222-8222-222222222222" }
+avant = "insert into public.connection_requests (id, sender_id, receiver_id, status, expires_at) values ('22222222-2222-4222-8222-222222222222', '{{charles}}', '{{jay2}}', 'pending', now() + interval '1 day')"
+attendu = "refuse"
+
+[[cas]]
+nom = "accepter une demande expirée"
+qui = "jay2"
+rpc = "accept_connection_request"
+args = { req_id = "22222222-2222-4222-8222-222222222222" }
+avant = "insert into public.connection_requests (id, sender_id, receiver_id, status, expires_at) values ('22222222-2222-4222-8222-222222222222', '{{charles}}', '{{jay2}}', 'pending', now() - interval '1 day')"
+attendu = "refuse"
+
+[[cas]]
+nom = "accepter une demande introuvable"
+qui = "jay2"
+rpc = "accept_connection_request"
+args = { req_id = "33333333-3333-4333-8333-333333333333" }
+attendu = "refuse"
+
+[[cas]]
+nom = "refuser une demande reçue"
+qui = "jay2"
+rpc = "decline_connection_request"
+args = { req_id = "22222222-2222-4222-8222-222222222222" }
+avant = "insert into public.connection_requests (id, sender_id, receiver_id, status, expires_at) values ('22222222-2222-4222-8222-222222222222', '{{charles}}', '{{jay2}}', 'pending', now() + interval '1 day')"
+
+[[cas]]
+nom = "mes amitiés, leurs paliers et leurs séries"
+qui = "charles"
+rpc = "my_friendships"
+sans_ordre = true
+
+# ─── Les blocages ─────────────────────────────────────────────────────
+
+[[cas]]
+nom = "bloquer un ami : tout ce qui nous reliait tombe"
+doit_changer = ["public.blocks", "public.connections", "public.encounters", "public.sightings", "public.connection_requests", "public.ping_confirmations"]
+qui = "charles"
+rpc = "block_user"
+args = { p_user_id = "{{testeur}}" }
+avant = """insert into public.encounters (user_low, user_high) values (least('{{charles}}'::uuid, '{{testeur}}'::uuid), greatest('{{charles}}'::uuid, '{{testeur}}'::uuid)) on conflict do nothing;
+insert into public.sightings (observer_id, seen_id, slot) values ('{{charles}}', '{{testeur}}', 1), ('{{testeur}}', '{{charles}}', 1);
+insert into public.connection_requests (sender_id, receiver_id, status, expires_at) values ('{{testeur}}', '{{charles}}', 'declined', now());
+insert into public.ping_confirmations (observer_id, subject_id, slot) values ('{{charles}}', '{{testeur}}', 1)"""
+attendu = "accepte"
+
+[[cas]]
+nom = "se bloquer soi-même"
+qui = "charles"
+rpc = "block_user"
+args = { p_user_id = "{{charles}}" }
+attendu = "refuse"
+
+[[cas]]
+nom = "débloquer"
+qui = "charles"
+rpc = "unblock_user"
+args = { p_user_id = "{{jay2}}" }
+avant = "insert into public.blocks (blocker_id, blocked_id) values ('{{charles}}', '{{jay2}}')"
+
+# ─── Les recommandations ─────────────────────────────────────────────
+
+[[cas]]
+nom = "transmettre une recommandation à un ami (qu'il ne connaît pas encore)"
+doit_changer = ["public.recommendations"]
+qui = "charles"
+rpc = "forward_recommendation"
+args = { reco_id = "44444444-4444-4444-8444-444444444444", chosen_target = "{{bot01}}" }
+avant = "insert into public.recommendations (id, requester_id, intermediary_id, target_hint, status, expires_at) values ('44444444-4444-4444-8444-444444444444', '{{testeur}}', '{{charles}}', 'quelqu''un', 'requested', now() + interval '7 days')"
+
+[[cas]]
+nom = "transmettre à quelqu'un qui n'est pas mon ami"
+doit_changer = []
+qui = "charles"
+rpc = "forward_recommendation"
+args = { reco_id = "44444444-4444-4444-8444-444444444444", chosen_target = "{{jay2}}" }
+avant = "insert into public.recommendations (id, requester_id, intermediary_id, target_hint, status, expires_at) values ('44444444-4444-4444-8444-444444444444', '{{testeur}}', '{{charles}}', 'quelqu''un', 'requested', now() + interval '7 days')"
+attendu = "refuse"
+
+[[cas]]
+nom = "transmettre à quelqu'un déjà ami du demandeur"
+qui = "charles"
+rpc = "forward_recommendation"
+args = { reco_id = "44444444-4444-4444-8444-444444444444", chosen_target = "{{lea}}" }
+avant = "insert into public.recommendations (id, requester_id, intermediary_id, target_hint, status, expires_at) values ('44444444-4444-4444-8444-444444444444', '{{testeur}}', '{{charles}}', 'quelqu''un', 'requested', now() + interval '7 days')"
+attendu = "refuse"
+
+[[cas]]
+nom = "transmettre au demandeur lui-même"
+qui = "charles"
+rpc = "forward_recommendation"
+args = { reco_id = "44444444-4444-4444-8444-444444444444", chosen_target = "{{testeur}}" }
+avant = "insert into public.recommendations (id, requester_id, intermediary_id, target_hint, status, expires_at) values ('44444444-4444-4444-8444-444444444444', '{{testeur}}', '{{charles}}', 'quelqu''un', 'requested', now() + interval '7 days')"
+attendu = "refuse"
+
+[[cas]]
+nom = "transmettre sans être l'intermédiaire"
+qui = "lea"
+rpc = "forward_recommendation"
+args = { reco_id = "44444444-4444-4444-8444-444444444444", chosen_target = "{{mimi}}" }
+avant = "insert into public.recommendations (id, requester_id, intermediary_id, target_hint, status, expires_at) values ('44444444-4444-4444-8444-444444444444', '{{testeur}}', '{{charles}}', 'quelqu''un', 'requested', now() + interval '7 days')"
+attendu = "refuse"
+
+[[cas]]
+nom = "accepter une recommandation transmise"
+doit_changer = ["public.recommendations", "public.connections"]
+qui = "jay2"
+rpc = "accept_recommendation"
+args = { reco_id = "44444444-4444-4444-8444-444444444444" }
+avant = "insert into public.recommendations (id, requester_id, intermediary_id, target_id, target_hint, status, forwarded_at, expires_at) values ('44444444-4444-4444-8444-444444444444', '{{bot01}}', '{{charles}}', '{{jay2}}', 'quelqu''un', 'forwarded', now(), now() + interval '7 days')"
+attendu = "accepte"
+
+[[cas]]
+nom = "accepter une recommandation pas encore transmise"
+qui = "jay2"
+rpc = "accept_recommendation"
+args = { reco_id = "44444444-4444-4444-8444-444444444444" }
+avant = "insert into public.recommendations (id, requester_id, intermediary_id, target_id, target_hint, status, expires_at) values ('44444444-4444-4444-8444-444444444444', '{{bot01}}', '{{charles}}', '{{jay2}}', 'quelqu''un', 'requested', now() + interval '7 days')"
+attendu = "refuse"
+
+[[cas]]
+nom = "décliner une recommandation"
+qui = "charles"
+rpc = "decline_recommendation"
+args = { reco_id = "44444444-4444-4444-8444-444444444444" }
+avant = "insert into public.recommendations (id, requester_id, intermediary_id, target_hint, status, expires_at) values ('44444444-4444-4444-8444-444444444444', '{{testeur}}', '{{charles}}', 'quelqu''un', 'requested', now() + interval '7 days')"
+
+# ─── Ce que l'app faisait directement sur les tables ──────────────────
+
+[[cas]]
+nom = "publier ma clé de reconnaissance"
+qui = "charles"
+op = "device_key_upsert"
+args = { user_id = "{{charles}}", x25519_pub = "clé-publique-de-preuve" }
+ancien = "insert into public.device_keys (user_id, x25519_pub) values ('{{charles}}', 'clé-publique-de-preuve') on conflict (user_id) do update set x25519_pub = excluded.x25519_pub"
+attendu = "accepte"
+
+[[cas]]
+nom = "publier la clé d'un autre"
+qui = "charles"
+op = "device_key_upsert"
+args = { user_id = "{{testeur}}", x25519_pub = "usurpée" }
+ancien = "insert into public.device_keys (user_id, x25519_pub) values ('{{testeur}}', 'usurpée') on conflict (user_id) do update set x25519_pub = excluded.x25519_pub"
+attendu = "refuse"
+
+[[cas]]
+nom = "le carnet des clés que je peux reconnaître"
+qui = "charles"
+op = "key_book_list"
+avant = "insert into public.device_keys (user_id, x25519_pub) values ('{{testeur}}', 'k-testeur'), ('{{jay2}}', 'k-jay2'), ('{{charles}}', 'k-moi') on conflict (user_id) do update set x25519_pub = excluded.x25519_pub"
+ancien_resultat = "select coalesce(json_agg(t), '[]') from (select * from public.key_book) t"
+sans_ordre = true
+
+[[cas]]
+nom = "retirer un ami (et ce qui dérivait du lien)"
+doit_changer = ["public.connections", "public.encounters", "public.sightings"]
+qui = "charles"
+op = "connection_delete"
+args = { id = "55555555-5555-4555-8555-555555555555" }
+avant = """update public.connections set id = '55555555-5555-4555-8555-555555555555' where user_low = least('{{charles}}'::uuid, '{{testeur}}'::uuid) and user_high = greatest('{{charles}}'::uuid, '{{testeur}}'::uuid);
+insert into public.encounters (user_low, user_high) values (least('{{charles}}'::uuid, '{{testeur}}'::uuid), greatest('{{charles}}'::uuid, '{{testeur}}'::uuid)) on conflict do nothing;
+insert into public.sightings (observer_id, seen_id, slot) values ('{{testeur}}', '{{charles}}', 1)"""
+ancien = "delete from public.connections where id = '55555555-5555-4555-8555-555555555555'"
+
+[[cas]]
+nom = "retirer le lien de deux autres : sans effet"
+qui = "jay2"
+op = "connection_delete"
+args = { id = "55555555-5555-4555-8555-555555555555" }
+avant = "update public.connections set id = '55555555-5555-4555-8555-555555555555' where user_low = least('{{charles}}'::uuid, '{{testeur}}'::uuid) and user_high = greatest('{{charles}}'::uuid, '{{testeur}}'::uuid)"
+ancien = "delete from public.connections where id = '55555555-5555-4555-8555-555555555555'"
+
+[[cas]]
+nom = "l'historique de mes demandes"
+qui = "charles"
+op = "connection_requests_history"
+avant = "insert into public.connection_requests (sender_id, receiver_id, status, expires_at, created_at) values ('{{charles}}', '{{jay2}}', 'pending', now() + interval '1 day', now() - interval '1 hour'), ('{{bot01}}', '{{charles}}', 'declined', now(), now() - interval '2 hours')"
+ancien_resultat = "select coalesce(json_agg(t), '[]') from (select * from public.connection_requests order by created_at desc limit 50) t"
+
+[[cas]]
+nom = "les recommandations que j'ai demandées (avec les profils)"
+qui = "testeur"
+op = "recommendations_list"
+args = { p_role = "requester" }
+avant = "insert into public.recommendations (requester_id, intermediary_id, target_hint, status, expires_at, created_at) values ('{{testeur}}', '{{charles}}', 'un', 'requested', now() + interval '7 days', now() - interval '1 hour'), ('{{testeur}}', '{{charles}}', 'deux', 'forwarded', now() + interval '7 days', now())"
+ancien_resultat = "select coalesce(json_agg(t), '[]') from (select r.*, to_json(rq) as requester, to_json(it) as intermediary, to_json(tg) as target from public.recommendations r left join public.profiles rq on rq.id = r.requester_id left join public.profiles it on it.id = r.intermediary_id left join public.profiles tg on tg.id = r.target_id where r.requester_id = '{{testeur}}' order by r.created_at desc) t"
+ecart = "la suspension d'un autre compte ne se lit plus"
+ecart_champs = ["suspended_at", "suspended_reason"]
+
+[[cas]]
+nom = "les recommandations à transmettre (intermédiaire)"
+qui = "charles"
+op = "recommendations_list"
+args = { p_role = "intermediary" }
+avant = "insert into public.recommendations (requester_id, intermediary_id, target_hint, status, expires_at) values ('{{testeur}}', '{{charles}}', 'un', 'requested', now() + interval '7 days')"
+ancien_resultat = "select coalesce(json_agg(t), '[]') from (select r.*, to_json(rq) as requester, to_json(it) as intermediary, to_json(tg) as target from public.recommendations r left join public.profiles rq on rq.id = r.requester_id left join public.profiles it on it.id = r.intermediary_id left join public.profiles tg on tg.id = r.target_id where r.intermediary_id = '{{charles}}' and r.status = 'requested' order by r.created_at desc) t"
+ecart = "la suspension d'un autre compte ne se lit plus"
+ecart_champs = ["suspended_at", "suspended_reason"]
+
+[[cas]]
+nom = "demander une mise en relation à un ami"
+qui = "testeur"
+op = "recommendation_create"
+args = { requester_id = "{{testeur}}", intermediary_id = "{{charles}}", target_hint = "une personne du club" }
+ancien = "insert into public.recommendations (requester_id, intermediary_id, target_hint) values ('{{testeur}}', '{{charles}}', 'une personne du club')"
+attendu = "accepte"
+
+[[cas]]
+nom = "demander une mise en relation à un non-ami"
+qui = "jay2"
+op = "recommendation_create"
+args = { requester_id = "{{jay2}}", intermediary_id = "{{charles}}", target_hint = "x" }
+ancien = "insert into public.recommendations (requester_id, intermediary_id, target_hint) values ('{{jay2}}', '{{charles}}', 'x')"
+attendu = "refuse"
+
+[[cas]]
+nom = "ceux que j'ai bloqués, avec leur profil"
+qui = "charles"
+op = "blocks_list"
+avant = "insert into public.blocks (blocker_id, blocked_id, created_at) values ('{{charles}}', '{{jay2}}', now() - interval '1 hour'), ('{{charles}}', '{{bot01}}', now())"
+ancien_resultat = "select coalesce(json_agg(t), '[]') from (select b.blocked_id, to_json(p) as profiles from public.blocks b left join public.profiles p on p.id = b.blocked_id where b.blocker_id = '{{charles}}' order by b.created_at desc) t"
+ecart = "la suspension d'un autre compte ne se lit plus"
+ecart_champs = ["suspended_at", "suspended_reason"]
+
+[[cas]]
+nom = "mes saluts à montrer"
+qui = "charles"
+op = "waves_list"
+avant = "insert into public.waves (user_id, peer_id, detected_at, notify_after) values ('{{charles}}', '{{testeur}}', now() - interval '1 hour', now() - interval '1 hour'), ('{{charles}}', '{{mimi}}', now(), now() + interval '1 hour')"
+ancien_resultat = "select coalesce(json_agg(t), '[]') from (select * from public.waves where user_id = '{{charles}}' and notify_after <= now() order by detected_at desc limit 50) t"
+
+[[cas]]
+nom = "saluer un ami croisé"
+qui = "charles"
+op = "wave_insert"
+args = { user_id = "{{charles}}", peer_id = "{{testeur}}" }
+ancien = "insert into public.waves (user_id, peer_id) values ('{{charles}}', '{{testeur}}')"
+attendu = "accepte"
+
+[[cas]]
+nom = "saluer un inconnu"
+qui = "charles"
+op = "wave_insert"
+args = { user_id = "{{charles}}", peer_id = "{{jay2}}" }
+ancien = "insert into public.waves (user_id, peer_id) values ('{{charles}}', '{{jay2}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "saluer en étant suspendu"
+qui = "charles"
+op = "wave_insert"
+args = { user_id = "{{charles}}", peer_id = "{{testeur}}" }
+avant = "update public.profiles set suspended_at = now() where id = '{{charles}}'"
+ancien = "insert into public.waves (user_id, peer_id) values ('{{charles}}', '{{testeur}}')"
+attendu = "refuse"

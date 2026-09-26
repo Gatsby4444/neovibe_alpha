@@ -6,6 +6,7 @@
 //!   insérée) : remplacés par `<id1>`, `<id2>`… dans un ordre canonique ;
 //! - les colonnes remplies par un compteur (`nextval`, identité) ;
 //! - l'écriture des nombres (`5` et `5.0` sont le même nombre).
+//!
 //! L'heure n'a pas à l'être : les deux côtés partagent la transaction, donc
 //! le même `now()`.
 use std::collections::{HashMap, HashSet};
@@ -156,6 +157,11 @@ pub fn verdict(c: &Cas, ancien: &Cote, nouveau: &Cote, series: &HashSet<(String,
             diff.push(format!("CAS MAL POSÉ : l'ancien gardien refuse (« {message} »), la situation attendait un accord"))
         }
         _ => {}
+    }
+    for table in &c.doit_changer {
+        if !ancien.changes.iter().any(|x| &x.tbl == table) {
+            diff.push(format!("CAS MAL POSÉ : l'ancien gardien n'a rien écrit dans {table}"));
+        }
     }
     match (&ancien.issue, &nouveau.issue) {
         (_, Issue::PanneNouveau(e)) => diff.push(format!("le nouveau gardien tombe en panne : {e}")),

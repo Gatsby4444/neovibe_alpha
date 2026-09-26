@@ -63,9 +63,29 @@ fn balai_fichiers<'a>(db: &'a mut PgConnection, e: &'a dyn Entrepot) -> BoxFutur
     Box::pin(nv_app::fichiers::balai::balayer(db, e))
 }
 
-/// Toutes les tâches du serveur.
+fn balai_ping<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, NvResult<String>> {
+    Box::pin(nv_app::relations::balai_ping(db))
+}
+
+fn balai_vues<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, NvResult<String>> {
+    Box::pin(nv_app::relations::balai_vues(db))
+}
+
+fn paliers<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, NvResult<String>> {
+    Box::pin(nv_app::relations::paliers::recalculer_tous(db))
+}
+
+/// Toutes les tâches du serveur — avec le rythme de l'ancien réveil (pg_cron).
 pub fn toutes() -> Vec<Tache> {
-    vec![Tache { nom: "balai_fichiers", rythme: Rythme::Toutes(600), geste: balai_fichiers }]
+    vec![
+        Tache { nom: "balai_fichiers", rythme: Rythme::Toutes(600), geste: balai_fichiers },
+        // neovibe_purge_ping : */5 * * * *
+        Tache { nom: "balai_ping", rythme: Rythme::Toutes(300), geste: balai_ping },
+        // neovibe_purge_sightings : 17 * * * *
+        Tache { nom: "balai_vues", rythme: Rythme::ChaqueHeureA(17), geste: balai_vues },
+        // neovibe_tiers : 11 3 * * *
+        Tache { nom: "paliers", rythme: Rythme::ChaqueJourA(3, 11), geste: paliers },
+    ]
 }
 
 /// Un passage, sous verrou, dans sa transaction, journalisé.

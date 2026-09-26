@@ -11,9 +11,11 @@
 //! (« sont-ils amis ? », « l'un a-t-il bloqué l'autre ? ») : chacune est
 //! écrite une seule fois.
 pub mod acces;
+pub mod carte;
 pub mod comptes;
 pub mod direct;
 pub mod fichiers;
+pub mod relations;
 
 use nv_core::ops::Op;
 
@@ -23,5 +25,6 @@ pub fn registry() -> Vec<Op> {
     ops.extend(comptes::guichet::registry());
     ops.extend(fichiers::guichet::registry());
     ops.extend(direct::registry());
+    ops.extend(relations::guichet::registry());
     ops
 }
