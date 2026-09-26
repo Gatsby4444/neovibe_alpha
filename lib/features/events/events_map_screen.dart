@@ -16,9 +16,11 @@ import '../../core/utils/erreur_serveur.dart';
 import '../proximity/geo/coarse_location.dart';
 import '../proximity/geo/heading_source.dart';
 import '../proximity/geo/live_position.dart';
+import '../proximity/geo/live_position_keeper.dart';
 import '../proximity/geo/precision_notice.dart';
 import 'event_screen.dart';
 import 'events_providers.dart';
+import 'map_follow.dart';
 import 'my_point_motion.dart';
 
 /// **La carte** (étape 5 du programme du 2026-09-21) : les soirées à portée
@@ -99,7 +101,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// Un envoi à la carte à la fois, et pas plus de 30 par seconde : la carte
   /// est un objet natif, chaque déplacement est un message.
   bool _envoiEnCours = false;
-  Duration _dernierEnvoi = Duration.zero;
+  final _cadence = FrameGate(const Duration(milliseconds: 33));
 
   /// Les deux images de mon point (avec et sans flèche) sont-elles posées
   /// dans le style, et pour quel thème ?
@@ -133,20 +135,22 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// se recentrer de force sous le doigt de quelqu'un en train de la déplacer.
   bool _poseeSurMoi = false;
 
-  /// Le flux tourne-t-il **pour nous** en ce moment ? Voir
-  /// [didChangeAppLifecycleState].
-  bool _abonne = false;
-
-  /// La carte s'abonne à la position au lieu de prendre des photos : quinze
-  /// photos floues ne font pas une photo nette (métro, 2026-09-22).
+  /// Pour demander la position précise, et un relevé avant le premier.
+  /// Le suivi continu, lui, est tenu par [LivePositionKeeper] (voir [build]).
   late final LivePosition _position;
+
+  /// **Ce que la carte fait avec mon point** (bouton « recentrer », façon
+  /// Google Maps, 2026-09-26).
+  MapFollow _suivi = MapFollow.libre;
+
+  /// Pendant l'animation vers mon point, la caméra n'est pas encore à nous :
+  /// la suivre image par image se battrait avec l'animation.
+  DateTime _suiviPretA = DateTime.fromMillisecondsSinceEpoch(0);
 
   @override
   void initState() {
     super.initState();
     _position = ref.read(livePositionProvider.notifier);
-    _position.acquire();
-    _abonne = true;
     WidgetsBinding.instance.addObserver(this);
     _ticker = createTicker(_tick);
     // Chaque relevé NEUF relance le glissement — pas chaque reconstruction.
@@ -180,42 +184,17 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     _tapSoirees?.cancel();
     _ticker.dispose();
     _couperBoussole();
-    // ⚠️ Relâché ici, et le notifier est retenu depuis [initState] : lire un
-    // provider pendant `dispose` n'est pas garanti.
-    // ⚠️ Et **seulement si on tient encore l'abonnement** : l'écran peut être
-    // détruit alors qu'il l'a déjà relâché en passant en arrière-plan.
-    if (_abonne) {
-      _abonne = false;
-      _position.release();
-    }
     super.dispose();
   }
 
-  /// **L'écoute continue s'arrête dès qu'on quitte l'app** — décision de Jay
-  /// du 2026-09-22 au soir : en continu app ouverte sur la carte, une fois
-  /// par minute sinon. Sans ça, une carte laissée ouverte derrière une autre
-  /// app garderait le moteur de position allumé à pleine précision.
-  ///
-  /// ⚠️ **La finesse accordée se relit au retour** : si on la change dans les
-  /// réglages système, rien ne nous prévient.
+  /// **La boussole s'arrête dès qu'on quitte l'app** : personne ne regarde
+  /// la flèche. (La position, elle, est relâchée par [LivePositionKeeper].)
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      if (!_abonne) {
-        _abonne = true;
-        _position.acquire();
-      }
-      unawaited(_position.relisPrecision());
       _ecouterBoussole();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      // ⚠️ Relâché **une seule fois**, sinon le compteur d'abonnés passerait
-      // sous zéro et couperait le flux sous les pieds d'un autre lecteur.
-      if (_abonne) {
-        _abonne = false;
-        _position.release();
-      }
-      // La boussole aussi : personne ne regarde la flèche.
       _couperBoussole();
     }
   }
@@ -232,29 +211,50 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     );
   }
 
-  /// Recentrer va **là où mon point est dessiné** — la même source que le
-  /// point, jamais une autre.
+  /// **Le bouton, façon Google Maps** (Jay, 2026-09-26) : un premier appui
+  /// centre la carte sur mon point et la fait me suivre ; un deuxième la fait
+  /// tourner avec moi (ce qui est devant moi en haut) ; un troisième la
+  /// remet nord en haut. Déplacer la carte à la main la libère ([_onPan]).
   ///
-  /// 🔴 **Corrigé le 2026-09-25 au soir** (constat de Jay) : le bouton
-  /// demandait `LivePosition.current()`, c'est-à-dire le MEILLEUR relevé
-  /// gardé — que l'app conserve jusqu'à 5 minutes quand les suivants sont
-  /// moins précis. Depuis v0.9.275, le point, lui, suit le relevé à SUIVRE
-  /// (`LivePositionState.track`). Deux sources : le point était juste, le
-  /// bouton ramenait à une ancienne position. Défaut créé par moi le jour
-  /// même, en ajoutant la seconde source sans rejouer ses lecteurs.
-  ///
-  /// Redemander une mesure ici n'apporte rien : carte ouverte, le flux en
-  /// livre déjà une par seconde. Avant le premier relevé seulement, on la
-  /// demande.
+  /// ⚠️ **La cible est là où mon point est DESSINÉ** — la même source que le
+  /// point, jamais une autre. Corrigé le 2026-09-25 au soir (constat de
+  /// Jay) : le bouton demandait le MEILLEUR relevé gardé, que l'app conserve
+  /// jusqu'à 5 minutes ; le point, lui, suit le relevé à SUIVRE
+  /// (`LivePositionState.track`). Le point était juste, le bouton ramenait à
+  /// une ancienne position.
   Future<void> _recentrer() async {
-    final ici = _motion.positionAt(DateTime.now());
-    if (ici != null) {
-      _allerA(ici.lat, ici.lon);
-      return;
+    final now = DateTime.now();
+    var ici = _motion.positionAt(now);
+    if (ici == null) {
+      // Avant le premier relevé seulement : on en demande un.
+      final me = await _position.current();
+      if (me == null || !mounted) return;
+      ici = (lat: me.latitude, lon: me.longitude);
     }
-    final me = await _position.current();
-    if (me == null || !mounted) return;
-    _allerA(me.latitude, me.longitude);
+    final cap = _motion.frameAt(now)?.heading;
+    final mode = _suivi.afterTap(hasHeading: cap != null);
+    setState(() => _suivi = mode);
+    _suiviPretA = now.add(const Duration(milliseconds: 700));
+    final zoom = (await _map?.getCameraState())?.zoom ?? _initialZoom;
+    unawaited(
+      _map?.flyTo(
+        CameraOptions(
+          center: _pt(ici.lat, ici.lon),
+          // Trop loin pour voir la rue : on s'approche ; sinon on garde le
+          // zoom choisi.
+          zoom: zoom < 14 ? _initialZoom : zoom,
+          bearing: mode == MapFollow.boussole ? cap : 0,
+        ),
+        MapAnimationOptions(duration: 600),
+      ),
+    );
+    _reveiller();
+  }
+
+  /// La carte déplacée à la main : elle cesse de me suivre.
+  void _onPan(MapContentGestureContext _) {
+    if (!_suivi.follows) return;
+    setState(() => _suivi = _suivi.afterPan);
   }
 
   Future<void> _onMapCreated(MapboxMap map) async {
@@ -265,6 +265,9 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     await map.gestures.updateSettings(GesturesSettings(rotateEnabled: false));
     await map.setBounds(CameraBoundsOptions(minZoom: 4, maxZoom: 20));
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
+    // Pas la boussole de Mapbox : la remettre au nord se battrait avec le
+    // mode boussole de NOTRE bouton, qui la remet au nord lui-même.
+    await map.compass.updateSettings(CompassSettings(enabled: false));
     // ⚠️ **Le logo et l'attribution sont obligatoires, donc LISIBLES** : au
     // bas de l'écran, ils passaient sous la barre de navigation du téléphone
     // (même défaut que l'ancienne attribution, capture du 2026-09-22).
@@ -420,17 +423,18 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// l'envoie à la carte — au plus 30 fois par seconde, un envoi à la fois.
   void _tick(Duration ecoule) {
     if (_moi == null || _halo == null || _map == null) return;
-    if (_envoiEnCours || ecoule - _dernierEnvoi < _pas) return;
+    if (_envoiEnCours) return;
     final now = DateTime.now();
+    // ⚠️ L'HEURE RÉELLE, jamais [ecoule] : voir [FrameGate].
+    if (!_cadence.laisse(now)) return;
     final frame = _motion.frameAt(now);
     if (frame == null) {
       _ticker.stop();
       return;
     }
-    _dernierEnvoi = ecoule;
     _envoiEnCours = true;
     final arrive = _motion.settledAt(now);
-    _poserMoi(frame, context.palette).whenComplete(() {
+    _poserMoi(frame, context.palette, suivre: _suivre(now)).whenComplete(() {
       _envoiEnCours = false;
       // Arrivé : l'horloge s'endort jusqu'au prochain relevé ou au prochain
       // mouvement de boussole.
@@ -440,12 +444,24 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     });
   }
 
-  static const _pas = Duration(milliseconds: 33);
-
   /// Pose mon point et son halo à [frame] : créés la première fois, puis
   /// seulement déplacés.
-  Future<void> _poserMoi(MyPointFrame frame, NeoPalette p) async {
+  Future<void> _poserMoi(
+    MyPointFrame frame,
+    NeoPalette p, {
+    MapFollow suivre = MapFollow.libre,
+  }) async {
     try {
+      // La caméra suit mon point — et tourne avec moi en mode boussole —
+      // dans le MÊME battement que le point : ils bougent ensemble.
+      if (suivre.follows) {
+        await _map!.setCamera(
+          CameraOptions(
+            center: _pt(frame.lat, frame.lon),
+            bearing: suivre == MapFollow.boussole ? frame.heading : null,
+          ),
+        );
+      }
       if (_imagesMoiSombre != p.isDark) {
         await _poserImagesMoi(p);
         _imagesMoiSombre = p.isDark;
@@ -491,6 +507,11 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       // Carte détruite en plein envoi (écran refermé) : rien à rattraper.
     }
   }
+
+  /// Le mode de suivi à appliquer à [now] : aucun tant que l'animation
+  /// vers mon point n'est pas finie.
+  MapFollow _suivre(DateTime now) =>
+      now.isBefore(_suiviPretA) ? MapFollow.libre : _suivi;
 
   static const _imgPoint = 'neovibe-moi-point';
   static const _imgFleche = 'neovibe-moi-fleche';
@@ -660,7 +681,11 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         spots.isEmpty) {
       _poseeSurMoi = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _allerA(me.latitude, me.longitude);
+        if (!mounted) return;
+        // À l'ouverture, la carte me suit — comme Google Maps.
+        setState(() => _suivi = MapFollow.centre);
+        _suiviPretA = DateTime.now().add(const Duration(milliseconds: 700));
+        _allerA(me.latitude, me.longitude);
       });
     }
 
@@ -700,105 +725,112 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
           .catchError((Object _) {});
     });
 
-    return Scaffold(
-      appBar: AppBar(
-        centerTitle: true,
-        title: Text(event?.title ?? 'Autour de moi'),
-      ),
-      body: Stack(
-        children: [
-          MapWidget(
-            key: const ValueKey('carte'),
-            styleUri: MapboxStyles.STANDARD,
-            viewport: _vue,
-            // ⚠️ **Le mode d'affichage le plus récent** (2026-09-25, Jay :
-            // « pas assez fluide »). Par défaut, le paquet passe par l'écran
-            // virtuel d'Android (`VD`), la méthode la plus ancienne ; le
-            // mode par couche de texture est celui que Flutter recommande.
-            // Hypothèse à vérifier sur le téléphone, pas une mesure.
-            // ignore: experimental_member_use
-            androidHostingMode: AndroidPlatformViewHostingMode.TLHC_HC,
-            onMapCreated: _onMapCreated,
-            onStyleLoadedListener: _onStyleLoaded,
-          ),
-          if (nearby.hasError)
-            Positioned(
-              left: 16,
-              right: 16,
-              bottom: 64,
-              child: Material(
-                color: p.surface,
-                borderRadius: BorderRadius.circular(NeoRadius.md),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    nearby.error is StateError
-                        ? 'Active la localisation pour voir les soirées.'
-                        : messageServeur(nearby.error!),
+    return LivePositionKeeper(
+      child: Scaffold(
+        appBar: AppBar(
+          centerTitle: true,
+          title: Text(event?.title ?? 'Autour de moi'),
+        ),
+        body: Stack(
+          children: [
+            MapWidget(
+              key: const ValueKey('carte'),
+              styleUri: MapboxStyles.STANDARD,
+              viewport: _vue,
+              // ⚠️ **Le mode d'affichage le plus récent** (2026-09-25, Jay :
+              // « pas assez fluide »). Par défaut, le paquet passe par l'écran
+              // virtuel d'Android (`VD`), la méthode la plus ancienne ; le
+              // mode par couche de texture est celui que Flutter recommande.
+              // Hypothèse à vérifier sur le téléphone, pas une mesure.
+              // ignore: experimental_member_use
+              androidHostingMode: AndroidPlatformViewHostingMode.TLHC_HC,
+              onMapCreated: _onMapCreated,
+              onStyleLoadedListener: _onStyleLoaded,
+              onScrollListener: _onPan,
+            ),
+            if (nearby.hasError)
+              Positioned(
+                left: 16,
+                right: 16,
+                bottom: 64,
+                child: Material(
+                  color: p.surface,
+                  borderRadius: BorderRadius.circular(NeoRadius.md),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      nearby.error is StateError
+                          ? 'Active la localisation pour voir les soirées.'
+                          : messageServeur(nearby.error!),
+                    ),
                   ),
                 ),
               ),
-            ),
-          if (me != null)
-            Positioned(
-              right: 16,
-              bottom: 0,
-              child: SafeArea(
-                top: false,
-                child: Padding(
-                  padding: const EdgeInsets.only(bottom: 36),
-                  child: FloatingActionButton.small(
-                    heroTag: 'recentrer',
-                    onPressed: _recentrer,
-                    backgroundColor: p.surface,
-                    foregroundColor: p.ink,
-                    child: const Icon(Icons.my_location),
+            if (me != null)
+              Positioned(
+                right: 16,
+                bottom: 0,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 36),
+                    child: FloatingActionButton.small(
+                      heroTag: 'recentrer',
+                      onPressed: _recentrer,
+                      backgroundColor: p.surface,
+                      foregroundColor: _suivi.follows ? p.action : p.ink,
+                      child: Icon(switch (_suivi) {
+                        MapFollow.libre => Icons.location_searching_rounded,
+                        MapFollow.centre => Icons.my_location_rounded,
+                        MapFollow.boussole => Icons.explore_rounded,
+                      }),
+                    ),
                   ),
                 ),
               ),
-            ),
-          // 🔴 **Le point est à trois kilomètres, et l'écran le DIT** —
-          // 2026-09-22 au soir (`finesse : approximate`, `± 2000 m`). Sans ce
-          // bandeau, la carte affichait un point faux avec l'aplomb d'un
-          // point juste.
-          if (live.brouillee)
-            Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: SafeArea(
-                bottom: false,
-                child: BandeauPositionApprochee(
-                  onAutoriser: () => unawaited(_position.requestPrecise()),
-                ),
-              ),
-            ),
-          // Ce que vaut le point, dit en clair — à droite : le logo et
-          // l'attribution de Mapbox tiennent la gauche.
-          if (me != null)
-            Positioned(
-              right: 0,
-              bottom: 0,
-              child: SafeArea(
-                top: false,
-                child: Container(
-                  margin: const EdgeInsets.only(right: 8, bottom: 6),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: p.ground.withValues(alpha: 0.7),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    _libelleFix(live),
-                    style: TextStyle(fontSize: 10, color: p.inkMuted),
+            // 🔴 **Le point est à trois kilomètres, et l'écran le DIT** —
+            // 2026-09-22 au soir (`finesse : approximate`, `± 2000 m`). Sans ce
+            // bandeau, la carte affichait un point faux avec l'aplomb d'un
+            // point juste.
+            if (live.brouillee)
+              Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                child: SafeArea(
+                  bottom: false,
+                  child: BandeauPositionApprochee(
+                    onAutoriser: () => unawaited(_position.requestPrecise()),
                   ),
                 ),
               ),
-            ),
-        ],
+            // Ce que vaut le point, dit en clair — à droite : le logo et
+            // l'attribution de Mapbox tiennent la gauche.
+            if (me != null)
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: SafeArea(
+                  top: false,
+                  child: Container(
+                    margin: const EdgeInsets.only(right: 8, bottom: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: p.ground.withValues(alpha: 0.7),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      _libelleFix(live),
+                      style: TextStyle(fontSize: 10, color: p.inkMuted),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

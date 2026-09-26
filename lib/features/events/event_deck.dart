@@ -17,6 +17,7 @@ import '../../core/widgets/report_sheet.dart';
 import '../../core/widgets/stage.dart';
 import '../connections/connections_repository.dart';
 import 'event_poster.dart';
+import 'events_providers.dart';
 import 'events_screen.dart';
 
 /// **Le paquet des soirées autour de moi** (Jay, 2026-09-25) — ce que le
@@ -104,6 +105,9 @@ class _EventDeckState extends ConsumerState<EventDeck> {
   Widget build(BuildContext context) {
     final events = widget.events;
     final current = events[_index];
+    // La distance de L'INSTANT (2026-09-26) : elle bouge quand on marche.
+    final d = liveDistanceTo(ref, current);
+    final ici = current.withinReachAt(d);
     final path = current.posterPath;
     final teinte = path == null
         ? eventSeedColor(current.title)
@@ -177,14 +181,10 @@ class _EventDeckState extends ConsumerState<EventDeck> {
             Padding(
               padding: const EdgeInsets.fromLTRB(28, 18, 28, 20),
               child: GlowButton(
-                label: current.withinReach
-                    ? 'Rejoindre la soirée'
-                    : 'Approche-toi · à ${current.distanceM} m',
-                icon: current.withinReach
-                    ? Icons.celebration_rounded
-                    : Icons.near_me_rounded,
+                label: ici ? 'Rejoindre la soirée' : 'Approche-toi · à $d m',
+                icon: ici ? Icons.celebration_rounded : Icons.near_me_rounded,
                 busy: _busy,
-                onPressed: current.withinReach ? () => _join(current) : null,
+                onPressed: ici ? () => _join(current) : null,
               ),
             ),
           ],
@@ -330,13 +330,14 @@ class _Carte extends ConsumerWidget {
   }
 }
 
-class _Distance extends StatelessWidget {
+class _Distance extends ConsumerWidget {
   const _Distance({required this.event});
   final NearbyEvent event;
 
   @override
-  Widget build(BuildContext context) {
-    final ici = event.withinReach;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final d = liveDistanceTo(ref, event);
+    final ici = event.withinReachAt(d);
     return ClipRRect(
       borderRadius: BorderRadius.circular(40),
       child: BackdropFilter(
@@ -354,7 +355,7 @@ class _Distance extends StatelessWidget {
               ),
               const SizedBox(width: 5),
               Text(
-                ici ? 'Tu y es' : 'à ${event.distanceM} m',
+                ici ? 'Tu y es' : 'à $d m',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w600,

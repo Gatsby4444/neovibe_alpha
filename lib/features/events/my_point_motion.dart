@@ -1,5 +1,7 @@
 import 'dart:math' as math;
 
+import '../../core/location/distance.dart';
+
 /// Ce que la carte doit dessiner de moi, à un instant.
 class MyPointFrame {
   const MyPointFrame({
@@ -62,7 +64,7 @@ class MyPointMotion {
   /// Un nouveau relevé.
   void setFix(double lat, double lon, double accuracy, DateTime now) {
     final ici = _positionAt(now);
-    if (ici == null || _metres(ici.$1, ici.$2, lat, lon) > sautM) {
+    if (ici == null || metersBetween(ici.$1, ici.$2, lat, lon) > sautM) {
       _deLat = lat;
       _deLon = lon;
       _deAcc = accuracy;
@@ -156,14 +158,32 @@ class MyPointMotion {
   }
 
   static double _secondes(Duration d) => d.inMicroseconds / 1e6;
+}
 
-  static double _metres(double lat1, double lon1, double lat2, double lon2) {
-    const r = 6371000.0;
-    final p1 = lat1 * math.pi / 180, p2 = lat2 * math.pi / 180;
-    final dp = p2 - p1, dl = (lon2 - lon1) * math.pi / 180;
-    final a =
-        math.sin(dp / 2) * math.sin(dp / 2) +
-        math.cos(p1) * math.cos(p2) * math.sin(dl / 2) * math.sin(dl / 2);
-    return 2 * r * math.asin(math.sqrt(a));
+/// **Au plus un envoi par [pas]**, mesuré à l'HEURE RÉELLE.
+///
+/// 🔴 **Pourquoi l'heure réelle — corrigé le 2026-09-26** (Jay : *« parfois
+/// l'indicateur de direction se fige et il faut relancer la carte »*). La
+/// carte comparait le temps écoulé de son horloge d'animation au dernier
+/// envoi. Or cette horloge s'endort quand rien ne bouge et **repart de zéro**
+/// à chaque réveil, alors que le dernier envoi gardait l'ancienne mesure :
+/// après deux minutes d'animation, plus rien ne partait pendant deux minutes
+/// au réveil. Point et flèche figés, sans erreur ; relancer la carte
+/// remettait les deux à zéro. Protégé par `test/my_point_motion_test.dart`.
+class FrameGate {
+  FrameGate(this.pas);
+
+  final Duration pas;
+  DateTime? _dernier;
+
+  /// Laisse-t-on passer un envoi à [now] ? Si oui, il est compté.
+  bool laisse(DateTime now) {
+    final d = _dernier;
+    // Une heure qui recule (réglage du téléphone) ne bloque jamais.
+    if (d != null && !now.isBefore(d) && now.difference(d) < pas) {
+      return false;
+    }
+    _dernier = now;
+    return true;
   }
 }

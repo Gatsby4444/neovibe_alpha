@@ -450,7 +450,12 @@ class NearbyEvent {
   /// La marge est celle du serveur pour ENTRER (`event_rules.entry_margin_max_m`,
   /// 30 m depuis le 2026-09-25) — elle valait 100 m ici, et « Tu y es »
   /// s'affichait à des soirées où le serveur refusait l'entrée.
-  bool get withinReach => distanceM <= radiusM + EventSize.entryMarginM;
+  bool get withinReach => withinReachAt(distanceM);
+
+  /// La même règle, pour une distance mesurée À L'INSTANT (celle qui bouge
+  /// quand on marche — `liveDistanceProvider`), et non celle que le serveur
+  /// a calculée au moment de la recherche.
+  bool withinReachAt(int meters) => meters <= radiusM + EventSize.entryMarginM;
 
   factory NearbyEvent.fromJson(Map<String, dynamic> json) => NearbyEvent(
     id: json['id'] as String,

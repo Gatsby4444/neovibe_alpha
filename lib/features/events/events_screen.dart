@@ -261,6 +261,8 @@ class _TuileAutour extends ConsumerWidget {
     final p = context.palette;
     final presents = venue.presentCount;
     final ouvert = venue.kind == EventKind.open;
+    // La distance de L'INSTANT (2026-09-26), sinon celle du serveur.
+    final d = liveDistanceTo(ref, venue);
     return ListTile(
       leading: CircleAvatar(
         backgroundColor: p.field,
@@ -273,7 +275,7 @@ class _TuileAutour extends ConsumerWidget {
       // « Tel événement, N personnes connectées ici » (Jay, 2026-09-21) —
       // vérifié par le serveur à chaque relevé de présence.
       subtitle: Text(
-        '${venue.venueName ?? 'Soirée ouverte'} · à ${venue.distanceM} m · '
+        '${venue.venueName ?? 'Soirée ouverte'} · à $d m · '
         '$presents connecté${presents > 1 ? 's' : ''} ici',
       ),
       // ⚠️ **Plus de bouton « Je suis là » ici (2026-09-24).** Un bouton plein
@@ -281,9 +283,9 @@ class _TuileAutour extends ConsumerWidget {
       // `trailing`, il écrasait le titre jusqu'à une lettre par ligne. Toucher
       // la tuile ouvre « Tu es au … » (`VenueFoundView`), qui a SON bouton
       // « Rejoindre la soirée » — un seul chemin pour entrer, validé par Jay.
-      trailing: venue.withinReach
+      trailing: venue.withinReachAt(d)
           ? Icon(Icons.chevron_right_rounded, color: p.action)
-          : Text('${venue.distanceM} m', style: context.sectionMeta),
+          : Text('$d m', style: context.sectionMeta),
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => EventScreen(eventId: venue.id, preview: venue),

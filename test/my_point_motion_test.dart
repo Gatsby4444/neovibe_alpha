@@ -84,4 +84,31 @@ void main() {
       expect(vise.lon, dessine.lon);
     },
   );
+
+  group('FrameGate (la flèche qui se figeait, 2026-09-26)', () {
+    test('au plus un envoi par pas', () {
+      final g = FrameGate(ms(33));
+      expect(g.laisse(t0), isTrue);
+      expect(g.laisse(t0.add(ms(10))), isFalse);
+      expect(g.laisse(t0.add(ms(40))), isTrue);
+    });
+
+    test('après une longue pause, le premier envoi PASSE', () {
+      // Ce que l'horloge d'animation cassait : deux minutes d'envois, une
+      // pause, puis un réveil — qui doit envoyer tout de suite.
+      final g = FrameGate(ms(33));
+      var t = t0;
+      for (var i = 0; i < 3600; i++) {
+        t = t.add(ms(34));
+        g.laisse(t);
+      }
+      expect(g.laisse(t.add(const Duration(seconds: 5))), isTrue);
+    });
+
+    test("une heure qui recule ne bloque pas", () {
+      final g = FrameGate(ms(33));
+      expect(g.laisse(t0), isTrue);
+      expect(g.laisse(t0.subtract(const Duration(minutes: 1))), isTrue);
+    });
+  });
 }

@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/derived_list.dart';
+import '../../core/location/distance.dart';
 import '../../core/models/event.dart';
 import '../../core/supabase_providers.dart';
+import '../proximity/geo/coarse_location.dart';
 import '../proximity/geo/live_position.dart';
 import 'events_repository.dart';
 
@@ -163,6 +165,41 @@ final eventHotSpotsProvider = FutureProvider.family<List<HotSpot>, String>((
 
 /// Les soirées d'établissement autour de moi. Demande une position : sans
 /// elle, l'erreur le dit — l'écran n'a pas à deviner.
+/// **Ma distance à un lieu, À L'INSTANT** (Jay, 2026-09-26 : *« ce serait
+/// super si on pouvait voir notre distance à la soirée en temps réel »*).
+///
+/// La distance d'une soirée trouvée ([NearbyEvent.distanceM]) est calculée
+/// par le serveur au moment de la recherche, puis ne bouge plus : on
+/// s'approchait sans que le chiffre change. Celle-ci suit ma position — le
+/// relevé que suit mon point sur la carte (`LivePositionState.track`), pour
+/// que la carte et ce chiffre disent la même chose.
+///
+/// Nulle sans relevé frais : l'écran retombe alors sur celle du serveur.
+/// ⚠️ Pour AFFICHER seulement : entrer reste décidé par le serveur, qui
+/// mesure lui-même (`join_event`).
+///
+/// Elle ne bouge que si quelqu'un tient la position en continu
+/// (`LivePositionKeeper`) — sinon elle reflète le dernier relevé.
+final liveDistanceProvider = Provider.autoDispose
+    .family<int?, (double, double)>((ref, lieu) {
+      final live = ref.watch(livePositionProvider);
+      final fix = live.track ?? live.fix;
+      final depuis = live.trackAt ?? live.at;
+      if (fix == null || depuis == null) return null;
+      if (!CoarseLocation.isFreshEnough(depuis, DateTime.now())) return null;
+      return metersBetween(
+        fix.latitude,
+        fix.longitude,
+        lieu.$1,
+        lieu.$2,
+      ).round();
+    });
+
+/// Ma distance à [event] : celle de l'instant si on l'a, sinon celle du
+/// serveur.
+int liveDistanceTo(WidgetRef ref, NearbyEvent event) =>
+    ref.watch(liveDistanceProvider((event.lat, event.lon))) ?? event.distanceM;
+
 final nearbyEventsProvider = FutureProvider<List<NearbyEvent>>((ref) async {
   if (ref.watch(currentUserIdProvider) == null) return const [];
   final fix = await ref.read(livePositionProvider.notifier).current();

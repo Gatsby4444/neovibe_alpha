@@ -14,6 +14,7 @@ import '../../core/widgets/stage.dart';
 import 'event_deck.dart';
 import 'event_screen.dart';
 import 'events_map_screen.dart';
+import '../proximity/geo/live_position_keeper.dart';
 import 'events_providers.dart';
 import 'events_screen.dart';
 
@@ -101,74 +102,79 @@ class _EventFinderScreenState extends ConsumerState<EventFinderScreen>
       });
     }
 
-    return NightStage(
-      child: Scaffold(
-        backgroundColor: Colors.transparent,
-        body: SafeArea(
-          child: Column(
-            children: [
-              Align(
-                alignment: Alignment.centerLeft,
-                child: IconButton(
-                  icon: const Icon(Icons.arrow_back_rounded),
-                  onPressed: () => Navigator.of(context).pop(),
+    // Suivie en continu tant que l'écran est regardé : la distance aux
+    // soirées bouge en temps réel (2026-09-26).
+    return LivePositionKeeper(
+      child: NightStage(
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          body: SafeArea(
+            child: Column(
+              children: [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back_rounded),
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
                 ),
-              ),
-              Expanded(
-                child: searching
-                    ? const _Searching()
-                    : events.isEmpty
-                    ? _NothingHere(
-                        noPosition: error is StateError,
-                        onRetry: () {
-                          setState(() => _radarDone = false);
-                          ref.invalidate(nearbyEventsProvider);
-                          _startRadar();
-                        },
-                      )
-                    : Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          EventDeck(
-                            events: events,
-                            entrance: _rise,
-                            onJoined: (e) =>
-                                Navigator.of(context).pushReplacement(
-                                  MaterialPageRoute(
-                                    builder: (_) => EventScreen(eventId: e.id),
+                Expanded(
+                  child: searching
+                      ? const _Searching()
+                      : events.isEmpty
+                      ? _NothingHere(
+                          noPosition: error is StateError,
+                          onRetry: () {
+                            setState(() => _radarDone = false);
+                            ref.invalidate(nearbyEventsProvider);
+                            _startRadar();
+                          },
+                        )
+                      : Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            EventDeck(
+                              events: events,
+                              entrance: _rise,
+                              onJoined: (e) =>
+                                  Navigator.of(context).pushReplacement(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          EventScreen(eventId: e.id),
+                                    ),
                                   ),
-                                ),
-                          ),
-                          // Ma photo, qui s'enfonce dans le fond.
-                          AnimatedBuilder(
-                            animation: _sink,
-                            builder: (context, _) {
-                              final t = _sink.value;
-                              if (t >= 1) return const SizedBox.shrink();
-                              return IgnorePointer(
-                                child: Opacity(
-                                  opacity: 1 - t,
-                                  child: Transform.translate(
-                                    offset: Offset(0, -60 * t),
-                                    child: Transform.scale(
-                                      scale: 1 - 0.7 * t,
-                                      child: ImageFiltered(
-                                        imageFilter: ui.ImageFilter.blur(
-                                          sigmaX: 14 * t,
-                                          sigmaY: 14 * t,
+                            ),
+                            // Ma photo, qui s'enfonce dans le fond.
+                            AnimatedBuilder(
+                              animation: _sink,
+                              builder: (context, _) {
+                                final t = _sink.value;
+                                if (t >= 1) return const SizedBox.shrink();
+                                return IgnorePointer(
+                                  child: Opacity(
+                                    opacity: 1 - t,
+                                    child: Transform.translate(
+                                      offset: Offset(0, -60 * t),
+                                      child: Transform.scale(
+                                        scale: 1 - 0.7 * t,
+                                        child: ImageFiltered(
+                                          imageFilter: ui.ImageFilter.blur(
+                                            sigmaX: 14 * t,
+                                            sigmaY: 14 * t,
+                                          ),
+                                          child: const _Searching(),
                                         ),
-                                        child: const _Searching(),
                                       ),
                                     ),
                                   ),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
-              ),
-            ],
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -289,6 +295,9 @@ class _VenueFoundViewState extends ConsumerState<VenueFoundView> {
     final v = widget.event;
     final place = v.venueName ?? v.title;
     final n = v.presentCount;
+    // La distance de L'INSTANT (2026-09-26) : elle bouge quand on marche.
+    final d = liveDistanceTo(ref, v);
+    final ici = v.withinReachAt(d);
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         NeoSpace.xxl - 4,
@@ -314,7 +323,7 @@ class _VenueFoundViewState extends ConsumerState<VenueFoundView> {
                       ),
                     ),
                     Text(
-                      v.withinReach ? 'Tu es au' : 'La soirée',
+                      ici ? 'Tu es au' : 'La soirée',
                       style: TextStyle(color: p.inkMuted, fontSize: 16),
                     ),
                     const SizedBox(height: NeoSpace.xs),
@@ -326,12 +335,12 @@ class _VenueFoundViewState extends ConsumerState<VenueFoundView> {
                         n == 0
                             ? 'personne encore'
                             : '$n présent${n > 1 ? 's' : ''}',
-                        if (!v.withinReach) 'à ${v.distanceM} m',
+                        if (!ici) 'à $d m',
                       ].join(' · '),
                       textAlign: TextAlign.center,
                       style: TextStyle(color: p.ink, fontSize: 16),
                     ),
-                    if (!v.withinReach) ...[
+                    if (!ici) ...[
                       const SizedBox(height: NeoSpace.md),
                       const _Lead(
                         'Approche-toi : on rejoint une soirée en étant sur '
@@ -367,7 +376,7 @@ class _VenueFoundViewState extends ConsumerState<VenueFoundView> {
             label: 'Rejoindre la soirée',
             icon: Icons.celebration_rounded,
             busy: _busy,
-            onPressed: v.withinReach ? _join : null,
+            onPressed: ici ? _join : null,
           ),
         ],
       ),
