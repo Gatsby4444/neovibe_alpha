@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  LES SEUILS DES GESTES DE LA CARTE (2026-09-26) — redéfinis ici, et non
+  dans le code : ce sont des ressources de Mapbox (mapbox-android-gestures
+  0.10.0, maps-gestures 11.31.1), et celles de l'app ont la priorité à
+  l'assemblage. Relevés en décompilant leur code, pour suivre la
+  hiérarchie des gestes de Google Maps relevée par Jay :
+
+  1. commencer par zoomer = zoom seul (déjà le cas chez Mapbox quand
+     simultaneousRotateAndPinchToZoomEnabled = false) ;
+  2. deux doigts qui glissent = déplacement, puis inclinaison après ~4 mm ;
+  3. sens opposés = rotation, avec zoom en même temps.
+
+  Ce qui n'est pas une ressource (angle de départ de la rotation, angle
+  des doigts pour incliner, vitesse de l'inclinaison) est réglé par
+  android/…/map/MapGestureTuner.kt.
+-->
+<resources>
+    <!-- Règle 2 : l'inclinaison prend la main après ~4 mm de montée commune
+         (16dp chez Mapbox, soit 2,5 mm). Avant, la carte se déplace. -->
+    <dimen name="mapbox_defaultShovePixelThreshold">25dp</dimen>
+
+    <!-- Un zoom ne part qu'après ~2,5 mm de variation d'écart (7dp chez
+         Mapbox, ~1 mm) : deux doigts qui montent ensemble ne gardent jamais
+         exactement leur écart, et ce zoom parasite interdisait ensuite
+         l'inclinaison pour tout le geste. -->
+    <dimen name="mapbox_defaultScaleSpanSinceStartThreshold">16dp</dimen>
+
+    <!-- Règle 3 : pendant une rotation, le zoom s'ajoute après ~4 mm de
+         variation d'écart (75dp chez Mapbox, ~1,2 cm : presque jamais). -->
+    <dimen name="mapbox_minimum_scale_span_when_rotating">24dp</dimen>
+</resources>

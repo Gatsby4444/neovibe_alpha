@@ -384,6 +384,15 @@ dependencies {
     // gagnerait en silence.
     implementation("com.google.android.gms:play-services-location:21.2.0")
 
+    // La carte Mapbox, pour RÉGLER ses gestes (MapGestureTuner.kt,
+    // 2026-09-26) : angle de départ de la rotation, angle des doigts pour
+    // incliner, vitesse de l'inclinaison — écrits en dur dans son code, pas
+    // en ressources. `compileOnly` : le paquet `mapbox_maps_flutter` apporte
+    // déjà la bibliothèque dans l'APK ; on ne fait que compiler contre elle.
+    // ⚠️ Version alignée sur celle du paquet (son `android/build.gradle`,
+    // `android-ndk27:11.31.1`) : à remonter avec lui.
+    compileOnly("com.mapbox.maps:android-ndk27:11.31.1")
+
     // Vecteurs de test croisés du format scellé (voir docs/format-media-scelle.md)
     testImplementation("junit:junit:4.13.2")
 }

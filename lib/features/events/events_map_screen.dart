@@ -28,8 +28,8 @@ import '../proximity/geo/precision_notice.dart';
 import 'event_screen.dart';
 import 'events_providers.dart';
 import 'map_follow.dart';
+import 'map_gesture_tuning.dart';
 import 'my_point_motion.dart';
-import 'two_finger_gesture.dart';
 
 /// **La carte** (étape 5 du programme du 2026-09-21) : les soirées à portée
 /// autour de moi, et — dans l'événement où je suis — ses points chauds.
@@ -295,156 +295,53 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// Le zoom minimum de la vue de derrière : assez près pour les bâtiments.
   static const _zoomDerriere = 17.0;
 
-  /// **Les gestes, tels que Jay les a définis** (2026-09-26) :
+  /// **Les gestes, tels que Jay les a relevés sur Google Maps** (2026-09-26)
   ///
-  /// | Doigts | Geste | Effet | Qui le fait |
-  /// |---|---|---|---|
-  /// | 1 | glisser | déplacer la carte | Mapbox |
-  /// | 1 | double appui (maintenu : glisser) | zoomer | Mapbox |
-  /// | 2 | se rapprocher / s'écarter | zoomer | NOUS ([TwoFingerGesture]) |
-  /// | 2 | tourner en sens opposés | tourner la carte | NOUS |
-  /// | 2 | monter / descendre ensemble | incliner la vue | NOUS |
+  /// | Doigts | Geste | Effet |
+  /// |---|---|---|
+  /// | 1 | glisser | déplacer la carte |
+  /// | 1 | double appui (maintenu : glisser) | zoomer |
+  /// | 2 | se rapprocher / s'écarter EN PREMIER | zoom seul, jusqu'au bout |
+  /// | 2 | glisser ensemble | déplacer ; incliner si la montée se prolonge ~4 mm |
+  /// | 2 | tourner en sens opposés | rotation, et zoom en même temps |
   ///
-  /// 🔴 **Pourquoi les gestes à deux doigts ne sont plus à Mapbox** : voir
-  /// [TwoFingerGesture] — ses détecteurs se disputent le geste, le premier
-  /// parti gagne, et l'inclinaison perdait presque toujours (Jay, deux
-  /// retours). Mapbox n'en garde que ce qui se fait à un doigt ; le
-  /// déplacement est coupé dès que deux doigts touchent ([_doigts]).
+  /// 🔴 **Tout est fait par le moteur de Mapbox**, qui lit les doigts sans
+  /// détour — c'est ce qui fait la précision (Jay, après la v0.9.282 : « pas
+  /// assez précis, Google est ultra précis »). La v0.9.281-282 reconnaissait
+  /// les gestes à deux doigts dans Flutter et envoyait la caméra par
+  /// messages : un temps de retard, des positions sautées. Ce moteur a déjà
+  /// la hiérarchie de Google (lu dans son code) ; seuls ses seuils sont
+  /// réglés : `res/values/mapbox_gestures.xml` et [MapGestureTuning].
   ///
-  /// En mode boussole, pas de rotation : c'est ma direction qui oriente la
-  /// carte. La boussole de Mapbox (touchée, elle remet le nord) est visible
-  /// hors de ce mode.
+  /// - `simultaneousRotateAndPinchToZoomEnabled: false` : c'est ce qui fait
+  ///   qu'un zoom parti en premier coupe la rotation, et qu'une rotation
+  ///   partie en premier laisse le zoom s'ajouter (règles 1 et 3).
+  /// - Quand la carte me suit, pincer ne la déplace pas (elle me
+  ///   ramènerait au centre à l'image suivante).
+  /// - En mode boussole, pas de rotation : c'est ma direction qui oriente
+  ///   la carte. La boussole de Mapbox (touchée, elle remet le nord) est
+  ///   visible hors de ce mode.
   Future<void> _appliquerGestes(MapFollow mode) async {
     final map = _map;
     if (map == null) return;
     final boussole = mode == MapFollow.boussole;
     await map.gestures.updateSettings(
       GesturesSettings(
-        // Le déplacement reste à Mapbox, à un doigt comme à deux, TANT QUE
-        // le geste à deux doigts est un glissement ; coupé dès qu'il devient
-        // zoom, rotation ou inclinaison (hiérarchie de Google Maps).
-        scrollEnabled: _panNatif,
+        scrollEnabled: true,
         scrollMode: ScrollMode.HORIZONTAL_AND_VERTICAL,
-        pinchToZoomEnabled: false,
-        pinchPanEnabled: false,
-        rotateEnabled: false,
-        pitchEnabled: false,
+        pinchToZoomEnabled: true,
+        pinchPanEnabled: !mode.follows,
+        simultaneousRotateAndPinchToZoomEnabled: false,
+        increaseRotateThresholdWhenPinchingToZoom: true,
+        increasePinchToZoomThresholdWhenRotating: true,
+        rotateEnabled: !boussole,
+        pitchEnabled: true,
         quickZoomEnabled: true,
         doubleTapToZoomInEnabled: true,
         doubleTouchToZoomOutEnabled: true,
       ),
     );
     await map.compass.updateSettings(CompassSettings(enabled: !boussole));
-  }
-
-  /// Les doigts posés sur la carte, par identifiant, et où ils sont.
-  final _doigts = <int, Offset>{};
-
-  /// Le geste à deux doigts en cours, et la caméra à son début.
-  TwoFingerGesture? _geste;
-  ({double zoom, double bearing, double pitch})? _cameraDepart;
-
-  /// Un envoi de caméra à la fois ; le plus récent attend son tour, les
-  /// intermédiaires sont oubliés (seul compte où les doigts SONT).
-  bool _cameraEnVol = false;
-  CameraOptions? _cameraEnAttente;
-
-  /// Degrés d'inclinaison par point de montée des doigts, APRÈS la bascule
-  /// en inclinaison : ~85 points (~1,3 cm) pour passer de la vue de dessus
-  /// à 60°. Jay (2026-09-26) : 3 cm, c'était trop.
-  static const _degresParPoint = 0.7;
-
-  /// Mapbox peut-il déplacer la carte en ce moment ?
-  bool get _panNatif => _geste?.kind.pans ?? true;
-
-  /// Le dernier réglage de déplacement envoyé à Mapbox.
-  bool _panNatifEnvoye = true;
-
-  void _revoirPanNatif() {
-    if (_panNatif == _panNatifEnvoye) return;
-    _panNatifEnvoye = _panNatif;
-    unawaited(_appliquerGestes(_suivi));
-  }
-
-  void _doigtPose(PointerDownEvent e) {
-    final avant = _doigts.length;
-    _doigts[e.pointer] = e.localPosition;
-    _changementDeDoigts(avant);
-  }
-
-  void _doigtLeve(PointerEvent e) {
-    final avant = _doigts.length;
-    _doigts.remove(e.pointer);
-    _changementDeDoigts(avant);
-  }
-
-  /// Un geste à deux doigts commence ou finit.
-  void _changementDeDoigts(int avant) {
-    final n = _doigts.length;
-    if (n == 2) {
-      final ids = _doigts.keys.toList()..sort();
-      _geste = TwoFingerGesture(_doigts[ids[0]]!, _doigts[ids[1]]!);
-      _cameraDepart = null;
-      unawaited(_lireCameraDepart(_geste!));
-    } else {
-      _geste = null;
-      _cameraDepart = null;
-    }
-    _revoirPanNatif();
-  }
-
-  Future<void> _lireCameraDepart(TwoFingerGesture pour) async {
-    final etat = await _map?.getCameraState();
-    if (etat == null || !identical(_geste, pour)) return;
-    _cameraDepart = (zoom: etat.zoom, bearing: etat.bearing, pitch: etat.pitch);
-  }
-
-  void _doigtBouge(PointerMoveEvent e) {
-    if (!_doigts.containsKey(e.pointer)) return;
-    _doigts[e.pointer] = e.localPosition;
-    final geste = _geste, depart = _cameraDepart;
-    if (geste == null || _doigts.length != 2) return;
-    final ids = _doigts.keys.toList()..sort();
-    final d = geste.update(_doigts[ids[0]]!, _doigts[ids[1]]!);
-    _revoirPanNatif();
-    // Tant que la caméra de départ n'est pas lue, le geste se décide quand
-    // même : il s'appliquera dès qu'elle arrive, depuis le début.
-    // Un glissement : c'est Mapbox qui déplace la carte.
-    if (depart == null || d.kind.pans) return;
-    final boussole = _suivi == MapFollow.boussole;
-    // Quand la carte me suit, on zoome sur MOI (le centre), pas entre les
-    // doigts : sinon elle me ramènerait au centre à l'image suivante.
-    final pivot = _suivi.follows
-        ? null
-        : ScreenCoordinate(x: geste.startFocal.dx, y: geste.startFocal.dy);
-    _envoyerCamera(switch (d.kind) {
-      TwoFingerKind.tilt => CameraOptions(
-        pitch: (depart.pitch + d.tiltByPx * _degresParPoint).clamp(0.0, 85.0),
-      ),
-      _ => CameraOptions(
-        anchor: pivot,
-        zoom: (depart.zoom + d.zoomBy).clamp(4.0, 20.0),
-        // Les doigts tournent dans le sens des aiguilles : la carte aussi,
-        // donc son cap (sens inverse) diminue.
-        bearing: boussole ? null : depart.bearing - d.rotateByDeg,
-      ),
-    });
-  }
-
-  void _envoyerCamera(CameraOptions options) {
-    if (_cameraEnVol) {
-      _cameraEnAttente = options;
-      return;
-    }
-    final map = _map;
-    if (map == null) return;
-    _cameraEnVol = true;
-    map.setCamera(options).whenComplete(() {
-      _cameraEnVol = false;
-      final suivante = _cameraEnAttente;
-      _cameraEnAttente = null;
-      if (suivante != null && mounted) _envoyerCamera(suivante);
-    });
   }
 
   /// La carte déplacée à la main : elle cesse de me suivre.
@@ -473,6 +370,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     // Tourner à deux doigts : permis hors mode boussole ([_appliquerGestes]).
     // L'inclinaison (glisser à deux doigts vers le haut) montre la 3D.
     await _appliquerGestes(_suivi);
+    unawaited(MapGestureTuning.tune());
     await map.setBounds(CameraBoundsOptions(minZoom: 4, maxZoom: 20));
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
     // ⚠️ **Le logo et l'attribution sont obligatoires, donc LISIBLES** : au
@@ -514,6 +412,9 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// Le style chargé : on règle sa lumière et ses étiquettes. Rappelé à
   /// chaque rechargement du style (le réglage vit DANS le style).
   void _onStyleLoaded(StyleLoadedEventData _) {
+    // Deuxième passage : la vue native est parfois accrochée à l'écran
+    // après la création. Une carte déjà réglée ne l'est pas deux fois.
+    unawaited(MapGestureTuning.tune());
     _lumiere = null;
     // Les images vivent DANS le style : un style rechargé les a perdues.
     _imagesMoiSombre = null;
@@ -983,35 +884,28 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
             if (affichage == null)
               const SizedBox.shrink()
             else
-              Listener(
-                onPointerDown: _doigtPose,
-                onPointerMove: _doigtBouge,
-                onPointerUp: _doigtLeve,
-                onPointerCancel: _doigtLeve,
-                child: MapWidget(
-                  key: ValueKey(affichage),
-                  styleUri: MapboxStyles.STANDARD,
-                  viewport: _vue,
-                  textureView: affichage != MapHosting.natif,
-                  androidHostingMode: switch (affichage) {
-                    MapHosting.virtuel => AndroidPlatformViewHostingMode.VD,
-                    MapHosting.texture =>
-                      AndroidPlatformViewHostingMode.TLHC_HC,
-                    MapHosting.natif => AndroidPlatformViewHostingMode.HC,
-                  },
-                  onMapCreated: _onMapCreated,
-                  onStyleLoadedListener: _onStyleLoaded,
-                  onScrollListener: _onPan,
-                  // ⚠️ **Toutes les touches à la carte, TOUT DE SUITE.** Sans
-                  // ça, Flutter retient chaque doigt le temps de décider si un
-                  // de ses propres gestes le réclame, puis le transmet : les
-                  // gestes à deux doigts arrivent en retard et mal découpés.
-                  gestureRecognizers: {
-                    Factory<OneSequenceGestureRecognizer>(
-                      EagerGestureRecognizer.new,
-                    ),
-                  },
-                ),
+              MapWidget(
+                key: ValueKey(affichage),
+                styleUri: MapboxStyles.STANDARD,
+                viewport: _vue,
+                textureView: affichage != MapHosting.natif,
+                androidHostingMode: switch (affichage) {
+                  MapHosting.virtuel => AndroidPlatformViewHostingMode.VD,
+                  MapHosting.texture => AndroidPlatformViewHostingMode.TLHC_HC,
+                  MapHosting.natif => AndroidPlatformViewHostingMode.HC,
+                },
+                onMapCreated: _onMapCreated,
+                onStyleLoadedListener: _onStyleLoaded,
+                onScrollListener: _onPan,
+                // ⚠️ **Toutes les touches à la carte, TOUT DE SUITE.** Sans
+                // ça, Flutter retient chaque doigt le temps de décider si un
+                // de ses propres gestes le réclame, puis le transmet : les
+                // gestes à deux doigts arrivent en retard et mal découpés.
+                gestureRecognizers: {
+                  Factory<OneSequenceGestureRecognizer>(
+                    EagerGestureRecognizer.new,
+                  ),
+                },
               ),
             if (nearby.hasError)
               Positioned(

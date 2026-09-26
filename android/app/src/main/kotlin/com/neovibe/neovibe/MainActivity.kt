@@ -29,6 +29,8 @@ class MainActivity : FlutterFragmentActivity() {
     private var eventPresence: EventPresenceBridge? = null
     /// La boussole de la carte (2026-09-25) : n'écoute que si la carte écoute.
     private var heading: com.neovibe.neovibe.location.HeadingSensor? = null
+    /// Les gestes de la carte, réglés dans le moteur de Mapbox (2026-09-26).
+    private var mapGestures: com.neovibe.neovibe.map.MapGestureTuner? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -106,6 +108,10 @@ class MainActivity : FlutterFragmentActivity() {
             applicationContext,
             flutterEngine.dartExecutor.binaryMessenger,
         )
+        mapGestures = com.neovibe.neovibe.map.MapGestureTuner(
+            this,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
     }
 
     override fun onDestroy() {
@@ -125,6 +131,8 @@ class MainActivity : FlutterFragmentActivity() {
         eventPresence = null
         heading?.dispose()
         heading = null
+        mapGestures?.dispose()
+        mapGestures = null
         // Le pont s'en va, le service reste : c'est tout l'intérêt.
         proximity?.dispose()
         proximity = null
