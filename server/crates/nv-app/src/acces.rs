@@ -243,6 +243,28 @@ pub mod q {
         )
     }
 
+    /// `private.can_write_in_conversation(conversation, compte)` : une soirée
+    /// terminée ferme son chat ; un groupe reste ouvert ; ailleurs, un blocage
+    /// ferme ; un canal de proximité ne vit que 3 minutes après le dernier
+    /// ping mutuel. `null` si la conversation n'existe pas.
+    pub fn peut_ecrire_conversation(conv: &str, uid: &str) -> String {
+        format!(
+            "(select case \
+               when we_c.conversation_type = 'event' then not exists (select 1 from public.events we_e \
+                    where we_e.conversation_id = we_c.id and we_e.closed_at is not null) \
+               when we_c.conversation_type = 'group' then true \
+               when exists (select 1 from public.conversation_members we_a where we_a.conversation_id = we_c.id \
+                    and we_a.user_id <> {uid} and {bloque}) then false \
+               when we_c.conversation_type <> 'proximity' then true \
+               else exists (select 1 from public.conversation_members we_b join public.ping_pairs we_pp \
+                    on (we_pp.user_low = least({uid}, we_b.user_id) and we_pp.user_high = greatest({uid}, we_b.user_id)) \
+                    where we_b.conversation_id = we_c.id and we_b.user_id <> {uid} \
+                      and we_pp.last_seen_at > now() - interval '3 minutes') \
+             end from public.conversations we_c where we_c.id = {conv})",
+            bloque = est_bloque(uid, "we_a.user_id")
+        )
+    }
+
     /// `private.owns_card(carte, compte)`.
     pub fn possede_carte(c: &str, uid: &str) -> String {
         format!("exists (select 1 from public.cards oc_ where oc_.id = {c} and oc_.owner_id = {uid})")

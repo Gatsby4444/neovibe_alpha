@@ -193,7 +193,10 @@ pub fn verdict(c: &Cas, ancien: &Cote, nouveau: &Cote, series: &HashSet<(String,
             }
         }
         (Issue::Ok(_), Issue::Refus { message, .. }) => {
-            if !(c.sans_effet && ancien.changes.is_empty()) {
+            if c.plus_strict && c.ecart.is_none() {
+                diff.push("CAS MAL POSÉ : « plus_strict » sans la raison (`ecart`)".into());
+            }
+            if !(c.sans_effet && ancien.changes.is_empty()) && !c.plus_strict {
                 diff.push(format!("l'ancien accepte, le nouveau refuse (« {message} »)"));
             }
         }

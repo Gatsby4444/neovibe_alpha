@@ -73,6 +73,9 @@ pub struct Cas {
     pub avant: Option<String>,
     pub sans_ordre: bool,
     pub sans_effet: bool,
+    /// Écart voulu : le nouveau refuse ce que l'ancien acceptait (avec une
+    /// raison obligatoire dans `ecart`).
+    pub plus_strict: bool,
     pub attendu: Option<String>,
     pub ignorer: Vec<String>,
     pub ecart: Option<String>,
@@ -123,6 +126,7 @@ pub fn avec_creneau(c: &Cas, creneau: i64) -> Cas {
         avant: c.avant.as_deref().map(|s| creneau_textuel(s, creneau)),
         sans_ordre: c.sans_ordre,
         sans_effet: c.sans_effet,
+        plus_strict: c.plus_strict,
         attendu: c.attendu.clone(),
         ignorer: c.ignorer.clone(),
         ecart: c.ecart.clone(),
@@ -206,6 +210,7 @@ pub fn charger(filtre: &str) -> Result<Vec<Cas>, String> {
                 avant: c.avant.map(|s| remplacer(&s, &qui)),
                 sans_ordre: c.sans_ordre,
                 sans_effet: c.equivalence.as_deref() == Some("sans_effet"),
+                plus_strict: c.equivalence.as_deref() == Some("plus_strict"),
                 attendu: c.attendu,
                 ignorer: c.ignorer,
                 ecart: c.ecart,

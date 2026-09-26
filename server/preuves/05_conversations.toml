@@ -1,0 +1,352 @@
+# Domaine 5 — les conversations (docs/serveur-rust.md, annexe A.4).
+# ce573f65… : la conversation directe de Charles et Testeur.
+# 2673ff29… : le chat d'une soirée TERMINÉE où Charles est (cas 1 de l'audit).
+
+[[cas]]
+nom = "écrire un texte dans une conversation directe"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", sender_id = "{{charles}}", kind = "text", body = "bonjour" }
+ancien = "insert into public.messages (conversation_id, sender_id, kind, body) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'text', 'bonjour')"
+ancien_resultat = "select to_json(m) from public.messages m where m.body = 'bonjour' and m.conversation_id = 'ce573f65-3b61-4df1-995c-3cefc5620c64' order by created_at desc limit 1"
+doit_changer = ["public.messages", "public.conversation_participation"]
+
+[[cas]]
+nom = "écrire dans le chat d'une soirée terminée (cas 1 de l'audit)"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "2673ff29-a7ce-4899-a917-15c909c3cc2c", sender_id = "{{charles}}", kind = "text", body = "x" }
+ancien = "insert into public.messages (conversation_id, sender_id, kind, body) values ('2673ff29-a7ce-4899-a917-15c909c3cc2c', '{{charles}}', 'text', 'x')"
+attendu = "refuse"
+
+[[cas]]
+nom = "écrire dans une conversation dont je ne suis pas membre"
+qui = "bot01"
+op = "message_send"
+args = { conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", sender_id = "{{bot01}}", kind = "text", body = "intrus" }
+ancien = "insert into public.messages (conversation_id, sender_id, kind, body) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{bot01}}', 'text', 'intrus')"
+attendu = "refuse"
+
+[[cas]]
+nom = "écrire au nom d'un autre"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", sender_id = "{{testeur}}", kind = "text", body = "usurpé" }
+ancien = "insert into public.messages (conversation_id, sender_id, kind, body) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', 'text', 'usurpé')"
+attendu = "refuse"
+
+[[cas]]
+nom = "écrire en étant suspendu"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", sender_id = "{{charles}}", kind = "text", body = "x" }
+avant = "update public.profiles set suspended_at = now() where id = '{{charles}}'"
+ancien = "insert into public.messages (conversation_id, sender_id, kind, body) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'text', 'x')"
+attendu = "refuse"
+
+[[cas]]
+nom = "écrire à quelqu'un qui m'a bloqué (conversation directe)"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", sender_id = "{{charles}}", kind = "text", body = "x" }
+avant = "insert into public.blocks (blocker_id, blocked_id) values ('{{testeur}}', '{{charles}}')"
+ancien = "insert into public.messages (conversation_id, sender_id, kind, body) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'text', 'x')"
+attendu = "refuse"
+
+[[cas]]
+nom = "joindre une Vibe qui n'est pas à moi"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", sender_id = "{{charles}}", kind = "card", card_id = "{{lea}}" }
+ancien = "insert into public.messages (conversation_id, sender_id, kind, card_id) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'card', '{{lea}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "forger une demande de position dans le chat (cas 22 de l'audit)"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", sender_id = "{{charles}}", kind = "location_request", body = "faux" }
+ancien = "insert into public.messages (conversation_id, sender_id, kind, body) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'location_request', 'faux')"
+attendu = "refuse"
+
+[[cas]]
+nom = "le canal de proximité : du texte seulement"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "66666666-6666-4666-8666-666666666666", sender_id = "{{charles}}", kind = "image", media_path = "{{charles}}/x.jpg" }
+avant = """insert into public.conversations (id, conversation_type, pair_key, created_by) values ('66666666-6666-4666-8666-666666666666', 'proximity', 'prox:test', '{{charles}}');
+insert into public.conversation_members (conversation_id, user_id) values ('66666666-6666-4666-8666-666666666666', '{{charles}}'), ('66666666-6666-4666-8666-666666666666', '{{jay2}}');
+insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{jay2}}'::uuid), greatest('{{charles}}'::uuid, '{{jay2}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now()"""
+ancien = "insert into public.messages (conversation_id, sender_id, kind, media_path) values ('66666666-6666-4666-8666-666666666666', '{{charles}}', 'image', '{{charles}}/x.jpg')"
+attendu = "refuse"
+
+[[cas]]
+nom = "le canal de proximité : 3 messages sans réponse, pas un de plus"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "66666666-6666-4666-8666-666666666666", sender_id = "{{charles}}", kind = "text", body = "4e" }
+avant = """insert into public.conversations (id, conversation_type, pair_key, created_by) values ('66666666-6666-4666-8666-666666666666', 'proximity', 'prox:test', '{{charles}}');
+insert into public.conversation_members (conversation_id, user_id) values ('66666666-6666-4666-8666-666666666666', '{{charles}}'), ('66666666-6666-4666-8666-666666666666', '{{jay2}}');
+insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{jay2}}'::uuid), greatest('{{charles}}'::uuid, '{{jay2}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now();
+insert into public.messages (conversation_id, sender_id, kind, body) values ('66666666-6666-4666-8666-666666666666', '{{charles}}', 'text', '1'), ('66666666-6666-4666-8666-666666666666', '{{charles}}', 'text', '2'), ('66666666-6666-4666-8666-666666666666', '{{charles}}', 'text', '3')"""
+ancien = "insert into public.messages (conversation_id, sender_id, kind, body) values ('66666666-6666-4666-8666-666666666666', '{{charles}}', 'text', '4e')"
+attendu = "refuse"
+
+[[cas]]
+nom = "le canal de proximité fermé 3 minutes après le dernier ping"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "66666666-6666-4666-8666-666666666666", sender_id = "{{charles}}", kind = "text", body = "trop tard" }
+avant = """insert into public.conversations (id, conversation_type, pair_key, created_by) values ('66666666-6666-4666-8666-666666666666', 'proximity', 'prox:test', '{{charles}}');
+insert into public.conversation_members (conversation_id, user_id) values ('66666666-6666-4666-8666-666666666666', '{{charles}}'), ('66666666-6666-4666-8666-666666666666', '{{jay2}}');
+delete from public.ping_pairs where user_low = least('{{charles}}'::uuid, '{{jay2}}'::uuid) and user_high = greatest('{{charles}}'::uuid, '{{jay2}}'::uuid)"""
+ancien = "insert into public.messages (conversation_id, sender_id, kind, body) values ('66666666-6666-4666-8666-666666666666', '{{charles}}', 'text', 'trop tard')"
+attendu = "refuse"
+
+[[cas]]
+nom = "créer un groupe (les non-amis sont écartés)"
+qui = "charles"
+rpc = "create_group_conversation"
+args = { p_title = "  Les amis  ", p_member_ids = ["{{testeur}}", "{{jay2}}", "{{charles}}", "{{mimi}}"] }
+doit_changer = ["public.conversations", "public.conversation_members"]
+
+[[cas]]
+nom = "ouvrir la conversation directe avec un ami"
+qui = "charles"
+rpc = "get_or_create_direct_conversation"
+args = { peer = "{{testeur}}" }
+
+[[cas]]
+nom = "ouvrir une conversation directe avec un non-ami"
+qui = "charles"
+rpc = "get_or_create_direct_conversation"
+args = { peer = "{{jay2}}" }
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir le canal de proximité après un ping mutuel"
+qui = "charles"
+rpc = "get_or_create_proximity_conversation"
+args = { peer = "{{jay2}}" }
+avant = "insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{jay2}}'::uuid), greatest('{{charles}}'::uuid, '{{jay2}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now()"
+doit_changer = ["public.conversations", "public.conversation_members"]
+
+[[cas]]
+nom = "ouvrir le canal de proximité avec un ami"
+qui = "charles"
+rpc = "get_or_create_proximity_conversation"
+args = { peer = "{{testeur}}" }
+attendu = "refuse"
+
+[[cas]]
+nom = "masquer un message pour moi"
+qui = "charles"
+rpc = "hide_message"
+args = { p_message_id = "77777777-7777-4777-8777-777777777777" }
+avant = "insert into public.messages (id, conversation_id, sender_id, kind, body) values ('77777777-7777-4777-8777-777777777777', 'ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', 'text', 'à masquer')"
+doit_changer = ["public.hidden_messages"]
+
+[[cas]]
+nom = "masquer un message d'une conversation étrangère"
+qui = "bot01"
+rpc = "hide_message"
+args = { p_message_id = "77777777-7777-4777-8777-777777777777" }
+avant = "insert into public.messages (id, conversation_id, sender_id, kind, body) values ('77777777-7777-4777-8777-777777777777', 'ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', 'text', 'à masquer')"
+attendu = "refuse"
+
+[[cas]]
+nom = "envoyer un vocal"
+qui = "charles"
+rpc = "send_voice_message"
+args = { p_conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", p_media_path = "{{charles}}/vocal.m4a", p_duration_ms = 3000, p_media_key = "clé" }
+doit_changer = ["public.messages", "public.message_media_keys"]
+
+[[cas]]
+nom = "envoyer un vocal trop long"
+qui = "charles"
+rpc = "send_voice_message"
+args = { p_conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", p_media_path = "{{charles}}/vocal.m4a", p_duration_ms = 130000, p_media_key = "clé" }
+attendu = "refuse"
+
+[[cas]]
+nom = "envoyer un vocal dans le dossier d'un autre"
+qui = "charles"
+rpc = "send_voice_message"
+args = { p_conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", p_media_path = "{{testeur}}/vocal.m4a", p_duration_ms = 3000, p_media_key = "clé" }
+attendu = "refuse"
+
+[[cas]]
+nom = "envoyer un vocal dans un canal de proximité"
+qui = "charles"
+rpc = "send_voice_message"
+args = { p_conversation_id = "66666666-6666-4666-8666-666666666666", p_media_path = "{{charles}}/vocal.m4a", p_duration_ms = 3000, p_media_key = "clé" }
+avant = "insert into public.conversations (id, conversation_type, pair_key, created_by) values ('66666666-6666-4666-8666-666666666666', 'proximity', 'prox:test', '{{charles}}'); insert into public.conversation_members (conversation_id, user_id) values ('66666666-6666-4666-8666-666666666666', '{{charles}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "écouter un vocal"
+qui = "testeur"
+rpc = "open_voice_message"
+args = { p_message_id = "77777777-7777-4777-8777-777777777777" }
+avant = "insert into public.messages (id, conversation_id, sender_id, kind, media_path, duration_ms) values ('77777777-7777-4777-8777-777777777777', 'ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'voice', '{{charles}}/v.m4a', 2000); insert into public.message_media_keys (message_id, media_key) values ('77777777-7777-4777-8777-777777777777', 'la-clé')"
+
+[[cas]]
+nom = "écouter le vocal d'une conversation étrangère"
+qui = "bot01"
+rpc = "open_voice_message"
+args = { p_message_id = "77777777-7777-4777-8777-777777777777" }
+avant = "insert into public.messages (id, conversation_id, sender_id, kind, media_path, duration_ms) values ('77777777-7777-4777-8777-777777777777', 'ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'voice', '{{charles}}/v.m4a', 2000); insert into public.message_media_keys (message_id, media_key) values ('77777777-7777-4777-8777-777777777777', 'la-clé')"
+attendu = "refuse"
+
+[[cas]]
+nom = "mes conversations et leurs membres"
+qui = "testeur"
+op = "conversations_list"
+ancien_resultat = "select coalesce(json_agg(t order by t.created_at desc), '[]') from (select c.*, (select coalesce(json_agg(json_build_object('profiles', (select to_json(p) from public.profiles p where p.id = cm.user_id))), '[]') from public.conversation_members cm where cm.conversation_id = c.id) as members from public.conversations c) t"
+ecart = "la suspension d'un autre compte ne se lit plus"
+ecart_champs = ["suspended_at", "suspended_reason"]
+
+[[cas]]
+nom = "une conversation dont je suis membre"
+qui = "testeur"
+op = "conversation_get"
+args = { id = "ce573f65-3b61-4df1-995c-3cefc5620c64" }
+ancien_resultat = "select to_json(t) from (select c.*, (select coalesce(json_agg(json_build_object('profiles', (select to_json(p) from public.profiles p where p.id = cm.user_id))), '[]') from public.conversation_members cm where cm.conversation_id = c.id) as members from public.conversations c where c.id = 'ce573f65-3b61-4df1-995c-3cefc5620c64') t"
+ecart = "la suspension d'un autre compte ne se lit plus"
+ecart_champs = ["suspended_at", "suspended_reason"]
+
+[[cas]]
+nom = "renommer un groupe dont je suis membre"
+qui = "charles"
+op = "conversation_update_title"
+args = { id = "88888888-8888-4888-8888-888888888888", title = "Nouveau nom" }
+avant = "insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-8888-4888-8888-888888888888', 'group', 'Ancien', '{{testeur}}'); insert into public.conversation_members (conversation_id, user_id) values ('88888888-8888-4888-8888-888888888888', '{{testeur}}'), ('88888888-8888-4888-8888-888888888888', '{{charles}}')"
+ancien = "update public.conversations set title = 'Nouveau nom' where id = '88888888-8888-4888-8888-888888888888'"
+doit_changer = ["public.conversations"]
+
+[[cas]]
+nom = "renommer une conversation directe : sans effet"
+qui = "charles"
+op = "conversation_update_title"
+args = { id = "ce573f65-3b61-4df1-995c-3cefc5620c64", title = "x" }
+ancien = "update public.conversations set title = 'x' where id = 'ce573f65-3b61-4df1-995c-3cefc5620c64'"
+
+[[cas]]
+nom = "ajouter un ami à un groupe dont je suis membre"
+qui = "charles"
+op = "conversation_member_add"
+args = { conversation_id = "88888888-8888-4888-8888-888888888888", user_id = "{{mimi}}" }
+avant = "insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-8888-4888-8888-888888888888', 'group', 'G', '{{testeur}}'); insert into public.conversation_members (conversation_id, user_id) values ('88888888-8888-4888-8888-888888888888', '{{testeur}}'), ('88888888-8888-4888-8888-888888888888', '{{charles}}')"
+ancien = "insert into public.conversation_members (conversation_id, user_id) values ('88888888-8888-4888-8888-888888888888', '{{mimi}}')"
+attendu = "accepte"
+
+[[cas]]
+nom = "ajouter un non-ami à un groupe"
+qui = "charles"
+op = "conversation_member_add"
+args = { conversation_id = "88888888-8888-4888-8888-888888888888", user_id = "{{jay2}}" }
+avant = "insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-8888-4888-8888-888888888888', 'group', 'G', '{{testeur}}'); insert into public.conversation_members (conversation_id, user_id) values ('88888888-8888-4888-8888-888888888888', '{{testeur}}'), ('88888888-8888-4888-8888-888888888888', '{{charles}}')"
+ancien = "insert into public.conversation_members (conversation_id, user_id) values ('88888888-8888-4888-8888-888888888888', '{{jay2}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "retirer quelqu'un d'un groupe que j'ai créé"
+qui = "testeur"
+op = "conversation_member_remove"
+args = { conversation_id = "88888888-8888-4888-8888-888888888888", user_id = "{{charles}}" }
+avant = "insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-8888-4888-8888-888888888888', 'group', 'G', '{{testeur}}'); insert into public.conversation_members (conversation_id, user_id) values ('88888888-8888-4888-8888-888888888888', '{{testeur}}'), ('88888888-8888-4888-8888-888888888888', '{{charles}}')"
+ancien = "delete from public.conversation_members where conversation_id = '88888888-8888-4888-8888-888888888888' and user_id = '{{charles}}'"
+doit_changer = ["public.conversation_members"]
+
+[[cas]]
+nom = "retirer quelqu'un d'un groupe créé par un autre : sans effet"
+qui = "charles"
+op = "conversation_member_remove"
+args = { conversation_id = "88888888-8888-4888-8888-888888888888", user_id = "{{testeur}}" }
+avant = "insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-8888-4888-8888-888888888888', 'group', 'G', '{{testeur}}'); insert into public.conversation_members (conversation_id, user_id) values ('88888888-8888-4888-8888-888888888888', '{{testeur}}'), ('88888888-8888-4888-8888-888888888888', '{{charles}}')"
+ancien = "delete from public.conversation_members where conversation_id = '88888888-8888-4888-8888-888888888888' and user_id = '{{testeur}}'"
+
+[[cas]]
+nom = "le dernier message visible d'une conversation"
+qui = "charles"
+op = "message_last"
+args = { conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64" }
+avant = "insert into public.messages (conversation_id, sender_id, kind, body, created_at) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', 'text', 'ancien', now() - interval '1 hour'), ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', 'text', 'récent', now())"
+ancien_resultat = "select to_json(m) from public.messages m where m.conversation_id = 'ce573f65-3b61-4df1-995c-3cefc5620c64' order by m.created_at desc limit 1"
+
+[[cas]]
+nom = "marquer lus les messages des autres"
+qui = "charles"
+op = "message_reads_mark"
+args = { message_ids = ["77777777-7777-4777-8777-777777777777"] }
+avant = "insert into public.messages (id, conversation_id, sender_id, kind, body) values ('77777777-7777-4777-8777-777777777777', 'ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', 'text', 'lu')"
+ancien = "insert into public.message_reads (message_id, user_id) values ('77777777-7777-4777-8777-777777777777', '{{charles}}') on conflict do nothing"
+doit_changer = ["public.message_reads"]
+
+[[cas]]
+nom = "marquer lu mon propre message : refusé"
+qui = "testeur"
+op = "message_reads_mark"
+args = { message_ids = ["77777777-7777-4777-8777-777777777777"] }
+avant = "insert into public.messages (id, conversation_id, sender_id, kind, body) values ('77777777-7777-4777-8777-777777777777', 'ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', 'text', 'lu')"
+ancien = "insert into public.message_reads (message_id, user_id) values ('77777777-7777-4777-8777-777777777777', '{{testeur}}') on conflict do nothing"
+attendu = "refuse"
+
+[[cas]]
+nom = "ma participation aux conversations"
+qui = "charles"
+op = "conversation_participation_list"
+ancien_resultat = "select coalesce(json_agg(json_build_object('conversation_id', conversation_id, 'last_at', last_at)), '[]') from public.conversation_participation"
+sans_ordre = true
+
+[[cas]]
+nom = "mes catégories et leur contenu"
+qui = "charles"
+op = "category_members_list"
+avant = "insert into public.conversation_categories (id, owner_id, name) values ('99999999-9999-4999-8999-999999999999', '{{charles}}', 'Amis'); insert into public.conversation_category_members (category_id, conversation_id) values ('99999999-9999-4999-8999-999999999999', 'ce573f65-3b61-4df1-995c-3cefc5620c64')"
+ancien_resultat = "select coalesce(json_agg(json_build_object('category_id', category_id, 'conversation_id', conversation_id)), '[]') from public.conversation_category_members"
+sans_ordre = true
+
+[[cas]]
+nom = "créer une catégorie"
+qui = "charles"
+op = "category_create"
+args = { owner_id = "{{charles}}", name = "Soirées" }
+ancien = "insert into public.conversation_categories (owner_id, name) values ('{{charles}}', 'Soirées')"
+doit_changer = ["public.conversation_categories"]
+
+[[cas]]
+nom = "ranger une conversation dans ma catégorie"
+qui = "charles"
+op = "category_member_add"
+args = { category_id = "99999999-9999-4999-8999-999999999999", conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64" }
+avant = "insert into public.conversation_categories (id, owner_id, name) values ('99999999-9999-4999-8999-999999999999', '{{charles}}', 'Amis')"
+ancien = "insert into public.conversation_category_members (category_id, conversation_id) values ('99999999-9999-4999-8999-999999999999', 'ce573f65-3b61-4df1-995c-3cefc5620c64') on conflict (category_id, conversation_id) do update set category_id = excluded.category_id"
+doit_changer = ["public.conversation_category_members"]
+
+[[cas]]
+nom = "ranger dans la catégorie d'un autre"
+qui = "testeur"
+op = "category_member_add"
+args = { category_id = "99999999-9999-4999-8999-999999999999", conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64" }
+avant = "insert into public.conversation_categories (id, owner_id, name) values ('99999999-9999-4999-8999-999999999999', '{{charles}}', 'Amis')"
+ancien = "insert into public.conversation_category_members (category_id, conversation_id) values ('99999999-9999-4999-8999-999999999999', 'ce573f65-3b61-4df1-995c-3cefc5620c64') on conflict (category_id, conversation_id) do update set category_id = excluded.category_id"
+attendu = "refuse"
+
+[[cas]]
+nom = "supprimer ma catégorie"
+qui = "charles"
+op = "category_delete"
+args = { id = "99999999-9999-4999-8999-999999999999" }
+avant = "insert into public.conversation_categories (id, owner_id, name) values ('99999999-9999-4999-8999-999999999999', '{{charles}}', 'Amis')"
+ancien = "delete from public.conversation_categories where id = '99999999-9999-4999-8999-999999999999'"
+doit_changer = ["public.conversation_categories"]
+
+[[cas]]
+nom = "forger un partage de contenu dans le chat"
+qui = "charles"
+op = "message_send"
+args = { conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64", sender_id = "{{charles}}", kind = "content_share", body = "x" }
+ancien = "insert into public.messages (conversation_id, sender_id, kind, body) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'content_share', 'x')"
+equivalence = "plus_strict"
+ecart = "un partage, un vocal ou un ajout en bibliothèque passent par leur propre porte (et ses règles) ; l'ancienne table les laissait écrire directement"

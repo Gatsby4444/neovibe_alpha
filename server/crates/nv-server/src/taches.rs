@@ -71,6 +71,14 @@ fn balai_vues<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a
     Box::pin(nv_app::relations::balai_vues(db))
 }
 
+fn balai_general<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, NvResult<String>> {
+    Box::pin(nv_app::conversations::balai_general(db))
+}
+
+fn balai_canaux<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, NvResult<String>> {
+    Box::pin(nv_app::conversations::balai_canaux(db))
+}
+
 fn paliers<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, NvResult<String>> {
     Box::pin(nv_app::relations::paliers::recalculer_tous(db))
 }
@@ -83,6 +91,10 @@ pub fn toutes() -> Vec<Tache> {
         Tache { nom: "balai_ping", rythme: Rythme::Toutes(300), geste: balai_ping },
         // neovibe_purge_sightings : 17 * * * *
         Tache { nom: "balai_vues", rythme: Rythme::ChaqueHeureA(17), geste: balai_vues },
+        // neovibe_purge : */5 * * * *
+        Tache { nom: "balai_general", rythme: Rythme::Toutes(300), geste: balai_general },
+        // neovibe_purge_proximity_conversations : */5 * * * *
+        Tache { nom: "balai_canaux", rythme: Rythme::Toutes(300), geste: balai_canaux },
         // neovibe_tiers : 11 3 * * *
         Tache { nom: "paliers", rythme: Rythme::ChaqueJourA(3, 11), geste: paliers },
     ]

@@ -13,6 +13,7 @@
 pub mod acces;
 pub mod carte;
 pub mod comptes;
+pub mod conversations;
 pub mod direct;
 pub mod fichiers;
 pub mod relations;
@@ -26,5 +27,6 @@ pub fn registry() -> Vec<Op> {
     ops.extend(fichiers::guichet::registry());
     ops.extend(direct::registry());
     ops.extend(relations::guichet::registry());
+    ops.extend(conversations::guichet::registry());
     ops
 }
