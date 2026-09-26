@@ -265,6 +265,23 @@ pub mod q {
         )
     }
 
+    /// `private.content_audience(contenu, compte)` : l'audience d'un contenu
+    /// selon son contexte (story ou publication ; rien d'autre ne se lit
+    /// par cette voie).
+    pub fn audience_contenu(c: &str, uid: &str) -> String {
+        format!(
+            "coalesce((select case aco_.context when 'story' then {story} when 'publication' then {publi} else false end \
+               from public.contents aco_ where aco_.id = {c}), false)",
+            story = audience_story("aco_.id", uid),
+            publi = audience_publication("aco_.id", uid),
+        )
+    }
+
+    /// `private.has_card_delivery_any(carte, compte)`.
+    pub fn a_recu_la_carte(card: &str, uid: &str) -> String {
+        format!("exists (select 1 from public.card_deliveries rc_ where rc_.card_id = {card} and rc_.recipient_id = {uid})")
+    }
+
     /// `private.owns_card(carte, compte)`.
     pub fn possede_carte(c: &str, uid: &str) -> String {
         format!("exists (select 1 from public.cards oc_ where oc_.id = {c} and oc_.owner_id = {uid})")
