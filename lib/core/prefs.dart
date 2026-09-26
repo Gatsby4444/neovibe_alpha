@@ -689,3 +689,33 @@ class DevMap3d extends Notifier<bool> {
 }
 
 final devMap3dProvider = NotifierProvider<DevMap3d, bool>(DevMap3d.new);
+
+/// **La règle des deux doigts pour incliner la carte** (DÉVELOPPEUR,
+/// 2026-09-26) — règle voulue par Jay : *« l'inclinaison, c'est deux doigts
+/// qui bougent dans une même direction, et pas un fixe et un qui bouge »*.
+/// Allumée par défaut ; l'interrupteur (roue de réglages de la carte)
+/// permet de comparer avec et sans. Appliquée par `MapGestureTuner.kt`.
+class DevTiltBothFingers extends Notifier<bool> {
+  static const prefsKey = 'dev_tilt_both_fingers';
+
+  @override
+  bool build() {
+    _load();
+    return true;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(prefsKey) ?? true;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefsKey, value);
+  }
+}
+
+final devTiltBothFingersProvider = NotifierProvider<DevTiltBothFingers, bool>(
+  DevTiltBothFingers.new,
+);

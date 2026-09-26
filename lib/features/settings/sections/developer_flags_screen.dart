@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/prefs.dart';
 import '../../cards/native_camera.dart';
+import '../../events/map_test_settings.dart';
 import '../settings_common.dart';
 
 /// Les interrupteurs de test.
@@ -48,33 +49,8 @@ class DeveloperFlagsScreen extends ConsumerWidget {
           ),
           const Divider(),
           const SettingsHeader('Carte'),
-          // Comparer la fluidité sur le téléphone (2026-09-26) : la carte se
-          // rouvre avec le mode choisi.
-          RadioGroup<MapHosting>(
-            groupValue: ref.watch(devMapHostingProvider).value,
-            onChanged: (v) {
-              if (v != null) ref.read(devMapHostingProvider.notifier).set(v);
-            },
-            child: Column(
-              children: [
-                for (final m in MapHosting.values)
-                  RadioListTile<MapHosting>(
-                    title: Text(m.label),
-                    subtitle: Text(m.detail),
-                    value: m,
-                  ),
-              ],
-            ),
-          ),
-          SwitchListTile(
-            title: const Text('Objets 3D (bâtiments, arbres, ombres)'),
-            subtitle: const Text(
-              'Éteins-les pour voir si la carte devient plus fluide : ce sont '
-              'eux qui coûtent le plus à dessiner.',
-            ),
-            value: ref.watch(devMap3dProvider),
-            onChanged: (v) => ref.read(devMap3dProvider.notifier).set(v),
-          ),
+          // Les mêmes interrupteurs que la roue de réglages de la carte.
+          const MapTestSettings(),
           const Divider(),
           const SettingsHeader('Caméra'),
           SwitchListTile(

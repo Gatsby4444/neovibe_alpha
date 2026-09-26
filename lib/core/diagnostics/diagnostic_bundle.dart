@@ -490,7 +490,9 @@ class DiagnosticBundle {
     final prefs = await SharedPreferences.getInstance();
     final mode = prefs.getString(DevMapHosting.prefsKey) ?? 'texture (défaut)';
     final troisD = prefs.getBool(DevMap3d.prefsKey) ?? true;
-    return "mode d'affichage : $mode · objets 3D : ${troisD ? 'oui' : 'non'}";
+    final deuxDoigts = prefs.getBool(DevTiltBothFingers.prefsKey) ?? true;
+    return "mode d'affichage : $mode · objets 3D : ${troisD ? 'oui' : 'non'}"
+        " · inclinaison à deux doigts obligatoires : ${deuxDoigts ? 'oui' : 'non'}";
   }
 
   static Future<String> eventPresence() async {

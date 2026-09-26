@@ -100,6 +100,14 @@ class MapGestureTuner(
     private var shoveMaxDeg = 70f
     private var pitchBoost = 2.0
 
+    /**
+     * La règle des deux doigts pour incliner ([TwoFingerArbiter.PART_MINIMALE]),
+     * pilotée par l'interrupteur de la carte. Lue à chaque arbitrage : la
+     * changer vaut pour le geste suivant.
+     */
+    @Volatile
+    private var deuxDoigtsPourIncliner = true
+
     /** Mouvement avant de décider quel geste font deux doigts. */
     private val decisionDp = 10f
 
@@ -120,6 +128,7 @@ class MapGestureTuner(
                 call.argument<Double>("rotateDeg")?.let { rotateDeg = it.toFloat() }
                 call.argument<Double>("shoveMaxDeg")?.let { shoveMaxDeg = it.toFloat() }
                 call.argument<Double>("pitchBoost")?.let { pitchBoost = it }
+                call.argument<Boolean>("deuxDoigtsPourIncliner")?.let { deuxDoigtsPourIncliner = it }
                 main.post { result.success(reglerTout()) }
             }
             "journal" -> main.post { result.success(journal.joinToString("\n")) }
@@ -195,7 +204,7 @@ class MapGestureTuner(
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    val choix = session.arbitrer(e, decisionDp * densite)
+                    val choix = session.arbitrer(e, decisionDp * densite, deuxDoigtsPourIncliner)
                     when (choix) {
                         "zoom" -> liberer(zoomOk = true, rotationOk = false, inclinaisonOk = false)
                         "rotation" -> liberer(zoomOk = true, rotationOk = true, inclinaisonOk = false)
@@ -375,7 +384,7 @@ class MapGestureTuner(
          * les deux doigts vont dans le même sens. Rend le choix une seule
          * fois, nul sinon.
          */
-        fun arbitrer(e: MotionEvent, seuilPx: Float): String? {
+        fun arbitrer(e: MotionEvent, seuilPx: Float, regleDeuxDoigts: Boolean): String? {
             if (!enAttente) return null
             val ia = e.findPointerIndex(idA)
             val ib = e.findPointerIndex(idB)
@@ -383,6 +392,7 @@ class MapGestureTuner(
             val parts = TwoFingerArbiter.parts(
                 ax, ay, bx, by,
                 e.getX(ia), e.getY(ia), e.getX(ib), e.getY(ib),
+                deuxDoigtsPourIncliner = regleDeuxDoigts,
             )
             if (parts.plusGrande < seuilPx) return null
             enAttente = false

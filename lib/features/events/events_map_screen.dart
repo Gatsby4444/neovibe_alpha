@@ -29,6 +29,7 @@ import 'event_screen.dart';
 import 'events_providers.dart';
 import 'map_follow.dart';
 import 'map_gesture_tuning.dart';
+import 'map_test_settings.dart';
 import 'my_point_motion.dart';
 
 /// **La carte** (étape 5 du programme du 2026-09-21) : les soirées à portée
@@ -173,6 +174,10 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       _reveiller();
     }, fireImmediately: true);
     _ecouterBoussole();
+    // L'interrupteur change : le moteur est prévenu, pour le geste suivant.
+    ref.listenManual(devTiltBothFingersProvider, (_, _) {
+      unawaited(_reglerGestes());
+    });
   }
 
   void _ecouterBoussole() {
@@ -348,6 +353,39 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     await map.compass.updateSettings(CompassSettings(enabled: !boussole));
   }
 
+  /// Règle les gestes dans le moteur de la carte, avec les interrupteurs de
+  /// test du moment (règle des deux doigts pour incliner).
+  Future<void> _reglerGestes() => MapGestureTuning.tune(
+    deuxDoigtsPourIncliner: ref.read(devTiltBothFingersProvider),
+  );
+
+  /// **La roue de réglages** (Jay, 2026-09-26) : les interrupteurs de test
+  /// de la carte, sans quitter la carte.
+  void _ouvrirReglages() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => const SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Text(
+                  'Réglages de test de la carte',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                ),
+              ),
+              MapTestSettings(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// La carte déplacée à la main : elle cesse de me suivre.
   void _onPan(MapContentGestureContext _) {
     if (!_suivi.follows) return;
@@ -374,7 +412,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     // Tourner à deux doigts : permis hors mode boussole ([_appliquerGestes]).
     // L'inclinaison (glisser à deux doigts vers le haut) montre la 3D.
     await _appliquerGestes(_suivi);
-    unawaited(MapGestureTuning.tune());
+    unawaited(_reglerGestes());
     await map.setBounds(CameraBoundsOptions(minZoom: 4, maxZoom: 20));
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
     // ⚠️ **Le logo et l'attribution sont obligatoires, donc LISIBLES** : au
@@ -418,7 +456,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   void _onStyleLoaded(StyleLoadedEventData _) {
     // Deuxième passage : la vue native est parfois accrochée à l'écran
     // après la création. Une carte déjà réglée ne l'est pas deux fois.
-    unawaited(MapGestureTuning.tune());
+    unawaited(_reglerGestes());
     _lumiere = null;
     // Les images vivent DANS le style : un style rechargé les a perdues.
     _imagesMoiSombre = null;
@@ -877,6 +915,13 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         appBar: AppBar(
           centerTitle: true,
           title: Text(event?.title ?? 'Autour de moi'),
+          actions: [
+            IconButton(
+              tooltip: 'Réglages de test',
+              icon: const Icon(Icons.settings_rounded),
+              onPressed: _ouvrirReglages,
+            ),
+          ],
         ),
         body: Stack(
           children: [

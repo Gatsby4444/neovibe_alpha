@@ -49,6 +49,17 @@ object TwoFingerArbiter {
     /** À 5 % près, la rotation l'emporte sur le zoom (voir la doc). */
     const val TOLERANCE = 0.95f
 
+    /**
+     * **La règle des deux doigts** (Jay, 2026-09-26 — règle voulue, avec
+     * son interrupteur) : *« l'inclinaison, c'est deux doigts qui bougent
+     * dans une même direction, et pas un fixe et un qui bouge »*. Le
+     * glissement ne compte que si le doigt qui bouge le moins parcourt au
+     * moins [PART_MINIMALE] de ce que parcourt l'autre, et si leurs deux
+     * directions sont à moins de 60° l'une de l'autre.
+     */
+    const val PART_MINIMALE = 0.25f
+    private const val COS_60 = 0.5f
+
     const val GLISSEMENT = "glissement"
     const val ROTATION = "rotation"
     const val ZOOM = "zoom"
@@ -76,13 +87,23 @@ object TwoFingerArbiter {
     fun parts(
         ax0: Float, ay0: Float, bx0: Float, by0: Float,
         ax: Float, ay: Float, bx: Float, by: Float,
+        deuxDoigtsPourIncliner: Boolean = true,
     ): Parts {
         val dax = ax - ax0
         val day = ay - ay0
         val dbx = bx - bx0
         val dby = by - by0
-        // Ensemble.
-        val glissement = hypot((dax + dbx) / 2, (day + dby) / 2)
+        // Ensemble — sous la règle des deux doigts si elle est active.
+        val la = hypot(dax, day)
+        val lb = hypot(dbx, dby)
+        val lesDeuxBougent = la > 0f && lb > 0f &&
+            minOf(la, lb) >= PART_MINIMALE * maxOf(la, lb) &&
+            (dax * dbx + day * dby) / (la * lb) >= COS_60
+        val glissement = if (!deuxDoigtsPourIncliner || lesDeuxBougent) {
+            hypot((dax + dbx) / 2, (day + dby) / 2)
+        } else {
+            0f
+        }
         // L'un par rapport à l'autre, dans le repère de la ligne des doigts.
         val lx = bx0 - ax0
         val ly = by0 - ay0
