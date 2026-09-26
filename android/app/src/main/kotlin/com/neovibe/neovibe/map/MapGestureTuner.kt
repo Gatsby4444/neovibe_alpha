@@ -16,6 +16,7 @@ import com.mapbox.android.gestures.RotateGestureDetector
 import com.mapbox.android.gestures.ShoveGestureDetector
 import com.mapbox.android.gestures.StandardScaleGestureDetector
 import com.mapbox.common.Cancelable
+import com.mapbox.common.TelemetryUtils
 import com.mapbox.maps.CameraOptions
 import com.mapbox.maps.MapView
 import com.mapbox.maps.RenderModeType
@@ -128,6 +129,7 @@ class MapGestureTuner(
     }
 
     private fun reglerTout(): Map<String, Int> {
+        couperStatistiques()
         val cartes = mutableListOf<MapView>()
         chercher(activity.window?.decorView, cartes)
         var nouvelles = 0
@@ -139,6 +141,17 @@ class MapGestureTuner(
             }
         }
         return mapOf("trouvees" to cartes.size, "reglees" to nouvelles)
+    }
+
+    /**
+     * **Les statistiques d'usage de Mapbox, coupées** (Jay, 2026-09-26).
+     * Par défaut, le moteur envoie à Mapbox des statistiques anonymes
+     * d'utilisation. Coupé pour tout le monde, à chaque ouverture de carte
+     * (le réglage est conservé par Mapbox, le redire ne coûte rien). Mapbox
+     * exige qu'un utilisateur PUISSE refuser : c'est fait d'office.
+     */
+    private fun couperStatistiques() {
+        runCatching { TelemetryUtils.setEventsCollectionState(false) {} }
     }
 
     private fun chercher(vue: View?, cartes: MutableList<MapView>) {
