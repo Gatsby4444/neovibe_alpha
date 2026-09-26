@@ -205,7 +205,7 @@ existante**. La plateforme complète vient ensuite.
 | 3. Le direct | ✅ 2026-09-27 — `GET /v1/direct` (WebSocket : badge, abonnements `table:colonne=valeur`, diffusions `typing:…`, renouvellement du badge sans coupure) ; la base ANNONCE chaque changement des 10 tables suivies (`nv.annoncer`, canal `nv_direct` : tous les chemins y passent, cascades et balais compris) ; chaque ligne passe la règle de lecture de sa table (`nv-app/src/direct.rs`) ; `direct_instantane` (l'état à l'abonnement) — 15 situations identiques ; essai de bout en bout `outils/essai_direct.mjs` (deux comptes, message, « en train d'écrire », refus d'un non-membre, badge renouvelé) ✅. Écart voulu : « en train d'écrire » réservé aux membres de la conversation (avant : tout compte connaissant l'identifiant) |
 | 4. Relations et proximité | ✅ 2026-09-27 — les 16 opérations (ping, croisements, demandes d'ami, blocages, recommandations, paliers) et 9 gestes directs de l'app (`device_key_upsert`, `key_book_list`, `connection_delete`, `connection_requests_history`, `recommendations_list`, `recommendation_create`, `blocks_list`, `waves_list`, `wave_insert`) ; déclencheurs traduits (`on_ping_pair_born`, `oublie_ce_qui_derivait_du_lien`) ; balais `balai_ping`, `balai_vues`, `paliers` — 58 situations identiques. **Défaut de l'ancien serveur trouvé et réparé** (voir le journal) |
 | 5. Conversations | ✅ 2026-09-27 — **le passage obligé de tout message** (`conversations/messages.rs`, ex-`enforce_message_rules`) ; 6 opérations (groupe, conversation directe, canal de proximité, masquer, vocal envoyé / écouté) et 15 gestes directs (liste et détail des conversations avec leurs membres, titre, membres, envoi, dernier message, lus, participation, catégories) ; balais `balai_general` (ex-`neovibe_purge`) et `balai_canaux` — 42 situations identiques. Écart voulu : un vocal, un partage ou un ajout en bibliothèque ne s'écrivent plus directement dans le chat (chacun a sa porte et ses règles) |
-| 6. Vibes et contenus | à faire |
+| 6. Vibes et contenus | 🟡 commencée le 2026-09-27 — relevé complet (26 opérations + gestes directs) ; écrits : les questions `audience_contenu` et `a_recu_la_carte` (`acces.rs`), le passage obligé des livraisons (`vibes/livraisons.rs`, pas encore branché) ; RESTE : cartes, contenus, Drop, publication, preuves |
 | 7. Pulse | à faire |
 | 8. Soirées | à faire |
 | 9. Carte | à faire |
@@ -239,6 +239,16 @@ preuve, chacun justifié) :
   reproduit sur la base de dev sous identité, réparé
   (`20260927100000_rencontre_en_soiree_sans_lieu.sql`). Le Rust le faisait
   déjà juste.
+
+- 2026-09-27 : **les messages de la publication avaient des accents
+  abîmés** (« MÃ©dias manquants », hérité de `le_feed_pulse.sql`) :
+  reproduit sous identité, réparé (`20260927110000_accents_de_la_publication.sql`).
+- 2026-09-27 : **envoyer une Vibe avec une demande d'ami à quelqu'un
+  croisé échouait TOUJOURS** (la règle des livraisons refusait tout
+  non-ami, alors que la fonction n'existe que pour eux) : reproduit sous
+  identité, réparé au plus étroit — une livraison à un non-ami n'est permise
+  qu'avec SA demande en attente portant CETTE Vibe
+  (`20260927110100_la_vibe_jointe_a_une_demande.sql`). Audit 22/22.
 
 **Les fondations** — ce qui RESTE dans la base, parce qu'il doit voir tous
 les chemins, effacements en cascade compris : les contraintes (liens,
