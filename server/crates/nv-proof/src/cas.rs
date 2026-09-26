@@ -47,6 +47,11 @@ struct CasBrut {
     attendu: Option<String>,
     #[serde(default)]
     ignorer: Vec<String>,
+    /// Un écart VOULU entre l'ancien et le nouveau : sa raison…
+    ecart: Option<String>,
+    /// … et les champs de la réponse qu'il concerne (masqués des deux côtés).
+    #[serde(default)]
+    ecart_champs: Vec<String>,
 }
 
 /// Une situation prête à jouer.
@@ -66,6 +71,8 @@ pub struct Cas {
     pub sans_effet: bool,
     pub attendu: Option<String>,
     pub ignorer: Vec<String>,
+    pub ecart: Option<String>,
+    pub ecart_champs: Vec<String>,
 }
 
 fn dossier() -> PathBuf {
@@ -145,6 +152,8 @@ pub fn charger(filtre: &str) -> Result<Vec<Cas>, String> {
                 sans_effet: c.equivalence.as_deref() == Some("sans_effet"),
                 attendu: c.attendu,
                 ignorer: c.ignorer,
+                ecart: c.ecart,
+                ecart_champs: c.ecart_champs,
             });
         }
     }

@@ -149,13 +149,16 @@ async fn cote_ancien(db: &mut PgConnection, c: &Cas) -> Result<Cote, String> {
         .execute(&mut *db)
         .await
         .map_err(|e| e.to_string())?;
-    let issue = if let Some(sql) = &c.ancien {
+    let issue = if c.ancien.is_some() || c.ancien_resultat.is_some() {
+        let sql = c.ancien.as_deref().unwrap_or("select 1");
         match sqlx::raw_sql(sql).execute(&mut *db).await {
             Err(e) => erreur_sql(&e),
             Ok(_) => match &c.ancien_resultat {
                 None => Issue::Ok(Value::Null),
-                Some(q) => match sqlx::query_scalar::<_, Option<Value>>(q).fetch_one(&mut *db).await {
-                    Ok(v) => Issue::Ok(v.unwrap_or(Value::Null)),
+                // Aucune ligne (un profil invisible…) = `null`, comme le
+                // `maybeSingle()` de l'app.
+                Some(q) => match sqlx::query_scalar::<_, Option<Value>>(q).fetch_optional(&mut *db).await {
+                    Ok(v) => Issue::Ok(v.flatten().unwrap_or(Value::Null)),
                     Err(e) => erreur_sql(&e),
                 },
             },

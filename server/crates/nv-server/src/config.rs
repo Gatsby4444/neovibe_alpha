@@ -5,12 +5,15 @@
 //! | `NV_DATABASE_URL` | la base | la base locale de travail (port 54329) |
 //! | `NV_ADRESSE` | où écouter | `127.0.0.1:8787` |
 //! | `NV_DB_CONNEXIONS` | taille du réservoir de connexions | `20` |
+//! | `NV_BADGE_CLE` | la clé des badges (base64, `nv-server nouvelle-cle`) | éphémère (développement) |
 use anyhow::Context;
+use base64::Engine;
 
 pub struct Config {
     pub database_url: String,
     pub adresse: String,
     pub db_connections: u32,
+    pub badge_cle: Option<Vec<u8>>,
 }
 
 impl Config {
@@ -24,6 +27,10 @@ impl Config {
                 .map(|s| s.parse().context("NV_DB_CONNEXIONS"))
                 .transpose()?
                 .unwrap_or(20),
+            badge_cle: std::env::var("NV_BADGE_CLE")
+                .ok()
+                .map(|s| base64::engine::general_purpose::STANDARD.decode(s.trim()).context("NV_BADGE_CLE"))
+                .transpose()?,
         })
     }
 }

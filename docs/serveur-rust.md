@@ -78,10 +78,13 @@ programme.* Aucun téléphone ne lui parle directement.
 | **11. L'app complète contre le serveur Rust** | le natif (file de publication, balise du ping, présence en soirée) ; une app de test entière | tout doit exister |
 | **12. Mise en ligne et déménagement** | VPS, nom de domaine, https, sauvegardes, surveillance ; copie des données ; bascule ; retrait de Supabase de l'app et du gardien SQL de la base | la fin |
 
-**Côté app, au fil de l'eau** : pour chaque domaine du serveur, les dépôts
-de l'app qui lui correspondent sont réécrits **derrière un interrupteur de
-construction**, invisible dans ton app habituelle, qui reste sur Supabase
-jusqu'au déménagement. C'est enfin la couche d'accès de RAPPELS #12.
+**Côté app** : les dépôts de l'app sont branchés sur le serveur Rust
+**derrière un interrupteur de construction**, invisible dans ton app
+habituelle, qui reste sur Supabase jusqu'au déménagement. C'est enfin la
+couche d'accès de RAPPELS #12. ✏️ *Ajusté le 2026-09-27* : comme les
+guichets reprennent **le nom et le JSON** des fonctions d'aujourd'hui, la
+bascule de l'app se fait en une passe, à l'étape 11, par un seul
+aiguillage (`rpc` → Supabase ou Rust) — au lieu de domaine par domaine.
 
 ## 4. Comment on prouve que c'est juste : la preuve par comparaison
 
@@ -197,7 +200,7 @@ existante**. La plateforme complète vient ensuite.
 | Étape | État |
 |---|---|
 | 0. Le socle | ✅ 2026-09-27 — `server/` (espace Cargo : `nv-core`, `nv-app`, `nv-server`, `nv-proof`) ; base locale `outils/base_locale.py` (port 54329 : structure + ancien gardien + copie des données de dev + journal des changements) ; la preuve `cargo run -p nv-proof` (contre-testée : elle voit une réponse différente, une écriture manquante, un nouveau plus permissif, un cas mal posé) |
-| 1. Les comptes | à faire |
+| 1. Les comptes | ✅ 2026-09-27 côté serveur — `/v1/auth/inscription · connexion · renouveler · deconnexion · moi` (badge Ed25519 1 h, jetons tournants, plafond par téléphone prouvé identique à l'ancien crochet SQL, bcrypt de Supabase accepté puis réécrit en argon2id, limite d'essais) ; `username_available`, `my_suspension`, `profile_stats`, `profiles_get · list`, `profile_create · update`, `dev_report_insert` — 25 situations identiques |
 | 2. Les fichiers | à faire |
 | 3. Le direct | à faire |
 | 4. Relations et proximité | à faire |
@@ -209,6 +212,16 @@ existante**. La plateforme complète vient ensuite.
 | 10. Modération et administration | à faire |
 | 11. L'app complète | à faire |
 | 12. Mise en ligne et déménagement | à faire |
+
+**Écarts voulus entre l'ancien et le nouveau gardien** (visibles dans la
+preuve, chacun justifié) :
+
+- 2026-09-27 : la **suspension d'un autre compte** (`suspended_at`,
+  `suspended_reason`) ne se lit plus en lisant son profil. L'ancien guichet
+  la donnait à quiconque voyait le profil ; l'app ne s'en sert pas.
+- 2026-09-27 : les **protections de la base** (nom déjà pris, forme d'un
+  nom…) répondent par une phrase (« Ce nom est déjà pris. ») au lieu du nom
+  technique de l'index.
 
 **Journal des corrections faites sur Supabase pendant la construction**
 (à reporter dans le Rust) :

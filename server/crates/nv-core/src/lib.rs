@@ -8,6 +8,7 @@
 //! - [`ops`] : le registre des guichets, un nom → une fonction.
 pub mod actor;
 pub mod args;
+pub mod contrainte;
 pub mod ctx;
 pub mod error;
 pub mod ops;

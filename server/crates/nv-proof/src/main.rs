@@ -61,6 +61,9 @@ async fn main() -> ExitCode {
             Ok(verdict) if verdict.is_empty() => {
                 ok += 1;
                 println!("ok    {} · {}", c.fichier, c.nom);
+                if let Some(raison) = &c.ecart {
+                    println!("      (écart voulu sur {:?} : {raison})", c.ecart_champs);
+                }
             }
             Ok(verdict) => {
                 ko += 1;

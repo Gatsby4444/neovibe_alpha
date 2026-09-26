@@ -111,6 +111,25 @@ fn neutraliser(
     (nombres(&remplacer(reponse, &table)), lignes)
 }
 
+/// Les champs d'un écart voulu, masqués des deux côtés.
+fn masquer_ecart(v: &Value, champs: &[String]) -> Value {
+    if champs.is_empty() {
+        return v.clone();
+    }
+    match v {
+        Value::Array(a) => Value::Array(a.iter().map(|x| masquer_ecart(x, champs)).collect()),
+        Value::Object(o) => Value::Object(
+            o.iter()
+                .map(|(k, x)| {
+                    let x = if champs.contains(k) { Value::String("<écart voulu>".into()) } else { masquer_ecart(x, champs) };
+                    (k.clone(), x)
+                })
+                .collect(),
+        ),
+        autre => autre.clone(),
+    }
+}
+
 fn canon_liste(v: &Value) -> Value {
     match v {
         Value::Array(a) => {
@@ -143,6 +162,7 @@ pub fn verdict(c: &Cas, ancien: &Cote, nouveau: &Cote, series: &HashSet<(String,
         (Issue::Ok(a), Issue::Ok(n)) => {
             let (ra, ca) = neutraliser(a, &ancien.changes, series, &c.ignorer);
             let (rn, cn) = neutraliser(n, &nouveau.changes, series, &c.ignorer);
+            let (ra, rn) = (masquer_ecart(&ra, &c.ecart_champs), masquer_ecart(&rn, &c.ecart_champs));
             let (ra, rn) = if c.sans_ordre { (canon_liste(&ra), canon_liste(&rn)) } else { (ra, rn) };
             if ra != rn {
                 diff.push(format!("réponses différentes\n        ancien  : {}\n        nouveau : {}", court(&ra), court(&rn)));

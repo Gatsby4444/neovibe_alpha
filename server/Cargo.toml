@@ -20,6 +20,13 @@ anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures = "0.3"
+jwt-simple = { version = "0.12", default-features = false, features = ["pure-rust"] }
+argon2 = "0.5"
+bcrypt = "0.17"
+sha2 = "0.10"
+rand = "0.8"
+base64 = "0.22"
+hex = "0.4"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

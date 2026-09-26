@@ -1,34 +1,52 @@
 //! Les routes HTTP : le guichet commun à tous les domaines.
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde_json::Value;
 use sqlx::PgPool;
 
+use nv_app::comptes::badge::Badge;
 use nv_core::ops::OpFn;
-use nv_core::{Actor, Ctx, NvError};
+use nv_core::{Ctx, NvError};
+
+use crate::auth::{self, Limiteur};
 
 /// L'état partagé par les routes.
 pub struct Etat {
     pub pool: PgPool,
     pub ops: HashMap<&'static str, OpFn>,
+    pub badge: Badge,
+    pub limite_comptes: Limiteur,
+    pub limite_renouvellement: Limiteur,
 }
 
 impl Etat {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: PgPool, badge: Badge) -> Self {
         let ops = nv_app::registry().into_iter().map(|o| (o.name, o.run)).collect();
-        Etat { pool, ops }
+        Etat {
+            pool,
+            ops,
+            badge,
+            limite_comptes: Limiteur::new(20, Duration::from_secs(60)),
+            limite_renouvellement: Limiteur::new(120, Duration::from_secs(60)),
+        }
     }
 }
 
 pub fn router(etat: Arc<Etat>) -> Router {
     Router::new()
         .route("/v1/sante", get(sante))
+        .route("/v1/auth/inscription", post(auth::inscription))
+        .route("/v1/auth/connexion", post(auth::connexion))
+        .route("/v1/auth/renouveler", post(auth::renouveler))
+        .route("/v1/auth/deconnexion", post(auth::deconnexion))
+        .route("/v1/auth/moi", get(auth::moi))
         .route("/v1/rpc/{nom}", post(rpc))
         .with_state(etat)
 }
@@ -64,10 +82,11 @@ async fn sante(State(etat): State<Arc<Etat>>) -> Result<&'static str, ErreurHttp
 async fn rpc(
     State(etat): State<Arc<Etat>>,
     Path(nom): Path<String>,
+    entetes: HeaderMap,
     body: Option<Json<Value>>,
 ) -> Result<Json<Value>, ErreurHttp> {
     let run = *etat.ops.get(nom.as_str()).ok_or_else(|| NvError::UnknownOp(nom.clone()))?;
-    let actor = Actor::Anonymous; // le badge arrive à l'étape 1 (les comptes)
+    let (actor, _) = auth::appelant(&etat, &entetes)?;
     let tx = etat.pool.begin().await.map_err(NvError::from)?;
     let mut ctx = Ctx::open(tx, actor).await?;
     let args = body.map(|Json(v)| v).unwrap_or(Value::Null);

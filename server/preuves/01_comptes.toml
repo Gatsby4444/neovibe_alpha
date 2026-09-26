@@ -72,3 +72,114 @@ qui = "anon"
 rpc = "profile_stats"
 args = { target = "{{charles}}" }
 equivalence = "sans_effet"
+
+# ─── Les profils : ce que l'app faisait directement sur la table ──────────
+
+[[cas]]
+nom = "profiles_get : mon profil"
+qui = "charles"
+op = "profiles_get"
+args = { p_id = "{{charles}}" }
+ancien_resultat = "select to_json(p) from public.profiles p where id = '{{charles}}'"
+
+[[cas]]
+nom = "profiles_get : un ami suspendu (la suspension ne se voit plus)"
+qui = "charles"
+op = "profiles_get"
+args = { p_id = "{{testeur}}" }
+avant = "update public.profiles set suspended_at = now(), suspended_reason = 'preuve' where id = '{{testeur}}'"
+ancien_resultat = "select to_json(p) from public.profiles p where id = '{{testeur}}'"
+ecart = "la suspension d'un autre compte ne se lit plus (l'app ne s'en sert pas)"
+ecart_champs = ["suspended_at", "suspended_reason"]
+
+[[cas]]
+nom = "profiles_get : un profil que je ne peux pas voir"
+qui = "bot01"
+op = "profiles_get"
+args = { p_id = "{{mimi}}" }
+ancien_resultat = "select to_json(p) from public.profiles p where id = '{{mimi}}'"
+
+[[cas]]
+nom = "profiles_list : ceux que je peux voir parmi une liste"
+qui = "charles"
+op = "profiles_list"
+args = { p_ids = ["{{testeur}}", "{{mimi}}", "{{lea}}", "{{bot01}}", "{{bot92}}", "{{charles}}"] }
+ancien_resultat = "select coalesce(json_agg(p), '[]') from public.profiles p where id in ('{{testeur}}', '{{mimi}}', '{{lea}}', '{{bot01}}', '{{bot92}}', '{{charles}}')"
+sans_ordre = true
+ecart = "la suspension d'un autre compte ne se lit plus"
+ecart_champs = ["suspended_at", "suspended_reason"]
+
+[[cas]]
+nom = "profile_create : mon profil, juste après l'inscription"
+qui = "11111111-1111-4111-8111-111111111111"
+op = "profile_create"
+args = { id = "11111111-1111-4111-8111-111111111111", display_name = "nouveau.profil", tag_name = "Nouveau" }
+avant = "insert into auth.users (id, email, created_at) values ('11111111-1111-4111-8111-111111111111', 'preuve@preuve.fr', now())"
+ancien = "insert into public.profiles (id, display_name, tag_name) values ('11111111-1111-4111-8111-111111111111', 'nouveau.profil', 'Nouveau')"
+attendu = "accepte"
+
+[[cas]]
+nom = "profile_create : un nom déjà pris"
+qui = "11111111-1111-4111-8111-111111111111"
+op = "profile_create"
+args = { id = "11111111-1111-4111-8111-111111111111", display_name = "charles777" }
+avant = "insert into auth.users (id, email, created_at) values ('11111111-1111-4111-8111-111111111111', 'preuve@preuve.fr', now())"
+ancien = "insert into public.profiles (id, display_name) values ('11111111-1111-4111-8111-111111111111', 'charles777')"
+attendu = "refuse"
+
+[[cas]]
+nom = "profile_create : le profil de quelqu'un d'autre"
+qui = "charles"
+op = "profile_create"
+args = { id = "11111111-1111-4111-8111-111111111111", display_name = "usurpe" }
+avant = "insert into auth.users (id, email, created_at) values ('11111111-1111-4111-8111-111111111111', 'preuve@preuve.fr', now())"
+ancien = "insert into public.profiles (id, display_name) values ('11111111-1111-4111-8111-111111111111', 'usurpe')"
+attendu = "refuse"
+
+[[cas]]
+nom = "profile_update : le pseudo affiché et la bio"
+qui = "charles"
+op = "profile_update"
+args = { show_pseudo = false, bio = "une bio de preuve" }
+ancien = "update public.profiles set show_pseudo = false, bio = 'une bio de preuve' where id = '{{charles}}'"
+attendu = "accepte"
+
+[[cas]]
+nom = "profile_update : la visibilité de la bibliothèque et la photo retirée"
+qui = "charles"
+op = "profile_update"
+args = { library_visibility = "connections", avatar_url = "" }
+ancien = "update public.profiles set library_visibility = 'connections', avatar_url = '' where id = '{{charles}}'"
+
+[[cas]]
+nom = "profile_update : lever sa propre suspension (colonne fermée)"
+qui = "bot92"
+op = "profile_update"
+args = { suspended_at = "" }
+avant = "update public.profiles set suspended_at = now() where id = '{{bot92}}'"
+ancien = "update public.profiles set suspended_at = null where id = '{{bot92}}'"
+attendu = "refuse"
+
+[[cas]]
+nom = "profile_update : un nom mal formé"
+qui = "charles"
+op = "profile_update"
+args = { display_name = "Nom Invalide" }
+ancien = "update public.profiles set display_name = 'Nom Invalide' where id = '{{charles}}'"
+attendu = "refuse"
+
+[[cas]]
+nom = "dev_report_insert : un diagnostic"
+qui = "charles"
+op = "dev_report_insert"
+args = { author_id = "{{charles}}", kind = "diagnostic", app_version = "0.9.296 (3170)", device = "Redmi · 13", note = "preuve", body = "texte", data = { a = 1, b = [true, "x"] } }
+ancien = "insert into public.dev_reports (author_id, kind, app_version, device, note, body, data) values ('{{charles}}', 'diagnostic', '0.9.296 (3170)', 'Redmi · 13', 'preuve', 'texte', '{\"a\": 1, \"b\": [true, \"x\"]}')"
+attendu = "accepte"
+
+[[cas]]
+nom = "dev_report_insert : au nom d'un autre"
+qui = "charles"
+op = "dev_report_insert"
+args = { author_id = "{{testeur}}", kind = "diagnostic" }
+ancien = "insert into public.dev_reports (author_id, kind) values ('{{testeur}}', 'diagnostic')"
+attendu = "refuse"
