@@ -9,8 +9,10 @@ import '../../core/diagnostics/app_log.dart';
 abstract final class MapGestureTuning {
   static const _canal = MethodChannel('neovibe/map_gestures');
 
-  /// L'angle avant qu'une rotation parte (Mapbox : 3°).
-  static const rotateDeg = 10.0;
+  /// L'angle avant qu'une rotation parte, UNE FOIS qu'elle a gagné
+  /// l'arbitrage à deux doigts (Mapbox : 3°). C'est l'arbitrage qui empêche
+  /// désormais une inclinaison de devenir une rotation, pas ce seuil.
+  static const rotateDeg = 5.0;
 
   /// Jusqu'où les doigts peuvent être de travers pour incliner (Mapbox : 45°).
   static const shoveMaxDeg = 70.0;
