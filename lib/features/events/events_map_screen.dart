@@ -1,3 +1,8 @@
+// Le mode d'affichage de la carte (`AndroidPlatformViewHostingMode`) est
+// marqué expérimental par le paquet Mapbox ; on le choisit exprès, pour
+// comparer la fluidité (réglage développeur, 2026-09-26).
+// ignore_for_file: experimental_member_use
+
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -310,16 +315,29 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   ///   direction qui oriente la carte, un geste contraire serait défait à
   ///   l'image suivante. La boussole de Mapbox (touchée, elle remet le nord)
   ///   est visible hors de ce mode.
+  ///
+  /// 🔴 **Deux doigts ne déplacent JAMAIS la carte** (2026-09-26, Jay :
+  /// *« parfois je fais le bon geste mais au lieu de changer l'angle de vue,
+  /// ça déplace la carte »*). Lu dans le code de Mapbox (gestures 0.10.0 et
+  /// maps-gestures 11.31.1) : le détecteur de déplacement suit le centre de
+  /// TOUS les doigts et part au premier millimètre, alors que celui de
+  /// l'inclinaison attend 16 dp de course (`mapbox_defaultShovePixelThreshold`)
+  /// avec des doigts alignés à 45° près, et ne coupe le déplacement qu'une
+  /// fois parti. Ces premiers millimètres déplaçaient la carte — et tout le
+  /// geste, si les doigts étaient un peu de travers. Le déplacement est donc
+  /// coupé dès qu'un deuxième doigt se pose ([_doigts]) et rendu quand il
+  /// n'en reste qu'un ; le pincement non plus ne déplace plus
+  /// (`pinchPanEnabled: false`) — « zoom », dans la définition de Jay.
   Future<void> _appliquerGestes(MapFollow mode) async {
     final map = _map;
     if (map == null) return;
     final boussole = mode == MapFollow.boussole;
     await map.gestures.updateSettings(
       GesturesSettings(
-        scrollEnabled: true,
+        scrollEnabled: _doigts < 2,
         scrollMode: ScrollMode.HORIZONTAL_AND_VERTICAL,
         pinchToZoomEnabled: true,
-        pinchPanEnabled: !mode.follows,
+        pinchPanEnabled: false,
         simultaneousRotateAndPinchToZoomEnabled: false,
         increaseRotateThresholdWhenPinchingToZoom: true,
         increasePinchToZoomThresholdWhenRotating: true,
@@ -328,6 +346,18 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       ),
     );
     await map.compass.updateSettings(CompassSettings(enabled: !boussole));
+  }
+
+  /// Combien de doigts touchent la carte en ce moment.
+  int _doigts = 0;
+
+  /// Un doigt se pose ou se lève : au passage de 1 à 2 doigts (et retour),
+  /// le déplacement est coupé ou rendu. Écouté SANS prendre part aux gestes
+  /// (un `Listener`) : la carte reçoit toujours toutes les touches.
+  void _compteDoigts(int delta) {
+    final avant = _doigts;
+    _doigts = math.max(0, _doigts + delta);
+    if ((avant < 2) != (_doigts < 2)) unawaited(_appliquerGestes(_suivi));
   }
 
   /// La carte déplacée à la main : elle cesse de me suivre.
@@ -866,32 +896,34 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
             if (affichage == null)
               const SizedBox.shrink()
             else
-              MapWidget(
-                key: ValueKey(affichage),
-                styleUri: MapboxStyles.STANDARD,
-                viewport: _vue,
-                textureView: affichage != MapHosting.natif,
-                // ignore: experimental_member_use
-                androidHostingMode: switch (affichage) {
-                  // ignore: experimental_member_use
-                  MapHosting.virtuel => AndroidPlatformViewHostingMode.VD,
-                  // ignore: experimental_member_use
-                  MapHosting.texture => AndroidPlatformViewHostingMode.TLHC_HC,
-                  // ignore: experimental_member_use
-                  MapHosting.natif => AndroidPlatformViewHostingMode.HC,
-                },
-                onMapCreated: _onMapCreated,
-                onStyleLoadedListener: _onStyleLoaded,
-                onScrollListener: _onPan,
-                // ⚠️ **Toutes les touches à la carte, TOUT DE SUITE.** Sans
-                // ça, Flutter retient chaque doigt le temps de décider si un
-                // de ses propres gestes le réclame, puis le transmet : les
-                // gestes à deux doigts arrivent en retard et mal découpés.
-                gestureRecognizers: {
-                  Factory<OneSequenceGestureRecognizer>(
-                    EagerGestureRecognizer.new,
-                  ),
-                },
+              Listener(
+                onPointerDown: (_) => _compteDoigts(1),
+                onPointerUp: (_) => _compteDoigts(-1),
+                onPointerCancel: (_) => _compteDoigts(-1),
+                child: MapWidget(
+                  key: ValueKey(affichage),
+                  styleUri: MapboxStyles.STANDARD,
+                  viewport: _vue,
+                  textureView: affichage != MapHosting.natif,
+                  androidHostingMode: switch (affichage) {
+                    MapHosting.virtuel => AndroidPlatformViewHostingMode.VD,
+                    MapHosting.texture =>
+                      AndroidPlatformViewHostingMode.TLHC_HC,
+                    MapHosting.natif => AndroidPlatformViewHostingMode.HC,
+                  },
+                  onMapCreated: _onMapCreated,
+                  onStyleLoadedListener: _onStyleLoaded,
+                  onScrollListener: _onPan,
+                  // ⚠️ **Toutes les touches à la carte, TOUT DE SUITE.** Sans
+                  // ça, Flutter retient chaque doigt le temps de décider si un
+                  // de ses propres gestes le réclame, puis le transmet : les
+                  // gestes à deux doigts arrivent en retard et mal découpés.
+                  gestureRecognizers: {
+                    Factory<OneSequenceGestureRecognizer>(
+                      EagerGestureRecognizer.new,
+                    ),
+                  },
+                ),
               ),
             if (nearby.hasError)
               Positioned(
