@@ -147,6 +147,21 @@ class MapGestureTuner(
 
         val session = Session()
         val elan = Elan(carte)
+        val deplacement = manager.moveGestureDetector
+
+        // 🔴 **Le verrou** (2026-09-26, sur le journal des gestes de Jay :
+        // 11 inclinaisons sur 12 finissaient par un DÉPLACEMENT). Deux
+        // doigts ne se lèvent jamais au même instant : le dernier posé
+        // traînait la carte. Et une inclinaison interrompue en route
+        // (doigts trop de travers) rendait la main au déplacement, doigts
+        // toujours posés. Désormais, dès qu'un zoom, une rotation ou une
+        // inclinaison part, le déplacement est coupé jusqu'à ce que TOUS
+        // les doigts soient levés — la hiérarchie de Google : un geste à
+        // deux doigts ne redevient pas un déplacement.
+        fun verrouiller() {
+            session.verrou = true
+            deplacement.isEnabled = false
+        }
 
         // Un doigt posé : l'élan en cours s'arrête (comme une liste), et un
         // nouveau geste commence. Un doigt levé : le geste est écrit au
@@ -156,6 +171,8 @@ class MapGestureTuner(
                 MotionEvent.ACTION_DOWN -> {
                     elan.arreter()
                     session.commencer(e)
+                    // Un geste neuf : le déplacement est rendu.
+                    deplacement.isEnabled = true
                 }
                 MotionEvent.ACTION_POINTER_DOWN -> session.doigts(e)
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
@@ -197,22 +214,31 @@ class MapGestureTuner(
         gestes.addOnScaleListener(object : OnScaleListener {
             override fun onScaleBegin(detector: StandardScaleGestureDetector) {
                 session.autreGeste = true
+                // Un zoom à UN doigt (double appui maintenu) ne verrouille
+                // pas : c'est un geste à un doigt.
+                if (detector.pointersCount >= 2) verrouiller()
                 session.debut("zoom", detector.pointersCount, detector.currentEvent)
             }
             override fun onScale(detector: StandardScaleGestureDetector) {}
-            override fun onScaleEnd(detector: StandardScaleGestureDetector) {}
+            override fun onScaleEnd(detector: StandardScaleGestureDetector) {
+                if (session.verrou) deplacement.isEnabled = false
+            }
         })
         gestes.addOnRotateListener(object : OnRotateListener {
             override fun onRotateBegin(detector: RotateGestureDetector) {
                 session.autreGeste = true
+                verrouiller()
                 session.debut("rotation", detector.pointersCount, detector.currentEvent)
             }
             override fun onRotate(detector: RotateGestureDetector) {}
-            override fun onRotateEnd(detector: RotateGestureDetector) {}
+            override fun onRotateEnd(detector: RotateGestureDetector) {
+                if (session.verrou) deplacement.isEnabled = false
+            }
         })
         gestes.addOnShoveListener(object : OnShoveListener {
             override fun onShoveBegin(detector: ShoveGestureDetector) {
                 session.autreGeste = true
+                verrouiller()
                 session.debut("inclinaison", detector.pointersCount, detector.currentEvent)
             }
             // L'inclinaison plus vive : Mapbox a déjà appliqué sa part
@@ -225,7 +251,12 @@ class MapGestureTuner(
                     .coerceIn(0.0, 85.0)
                 carteMapbox.setCamera(CameraOptions.Builder().pitch(pitch).build())
             }
-            override fun onShoveEnd(detector: ShoveGestureDetector) {}
+            // ⚠️ À la fin d'une inclinaison, Mapbox REND le déplacement
+            // (`GestureState.restore`) juste avant d'appeler cet écouteur :
+            // on le recoupe, tant que des doigts sont posés.
+            override fun onShoveEnd(detector: ShoveGestureDetector) {
+                if (session.verrou) deplacement.isEnabled = false
+            }
         })
     }
 
@@ -243,6 +274,7 @@ class MapGestureTuner(
         val vitesse: VelocityTracker = VelocityTracker.obtain()
         var multi = false
         var autreGeste = false
+        var verrou = false
         var elan = 0
         private var debutMs = 0L
         private var maxDoigts = 0
@@ -251,6 +283,7 @@ class MapGestureTuner(
         fun commencer(e: MotionEvent) {
             multi = false
             autreGeste = false
+            verrou = false
             elan = 0
             debutMs = System.currentTimeMillis()
             maxDoigts = e.pointerCount
