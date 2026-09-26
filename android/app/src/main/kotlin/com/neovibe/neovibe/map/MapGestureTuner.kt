@@ -32,11 +32,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.WeakHashMap
-import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
-import kotlin.math.max
 
 /**
  * **Les gestes de la carte, réglés dans le moteur de Mapbox** (2026-09-26).
@@ -382,33 +380,17 @@ class MapGestureTuner(
             val ia = e.findPointerIndex(idA)
             val ib = e.findPointerIndex(idB)
             if (ia < 0 || ib < 0) return null
-            val dax = e.getX(ia) - ax
-            val day = e.getY(ia) - ay
-            val dbx = e.getX(ib) - bx
-            val dby = e.getY(ib) - by
-            val ecart0 = hypot(bx - ax, by - ay)
-            val ecart = hypot(e.getX(ib) - e.getX(ia), e.getY(ib) - e.getY(ia))
-            var angle = Math.toDegrees(
-                (atan2(e.getY(ib) - e.getY(ia), e.getX(ib) - e.getX(ia)) -
-                    atan2(by - ay, bx - ax)).toDouble(),
+            val parts = TwoFingerArbiter.parts(
+                ax, ay, bx, by,
+                e.getX(ia), e.getY(ia), e.getX(ib), e.getY(ib),
             )
-            angle = ((angle + 540) % 360) - 180
-            val zoomPx = abs(ecart - ecart0)
-            val rotationPx = (abs(angle) * PI / 180 * ecart0 / 2).toFloat()
-            val ensemble = dax * dbx + day * dby > 0
-            val glissePx = if (ensemble) hypot((dax + dbx) / 2, (day + dby) / 2) else 0f
-            val plus = max(zoomPx, max(rotationPx, glissePx))
-            if (plus < seuilPx) return null
+            if (parts.plusGrande < seuilPx) return null
             enAttente = false
-            val choix = when (plus) {
-                glissePx -> "glissement"
-                rotationPx -> "rotation"
-                else -> "zoom"
-            }
+            val choix = parts.choix
             arbitre = choix
             etapes.add(
-                "arbitrage : $choix (écart ${zoomPx.toInt()} px, arc ${rotationPx.toInt()} px, " +
-                    "glissé ${glissePx.toInt()} px)",
+                "arbitrage : $choix (écart ${parts.zoom.toInt()} px, " +
+                    "rotation ${parts.rotation.toInt()} px, glissé ${parts.glissement.toInt()} px)",
             )
             return choix
         }
