@@ -49,6 +49,17 @@ ils ont été reconstitués.
 Les deux fichiers ajoutés sont sans effet sur la base de dev, qui avait déjà
 ces éléments (ils ont été rejoués dessus pour le prouver).
 
+**Mise à jour du même jour** (inventaire du plan `docs/serveur-rust.md`) :
+6. une **fonction orpheline** (`enforce_library_card_rules`, plus branchée sur
+   rien, lisant une colonne disparue) supprimée —
+   `20260926150000_fonction_orpheline_des_cartes_en_bibliotheque.sql` ;
+7. `library_items` **n'était pas diffusée en direct** : la notification
+   « [Ami] a publié » ne pouvait jamais arriver —
+   `20260926150100_les_publications_en_direct.sql`.
+
+Après ces deux fichiers : **3 015 objets sur 3 015 identiques**, 214
+fonctions (les chiffres ci-dessus datent d'avant), audit 22/22.
+
 ## La décision (RAPPELS #124 ①) — ✅ TRANCHÉE le 2026-09-26 : chemin B
 
 > Jay : *« on va écrire notre propre programme serveur. Le but c'est le

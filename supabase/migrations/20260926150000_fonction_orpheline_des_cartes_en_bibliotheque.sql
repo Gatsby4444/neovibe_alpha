@@ -1,0 +1,16 @@
+-- Suppression d'une fonction orpheline : public.enforce_library_card_rules().
+--
+-- Relevé le 2026-09-26 en préparant le plan du serveur Rust (inventaire des
+-- déclencheurs) : c'est la seule fonction « déclencheur » que plus aucun
+-- déclencheur n'appelle. Elle était branchée sur `library_items`
+-- (`library_items_card_rules`, 2026-07-11) ; ce déclencheur a disparu depuis,
+-- et la colonne qu'elle lit (`new.card_id`) n'existe plus dans
+-- `library_items`. PostgreSQL ne voit pas le contenu d'une fonction : elle a
+-- survécu seule.
+--
+-- Inventaire des deux sens (règle 8), en base de dev le 2026-09-26 :
+-- - qui l'appelle ? aucun déclencheur, aucun corps de fonction, aucune
+--   politique ; ni le Dart ni le Kotlin ;
+-- - qu'appelle-t-elle ? la table `cards` et le type `card_type`, tous deux
+--   utilisés ailleurs : rien ne devient orphelin après elle.
+drop function if exists public.enforce_library_card_rules();

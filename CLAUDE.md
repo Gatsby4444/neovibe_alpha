@@ -668,7 +668,15 @@ natif, pour ne rien découvrir au dernier moment lors du portage iOS.
 ## Stack
 
 - **Frontend** : Flutter/Dart (choisi pour perf caméra, cohérence cross-platform, écosystème BLE)
-- **Backend** : Supabase
+- **Backend** : Supabase **pendant la construction** ; ⚠️ **décision de Jay du
+  2026-09-26 : notre propre serveur, écrit en RUST**, construit « tout d'un
+  coup » (domaine par domaine, chaque règle prouvée par comparaison avec
+  l'ancienne avant le déménagement), sur un VPS. **Pause des nouveautés côté
+  serveur** jusqu'au déménagement : l'app reste sur Supabase, le travail côté
+  app et les corrections de bugs continuent (toute correction serveur est
+  reportée dans le Rust). Plan et avancement : **`docs/serveur-rust.md`** ;
+  état de départ : `docs/demenagement-vps.md` ; outil :
+  `tool/repetition_vps/repeter.py`.
 - **State management** : Riverpod
 - **Connectivité proximité** : **BLE uniquement, et uniquement pour PROUVER la
   proximité** (décision de Jay du 2026-08-27). Il ne transporte plus rien : ni
