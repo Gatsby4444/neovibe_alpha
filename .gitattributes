@@ -1,0 +1,4 @@
+# Les migrations se rejouent telles quelles sur un serveur Linux : pas de
+# fin de ligne Windows dans le corps des fonctions (répétition VPS, 2026-09-26).
+*.sql text eol=lf
+*.sh text eol=lf

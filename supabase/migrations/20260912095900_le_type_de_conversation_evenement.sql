@@ -1,0 +1,14 @@
+-- Le type de conversation « event » (le chat d'un événement).
+--
+-- ⚠️ Fichier RECONSTITUÉ le 2026-09-26, lors de la répétition du déménagement
+-- vers un VPS : la valeur existait en base de dev (relevé :
+-- `conversation_type = direct,group,proximity,event`) mais AUCUNE migration
+-- ne la créait — elle avait été ajoutée à la main. Rejouées dans une base
+-- vide, les migrations s'arrêtaient donc au fichier suivant
+-- (`20260912100000_les_evenements_et_les_etats_de_relation.sql`, « invalid
+-- input value for enum conversation_type: "event" »).
+--
+-- Une valeur d'énumération ne peut servir qu'une fois validée : elle vit
+-- dans son propre fichier, AVANT celui qui l'utilise. `if not exists` le
+-- rend sans effet sur la base de dev, qui l'a déjà.
+alter type public.conversation_type add value if not exists 'event';

@@ -80,20 +80,21 @@ select pg_temp.essai('un inconnu ferme la soirée ouverte d''un autre', 'refusé
 select pg_temp.essai('un compte ordinaire déclare un établissement', 'refusé',
   $q$select public.create_venue('Faux club', 48.85, 2.35, 60, 'Paris')$q$);
 
--- Affiche d'une soirée (2026-09-25) : le bot 92 n'organise pas la soirée
--- « Soirée test de Jay » (120dbec7…, organisée par le bot 93).
+-- Affiche et taille d'une soirée (2026-09-25) — par un inconnu NON suspendu :
+-- le second compte de Jay (ccc4b5ae…), ni organisateur, ni membre, ni admin
+-- (relevé en base le 2026-09-26). ⚠️ Joués d'abord par le bot 92, ces cas
+-- étaient refusés « Ton compte est suspendu » : la garde de suspension
+-- répondait AVANT celle de l'organisateur, qui n'était donc jamais testée.
+set local request.jwt.claims = '{"sub":"ccc4b5ae-6d7d-4896-a3f0-42b7fe78bc0c","role":"authenticated"}';
 select pg_temp.essai('un inconnu change la description d''une soirée', 'refusé',
   $q$select public.set_event_details('120dbec7-08ca-4a38-8d93-c743dc0793df', 'piraté', null)$q$);
 select pg_temp.essai('un inconnu dépose une affiche pour la soirée d''un autre', 'refusé',
-  $q$insert into storage.objects (bucket_id, name, owner_id) values ('event_posters', '00000000-0000-4000-8000-000000000092/120dbec7-08ca-4a38-8d93-c743dc0793df/poster_x.jpg', '00000000-0000-4000-8000-000000000092')$q$);
-
--- La taille d'une soirée (2026-09-25).
+  $q$insert into storage.objects (bucket_id, name, owner_id) values ('event_posters', 'ccc4b5ae-6d7d-4896-a3f0-42b7fe78bc0c/120dbec7-08ca-4a38-8d93-c743dc0793df/poster_x.jpg', 'ccc4b5ae-6d7d-4896-a3f0-42b7fe78bc0c')$q$);
 select pg_temp.essai('un inconnu change la taille d''une soirée', 'refusé',
   format($q$select public.set_event_size(%L, 'plein_air')$q$, (select id from ev)));
 
 -- La carte (2026-09-26) : la position des amis, la demande de position.
 -- Le second compte de Jay (ccc4b5ae…) n'est PAS ami avec Charles (e1fcb9b0…).
-set local request.jwt.claims = '{"sub":"ccc4b5ae-6d7d-4896-a3f0-42b7fe78bc0c","role":"authenticated"}';
 select pg_temp.essai('un non-ami demande sa position à Charles', 'refusé',
   $q$select public.request_location('e1fcb9b0-619d-40d5-9e6c-25ea35cb8a0c')$q$);
 select pg_temp.essai('écrire sa position directement (sans la règle de cadence)', 'refusé',
