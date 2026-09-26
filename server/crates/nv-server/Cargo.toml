@@ -1,0 +1,23 @@
+[package]
+name = "nv-server"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+nv-core = { path = "../nv-core" }
+nv-app = { path = "../nv-app" }
+tokio.workspace = true
+axum.workspace = true
+sqlx.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+
+[lints]
+workspace = true

@@ -196,7 +196,7 @@ existante**. La plateforme complète vient ensuite.
 
 | Étape | État |
 |---|---|
-| 0. Le socle | à faire |
+| 0. Le socle | ✅ 2026-09-27 — `server/` (espace Cargo : `nv-core`, `nv-app`, `nv-server`, `nv-proof`) ; base locale `outils/base_locale.py` (port 54329 : structure + ancien gardien + copie des données de dev + journal des changements) ; la preuve `cargo run -p nv-proof` (contre-testée : elle voit une réponse différente, une écriture manquante, un nouveau plus permissif, un cas mal posé) |
 | 1. Les comptes | à faire |
 | 2. Les fichiers | à faire |
 | 3. Le direct | à faire |
@@ -216,6 +216,16 @@ existante**. La plateforme complète vient ensuite.
 - 2026-09-26 : `library_items` ajoutée au direct (« [Ami] a publié »). Le
   direct en Rust doit la diffuser. `enforce_library_card_rules` supprimée
   (orpheline) : rien à reporter.
+
+## Mode d'emploi du chantier
+
+| Geste | Commande (depuis `server/`) |
+|---|---|
+| copier les données de dev sur le PC | `python outils/copier_base_dev.py` (depuis la racine du dépôt : `python server/outils/copier_base_dev.py`) |
+| (re)monter la base locale | `python outils/base_locale.py` (depuis la racine du dépôt) |
+| construire | `bash outils/cargo.sh build` — ⚠️ sur ce PC, la chaîne « GNU » de Rust a un éditeur de liens incomplet : le script branche celui de WinLibs |
+| jouer la preuve | `bash outils/cargo.sh run -p nv-proof -- [filtre]` |
+| lancer le serveur | `bash outils/cargo.sh run -p nv-server` (écoute sur `127.0.0.1:8787`) |
 
 ## Annexe A — l'inventaire, domaine par domaine
 

@@ -1,0 +1,74 @@
+# Domaine 1 — comptes et profils (docs/serveur-rust.md, annexe A.1).
+
+[[cas]]
+nom = "username_available : un nom libre et bien formé"
+qui = "charles"
+rpc = "username_available"
+args = { p_username = "nouveau.nom_42" }
+
+[[cas]]
+nom = "username_available : un nom déjà pris (majuscules ignorées)"
+qui = "charles"
+rpc = "username_available"
+args = { p_username = "charles777" }
+
+[[cas]]
+nom = "username_available : trop court"
+qui = "charles"
+rpc = "username_available"
+args = { p_username = "ab" }
+
+[[cas]]
+nom = "username_available : une majuscule"
+qui = "charles"
+rpc = "username_available"
+args = { p_username = "Charles999" }
+
+[[cas]]
+nom = "username_available : sans compte (l'arrivée le demande avant l'inscription)"
+qui = "anon"
+rpc = "username_available"
+args = { p_username = "libre_ici" }
+
+[[cas]]
+nom = "my_suspension : un compte non suspendu"
+qui = "charles"
+rpc = "my_suspension"
+
+[[cas]]
+nom = "my_suspension : un compte suspendu"
+qui = "bot92"
+rpc = "my_suspension"
+avant = "update public.profiles set suspended_at = now() - interval '1 hour', suspended_reason = 'preuve' where id = '{{bot92}}'"
+
+[[cas]]
+nom = "profile_stats : mon propre profil"
+qui = "charles"
+rpc = "profile_stats"
+args = { target = "{{charles}}" }
+
+[[cas]]
+nom = "profile_stats : le profil d'un ami"
+qui = "charles"
+rpc = "profile_stats"
+args = { target = "{{testeur}}" }
+
+[[cas]]
+nom = "profile_stats : un inconnu (rien)"
+qui = "bot01"
+rpc = "profile_stats"
+args = { target = "{{mimi}}" }
+
+[[cas]]
+nom = "profile_stats : quelqu'un qui m'a bloqué (rien)"
+qui = "charles"
+rpc = "profile_stats"
+args = { target = "{{testeur}}" }
+avant = "insert into public.blocks (blocker_id, blocked_id) values ('{{testeur}}', '{{charles}}')"
+
+[[cas]]
+nom = "profile_stats : sans compte"
+qui = "anon"
+rpc = "profile_stats"
+args = { target = "{{charles}}" }
+equivalence = "sans_effet"
