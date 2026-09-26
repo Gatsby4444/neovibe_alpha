@@ -49,7 +49,10 @@ ils ont été reconstitués.
 Les deux fichiers ajoutés sont sans effet sur la base de dev, qui avait déjà
 ces éléments (ils ont été rejoués dessus pour le prouver).
 
-## La décision qui reste à Jay avant d'écrire une ligne (RAPPELS #124 ①)
+## La décision (RAPPELS #124 ①) — ✅ TRANCHÉE le 2026-09-26 : chemin B
+
+> Jay : *« on va écrire notre propre programme serveur. Le but c'est le
+> contrôle, la scalabilité et la polyvalence. Totale. »*
 
 Toute la logique du serveur est **écrite en SQL dans Postgres** : 215
 fonctions, 122 politiques de sécurité, 11 tâches planifiées. L'app parle
