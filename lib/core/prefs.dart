@@ -670,3 +670,31 @@ class MapEventsRadiusKm extends Notifier<int> {
 final mapEventsRadiusKmProvider = NotifierProvider<MapEventsRadiusKm, int>(
   MapEventsRadiusKm.new,
 );
+
+/// **Montrer les Vibes publiques autour de moi sur la carte** — réglage de
+/// l'utilisateur (Jay, 2026-09-26 : *« paramètre désactivable »*), dans la
+/// roue de la carte. Allumé par défaut.
+class MapShowVibes extends Notifier<bool> {
+  static const prefsKey = 'map_show_vibes';
+
+  @override
+  bool build() {
+    _load();
+    return true;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(prefsKey) ?? true;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefsKey, value);
+  }
+}
+
+final mapShowVibesProvider = NotifierProvider<MapShowVibes, bool>(
+  MapShowVibes.new,
+);

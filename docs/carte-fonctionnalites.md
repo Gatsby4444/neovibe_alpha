@@ -77,7 +77,15 @@
    … »), envoi toutes les 10 s carte ouverte si je partage, roue : partager
    / cacher à…. ⚠️ Hors de l'app, la mise à jour passe par la balise du
    ping : si la proximité est éteinte, la position n'est plus rafraîchie.
-3. Vibes publiques autour de moi (3 km), réglage désactivable.
+3. ✅ **v0.9.295** — Vibes publiques autour de moi. Serveur
+   (`20260926120000_les_vibes_autour_sur_la_carte.sql`, essai à blanc) : la
+   règle « visible autour » devient `private.vibes_autour`, PARTAGÉE par
+   Pulse (source 3) et la carte ; `map_vibes_around` (les plus aimées et les
+   plus récentes dans `map_rules.vibes_radius_m` = 3 km, 10 + 20),
+   `map_vibe_items` (refiltré par la même règle). App :
+   `lib/features/map/vibes_map.dart`, pastilles (éclair ; cœur + nombre de
+   « j'aime » pour les populaires), un tap ouvre le lecteur ; roue :
+   « Vibes publiques autour de moi » (allumé par défaut).
 4. La roue d'actions sur un ami : profil, message, rejoindre (D) ;
    « demander la position » après les notifications (C).
 5. Zones chaudes, cachées (B).

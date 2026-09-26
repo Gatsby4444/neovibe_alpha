@@ -67,6 +67,15 @@ class MapSettingsSheet extends ConsumerWidget {
               ref.read(mapEventsRadiusKmProvider.notifier).set(km),
         ),
         SwitchListTile(
+          title: const Text('Vibes publiques autour de moi'),
+          subtitle: const Text(
+            'Les plus aimées et les plus récentes, dans 3 km — seulement '
+            'celles que leurs auteurs ont choisi de situer.',
+          ),
+          value: ref.watch(mapShowVibesProvider),
+          onChanged: (v) => ref.read(mapShowVibesProvider.notifier).set(v),
+        ),
+        SwitchListTile(
           title: const Text('Bâtiments en 3D'),
           subtitle: const Text(
             'Plus joli en vue inclinée ; la carte est un peu moins fluide.',

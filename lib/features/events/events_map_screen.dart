@@ -21,6 +21,7 @@ import '../../core/palette.dart';
 import '../../core/prefs.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/widgets/avatar.dart';
+import '../../core/widgets/top_banner.dart';
 import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/utils/erreur_serveur.dart';
@@ -35,6 +36,8 @@ import 'map_follow.dart';
 import 'map_gesture_tuning.dart';
 import 'map_markers.dart';
 import '../map/friends_map.dart';
+import '../map/vibes_map.dart';
+import '../library/feed/vibes_reel_screen.dart';
 import 'map_settings_sheet.dart';
 import 'my_point_motion.dart';
 
@@ -94,6 +97,12 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   PointAnnotationManager? _moi;
   PointAnnotationManager? _soirees;
   Cancelable? _tapSoirees;
+
+  /// Les Vibes publiques autour de moi (sous les amis).
+  PointAnnotationManager? _vibes;
+  Cancelable? _tapVibes;
+  Object? _dessineVibes;
+  List<MapVibe> _vibesDessinees = const [];
 
   /// Mes amis (leur photo, « il y a … ») ; puis MA photo, tout en haut.
   PointAnnotationManager? _amis;
@@ -214,6 +223,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _tapSoirees?.cancel();
+    _tapVibes?.cancel();
     _ticker.dispose();
     _couperBoussole();
     _arreterPartage();
@@ -407,6 +417,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     _moiPhotoPoint = null;
     _haloPoly = null;
     _dessineAmis = null;
+    _dessineVibes = null;
     _imagesAmis.clear();
     _envoyeHalo = null;
     _envoyePoint = null;
@@ -416,6 +427,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     _dessineSoirees = null;
     _imagesMoiCle = null;
     _dessineAmis = null;
+    _dessineVibes = null;
     _imagesAmis.clear();
     _lumiere = null;
     // Tourner à deux doigts : permis hors mode boussole ([_appliquerGestes]).
@@ -444,7 +456,15 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     await _moi!.setIconAllowOverlap(true);
     await _moi!.setIconIgnorePlacement(true);
     _soirees = await a.createPointAnnotationManager();
-    // Au-dessus des soirées : mes amis, puis ma photo.
+    // Au-dessus des soirées : les Vibes, mes amis, puis ma photo.
+    _vibes = await a.createPointAnnotationManager();
+    await _vibes!.setIconAllowOverlap(true);
+    _tapVibes = _vibes!.tapEvents(
+      onTap: (annotation) {
+        final id = annotation.customData?['vibe'];
+        if (id is String) unawaited(_ouvrirVibe(id));
+      },
+    );
     _amis = await a.createPointAnnotationManager();
     await _amis!.setIconAllowOverlap(true);
     await _amis!.setTextAllowOverlap(true);
@@ -477,6 +497,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     // Les images vivent DANS le style : un style rechargé les a perdues.
     _imagesMoiCle = null;
     _dessineAmis = null;
+    _dessineVibes = null;
     _imagesAmis.clear();
     if (mounted) setState(() {});
   }
@@ -609,6 +630,69 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
             customData: {'id': e.id},
           ),
       ]);
+    }
+  }
+
+  /// **Les Vibes publiques autour de moi** (Jay, 2026-09-26) : une pastille
+  /// par Vibe ; les plus aimées plus grandes, avec leur nombre de « j'aime ».
+  Future<void> _dessinerVibes(NeoPalette p, List<MapVibe> vibes) async {
+    final calque = _vibes;
+    if (calque == null || _map == null) return;
+    final cle = (Object.hashAll(vibes), p.isDark);
+    if (cle == _dessineVibes) return;
+    _dessineVibes = cle;
+    _vibesDessinees = vibes;
+    try {
+      await calque.deleteAll();
+      if (vibes.isEmpty) return;
+      final recente = await _repere(p, Icons.bolt_rounded, points: 26);
+      final populaire = vibes.any((v) => v.populaire)
+          ? await _repere(p, Icons.favorite_rounded, points: 34)
+          : recente;
+      await calque.createMulti([
+        for (final v in vibes)
+          PointAnnotationOptions(
+            geometry: _pt(v.lat, v.lng),
+            image: v.populaire ? populaire : recente,
+            textField: v.populaire ? '${v.likes}' : null,
+            textSize: 11,
+            textAnchor: TextAnchor.TOP,
+            textOffset: [0, 1.2],
+            textColor: p.ink.toARGB32(),
+            textHaloColor: p.surface.toARGB32(),
+            textHaloWidth: 1.5,
+            customData: {'vibe': v.id},
+          ),
+      ]);
+    } catch (_) {
+      _dessineVibes = null;
+    }
+  }
+
+  /// Une Vibe touchée : le lecteur s'ouvre dessus, avec toutes celles de la
+  /// carte à faire défiler.
+  Future<void> _ouvrirVibe(String id) async {
+    final fix = await _position.current();
+    if (fix == null || !mounted) return;
+    try {
+      final items = await ref
+          .read(vibesMapRepositoryProvider)
+          .items(
+            [for (final v in _vibesDessinees) v.id],
+            fix.latitude,
+            fix.longitude,
+          );
+      final i = items.indexWhere((it) => it.id == id);
+      if (i < 0 || !mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => VibesReelScreen(vibes: items, initialIndex: i),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        TopBanner.show(context, messageServeur(e), tone: TopBannerTone.already);
+      }
     }
   }
 
@@ -1017,6 +1101,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     // Mes amis, relus toutes les 10 s tant que la carte est ouverte ; et la
     // minute, pour que « il y a … » vieillisse.
     final amis = ref.watch(friendsOnMapProvider).value ?? const <FriendOnMap>[];
+    final vibes = ref.watch(mapVibesProvider).value ?? const <MapVibe>[];
     final minute =
         ref.watch(tickProvider(const Duration(minutes: 1))).value ??
         DateTime.now();
@@ -1078,6 +1163,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       // point sur la carte.
       _file = _file
           .then((_) => _dessinerAmis(p, amis, minute))
+          .then((_) => _dessinerVibes(p, vibes))
           .then(
             (_) => _dessiner(
               p: p,
