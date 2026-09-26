@@ -1,0 +1,114 @@
+# Domaine 3 — le direct : l'état d'un sujet à l'abonnement (`direct_instantane`)
+# doit être exactement ce que l'ancienne base laissait lire (sa politique
+# SELECT), avec le même filtre que l'ancien `.stream()`.
+
+[[cas]]
+nom = "mes Vibes reçues"
+qui = "charles"
+op = "direct_instantane"
+args = { sujet = "card_deliveries:recipient_id={{charles}}" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.card_deliveries r where r.recipient_id = '{{charles}}'"
+
+[[cas]]
+nom = "les Vibes reçues d'un autre : refusé"
+qui = "charles"
+op = "direct_instantane"
+args = { sujet = "card_deliveries:recipient_id={{testeur}}" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.card_deliveries r where r.recipient_id = '{{testeur}}'"
+equivalence = "sans_effet"
+
+[[cas]]
+nom = "mes liens (amis)"
+qui = "charles"
+op = "direct_instantane"
+args = { sujet = "connections" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.connections r"
+
+[[cas]]
+nom = "les demandes reçues"
+qui = "charles"
+op = "direct_instantane"
+args = { sujet = "connection_requests:receiver_id={{charles}}" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.connection_requests r where r.receiver_id = '{{charles}}'"
+
+[[cas]]
+nom = "les demandes envoyées"
+qui = "testeur"
+op = "direct_instantane"
+args = { sujet = "connection_requests:sender_id={{testeur}}" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.connection_requests r where r.sender_id = '{{testeur}}'"
+
+[[cas]]
+nom = "les messages d'une conversation dont je suis membre"
+qui = "charles"
+op = "direct_instantane"
+args = { sujet = "messages:conversation_id=ce573f65-3b61-4df1-995c-3cefc5620c64" }
+avant = """insert into public.messages (conversation_id, sender_id, kind, body) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', 'text', 'un');
+insert into public.messages (conversation_id, sender_id, kind, body) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'text', 'deux');
+insert into public.hidden_messages (user_id, message_id) select '{{charles}}', id from public.messages where body = 'un' and conversation_id = 'ce573f65-3b61-4df1-995c-3cefc5620c64'"""
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.messages r where r.conversation_id = 'ce573f65-3b61-4df1-995c-3cefc5620c64'"
+
+[[cas]]
+nom = "les messages d'une conversation étrangère : refusé"
+qui = "bot01"
+op = "direct_instantane"
+args = { sujet = "messages:conversation_id=ce573f65-3b61-4df1-995c-3cefc5620c64" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.messages r where r.conversation_id = 'ce573f65-3b61-4df1-995c-3cefc5620c64'"
+equivalence = "sans_effet"
+
+[[cas]]
+nom = "les retraits annoncés dans une conversation"
+qui = "testeur"
+op = "direct_instantane"
+args = { sujet = "removals:conversation_id=ce573f65-3b61-4df1-995c-3cefc5620c64" }
+avant = "insert into public.removals (conversation_id, kind, target_id) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', 'message', gen_random_uuid())"
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.removals r where r.conversation_id = 'ce573f65-3b61-4df1-995c-3cefc5620c64'"
+
+[[cas]]
+nom = "mes présences en soirée"
+qui = "bot92"
+op = "direct_instantane"
+args = { sujet = "event_presences:user_id={{bot92}}" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.event_presences r where r.user_id = '{{bot92}}'"
+
+[[cas]]
+nom = "les présents d'une soirée où je suis"
+qui = "mimi"
+op = "direct_instantane"
+args = { sujet = "event_presences:event_id=1e585520-6edb-4aa3-a231-9ed749cd0aa5" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.event_presences r where r.event_id = '1e585520-6edb-4aa3-a231-9ed749cd0aa5'"
+
+[[cas]]
+nom = "les membres des groupes de soirée"
+qui = "mimi"
+op = "direct_instantane"
+args = { sujet = "event_group_members" }
+ancien_resultat = "select coalesce(json_agg(r order by r.event_id, r.user_id), '[]') from public.event_group_members r"
+
+[[cas]]
+nom = "les défis d'une soirée où je suis"
+qui = "mimi"
+op = "direct_instantane"
+args = { sujet = "event_challenges:event_id=1e585520-6edb-4aa3-a231-9ed749cd0aa5" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.event_challenges r where r.event_id = '1e585520-6edb-4aa3-a231-9ed749cd0aa5'"
+
+[[cas]]
+nom = "les demandes de position qui me visent"
+qui = "charles"
+op = "direct_instantane"
+args = { sujet = "location_requests:target_id={{charles}}" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.location_requests r where r.target_id = '{{charles}}'"
+
+[[cas]]
+nom = "les publications que je peux voir"
+qui = "charles"
+op = "direct_instantane"
+args = { sujet = "library_items" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.library_items r"
+
+[[cas]]
+nom = "les publications vues par un inconnu"
+qui = "bot01"
+op = "direct_instantane"
+args = { sujet = "library_items" }
+ancien_resultat = "select coalesce(json_agg(r order by r.id), '[]') from public.library_items r"

@@ -7,6 +7,7 @@
 //! `NV_BADGE_CLE` (configuration du VPS).
 mod auth;
 mod config;
+mod direct;
 mod routes;
 mod taches;
 
@@ -49,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
     let entrepot: Arc<dyn nv_core::fichiers::Entrepot> = Arc::new(entrepot);
     taches::lancer(pool.clone(), entrepot.clone());
     let etat = Arc::new(routes::Etat::new(pool, badge, entrepot));
+    direct::ecouter(etat.pool.clone(), etat.hub.clone());
     let app = routes::router(etat);
     let ecoute = tokio::net::TcpListener::bind(&config.adresse)
         .await

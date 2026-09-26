@@ -220,6 +220,22 @@ pub mod q {
         )
     }
 
+    /// `private.concerned_by_event(soirée, compte)` : membre, présent, ou
+    /// gérant du lieu.
+    pub fn concerne_evenement(e: &str, uid: &str) -> String {
+        format!(
+            "({membre} or exists (select 1 from public.event_presences ce_p where ce_p.event_id = {e} and ce_p.user_id = {uid}) \
+             or exists (select 1 from public.events ce_e where ce_e.id = {e} and {lieu}))",
+            membre = membre_evenement(e, uid),
+            lieu = gere_lieu("ce_e.venue_id", uid)
+        )
+    }
+
+    /// `private.owns_card(carte, compte)`.
+    pub fn possede_carte(c: &str, uid: &str) -> String {
+        format!("exists (select 1 from public.cards oc_ where oc_.id = {c} and oc_.owner_id = {uid})")
+    }
+
     /// `private.manages_venue(lieu, compte)`.
     pub fn gere_lieu(v: &str, uid: &str) -> String {
         format!("exists (select 1 from public.venue_managers gl_ where gl_.venue_id = {v} and gl_.user_id = {uid})")

@@ -24,6 +24,7 @@ pub struct Etat {
     pub ops: HashMap<&'static str, OpFn>,
     pub badge: Badge,
     pub entrepot: Arc<dyn Entrepot>,
+    pub hub: Arc<crate::direct::Hub>,
     pub limite_comptes: Limiteur,
     pub limite_renouvellement: Limiteur,
 }
@@ -36,6 +37,7 @@ impl Etat {
             ops,
             badge,
             entrepot,
+            hub: Arc::new(crate::direct::Hub::default()),
             limite_comptes: Limiteur::new(20, Duration::from_secs(60)),
             limite_renouvellement: Limiteur::new(120, Duration::from_secs(60)),
         }
@@ -51,6 +53,7 @@ pub fn router(etat: Arc<Etat>) -> Router {
         .route("/v1/auth/deconnexion", post(auth::deconnexion))
         .route("/v1/auth/moi", get(auth::moi))
         .route("/v1/rpc/{nom}", post(rpc))
+        .route("/v1/direct", get(crate::direct::ouvrir))
         .with_state(etat)
 }
 

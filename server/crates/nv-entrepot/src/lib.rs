@@ -54,8 +54,15 @@ impl EntrepotS3 {
         Ok(EntrepotS3 { r, creds, http })
     }
 
+    /// Le nom S3 d'un coffre : préfixe + nom, `_` devenu `-` (un nom de
+    /// bucket S3 n'accepte pas le tiret bas — constaté le 2026-09-27 avec
+    /// `event_posters`).
+    pub fn nom_physique(&self, coffre: &str) -> String {
+        format!("{}{}", self.r.prefixe, coffre.replace('_', "-"))
+    }
+
     fn bucket(&self, adresse: &Url, coffre: &str) -> NvResult<Bucket> {
-        Bucket::new(adresse.clone(), UrlStyle::Path, format!("{}{}", self.r.prefixe, coffre), self.r.region.clone())
+        Bucket::new(adresse.clone(), UrlStyle::Path, self.nom_physique(coffre), self.r.region.clone())
             .map_err(|e| panne("bucket", e))
     }
 
@@ -82,7 +89,7 @@ impl EntrepotS3 {
             if !r.status().is_success() {
                 return Err(panne("create bucket", format!("{c} : {}", r.status())));
             }
-            tracing::info!("coffre créé : {}{c}", self.r.prefixe);
+            tracing::info!("coffre créé : {}", self.nom_physique(c));
         }
         Ok(())
     }

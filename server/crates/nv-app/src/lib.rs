@@ -12,6 +12,7 @@
 //! écrite une seule fois.
 pub mod acces;
 pub mod comptes;
+pub mod direct;
 pub mod fichiers;
 
 use nv_core::ops::Op;
@@ -21,5 +22,6 @@ pub fn registry() -> Vec<Op> {
     let mut ops = Vec::new();
     ops.extend(comptes::guichet::registry());
     ops.extend(fichiers::guichet::registry());
+    ops.extend(direct::registry());
     ops
 }

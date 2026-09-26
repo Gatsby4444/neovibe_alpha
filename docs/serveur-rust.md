@@ -202,7 +202,7 @@ existante**. La plateforme complète vient ensuite.
 | 0. Le socle | ✅ 2026-09-27 — `server/` (espace Cargo : `nv-core`, `nv-app`, `nv-server`, `nv-proof`) ; base locale `outils/base_locale.py` (port 54329 : structure + ancien gardien + copie des données de dev + journal des changements) ; la preuve `cargo run -p nv-proof` (contre-testée : elle voit une réponse différente, une écriture manquante, un nouveau plus permissif, un cas mal posé) |
 | 1. Les comptes | ✅ 2026-09-27 côté serveur — `/v1/auth/inscription · connexion · renouveler · deconnexion · moi` (badge Ed25519 1 h, jetons tournants, plafond par téléphone prouvé identique à l'ancien crochet SQL, bcrypt de Supabase accepté puis réécrit en argon2id, limite d'essais) ; `username_available`, `my_suspension`, `profile_stats`, `profiles_get · list`, `profile_create · update`, `dev_report_insert` — 25 situations identiques |
 | 2. Les fichiers | ✅ 2026-09-27 — `nv-entrepot` (tout entrepôt compatible S3 : liens de lecture et de dépôt signés, taille et type signés, envoi en morceaux avec reprise, suppression), vérifié contre SeaweedFS local ; les 24 règles des coffres traduites (`fichiers/regles.rs`), les questions d'accès réécrites en expressions composables (`acces.rs`) ; guichets `files_sign_read · sign_upload · remove · upload_open · parts · part_url · finish · abort`, `mes_octets_a_supprimer`, `octets_supprimes` ; **le réveil** (`nv-server/src/taches.rs` : verrou, une transaction par passage, journal `nv.job_runs`) et le **balai des fichiers** (le serveur efface lui-même : règle RAPPELS #111) — 48 situations identiques |
-| 3. Le direct | à faire |
+| 3. Le direct | ✅ 2026-09-27 — `GET /v1/direct` (WebSocket : badge, abonnements `table:colonne=valeur`, diffusions `typing:…`, renouvellement du badge sans coupure) ; la base ANNONCE chaque changement des 10 tables suivies (`nv.annoncer`, canal `nv_direct` : tous les chemins y passent, cascades et balais compris) ; chaque ligne passe la règle de lecture de sa table (`nv-app/src/direct.rs`) ; `direct_instantane` (l'état à l'abonnement) — 15 situations identiques ; essai de bout en bout `outils/essai_direct.mjs` (deux comptes, message, « en train d'écrire », refus d'un non-membre, badge renouvelé) ✅. Écart voulu : « en train d'écrire » réservé aux membres de la conversation (avant : tout compte connaissant l'identifiant) |
 | 4. Relations et proximité | à faire |
 | 5. Conversations | à faire |
 | 6. Vibes et contenus | à faire |
@@ -219,6 +219,9 @@ preuve, chacun justifié) :
 - 2026-09-27 : la **suspension d'un autre compte** (`suspended_at`,
   `suspended_reason`) ne se lit plus en lisant son profil. L'ancien guichet
   la donnait à quiconque voyait le profil ; l'app ne s'en sert pas.
+- 2026-09-27 : **« en train d'écrire »** n'est plus audible que par les
+  membres de la conversation (l'ancien canal de diffusion n'avait aucune
+  règle : tout compte connaissant l'identifiant pouvait l'écouter).
 - 2026-09-27 : les **protections de la base** (nom déjà pris, forme d'un
   nom…) répondent par une phrase (« Ce nom est déjà pris. ») au lieu du nom
   technique de l'index.

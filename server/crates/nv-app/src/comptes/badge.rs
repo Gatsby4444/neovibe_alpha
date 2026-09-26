@@ -66,6 +66,13 @@ impl Badge {
 
     /// Vérifie un badge ; renvoie le compte et la session.
     pub fn verifier(&self, jeton: &str) -> NvResult<(Uuid, Uuid)> {
+        self.verifier_avec_expiration(jeton).map(|(c, s, _)| (c, s))
+    }
+
+    /// Vérifie un badge ; renvoie aussi son heure d'expiration (secondes
+    /// depuis 1970) — le direct ferme une connexion dont le badge a expiré
+    /// sans être renouvelé.
+    pub fn verifier_avec_expiration(&self, jeton: &str) -> NvResult<(Uuid, Uuid, i64)> {
         let options = VerificationOptions {
             allowed_audiences: Some(HashSet::from_strings(&[AUDIENCE])),
             time_tolerance: Some(Duration::from_secs(5)),
@@ -80,7 +87,8 @@ impl Badge {
             .as_deref()
             .and_then(|s| Uuid::parse_str(s).ok())
             .ok_or(NvError::Unauthenticated)?;
-        Ok((compte, claims.custom.sid))
+        let expire = claims.expires_at.map(|t| t.as_secs() as i64).unwrap_or(0);
+        Ok((compte, claims.custom.sid, expire))
     }
 }
 
