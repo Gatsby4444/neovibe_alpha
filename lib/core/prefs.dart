@@ -610,3 +610,54 @@ class ArrivalAvatarPref extends Notifier<String?> {
 final arrivalAvatarProvider = NotifierProvider<ArrivalAvatarPref, String?>(
   ArrivalAvatarPref.new,
 );
+
+/// **Comment la carte est affichée dans l'app** (DÉVELOPPEUR, 2026-09-26) —
+/// pour comparer la fluidité sur le téléphone au lieu de la deviner.
+///
+/// Jay : *« un peu saccadé, comme entre 10 et 20 images par seconde »*. La
+/// carte est un morceau d'Android posé dans l'écran Flutter, et il y a trois
+/// façons de l'y poser ; laquelle est la plus fluide dépend du téléphone. Le
+/// passage à [texture] (v0.9.275) était une hypothèse, et elle n'a pas suffi.
+/// Ce réglage permet de COMPARER les trois sur l'appareil, dans la même
+/// version. À retirer avec la section Développeur, une fois le bon choisi.
+enum MapHosting {
+  /// L'écran virtuel d'Android : le choix par défaut du paquet Mapbox.
+  virtuel('Écran virtuel', 'Le réglage par défaut de Mapbox.'),
+
+  /// La couche de texture : ce que Flutter recommande (depuis v0.9.275).
+  texture('Couche de texture', 'Recommandé par Flutter (actuel).'),
+
+  /// La vue Android posée telle quelle, dessinée par la carte elle-même.
+  natif(
+    'Vue native',
+    "La carte se dessine elle-même, sans passer par Flutter.",
+  );
+
+  const MapHosting(this.label, this.detail);
+  final String label;
+  final String detail;
+}
+
+class DevMapHosting extends AsyncNotifier<MapHosting> {
+  static const prefsKey = 'dev_map_hosting';
+
+  @override
+  Future<MapHosting> build() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lu = prefs.getString(prefsKey);
+    return MapHosting.values.firstWhere(
+      (m) => m.name == lu,
+      orElse: () => MapHosting.texture,
+    );
+  }
+
+  Future<void> set(MapHosting value) async {
+    state = AsyncData(value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(prefsKey, value.name);
+  }
+}
+
+final devMapHostingProvider = AsyncNotifierProvider<DevMapHosting, MapHosting>(
+  DevMapHosting.new,
+);

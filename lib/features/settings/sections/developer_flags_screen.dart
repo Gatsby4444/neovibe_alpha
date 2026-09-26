@@ -47,6 +47,26 @@ class DeveloperFlagsScreen extends ConsumerWidget {
             onChanged: (v) => ref.read(devShowExpiryProvider.notifier).set(v),
           ),
           const Divider(),
+          const SettingsHeader('Carte'),
+          // Comparer la fluidité sur le téléphone (2026-09-26) : la carte se
+          // rouvre avec le mode choisi.
+          RadioGroup<MapHosting>(
+            groupValue: ref.watch(devMapHostingProvider).value,
+            onChanged: (v) {
+              if (v != null) ref.read(devMapHostingProvider.notifier).set(v);
+            },
+            child: Column(
+              children: [
+                for (final m in MapHosting.values)
+                  RadioListTile<MapHosting>(
+                    title: Text(m.label),
+                    subtitle: Text(m.detail),
+                    value: m,
+                  ),
+              ],
+            ),
+          ),
+          const Divider(),
           const SettingsHeader('Caméra'),
           SwitchListTile(
             title: const Text('Diagnostic caméra sur l\'aperçu'),

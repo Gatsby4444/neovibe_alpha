@@ -10,6 +10,7 @@ import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 import '../../core/models/event.dart';
 import '../../core/palette.dart';
+import '../../core/prefs.dart';
 import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/utils/erreur_serveur.dart';
@@ -101,7 +102,10 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// Un envoi à la carte à la fois, et pas plus de 30 par seconde : la carte
   /// est un objet natif, chaque déplacement est un message.
   bool _envoiEnCours = false;
-  final _cadence = FrameGate(const Duration(milliseconds: 33));
+
+  /// 60 images par seconde au plus : à 30, la caméra qui me suit avançait
+  /// par petits à-coups visibles.
+  final _cadence = FrameGate(const Duration(milliseconds: 16));
 
   /// Les deux images de mon point (avec et sans flèche) sont-elles posées
   /// dans le style, et pour quel thème ?
@@ -235,39 +239,100 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     final mode = _suivi.afterTap(hasHeading: cap != null);
     setState(() => _suivi = mode);
     _suiviPretA = now.add(const Duration(milliseconds: 700));
+    await _appliquerGestes(mode);
     final zoom = (await _map?.getCameraState())?.zoom ?? _initialZoom;
+    final boussole = mode == MapFollow.boussole;
+    final quitteBoussole = !boussole && _vueDeDerriere;
+    _vueDeDerriere = boussole;
+    if (!mounted) return;
+    // En mode boussole, la « vue de derrière » (Jay, 2026-09-26) : la carte
+    // s'incline et mon point descend vers le bas de l'écran — on voit ce
+    // qui est DEVANT soi, comme en navigation.
+    final hauteur = MediaQuery.sizeOf(context).height;
     unawaited(
       _map?.flyTo(
         CameraOptions(
           center: _pt(ici.lat, ici.lon),
           // Trop loin pour voir la rue : on s'approche ; sinon on garde le
-          // zoom choisi.
-          zoom: zoom < 14 ? _initialZoom : zoom,
-          bearing: mode == MapFollow.boussole ? cap : 0,
+          // zoom choisi. La vue de derrière se regarde de plus près.
+          zoom: boussole
+              ? math.max(zoom, _zoomDerriere)
+              : (zoom < 14 ? _initialZoom : zoom),
+          // Centré depuis la carte libre : on garde l'orientation choisie à
+          // la main ; en sortant de la boussole, retour nord en haut.
+          bearing: boussole ? cap : (quitteBoussole ? 0 : null),
+          pitch: boussole ? _inclinaisonDerriere : (quitteBoussole ? 0 : null),
+          padding: boussole
+              ? MbxEdgeInsets(top: hauteur * 0.35, left: 0, bottom: 0, right: 0)
+              : (quitteBoussole
+                    ? MbxEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+                    : null),
         ),
-        MapAnimationOptions(duration: 600),
+        MapAnimationOptions(duration: 800),
       ),
     );
+    _suiviPretA = DateTime.now().add(const Duration(milliseconds: 900));
     _reveiller();
+  }
+
+  /// Ce qui a été envoyé en dernier à la carte, pour mon point et son
+  /// cercle : on ne renvoie que ce qui a changé ([_poserMoi]).
+  Object? _envoyeHalo, _envoyePoint, _envoyeCamera;
+
+  /// La vue de derrière est-elle posée (inclinaison + point en bas) ?
+  bool _vueDeDerriere = false;
+
+  /// L'inclinaison de la vue de derrière, en degrés (0 = vue du dessus).
+  static const _inclinaisonDerriere = 55.0;
+
+  /// Le zoom minimum de la vue de derrière : assez près pour les bâtiments.
+  static const _zoomDerriere = 17.0;
+
+  /// **Tourner la carte à deux doigts** (Jay, 2026-09-26 : « le geste pour
+  /// orienter soi-même la carte comme sur Google Maps »). Permis partout,
+  /// SAUF en mode boussole : là, c'est ma direction qui oriente la carte, et
+  /// un geste contraire serait défait à l'image suivante. La boussole de
+  /// Mapbox (touchée, elle remet le nord) suit la même règle : visible quand
+  /// la carte est tournée à la main, cachée en mode boussole, où c'est notre
+  /// bouton qui remet le nord.
+  Future<void> _appliquerGestes(MapFollow mode) async {
+    final map = _map;
+    if (map == null) return;
+    final boussole = mode == MapFollow.boussole;
+    await map.gestures.updateSettings(
+      GesturesSettings(rotateEnabled: !boussole),
+    );
+    await map.compass.updateSettings(CompassSettings(enabled: !boussole));
   }
 
   /// La carte déplacée à la main : elle cesse de me suivre.
   void _onPan(MapContentGestureContext _) {
     if (!_suivi.follows) return;
-    setState(() => _suivi = _suivi.afterPan);
+    final mode = _suivi.afterPan;
+    setState(() => _suivi = mode);
+    unawaited(_appliquerGestes(mode));
   }
 
   Future<void> _onMapCreated(MapboxMap map) async {
     _map = map;
-    // Pas de rotation : une carte de travers ne sert à personne ici et
-    // s'attrape par accident à deux doigts. L'inclinaison reste (glisser à
-    // deux doigts) : c'est elle qui montre les bâtiments en 3D.
-    await map.gestures.updateSettings(GesturesSettings(rotateEnabled: false));
+    // ⚠️ **Une carte neuve n'a rien de ce qu'on avait posé sur l'ancienne**
+    // (la carte est recréée quand on change son mode d'affichage) : on
+    // oublie tout ce qui la désignait, sinon on déplacerait des points qui
+    // n'existent plus — en silence.
+    _moiPoint = null;
+    _haloPoly = null;
+    _envoyeHalo = null;
+    _envoyePoint = null;
+    _envoyeCamera = null;
+    _dessineChauds = null;
+    _dessineSoirees = null;
+    _imagesMoiSombre = null;
+    _lumiere = null;
+    // Tourner à deux doigts : permis hors mode boussole ([_appliquerGestes]).
+    // L'inclinaison (glisser à deux doigts vers le haut) montre la 3D.
+    await _appliquerGestes(_suivi);
     await map.setBounds(CameraBoundsOptions(minZoom: 4, maxZoom: 20));
     await map.scaleBar.updateSettings(ScaleBarSettings(enabled: false));
-    // Pas la boussole de Mapbox : la remettre au nord se battrait avec le
-    // mode boussole de NOTRE bouton, qui la remet au nord lui-même.
-    await map.compass.updateSettings(CompassSettings(enabled: false));
     // ⚠️ **Le logo et l'attribution sont obligatoires, donc LISIBLES** : au
     // bas de l'écran, ils passaient sous la barre de navigation du téléphone
     // (même défaut que l'ancienne attribution, capture du 2026-09-22).
@@ -452,16 +517,6 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     MapFollow suivre = MapFollow.libre,
   }) async {
     try {
-      // La caméra suit mon point — et tourne avec moi en mode boussole —
-      // dans le MÊME battement que le point : ils bougent ensemble.
-      if (suivre.follows) {
-        await _map!.setCamera(
-          CameraOptions(
-            center: _pt(frame.lat, frame.lon),
-            bearing: suivre == MapFollow.boussole ? frame.heading : null,
-          ),
-        );
-      }
       if (_imagesMoiSombre != p.isDark) {
         await _poserImagesMoi(p);
         _imagesMoiSombre = p.isDark;
@@ -469,40 +524,79 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       final ou = _pt(frame.lat, frame.lon);
       final image = frame.heading == null ? _imgPoint : _imgFleche;
       final cap = frame.heading ?? 0;
-      final point = _moiPoint;
-      if (point == null) {
-        _moiPoint = await _moi!.create(
-          PointAnnotationOptions(
-            geometry: ou,
-            iconImage: image,
-            iconRotate: cap,
-          ),
-        );
-      } else {
-        point
-          ..geometry = ou
-          ..iconImage = image
-          ..iconRotate = cap;
-        await _moi!.update(point);
-      }
       // ⚠️ **Le halo d'incertitude, en MÈTRES.** L'appareil ne sait pas où
       // il est au mètre près (21 m au mieux, 100 m et plus en intérieur).
       // Un point net sans halo affirme une précision qu'on n'a pas.
       final cercle = _cercle(frame.lat, frame.lon, frame.accuracy);
+      final point = _moiPoint;
       final halo = _haloPoly;
-      if (halo == null) {
-        _haloPoly = await _halo!.create(
-          PolygonAnnotationOptions(
-            geometry: cercle,
-            fillColor: p.cool.toARGB32(),
-            fillOpacity: 0.12,
-            fillOutlineColor: p.cool.withValues(alpha: 0.4).toARGB32(),
+      // ⚠️ **N'envoyer que ce qui a CHANGÉ** (2026-09-26, carte saccadée).
+      // La boussole tremble sans arrêt, même immobile : chaque tremblement
+      // renvoyait le point ET le cercle d'incertitude — 49 sommets — jusqu'à
+      // 60 fois par seconde, y compris pendant qu'on déplaçait la carte au
+      // doigt. Le cercle ne dépend que de la position ; le point, de la
+      // position et de la flèche, à un degré près.
+      final cleHalo = (frame.lat, frame.lon, frame.accuracy.round());
+      final bougeHalo = halo == null || cleHalo != _envoyeHalo;
+      final clePoint = (frame.lat, frame.lon, image, cap.round());
+      final bougePoint = point == null || clePoint != _envoyePoint;
+      // La caméra aussi : tourner TOUTE la carte pour un tremblement d'un
+      // dixième de degré la redessine entièrement, pour rien.
+      final cleCamera = suivre.follows
+          ? (
+              frame.lat,
+              frame.lon,
+              suivre == MapFollow.boussole ? (cap * 2).round() : null,
+            )
+          : null;
+      final bougeCamera = cleCamera != null && cleCamera != _envoyeCamera;
+      _envoyeHalo = cleHalo;
+      _envoyePoint = clePoint;
+      _envoyeCamera = cleCamera;
+      // Les trois envois partent ENSEMBLE : l'un après l'autre, leurs allers-
+      // retours s'additionnaient et limitaient le nombre d'images par
+      // seconde.
+      await Future.wait([
+        // La caméra suit mon point — et tourne avec moi en mode boussole —
+        // dans le MÊME battement que le point : ils bougent ensemble.
+        if (bougeCamera)
+          _map!.setCamera(
+            CameraOptions(
+              center: ou,
+              bearing: suivre == MapFollow.boussole ? frame.heading : null,
+            ),
           ),
-        );
-      } else {
-        halo.geometry = cercle;
-        await _halo!.update(halo);
-      }
+        if (bougePoint && point == null)
+          _moi!
+              .create(
+                PointAnnotationOptions(
+                  geometry: ou,
+                  iconImage: image,
+                  iconRotate: cap,
+                ),
+              )
+              .then((a) => _moiPoint = a)
+        else if (bougePoint)
+          _moi!.update(
+            point
+              ..geometry = ou
+              ..iconImage = image
+              ..iconRotate = cap,
+          ),
+        if (bougeHalo && halo == null)
+          _halo!
+              .create(
+                PolygonAnnotationOptions(
+                  geometry: cercle,
+                  fillColor: p.cool.toARGB32(),
+                  fillOpacity: 0.12,
+                  fillOutlineColor: p.cool.withValues(alpha: 0.4).toARGB32(),
+                ),
+              )
+              .then((a) => _haloPoly = a)
+        else if (bougeHalo)
+          _halo!.update(halo..geometry = cercle),
+      ]);
     } catch (_) {
       // Carte détruite en plein envoi (écran refermé) : rien à rattraper.
     }
@@ -667,6 +761,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         : ref.watch(eventHotSpotsProvider(eventId)).value ?? const [];
 
     final live = ref.watch(livePositionProvider);
+    final affichage = ref.watch(devMapHostingProvider).value;
     // Sur la carte, UNE position : celle que suit mon point ([track]) — le
     // centrage d'arrivée, le bouton et le libellé lisent la même.
     final me = live.track ?? live.fix;
@@ -733,21 +828,32 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         ),
         body: Stack(
           children: [
-            MapWidget(
-              key: const ValueKey('carte'),
-              styleUri: MapboxStyles.STANDARD,
-              viewport: _vue,
-              // ⚠️ **Le mode d'affichage le plus récent** (2026-09-25, Jay :
-              // « pas assez fluide »). Par défaut, le paquet passe par l'écran
-              // virtuel d'Android (`VD`), la méthode la plus ancienne ; le
-              // mode par couche de texture est celui que Flutter recommande.
-              // Hypothèse à vérifier sur le téléphone, pas une mesure.
-              // ignore: experimental_member_use
-              androidHostingMode: AndroidPlatformViewHostingMode.TLHC_HC,
-              onMapCreated: _onMapCreated,
-              onStyleLoadedListener: _onStyleLoaded,
-              onScrollListener: _onPan,
-            ),
+            // ⚠️ **Le mode d'affichage se COMPARE sur le téléphone**
+            // (Réglages › Développeur › Interrupteurs, 2026-09-26) : Jay
+            // trouvait la carte saccadée, et le passage à la couche de
+            // texture (v0.9.275) n'était qu'une hypothèse. Changer de mode
+            // recrée la carte (sa clé).
+            if (affichage == null)
+              const SizedBox.shrink()
+            else
+              MapWidget(
+                key: ValueKey(affichage),
+                styleUri: MapboxStyles.STANDARD,
+                viewport: _vue,
+                textureView: affichage != MapHosting.natif,
+                // ignore: experimental_member_use
+                androidHostingMode: switch (affichage) {
+                  // ignore: experimental_member_use
+                  MapHosting.virtuel => AndroidPlatformViewHostingMode.VD,
+                  // ignore: experimental_member_use
+                  MapHosting.texture => AndroidPlatformViewHostingMode.TLHC_HC,
+                  // ignore: experimental_member_use
+                  MapHosting.natif => AndroidPlatformViewHostingMode.HC,
+                },
+                onMapCreated: _onMapCreated,
+                onStyleLoadedListener: _onStyleLoaded,
+                onScrollListener: _onPan,
+              ),
             if (nearby.hasError)
               Positioned(
                 left: 16,
