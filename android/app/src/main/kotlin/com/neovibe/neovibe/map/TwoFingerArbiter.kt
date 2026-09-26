@@ -27,21 +27,27 @@ import kotlin.math.max
  *   deux, le long de la ligne des doigts (ils s'écartent : **zoom**) et en
  *   travers (ils tournent : **rotation**).
  *
- * Plus de tout-ou-rien : chaque part se mesure, en pixels, pour chaque
- * geste. Le zoom compte la variation d'écart ENTIÈRE (deux fois la part
- * le long de la ligne), comme avant : pincer reste le geste le plus facile
- * à déclencher (les pincements marchaient ; on n'y touche pas).
+ * Plus de tout-ou-rien : chaque part se mesure, **dans la même unité** —
+ * ce que parcourt CHAQUE doigt.
  *
- * La rotation, elle, ne compte que pour [ROTATION_POIDS] : un doigt qui
- * monte pendant que l'autre bouge à peine fait autant de « rotation » que
- * de « glissement » — c'est le geste d'inclinaison mal fait, et Jay veut
- * alors une inclinaison. Une rotation doit être NETTE pour gagner : deux
- * doigts qui tournent vraiment en sens opposés ne glissent pas du tout.
+ * ## 🔴 Corrigé une seconde fois, le même jour — la rotation prise pour un zoom
+ *
+ * La version du matin comptait le zoom en variation d'écart ENTIÈRE (deux
+ * fois ce que parcourt chaque doigt) et la rotation à 70 % : un zoom valait
+ * près de trois fois une rotation. Or le geste de rotation de Jay — deux
+ * doigts qui glissent à la verticale en sens opposés — sur des doigts dont
+ * la ligne penche (20 à 45° dans son journal) change aussi l'écart. Le zoom
+ * gagnait presque toujours (journal de 14:58 : 12 zooms, 1 rotation, sur
+ * des gestes voulus comme des rotations). Coefficients retirés : trois
+ * parts dans la même unité, et à égalité — à [TOLERANCE] près — la
+ * rotation passe devant le zoom, parce qu'une rotation laisse encore
+ * zoomer (règle 3 de Google) alors qu'un zoom interdit ensuite de tourner
+ * (règle 1).
  */
 object TwoFingerArbiter {
 
-    /** Poids de la rotation face au glissement (voir la doc de l'objet). */
-    const val ROTATION_POIDS = 0.7f
+    /** À 5 % près, la rotation l'emporte sur le zoom (voir la doc). */
+    const val TOLERANCE = 0.95f
 
     const val GLISSEMENT = "glissement"
     const val ROTATION = "rotation"
@@ -51,11 +57,14 @@ object TwoFingerArbiter {
     data class Parts(val zoom: Float, val rotation: Float, val glissement: Float) {
         val plusGrande get() = max(zoom, max(rotation, glissement))
 
-        /** Le geste qui domine ; à égalité, le glissement puis la rotation. */
+        /**
+         * Le geste qui domine. À égalité exacte, le glissement d'abord ; et
+         * la rotation l'emporte sur le zoom à [TOLERANCE] près.
+         */
         val choix
-            get() = when (plusGrande) {
-                glissement -> GLISSEMENT
-                rotation -> ROTATION
+            get() = when {
+                glissement >= rotation && glissement >= zoom -> GLISSEMENT
+                rotation >= zoom * TOLERANCE -> ROTATION
                 else -> ZOOM
             }
     }
@@ -86,8 +95,8 @@ object TwoFingerArbiter {
         val leLong = rx * ux + ry * uy // s'écartent (+) ou se rapprochent (−)
         val enTravers = -rx * uy + ry * ux // tournent
         return Parts(
-            zoom = abs(leLong) * 2,
-            rotation = abs(enTravers) * ROTATION_POIDS,
+            zoom = abs(leLong),
+            rotation = abs(enTravers),
             glissement = glissement,
         )
     }

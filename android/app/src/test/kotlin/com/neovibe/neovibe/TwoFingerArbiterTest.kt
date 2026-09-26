@@ -21,10 +21,11 @@ class TwoFingerArbiterTest {
     }
 
     @Test
-    fun `un doigt qui recule d'un pixel ne fait plus une rotation`() {
-        // 🔴 Le cas du journal : l'un monte franchement, l'autre recule à
-        // peine au départ. L'ancien calcul donnait « glissé 0 » → rotation.
-        assertEquals(TwoFingerArbiter.GLISSEMENT, choix(0f, -60f, 0f, 1f))
+    fun `l'un monte, l'autre à peine, inclinaison`() {
+        // 🔴 Le premier défaut du journal : un doigt qui bouge peu dans le
+        // même sens mettait le glissement à ZÉRO (« glissé 0 ») dès qu'il
+        // reculait. Le glissement se mesure maintenant toujours.
+        assertEquals(TwoFingerArbiter.GLISSEMENT, choix(0f, -60f, 0f, -4f))
     }
 
     @Test
@@ -53,6 +54,27 @@ class TwoFingerArbiterTest {
         assertEquals(
             TwoFingerArbiter.ZOOM,
             choix(0f, -20f, 0f, 20f, ax = 540f, ay = 900f, bx = 540f, by = 1500f),
+        )
+    }
+
+    @Test
+    fun `sens opposés verticaux, doigts qui penchent de 30°, tournent`() {
+        // 🔴 Le second défaut (journal de 14:58) : la ligne des doigts
+        // penche, le glissement vertical opposé change aussi l'écart, et le
+        // zoom — compté double — gagnait.
+        assertEquals(
+            TwoFingerArbiter.ROTATION,
+            choix(0f, 30f, 0f, -30f, ax = 280f, ay = 1300f, bx = 800f, by = 1000f),
+        )
+    }
+
+    @Test
+    fun `sens opposés verticaux, doigts qui penchent de 45°, tournent encore`() {
+        // À 45°, le mouvement change autant l'écart que l'angle : égalité,
+        // et la rotation passe devant (elle laisse encore zoomer).
+        assertEquals(
+            TwoFingerArbiter.ROTATION,
+            choix(0f, 30f, 0f, -30f, ax = 240f, ay = 1500f, bx = 664f, by = 1076f),
         )
     }
 }
