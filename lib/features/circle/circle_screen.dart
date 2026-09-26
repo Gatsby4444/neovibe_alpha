@@ -243,6 +243,8 @@ class _CircleScreenState extends ConsumerState<CircleScreen> {
                             MessageKind.libraryAdd => '🔒 Vibe en attente',
                             MessageKind.contentShare => '↗️ Contenu partagé',
                             MessageKind.voice => '🎤 Vocal',
+                            MessageKind.locationRequest =>
+                              '📍 Demande de position',
                           },
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,

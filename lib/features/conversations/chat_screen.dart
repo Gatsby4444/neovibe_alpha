@@ -40,6 +40,7 @@ import 'voice/voice_bubble.dart';
 import 'voice/voice_record_bar.dart';
 import 'voice/voice_recorder.dart';
 import '../library/open_profile.dart';
+import '../map/location_request_bubble.dart';
 
 class ChatScreen extends ConsumerStatefulWidget {
   const ChatScreen({super.key, required this.conversationId});
@@ -884,7 +885,9 @@ class _MessageBubble extends ConsumerWidget {
     // Un vocal se lit DANS la bulle, comme du texte : c'est une ligne du fil,
     // pas une pièce jointe qui se suffit à elle-même.
     final isAttachment =
-        message.kind != MessageKind.text && message.kind != MessageKind.voice;
+        message.kind != MessageKind.text &&
+        message.kind != MessageKind.voice &&
+        message.kind != MessageKind.locationRequest;
     final senderProfile = isMine || !showSenderName
         ? null
         : ref.watch(profileByIdProvider(message.senderId)).value;
@@ -902,6 +905,10 @@ class _MessageBubble extends ConsumerWidget {
       MessageKind.card => _CardContainer(message: message),
       MessageKind.contentShare => _SharedContentTile(message: message),
       MessageKind.voice => VoiceBubble(message: message, isMine: isMine),
+      MessageKind.locationRequest => LocationRequestBubble(
+        message: message,
+        isMine: isMine,
+      ),
       // Traité en amont par un retour anticipé — jamais atteint.
       MessageKind.libraryAdd => const SizedBox.shrink(),
     };

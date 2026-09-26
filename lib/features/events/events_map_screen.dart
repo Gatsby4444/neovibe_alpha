@@ -37,6 +37,12 @@ import 'map_gesture_tuning.dart';
 import 'map_markers.dart';
 import '../map/friends_map.dart';
 import '../map/vibes_map.dart';
+import '../map/friend_wheel.dart';
+import '../map/walking_route.dart';
+import '../connections/connections_repository.dart';
+import '../conversations/chat_screen.dart';
+import '../conversations/conversations_repository.dart';
+import '../library/open_profile.dart';
 import '../library/feed/vibes_reel_screen.dart';
 import 'map_settings_sheet.dart';
 import 'my_point_motion.dart';
@@ -106,6 +112,15 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
 
   /// Mes amis (leur photo, « il y a … ») ; puis MA photo, tout en haut.
   PointAnnotationManager? _amis;
+  Cancelable? _tapAmis;
+  List<FriendOnMap> _amisDessines = const [];
+
+  /// La roue d'actions ouverte sur un ami : lui, et sa place à l'écran.
+  (FriendOnMap, Offset)? _roue;
+
+  /// Le trajet à pied vers un ami (« Rejoindre »), sous les repères.
+  PolylineAnnotationManager? _trajet;
+  (FriendOnMap, WalkingRoute)? _itineraire;
   PointAnnotationManager? _moiPhoto;
   PointAnnotation? _moiPhotoPoint;
   Object? _dessineAmis;
@@ -224,6 +239,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     WidgetsBinding.instance.removeObserver(this);
     _tapSoirees?.cancel();
     _tapVibes?.cancel();
+    _tapAmis?.cancel();
     _ticker.dispose();
     _couperBoussole();
     _arreterPartage();
@@ -401,6 +417,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
 
   /// La carte déplacée à la main : elle cesse de me suivre.
   void _onPan(MapContentGestureContext _) {
+    if (_roue != null) setState(() => _roue = null);
     if (!_suivi.follows) return;
     final mode = _suivi.afterPan;
     setState(() => _suivi = mode);
@@ -446,6 +463,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       AttributionSettings(marginBottom: bas),
     );
     final a = map.annotations;
+    _trajet = await a.createPolylineAnnotationManager();
     _halo = await a.createPolygonAnnotationManager();
     _chauds = await a.createCircleAnnotationManager();
     _moi = await a.createPointAnnotationManager();
@@ -467,6 +485,12 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     );
     _amis = await a.createPointAnnotationManager();
     await _amis!.setIconAllowOverlap(true);
+    _tapAmis = _amis!.tapEvents(
+      onTap: (annotation) {
+        final id = annotation.customData?['ami'];
+        if (id is String) unawaited(_ouvrirRoue(id));
+      },
+    );
     await _amis!.setTextAllowOverlap(true);
     _moiPhoto = await a.createPointAnnotationManager();
     await _moiPhoto!.setIconAllowOverlap(true);
@@ -714,6 +738,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     );
     if (cle == _dessineAmis) return;
     _dessineAmis = cle;
+    _amisDessines = amis;
     try {
       final dpr = MediaQuery.devicePixelRatioOf(context);
       final images = <String, String>{};
@@ -806,6 +831,118 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   void _arreterPartage() {
     _partage?.cancel();
     _partage = null;
+  }
+
+  /// **La roue d'actions** sur la photo d'un ami (Jay, 2026-09-26).
+  Future<void> _ouvrirRoue(String amiId) async {
+    final ami = _amisDessines.where((a) => a.userId == amiId).firstOrNull;
+    final map = _map;
+    if (ami == null || map == null) return;
+    final ecran = await map.pixelForCoordinate(_pt(ami.lat, ami.lon));
+    if (!mounted) return;
+    setState(() => _roue = (ami, Offset(ecran.x, ecran.y)));
+  }
+
+  void _fermerRoue() {
+    if (_roue != null) setState(() => _roue = null);
+  }
+
+  Future<void> _voirProfil(FriendOnMap ami) async {
+    _fermerRoue();
+    final profil = await ref.read(profileByIdProvider(ami.userId).future);
+    if (profil != null && mounted) openProfile(context, profil);
+  }
+
+  Future<void> _message(FriendOnMap ami) async {
+    _fermerRoue();
+    try {
+      final conv = await ref
+          .read(conversationsRepositoryProvider)
+          .getOrCreateDirect(ami.userId);
+      if (!mounted) return;
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ChatScreen(conversationId: conv),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        TopBanner.show(context, messageServeur(e), tone: TopBannerTone.already);
+      }
+    }
+  }
+
+  Future<void> _demanderPosition(FriendOnMap ami) async {
+    _fermerRoue();
+    try {
+      await ref.read(friendsMapRepositoryProvider).requestLocation(ami.userId);
+      if (mounted) {
+        TopBanner.show(
+          context,
+          'Demande envoyée à ${ami.displayName.split(' ').first} — '
+          'dans votre conversation.',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        TopBanner.show(context, messageServeur(e), tone: TopBannerTone.already);
+      }
+    }
+  }
+
+  /// **Rejoindre** : le trajet à pied le plus court, dessiné sur la carte.
+  Future<void> _rejoindre(FriendOnMap ami) async {
+    _fermerRoue();
+    final ici =
+        _motion.positionAt(DateTime.now()) ??
+        await _position.current().then(
+          (f) => f == null ? null : (lat: f.latitude, lon: f.longitude),
+        );
+    if (ici == null || !mounted) return;
+    try {
+      final trajet = await ref
+          .read(walkingRouteServiceProvider)
+          .route(ici.lat, ici.lon, ami.lat, ami.lon);
+      if (!mounted) return;
+      if (trajet == null) {
+        TopBanner.show(
+          context,
+          'Aucun trajet à pied trouvé.',
+          tone: TopBannerTone.already,
+        );
+        return;
+      }
+      setState(() => _itineraire = (ami, trajet));
+      await _dessinerTrajet(context.palette, trajet);
+    } catch (e) {
+      if (mounted) {
+        TopBanner.show(context, messageServeur(e), tone: TopBannerTone.already);
+      }
+    }
+  }
+
+  Future<void> _dessinerTrajet(NeoPalette p, WalkingRoute? trajet) async {
+    final calque = _trajet;
+    if (calque == null) return;
+    await calque.deleteAll();
+    if (trajet == null || trajet.points.length < 2) return;
+    await calque.create(
+      PolylineAnnotationOptions(
+        geometry: LineString(
+          coordinates: [
+            for (final (lat, lon) in trajet.points) Position(lon, lat),
+          ],
+        ),
+        lineColor: p.action.toARGB32(),
+        lineWidth: 5,
+        lineOpacity: 0.85,
+      ),
+    );
+  }
+
+  void _effacerTrajet() {
+    setState(() => _itineraire = null);
+    unawaited(_dessinerTrajet(context.palette, null));
   }
 
   /// Quelque chose bouge : on relance l'horloge si elle dort.
@@ -1215,6 +1352,80 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
                 ),
               },
             ),
+            if (_roue case (final ami, final centre))
+              Positioned.fill(
+                child: FriendWheel(
+                  centre: centre,
+                  onClose: _fermerRoue,
+                  actions: [
+                    FriendWheelAction(
+                      icone: Icons.person_rounded,
+                      nom: 'Voir le profil',
+                      onTap: () => _voirProfil(ami),
+                    ),
+                    FriendWheelAction(
+                      icone: Icons.chat_bubble_rounded,
+                      nom: 'Message',
+                      onTap: () => _message(ami),
+                    ),
+                    // « Rejoindre » : ouvert ou non par le SERVEUR (bloqué au
+                    // premier lancement public, décision de Jay).
+                    if (ref.watch(walkingRouteEnabledProvider).value ?? false)
+                      FriendWheelAction(
+                        icone: Icons.directions_walk_rounded,
+                        nom: 'Rejoindre à pied',
+                        onTap: () => _rejoindre(ami),
+                      ),
+                    FriendWheelAction(
+                      icone: Icons.share_location_rounded,
+                      nom: 'Demander sa position',
+                      onTap: () => _demanderPosition(ami),
+                    ),
+                  ],
+                ),
+              ),
+            if (_itineraire case (final ami, final trajet))
+              Positioned(
+                left: 16,
+                right: 72,
+                bottom: 0,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 36),
+                    child: Material(
+                      color: p.surface,
+                      borderRadius: BorderRadius.circular(NeoRadius.md),
+                      elevation: 4,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.directions_walk_rounded,
+                              color: p.action,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                '${trajet.libelle} · vers '
+                                '${ami.displayName.split(' ').first}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: 'Effacer le trajet',
+                              icon: const Icon(Icons.close_rounded),
+                              onPressed: _effacerTrajet,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (nearby.hasError)
               Positioned(
                 left: 16,

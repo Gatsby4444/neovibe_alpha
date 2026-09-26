@@ -23,7 +23,12 @@ enum MessageKind {
   /// bucket `media`, dont la clé ne sort que par `open_voice_message`. Vit
   /// 24 h avec son message. DM et groupes seulement — jamais le canal de
   /// proximité (règle serveur), ni l'événement (choix par défaut).
-  voice;
+  voice,
+
+  /// **Demande de position d'un ami** (2026-09-26) : le corps porte
+  /// l'identifiant de la demande ; son état vient du serveur. Le serveur
+  /// refuse un tel message s'il ne correspond pas à une vraie demande.
+  locationRequest;
 
   /// Le nom Dart et la valeur en base diffèrent (`libraryAdd` / `library_add`),
   /// d'où la table explicite plutôt que `byName`.
@@ -40,6 +45,7 @@ enum MessageKind {
     'library_add' => MessageKind.libraryAdd,
     'content_share' => MessageKind.contentShare,
     'voice' => MessageKind.voice,
+    'location_request' => MessageKind.locationRequest,
     _ => MessageKind.text,
   };
 
@@ -51,6 +57,7 @@ enum MessageKind {
     MessageKind.libraryAdd => 'library_add',
     MessageKind.contentShare => 'content_share',
     MessageKind.voice => 'voice',
+    MessageKind.locationRequest => 'location_request',
   };
 }
 

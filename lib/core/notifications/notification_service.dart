@@ -9,7 +9,8 @@ enum NotifChannel {
   fomo('fomo', 'Activité du cercle', 'Publications et Vibes reçues'),
   waves('waves', 'Waves', 'Croisements physiques manqués'),
   proximity('proximity', 'Proximité', 'Demandes de connexion à proximité'),
-  bereal('bereal', 'BeReal', 'C\'est le moment de capturer l\'instant');
+  bereal('bereal', 'BeReal', 'C\'est le moment de capturer l\'instant'),
+  position('position', 'Position', 'Demandes de position de tes amis');
 
   const NotifChannel(this.id, this.title, this.description);
   final String id;

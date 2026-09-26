@@ -20,6 +20,7 @@ class FriendOnMap {
     required this.at,
     required this.displayName,
     this.avatarUrl,
+    this.revealed = false,
   });
 
   factory FriendOnMap.fromJson(Map<String, dynamic> j) => FriendOnMap(
@@ -29,6 +30,7 @@ class FriendOnMap {
     at: DateTime.parse(j['at'] as String).toLocal(),
     displayName: (j['display_name'] as String?) ?? '',
     avatarUrl: j['avatar_url'] as String?,
+    revealed: j['revealed'] == true,
   );
 
   final String userId;
@@ -40,6 +42,9 @@ class FriendOnMap {
   final String displayName;
   final String? avatarUrl;
 
+  /// Position donnée EN RÉPONSE à ma demande (et non partagée d'ordinaire).
+  final bool revealed;
+
   @override
   bool operator ==(Object other) =>
       other is FriendOnMap &&
@@ -48,10 +53,12 @@ class FriendOnMap {
       other.lon == lon &&
       other.at == at &&
       other.displayName == displayName &&
-      other.avatarUrl == avatarUrl;
+      other.avatarUrl == avatarUrl &&
+      other.revealed == revealed;
 
   @override
-  int get hashCode => Object.hash(userId, lat, lon, at, displayName, avatarUrl);
+  int get hashCode =>
+      Object.hash(userId, lat, lon, at, displayName, avatarUrl, revealed);
 }
 
 /// **De quand date une position**, dit en clair (« il y a 45 min »).
@@ -110,6 +117,59 @@ class FriendsMapRepository {
       params: {'p_lat': lat, 'p_lon': lon, 'p_acc': acc},
     );
     return r == true;
+  }
+
+  /// **Demander sa position à un ami** : une demande dans notre chat, qu'il
+  /// doit accepter (`request_location` — amis seulement, pas deux fois en
+  /// deux minutes).
+  Future<String> requestLocation(String friendId) async {
+    final id = await _client.rpc(
+      'request_location',
+      params: {'p_friend': friendId},
+    );
+    return id as String;
+  }
+
+  /// Répondre à une demande : accepter révèle ma position au seul
+  /// demandeur, pour une heure (`answer_location_request`).
+  Future<void> answerLocationRequest(
+    String requestId, {
+    required bool accept,
+    double? lat,
+    double? lon,
+    double acc = 0,
+  }) => _client.rpc(
+    'answer_location_request',
+    params: {
+      'p_request': requestId,
+      'p_accept': accept,
+      'p_lat': lat,
+      'p_lon': lon,
+      'p_acc': acc,
+    },
+  );
+
+  /// Où en est une demande (pour la bulle du chat) ; nulle si je n'y suis
+  /// pour rien.
+  Future<LocationRequestState?> requestState(String requestId) async {
+    final rows =
+        await _client.rpc(
+              'location_request_state',
+              params: {'p_request': requestId},
+            )
+            as List;
+    if (rows.isEmpty) return null;
+    final r = (rows.first as Map).cast<String, dynamic>();
+    return LocationRequestState(
+      etat: switch (r['state']) {
+        'en_attente' => LocationRequestEtat.enAttente,
+        'acceptee' => LocationRequestEtat.acceptee,
+        'refusee' => LocationRequestEtat.refusee,
+        _ => LocationRequestEtat.expiree,
+      },
+      requesterId: r['requester_id'] as String,
+      targetId: r['target_id'] as String,
+    );
   }
 
   /// Mes amis visibles sur ma carte.
@@ -199,3 +259,24 @@ final friendsOnMapProvider = StreamProvider.autoDispose<List<FriendOnMap>>((
 /// La cadence de relecture (et d'envoi, carte ouverte) — celle du serveur
 /// (`map_rules.friend_live_every`).
 const friendsRefreshEvery = Duration(seconds: 10);
+
+enum LocationRequestEtat { enAttente, acceptee, refusee, expiree }
+
+/// L'état d'une demande de position, tel que le serveur le calcule.
+class LocationRequestState {
+  const LocationRequestState({
+    required this.etat,
+    required this.requesterId,
+    required this.targetId,
+  });
+
+  final LocationRequestEtat etat;
+  final String requesterId;
+  final String targetId;
+}
+
+/// L'état d'une demande, relu à la demande (après une réponse, on invalide).
+final locationRequestStateProvider = FutureProvider.autoDispose
+    .family<LocationRequestState?, String>(
+      (ref, id) => ref.watch(friendsMapRepositoryProvider).requestState(id),
+    );

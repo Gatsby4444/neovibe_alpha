@@ -91,6 +91,20 @@ select pg_temp.essai('un inconnu dépose une affiche pour la soirée d''un autre
 select pg_temp.essai('un inconnu change la taille d''une soirée', 'refusé',
   format($q$select public.set_event_size(%L, 'plein_air')$q$, (select id from ev)));
 
+-- La carte (2026-09-26) : la position des amis, la demande de position.
+-- Le second compte de Jay (ccc4b5ae…) n'est PAS ami avec Charles (e1fcb9b0…).
+set local request.jwt.claims = '{"sub":"ccc4b5ae-6d7d-4896-a3f0-42b7fe78bc0c","role":"authenticated"}';
+select pg_temp.essai('un non-ami demande sa position à Charles', 'refusé',
+  $q$select public.request_location('e1fcb9b0-619d-40d5-9e6c-25ea35cb8a0c')$q$);
+select pg_temp.essai('écrire sa position directement (sans la règle de cadence)', 'refusé',
+  $q$insert into public.friend_locations (user_id, lat, lon) values ('ccc4b5ae-6d7d-4896-a3f0-42b7fe78bc0c', 1, 1)$q$);
+set local request.jwt.claims = '{"sub":"e1fcb9b0-619d-40d5-9e6c-25ea35cb8a0c","role":"authenticated"}';
+select pg_temp.essai('une fausse demande de position écrite dans le chat', 'refusé',
+  -- ⚠️ Sur une conversation qui EXISTE forcément (celle avec Testeur, ami de
+  -- Charles) : une insertion qui ne vise aucune ligne passerait pour
+  -- « acceptée » sans rien tester (constaté à la première écriture de ce cas).
+  $q$insert into public.messages (conversation_id, sender_id, kind, body) values (public.get_or_create_direct_conversation('135ed9b3-03a0-4f28-a2f3-784223a2dcde'), 'e1fcb9b0-619d-40d5-9e6c-25ea35cb8a0c', 'location_request', 'faux')$q$);
+
 select n, cas, attendu, resultat,
        (attendu = 'accepté') = (resultat = 'accepté') as ok
   from out order by n;

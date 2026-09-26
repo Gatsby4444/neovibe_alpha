@@ -86,6 +86,15 @@
    `lib/features/map/vibes_map.dart`, pastilles (éclair ; cœur + nombre de
    « j'aime » pour les populaires), un tap ouvre le lecteur ; roue :
    « Vibes publiques autour de moi » (allumé par défaut).
-4. La roue d'actions sur un ami : profil, message, rejoindre (D) ;
-   « demander la position » après les notifications (C).
+4. ✅ **v0.9.296** — la roue d'actions sur un ami (toucher sa photo) :
+   voir le profil, message direct, **rejoindre à pied** (itinéraire Mapbox,
+   tracé + « 605 m · 8 min », ouvert par `map_rules.walking_route_enabled`
+   — À ÉTEINDRE avant le lancement, RAPPELS #172), **demander sa position**.
+   Serveur (`20260926130000` à `130200`, essai à blanc 14 cas, audit 22/22) :
+   `location_requests` (le fait) + message `location_request` que le chat
+   n'accepte que s'il correspond à une vraie demande ; `answer_location_request`
+   révèle la position au seul demandeur 1 h (`location_reveals`) ;
+   `friends_on_map` rend partagées ET révélées ; en direct (publication
+   temps réel) → notification sur le téléphone (`location_request_listener`,
+   app vivante seulement). Chat : bulle Accepter / Refuser.
 5. Zones chaudes, cachées (B).

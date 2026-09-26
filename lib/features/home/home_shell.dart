@@ -12,6 +12,7 @@ import '../circle/circle_screen.dart';
 import '../connections/request_popup.dart';
 import '../library/profile_screen.dart';
 import '../events/event_notifier.dart';
+import '../map/location_request_listener.dart';
 import '../notifications/fomo_listener.dart';
 import '../pulse/pulse_screen.dart';
 import '../proximity/ping_screen.dart';
@@ -231,6 +232,7 @@ class _HomeShellState extends ConsumerState<HomeShell>
   Widget build(BuildContext context) {
     // Active l'écouteur FOMO tant que la session est ouverte
     ref.watch(fomoListenerProvider);
+    ref.watch(locationRequestListenerProvider);
     // Les notifications d'événement (2026-09-21) : arrivées d'amis,
     // fermeture, moment ouvert — app vivante seulement.
     ref.watch(eventNotifierProvider);
