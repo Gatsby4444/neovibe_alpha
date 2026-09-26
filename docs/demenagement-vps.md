@@ -54,8 +54,11 @@ ces éléments (ils ont été rejoués dessus pour le prouver).
 > Jay : *« on va écrire notre propre programme serveur. Le but c'est le
 > contrôle, la scalabilité et la polyvalence. Totale. »*
 >
-> **Langage : Rust** (Jay, 2026-09-26). Méthode — deux temps ou tout
-> d'un coup — en discussion.
+> **Langage : Rust** (Jay, 2026-09-26). **Méthode : tout d'un coup**,
+> domaine par domaine, chaque règle prouvée par comparaison avec
+> l'ancienne avant la bascule ; Jay accepte la pause des nouveautés côté
+> serveur. Pendant la construction, l'app continue de tourner sur
+> Supabase (limites de l'offre gratuite : RAPPELS #174).
 
 Toute la logique du serveur est **écrite en SQL dans Postgres** : 215
 fonctions, 122 politiques de sécurité, 11 tâches planifiées. L'app parle
