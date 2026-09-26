@@ -320,7 +320,10 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     final boussole = mode == MapFollow.boussole;
     await map.gestures.updateSettings(
       GesturesSettings(
-        scrollEnabled: _doigts.length < 2,
+        // Le déplacement reste à Mapbox, à un doigt comme à deux, TANT QUE
+        // le geste à deux doigts est un glissement ; coupé dès qu'il devient
+        // zoom, rotation ou inclinaison (hiérarchie de Google Maps).
+        scrollEnabled: _panNatif,
         scrollMode: ScrollMode.HORIZONTAL_AND_VERTICAL,
         pinchToZoomEnabled: false,
         pinchPanEnabled: false,
@@ -346,9 +349,22 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   bool _cameraEnVol = false;
   CameraOptions? _cameraEnAttente;
 
-  /// Degrés d'inclinaison par point de montée des doigts : 170 points
-  /// suffisent pour passer de la vue de dessus à 60°.
-  static const _degresParPoint = 0.35;
+  /// Degrés d'inclinaison par point de montée des doigts, APRÈS la bascule
+  /// en inclinaison : ~85 points (~1,3 cm) pour passer de la vue de dessus
+  /// à 60°. Jay (2026-09-26) : 3 cm, c'était trop.
+  static const _degresParPoint = 0.7;
+
+  /// Mapbox peut-il déplacer la carte en ce moment ?
+  bool get _panNatif => _geste?.kind.pans ?? true;
+
+  /// Le dernier réglage de déplacement envoyé à Mapbox.
+  bool _panNatifEnvoye = true;
+
+  void _revoirPanNatif() {
+    if (_panNatif == _panNatifEnvoye) return;
+    _panNatifEnvoye = _panNatif;
+    unawaited(_appliquerGestes(_suivi));
+  }
 
   void _doigtPose(PointerDownEvent e) {
     final avant = _doigts.length;
@@ -362,11 +378,9 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     _changementDeDoigts(avant);
   }
 
-  /// Au passage de 1 à 2 doigts (et retour) : le déplacement de Mapbox est
-  /// coupé ou rendu, et un geste à deux doigts commence ou finit.
+  /// Un geste à deux doigts commence ou finit.
   void _changementDeDoigts(int avant) {
     final n = _doigts.length;
-    if ((avant < 2) != (n < 2)) unawaited(_appliquerGestes(_suivi));
     if (n == 2) {
       final ids = _doigts.keys.toList()..sort();
       _geste = TwoFingerGesture(_doigts[ids[0]]!, _doigts[ids[1]]!);
@@ -376,6 +390,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       _geste = null;
       _cameraDepart = null;
     }
+    _revoirPanNatif();
   }
 
   Future<void> _lireCameraDepart(TwoFingerGesture pour) async {
@@ -391,9 +406,11 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     if (geste == null || _doigts.length != 2) return;
     final ids = _doigts.keys.toList()..sort();
     final d = geste.update(_doigts[ids[0]]!, _doigts[ids[1]]!);
+    _revoirPanNatif();
     // Tant que la caméra de départ n'est pas lue, le geste se décide quand
     // même : il s'appliquera dès qu'elle arrive, depuis le début.
-    if (depart == null || d.kind == TwoFingerKind.undecided) return;
+    // Un glissement : c'est Mapbox qui déplace la carte.
+    if (depart == null || d.kind.pans) return;
     final boussole = _suivi == MapFollow.boussole;
     // Quand la carte me suit, on zoome sur MOI (le centre), pas entre les
     // doigts : sinon elle me ramènerait au centre à l'image suivante.
