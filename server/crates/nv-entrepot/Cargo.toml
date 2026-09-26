@@ -1,0 +1,20 @@
+[package]
+name = "nv-entrepot"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+nv-core = { path = "../nv-core" }
+rusty-s3 = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+url = "2"
+futures.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

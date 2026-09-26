@@ -12,8 +12,9 @@ use serde_json::Value;
 use sqlx::PgPool;
 
 use nv_app::comptes::badge::Badge;
+use nv_core::fichiers::Entrepot;
 use nv_core::ops::OpFn;
-use nv_core::{Ctx, NvError};
+use nv_core::{AfterCommit, Ctx, NvError};
 
 use crate::auth::{self, Limiteur};
 
@@ -22,17 +23,19 @@ pub struct Etat {
     pub pool: PgPool,
     pub ops: HashMap<&'static str, OpFn>,
     pub badge: Badge,
+    pub entrepot: Arc<dyn Entrepot>,
     pub limite_comptes: Limiteur,
     pub limite_renouvellement: Limiteur,
 }
 
 impl Etat {
-    pub fn new(pool: PgPool, badge: Badge) -> Self {
+    pub fn new(pool: PgPool, badge: Badge, entrepot: Arc<dyn Entrepot>) -> Self {
         let ops = nv_app::registry().into_iter().map(|o| (o.name, o.run)).collect();
         Etat {
             pool,
             ops,
             badge,
+            entrepot,
             limite_comptes: Limiteur::new(20, Duration::from_secs(60)),
             limite_renouvellement: Limiteur::new(120, Duration::from_secs(60)),
         }
@@ -88,9 +91,25 @@ async fn rpc(
     let run = *etat.ops.get(nom.as_str()).ok_or_else(|| NvError::UnknownOp(nom.clone()))?;
     let (actor, _) = auth::appelant(&etat, &entetes)?;
     let tx = etat.pool.begin().await.map_err(NvError::from)?;
-    let mut ctx = Ctx::open(tx, actor).await?;
+    let mut ctx = Ctx::open(tx, actor, Some(etat.entrepot.clone())).await?;
     let args = body.map(|Json(v)| v).unwrap_or(Value::Null);
     let resultat = run(&mut ctx, args).await?;
+    let apres = std::mem::take(&mut ctx.after_commit);
     ctx.tx.commit().await.map_err(NvError::from)?;
+    apres_validation(&etat, apres).await;
     Ok(Json(resultat))
+}
+
+/// Ce qui suit la validation. Un échec ici ne défait pas l'opération (elle
+/// est validée) : il est journalisé, et le balai des fichiers repassera.
+async fn apres_validation(etat: &Etat, gestes: Vec<AfterCommit>) {
+    for g in gestes {
+        match g {
+            AfterCommit::DeleteFiles { bucket, paths } => {
+                if let Err(e) = etat.entrepot.supprimer(&bucket, paths).await {
+                    tracing::error!("suppression de fichiers ({bucket}) : {e}");
+                }
+            }
+        }
+    }
 }

@@ -8,6 +8,7 @@
 mod auth;
 mod config;
 mod routes;
+mod taches;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -18,6 +19,8 @@ use sqlx::postgres::PgPoolOptions;
 use tracing_subscriber::EnvFilter;
 
 use nv_app::comptes::badge::Badge;
+use nv_app::fichiers::regles::COFFRES;
+use nv_entrepot::EntrepotS3;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -41,7 +44,11 @@ async fn main() -> anyhow::Result<()> {
         .connect(&config.database_url)
         .await
         .context("connexion à la base")?;
-    let etat = Arc::new(routes::Etat::new(pool, badge));
+    let entrepot = EntrepotS3::new(config.entrepot.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
+    entrepot.preparer(&COFFRES).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let entrepot: Arc<dyn nv_core::fichiers::Entrepot> = Arc::new(entrepot);
+    taches::lancer(pool.clone(), entrepot.clone());
+    let etat = Arc::new(routes::Etat::new(pool, badge, entrepot));
     let app = routes::router(etat);
     let ecoute = tokio::net::TcpListener::bind(&config.adresse)
         .await

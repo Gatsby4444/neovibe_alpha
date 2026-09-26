@@ -19,6 +19,7 @@
 //! Sortie non nulle si une seule situation diffère.
 mod cas;
 mod compare;
+mod factice;
 mod jouer;
 
 use std::collections::HashMap;

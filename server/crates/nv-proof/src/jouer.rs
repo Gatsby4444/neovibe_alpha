@@ -193,7 +193,7 @@ async fn cote_nouveau(
     let mut tx = tx;
     exec(&mut tx, "savepoint nouveau").await?;
     let actor = c.qui.map(Actor::User).unwrap_or(Actor::Anonymous);
-    let mut ctx = Ctx::open(tx, actor).await.map_err(|e| e.to_string())?;
+    let mut ctx = Ctx::open(tx, actor, Some(std::sync::Arc::new(crate::factice::EntrepotFactice))).await.map_err(|e| e.to_string())?;
     let resultat = run(&mut ctx, c.args.clone()).await;
     let mut tx = ctx.tx;
     let cote = match resultat {

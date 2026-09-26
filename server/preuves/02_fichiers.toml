@@ -1,0 +1,243 @@
+# Domaine 2 — les fichiers (docs/serveur-rust.md, annexe A.2).
+#
+# L'ancien côté : les politiques du stockage, jouées sur `storage.objects`
+# sous l'identité du compte (lire = la ligne est visible ; déposer = la ligne
+# s'insère ; supprimer = la ligne s'efface). Le nouveau côté : les guichets,
+# avec un entrepôt factice qui rend « <lien> ». On compare les DROITS.
+# La table `storage.objects` n'existe plus côté Rust : ses changements ne se
+# comparent pas.
+
+# ─── Lire ────────────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "lire une Vibe reçue (carte)"
+qui = "charles"
+op = "files_sign_read"
+args = { bucket = "cards", paths = ["{{lea}}/msrypuqd_0_front.jpg", "{{lea}}/msrypuqd_1_front.mp4"], expires_in = 3600 }
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'cards' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'cards' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end) order by x.n)
+  from (values (1, '{{lea}}/msrypuqd_0_front.jpg'), (2, '{{lea}}/msrypuqd_1_front.mp4')) x(n, p)"""
+
+[[cas]]
+nom = "lire la Vibe d'un autre, jamais reçue"
+qui = "testeur"
+op = "files_sign_read"
+args = { bucket = "cards", paths = ["{{lea}}/msrypuqd_0_front.jpg"] }
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'cards' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'cards' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end))
+  from (values ('{{lea}}/msrypuqd_0_front.jpg')) x(p)"""
+
+[[cas]]
+nom = "lire la Vibe détruite après lecture (plus de droit)"
+qui = "charles"
+op = "files_sign_read"
+args = { bucket = "cards", paths = ["{{lea}}/msrypuqd_0_front.jpg"] }
+avant = "update public.card_deliveries set destroyed_at = now() where recipient_id = '{{charles}}' and card_id in (select id from public.cards where front_path = '{{lea}}/msrypuqd_0_front.jpg')"
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'cards' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'cards' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end))
+  from (values ('{{lea}}/msrypuqd_0_front.jpg')) x(p)"""
+
+[[cas]]
+nom = "lire les publications de Léa (visibilité réelle)"
+qui = "charles"
+op = "files_sign_read"
+args = { bucket = "library", paths = ["{{lea}}/b1bdb9f3-2602-403d-937a-4b323d4b0807_front.jpg", "{{lea}}/4c0881b4-8866-4b75-a63a-e75c7d56e42b_front.mp4"] }
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'library' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'library' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end) order by x.n)
+  from (values (1, '{{lea}}/b1bdb9f3-2602-403d-937a-4b323d4b0807_front.jpg'), (2, '{{lea}}/4c0881b4-8866-4b75-a63a-e75c7d56e42b_front.mp4')) x(n, p)"""
+
+[[cas]]
+nom = "lire les publications de Léa par un inconnu"
+qui = "bot01"
+op = "files_sign_read"
+args = { bucket = "library", paths = ["{{lea}}/b1bdb9f3-2602-403d-937a-4b323d4b0807_front.jpg"] }
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'library' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'library' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end))
+  from (values ('{{lea}}/b1bdb9f3-2602-403d-937a-4b323d4b0807_front.jpg')) x(p)"""
+
+[[cas]]
+nom = "lire le Drop d'une conversation dont je suis membre"
+qui = "testeur"
+op = "files_sign_read"
+args = { bucket = "library_vault", paths = ["{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/placeholder.png", "{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/sealed.bin"] }
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'library_vault' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'library_vault' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end) order by x.n)
+  from (values (1, '{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/placeholder.png'), (2, '{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/sealed.bin')) x(n, p)"""
+
+[[cas]]
+nom = "lire le Drop scellé avant l'heure de révélation (l'image d'attente seulement)"
+qui = "testeur"
+op = "files_sign_read"
+args = { bucket = "library_vault", paths = ["{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/placeholder.png", "{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/sealed.bin"] }
+avant = "update public.library_vibes set reveal_at = now() + interval '1 hour' where sealed_path = '{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/sealed.bin'"
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'library_vault' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'library_vault' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end) order by x.n)
+  from (values (1, '{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/placeholder.png'), (2, '{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/sealed.bin')) x(n, p)"""
+
+[[cas]]
+nom = "lire le Drop d'une conversation dont je ne suis pas membre"
+qui = "bot01"
+op = "files_sign_read"
+args = { bucket = "library_vault", paths = ["{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/placeholder.png"] }
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'library_vault' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'library_vault' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end))
+  from (values ('{{charles}}/1db80898-3a07-41fd-b456-98a2e853e9e8/placeholder.png')) x(p)"""
+
+[[cas]]
+nom = "lire des photos de profil (visibles ou non)"
+qui = "charles"
+op = "files_sign_read"
+args = { bucket = "avatars", paths = ["{{jay2}}/avatar_1790343039540.png", "{{malik}}/avatar_1786656942057.png", "{{mimi}}/avatar_1786878437570.png"] }
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'avatars' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'avatars' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end) order by x.n)
+  from (values (1, '{{jay2}}/avatar_1790343039540.png'), (2, '{{malik}}/avatar_1786656942057.png'), (3, '{{mimi}}/avatar_1786878437570.png')) x(n, p)"""
+
+[[cas]]
+nom = "lire une photo du chat : membre, puis non membre"
+qui = "testeur"
+op = "files_sign_read"
+args = { bucket = "media", paths = ["{{charles}}/preuve_m1.jpg"] }
+avant = """insert into storage.objects (bucket_id, name, owner) values ('media', '{{charles}}/preuve_m1.jpg', '{{charles}}');
+insert into public.messages (conversation_id, sender_id, kind, media_path, expires_at) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'image', '{{charles}}/preuve_m1.jpg', now() + interval '1 day')"""
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'media' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'media' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end))
+  from (values ('{{charles}}/preuve_m1.jpg')) x(p)"""
+
+[[cas]]
+nom = "lire une photo du chat d'une conversation étrangère"
+qui = "bot01"
+op = "files_sign_read"
+args = { bucket = "media", paths = ["{{charles}}/preuve_m1.jpg"] }
+avant = """insert into storage.objects (bucket_id, name, owner) values ('media', '{{charles}}/preuve_m1.jpg', '{{charles}}');
+insert into public.messages (conversation_id, sender_id, kind, media_path, expires_at) values ('ce573f65-3b61-4df1-995c-3cefc5620c64', '{{charles}}', 'image', '{{charles}}/preuve_m1.jpg', now() + interval '1 day')"""
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'media' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'media' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end))
+  from (values ('{{charles}}/preuve_m1.jpg')) x(p)"""
+
+[[cas]]
+nom = "la preuve d'un signalement : lisible par l'administrateur"
+qui = "charles"
+op = "files_sign_read"
+args = { bucket = "stories", paths = ["{{bot92}}/preuve_retenue.jpg"] }
+avant = """insert into storage.objects (bucket_id, name, owner) values ('stories', '{{bot92}}/preuve_retenue.jpg', '{{bot92}}');
+insert into public.moderation_holds (report_kind, report_id, bucket_id, object_name, rang) values ('content', gen_random_uuid(), 'stories', '{{bot92}}/preuve_retenue.jpg', 1)"""
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'stories' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'stories' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end))
+  from (values ('{{bot92}}/preuve_retenue.jpg')) x(p)"""
+
+[[cas]]
+nom = "la preuve d'un signalement : pas pour un simple compte"
+qui = "testeur"
+op = "files_sign_read"
+args = { bucket = "stories", paths = ["{{bot92}}/preuve_retenue.jpg"] }
+avant = """insert into storage.objects (bucket_id, name, owner) values ('stories', '{{bot92}}/preuve_retenue.jpg', '{{bot92}}');
+insert into public.moderation_holds (report_kind, report_id, bucket_id, object_name, rang) values ('content', gen_random_uuid(), 'stories', '{{bot92}}/preuve_retenue.jpg', 1)"""
+ancien_resultat = """select json_agg(json_build_object('path', x.p,
+  'signedUrl', case when exists (select 1 from storage.objects o where o.bucket_id = 'stories' and o.name = x.p) then '<lien>' end,
+  'error', case when exists (select 1 from storage.objects o where o.bucket_id = 'stories' and o.name = x.p) then null else 'Fichier introuvable ou non autorisé' end))
+  from (values ('{{bot92}}/preuve_retenue.jpg')) x(p)"""
+
+# ─── Déposer ─────────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "déposer dans mon dossier"
+qui = "charles"
+op = "files_sign_upload"
+args = { bucket = "cards", path = "{{charles}}/nouvelle_front.jpg", content_type = "application/octet-stream", size = 1000, upsert = true }
+ancien = "insert into storage.objects (bucket_id, name, owner) values ('cards', '{{charles}}/nouvelle_front.jpg', '{{charles}}')"
+ancien_resultat = "select json_build_object('url', '<lien>', 'method', 'PUT', 'headers', json_build_object('content-type', 'application/octet-stream', 'content-length', '1000'))"
+ignorer = ["storage.objects"]
+attendu = "accepte"
+
+[[cas]]
+nom = "déposer dans le dossier d'un autre"
+qui = "charles"
+op = "files_sign_upload"
+args = { bucket = "stories", path = "{{testeur}}/usurpe.jpg", content_type = "image/jpeg", size = 10, upsert = true }
+ancien = "insert into storage.objects (bucket_id, name, owner) values ('stories', '{{testeur}}/usurpe.jpg', '{{charles}}')"
+ignorer = ["storage.objects"]
+attendu = "refuse"
+
+[[cas]]
+nom = "déposer l'affiche de ma soirée ouverte"
+qui = "mimi"
+op = "files_sign_upload"
+args = { bucket = "event_posters", path = "{{mimi}}/1e585520-6edb-4aa3-a231-9ed749cd0aa5/poster_1.jpg", content_type = "image/jpeg", size = 2000, upsert = true }
+ancien = "insert into storage.objects (bucket_id, name, owner) values ('event_posters', '{{mimi}}/1e585520-6edb-4aa3-a231-9ed749cd0aa5/poster_1.jpg', '{{mimi}}')"
+ancien_resultat = "select json_build_object('url', '<lien>', 'method', 'PUT', 'headers', json_build_object('content-type', 'image/jpeg', 'content-length', '2000'))"
+ignorer = ["storage.objects"]
+attendu = "accepte"
+
+[[cas]]
+nom = "déposer l'affiche de la soirée d'un autre"
+qui = "charles"
+op = "files_sign_upload"
+args = { bucket = "event_posters", path = "{{charles}}/1e585520-6edb-4aa3-a231-9ed749cd0aa5/poster_1.jpg", content_type = "image/jpeg", size = 2000, upsert = true }
+ancien = "insert into storage.objects (bucket_id, name, owner) values ('event_posters', '{{charles}}/1e585520-6edb-4aa3-a231-9ed749cd0aa5/poster_1.jpg', '{{charles}}')"
+ignorer = ["storage.objects"]
+attendu = "refuse"
+
+[[cas]]
+nom = "déposer l'affiche d'une soirée terminée"
+qui = "bot92"
+op = "files_sign_upload"
+args = { bucket = "event_posters", path = "{{bot92}}/13b1def3-e42b-4cda-967e-c899664e2db0/poster_1.jpg", content_type = "image/jpeg", size = 2000, upsert = true }
+ancien = "insert into storage.objects (bucket_id, name, owner) values ('event_posters', '{{bot92}}/13b1def3-e42b-4cda-967e-c899664e2db0/poster_1.jpg', '{{bot92}}')"
+ignorer = ["storage.objects"]
+attendu = "refuse"
+
+# ─── Supprimer ───────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "supprimer mes fichiers (et ignorer celui d'un autre)"
+qui = "lea"
+op = "files_remove"
+args = { bucket = "cards", paths = ["{{lea}}/msrypuqd_0_front.jpg", "{{charles}}/0cf347cb-88be-4cc3-b808-90541c650287_back.jpg"] }
+ancien_resultat = "with d as (delete from storage.objects where bucket_id = 'cards' and name = any(array['{{lea}}/msrypuqd_0_front.jpg', '{{charles}}/0cf347cb-88be-4cc3-b808-90541c650287_back.jpg']) returning name) select coalesce(json_agg(json_build_object('name', name)), '[]') from d"
+ignorer = ["storage.objects"]
+
+[[cas]]
+nom = "supprimer un fichier retenu par la modération : non"
+qui = "lea"
+op = "files_remove"
+args = { bucket = "cards", paths = ["{{lea}}/msrypuqd_0_front.jpg"] }
+avant = "insert into public.moderation_holds (report_kind, report_id, bucket_id, object_name, rang) values ('content', gen_random_uuid(), 'cards', '{{lea}}/msrypuqd_0_front.jpg', 1)"
+ancien_resultat = "with d as (delete from storage.objects where bucket_id = 'cards' and name = '{{lea}}/msrypuqd_0_front.jpg' returning name) select coalesce(json_agg(json_build_object('name', name)), '[]') from d"
+ignorer = ["storage.objects"]
+
+[[cas]]
+nom = "supprimer ma photo de profil (même retenue : l'ancienne règle ne la retenait pas)"
+qui = "mimi"
+op = "files_remove"
+args = { bucket = "avatars", paths = ["{{mimi}}/avatar_1786878437570.png"] }
+avant = "insert into public.moderation_holds (report_kind, report_id, bucket_id, object_name, rang) values ('content', gen_random_uuid(), 'avatars', '{{mimi}}/avatar_1786878437570.png', 1)"
+ancien_resultat = "with d as (delete from storage.objects where bucket_id = 'avatars' and name = '{{mimi}}/avatar_1786878437570.png' returning name) select coalesce(json_agg(json_build_object('name', name)), '[]') from d"
+ignorer = ["storage.objects"]
+
+# ─── Le ménage fait par l'app ────────────────────────────────────────────
+
+[[cas]]
+nom = "mes_octets_a_supprimer : les fichiers en attente d'effacement"
+qui = "charles"
+rpc = "mes_octets_a_supprimer"
+sans_ordre = true
+avant = "update public.storage_tombstones set delete_after = now() - interval '1 day' where owner_id = '{{charles}}'"
+
+[[cas]]
+nom = "octets_supprimes : l'app confirme"
+qui = "charles"
+rpc = "octets_supprimes"
+args = { p_bucket = "library", p_names = ["{{charles}}/inexistant.jpg"] }
+avant = "insert into public.storage_tombstones (bucket_id, object_name, owner_id, delete_after) values ('library', '{{charles}}/inexistant.jpg', '{{charles}}', now())"

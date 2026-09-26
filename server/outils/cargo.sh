@@ -15,5 +15,13 @@ fi
 # La base locale de travail (outils/base_locale.py) : sqlx y vérifie chaque
 # requête au moment de la construction.
 export DATABASE_URL="${DATABASE_URL:-postgres://postgres:neovibe@localhost:54329/postgres}"
+# Les variables du serveur local (entrepôt de fichiers…), hors dépôt.
+ENV_LOCAL="$(dirname "$0")/../../docdev/serveur_local.env"
+if [ -f "$ENV_LOCAL" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_LOCAL"
+  set +a
+fi
 cd "$(dirname "$0")/.."
 exec cargo "$@"

@@ -11,6 +11,7 @@ pub mod args;
 pub mod contrainte;
 pub mod ctx;
 pub mod error;
+pub mod fichiers;
 pub mod ops;
 
 pub use actor::Actor;

@@ -201,7 +201,7 @@ existante**. La plateforme complète vient ensuite.
 |---|---|
 | 0. Le socle | ✅ 2026-09-27 — `server/` (espace Cargo : `nv-core`, `nv-app`, `nv-server`, `nv-proof`) ; base locale `outils/base_locale.py` (port 54329 : structure + ancien gardien + copie des données de dev + journal des changements) ; la preuve `cargo run -p nv-proof` (contre-testée : elle voit une réponse différente, une écriture manquante, un nouveau plus permissif, un cas mal posé) |
 | 1. Les comptes | ✅ 2026-09-27 côté serveur — `/v1/auth/inscription · connexion · renouveler · deconnexion · moi` (badge Ed25519 1 h, jetons tournants, plafond par téléphone prouvé identique à l'ancien crochet SQL, bcrypt de Supabase accepté puis réécrit en argon2id, limite d'essais) ; `username_available`, `my_suspension`, `profile_stats`, `profiles_get · list`, `profile_create · update`, `dev_report_insert` — 25 situations identiques |
-| 2. Les fichiers | à faire |
+| 2. Les fichiers | ✅ 2026-09-27 — `nv-entrepot` (tout entrepôt compatible S3 : liens de lecture et de dépôt signés, taille et type signés, envoi en morceaux avec reprise, suppression), vérifié contre SeaweedFS local ; les 24 règles des coffres traduites (`fichiers/regles.rs`), les questions d'accès réécrites en expressions composables (`acces.rs`) ; guichets `files_sign_read · sign_upload · remove · upload_open · parts · part_url · finish · abort`, `mes_octets_a_supprimer`, `octets_supprimes` ; **le réveil** (`nv-server/src/taches.rs` : verrou, une transaction par passage, journal `nv.job_runs`) et le **balai des fichiers** (le serveur efface lui-même : règle RAPPELS #111) — 48 situations identiques |
 | 3. Le direct | à faire |
 | 4. Relations et proximité | à faire |
 | 5. Conversations | à faire |
@@ -238,6 +238,7 @@ preuve, chacun justifié) :
 | (re)monter la base locale | `python outils/base_locale.py` (depuis la racine du dépôt) |
 | construire | `bash outils/cargo.sh build` — ⚠️ sur ce PC, la chaîne « GNU » de Rust a un éditeur de liens incomplet : le script branche celui de WinLibs |
 | jouer la preuve | `bash outils/cargo.sh run -p nv-proof -- [filtre]` |
+| monter l'entrepôt de fichiers local | `python server/outils/entrepot_local.py` (SeaweedFS, port 8333 ; MinIO n'est plus distribué en image — constaté le 2026-09-27) ; accès dans `docdev/serveur_local.env`, chargés par `outils/cargo.sh` |
 | lancer le serveur | `bash outils/cargo.sh run -p nv-server` (écoute sur `127.0.0.1:8787`) |
 
 ## Annexe A — l'inventaire, domaine par domaine
