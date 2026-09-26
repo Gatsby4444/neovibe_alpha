@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../prefs.dart';
 import '../video/video_open_trace.dart';
@@ -470,6 +471,28 @@ class DiagnosticBundle {
   /// — chaque minute : déposée, sans position, ou ce que le serveur a
   /// répondu, avec le moteur de position et la précision. Sans ce carnet,
   /// une présence figée pendant 30 minutes ne laissait aucune trace.
+  /// La cadence de l'écran (`DisplayRate.kt`) : modes possibles, demandé,
+  /// et celle en cours.
+  static Future<String> ecranCadence() async {
+    try {
+      return await const MethodChannel(
+            'neovibe/display',
+          ).invokeMethod<String>('etat') ??
+          '(rien)';
+    } catch (e) {
+      return '(illisible : $e)';
+    }
+  }
+
+  /// Les réglages développeur de la carte au moment du relevé : sans eux,
+  /// on ne sait pas dans quel mode les images ont été comptées.
+  static Future<String> carteReglages() async {
+    final prefs = await SharedPreferences.getInstance();
+    final mode = prefs.getString(DevMapHosting.prefsKey) ?? 'texture (défaut)';
+    final troisD = prefs.getBool(DevMap3d.prefsKey) ?? true;
+    return "mode d'affichage : $mode · objets 3D : ${troisD ? 'oui' : 'non'}";
+  }
+
   static Future<String> eventPresence() async {
     try {
       final texte =
@@ -846,7 +869,13 @@ class DiagnosticBundle {
         // Ajouté le 2026-09-26 : Jay voit parfois la carte se déplacer au
         // lieu de s'incliner — le journal dit quel geste le moteur a
         // reconnu, au lieu qu'on le devine.
+        // L'écran : ce qui a été demandé, et ce qu'il fait VRAIMENT
+        // (2026-09-26 — la carte dessine vite mais s'affichait ~60 fois
+        // par seconde sur un écran 120 Hz).
+        ..writeln('\n===== ÉCRAN — CADENCE =====')
+        ..writeln(await ecranCadence())
         ..writeln('\n===== CARTE — LES GESTES, UN PAR UN =====')
+        ..writeln(await carteReglages())
         ..writeln(await MapGestureTuning.journal())
         ..writeln('\n===== POSITION — CE QU\'ANDROID A ACCORDÉ =====')
         ..writeln(await location())

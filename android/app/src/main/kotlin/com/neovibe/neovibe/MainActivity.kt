@@ -31,6 +31,8 @@ class MainActivity : FlutterFragmentActivity() {
     private var heading: com.neovibe.neovibe.location.HeadingSensor? = null
     /// Les gestes de la carte, réglés dans le moteur de Mapbox (2026-09-26).
     private var mapGestures: com.neovibe.neovibe.map.MapGestureTuner? = null
+    /// La cadence de l'écran (2026-09-26) : la plus fluide que le téléphone permet.
+    private var displayRate: DisplayRate? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -112,6 +114,8 @@ class MainActivity : FlutterFragmentActivity() {
             this,
             flutterEngine.dartExecutor.binaryMessenger,
         )
+        displayRate = DisplayRate(this, flutterEngine.dartExecutor.binaryMessenger)
+            .also { it.demanderLePlusFluide() }
     }
 
     override fun onDestroy() {
@@ -133,6 +137,8 @@ class MainActivity : FlutterFragmentActivity() {
         heading = null
         mapGestures?.dispose()
         mapGestures = null
+        displayRate?.dispose()
+        displayRate = null
         // Le pont s'en va, le service reste : c'est tout l'intérêt.
         proximity?.dispose()
         proximity = null
