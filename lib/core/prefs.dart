@@ -640,3 +640,33 @@ class MapBuildings3d extends Notifier<bool> {
 final mapBuildings3dProvider = NotifierProvider<MapBuildings3d, bool>(
   MapBuildings3d.new,
 );
+
+/// **Jusqu'où la carte montre les soirées, en km** — réglage de
+/// l'utilisateur (Jay, 2026-09-26 : *« augmenter soi-même la limite […]
+/// jusqu'à 50 km »*), dans la roue de la carte. 2 km par défaut. C'est une
+/// DEMANDE : le serveur la borne (`nearby_events`, `event_rules`).
+class MapEventsRadiusKm extends Notifier<int> {
+  static const prefsKey = 'map_events_radius_km';
+  static const defaut = 2;
+
+  @override
+  int build() {
+    _load();
+    return defaut;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getInt(prefsKey) ?? defaut;
+  }
+
+  Future<void> set(int km) async {
+    state = km;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(prefsKey, km);
+  }
+}
+
+final mapEventsRadiusKmProvider = NotifierProvider<MapEventsRadiusKm, int>(
+  MapEventsRadiusKm.new,
+);

@@ -54,14 +54,46 @@ class EventsRepository {
 
   /// Les soirées à portée : d'établissement et ouvertes (2026-09-21), avec
   /// leur nombre de présents.
-  Future<List<NearbyEvent>> nearby(double lat, double lon) async {
+  ///
+  /// [radiusM] et [minPresent] (2026-09-26, la carte) sont des DEMANDES : le
+  /// serveur borne le rayon selon ce qu'on demande (`event_rules` :
+  /// `nearby_radius_max_m` pour une liste, `big_event_radius_m` pour les
+  /// gros événements).
+  Future<List<NearbyEvent>> nearby(
+    double lat,
+    double lon, {
+    int? radiusM,
+    int minPresent = 0,
+  }) async {
     final rows =
-        await _client.rpc('nearby_events', params: {'p_lat': lat, 'p_lon': lon})
+        await _client.rpc(
+              'nearby_events',
+              params: {
+                'p_lat': lat,
+                'p_lon': lon,
+                'p_radius_m': ?radiusM,
+                'p_min_present': minPresent,
+              },
+            )
             as List;
     return [
       for (final r in rows)
         NearbyEvent.fromJson((r as Map).cast<String, dynamic>()),
     ];
+  }
+
+  /// **Les règles de la carte** que le serveur applique — pour les
+  /// ANNONCER à l'écran (curseur du rayon, seuil des gros événements).
+  Future<MapEventRules> mapRules() async {
+    final r = await _client
+        .from('event_rules')
+        .select('nearby_radius_m, nearby_radius_max_m, big_event_min_present')
+        .single();
+    return MapEventRules(
+      radiusMinKm: ((r['nearby_radius_m'] as num) / 1000).ceil(),
+      radiusMaxKm: ((r['nearby_radius_max_m'] as num) / 1000).floor(),
+      bigEventMinPresent: (r['big_event_min_present'] as num).toInt(),
+    );
   }
 
   /// Y ai-je été un jour ? (Une présence, même finie.) Pour la galerie :
@@ -373,3 +405,33 @@ class EventsRepository {
 }
 
 final eventsRepositoryProvider = Provider((ref) => EventsRepository(ref));
+
+/// Les règles de la carte, telles que le serveur les tient (`event_rules`).
+class MapEventRules {
+  const MapEventRules({
+    required this.radiusMinKm,
+    required this.radiusMaxKm,
+    required this.bigEventMinPresent,
+  });
+
+  /// Repli tant que la base n'a pas répondu (les valeurs du 2026-09-26).
+  static const repli = MapEventRules(
+    radiusMinKm: 2,
+    radiusMaxKm: 50,
+    bigEventMinPresent: 30,
+  );
+
+  final int radiusMinKm;
+  final int radiusMaxKm;
+  final int bigEventMinPresent;
+
+  @override
+  bool operator ==(Object other) =>
+      other is MapEventRules &&
+      other.radiusMinKm == radiusMinKm &&
+      other.radiusMaxKm == radiusMaxKm &&
+      other.bigEventMinPresent == bigEventMinPresent;
+
+  @override
+  int get hashCode => Object.hash(radiusMinKm, radiusMaxKm, bigEventMinPresent);
+}

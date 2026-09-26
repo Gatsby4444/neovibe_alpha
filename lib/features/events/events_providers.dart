@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/derived_list.dart';
 import '../../core/location/distance.dart';
+import '../../core/prefs.dart';
 import '../../core/models/event.dart';
 import '../../core/supabase_providers.dart';
 import '../proximity/geo/coarse_location.dart';
@@ -199,6 +200,44 @@ final liveDistanceProvider = Provider.autoDispose
 /// serveur.
 int liveDistanceTo(WidgetRef ref, NearbyEvent event) =>
     ref.watch(liveDistanceProvider((event.lat, event.lon))) ?? event.distanceM;
+
+/// Les règles de la carte, lues une fois (le centre de contrôle les change
+/// rarement ; une réouverture de l'app les relit).
+final mapEventRulesProvider = FutureProvider<MapEventRules>((ref) {
+  return ref.watch(eventsRepositoryProvider).mapRules();
+});
+
+/// **Les soirées de la CARTE** (2026-09-26) — dans le rayon choisi par
+/// l'utilisateur (roue de la carte), distinct de [nearbyEventsProvider] :
+/// le radar et la liste restent à portée de pas, la carte voit plus loin.
+final mapEventsProvider = FutureProvider<List<NearbyEvent>>((ref) async {
+  if (ref.watch(currentUserIdProvider) == null) return const [];
+  final km = ref.watch(mapEventsRadiusKmProvider);
+  final fix = await ref.read(livePositionProvider.notifier).current();
+  if (fix == null) throw StateError('Position indisponible');
+  return ref
+      .watch(eventsRepositoryProvider)
+      .nearby(fix.latitude, fix.longitude, radiusM: km * 1000);
+});
+
+/// **Les gros événements, vus de loin** (Jay, 2026-09-26) : ceux qui
+/// rassemblent au moins `big_event_min_present` présents, dans le rayon
+/// « gros événements » du serveur. Seuils réglables au centre de contrôle.
+final bigEventsProvider = FutureProvider<List<NearbyEvent>>((ref) async {
+  if (ref.watch(currentUserIdProvider) == null) return const [];
+  final regles = await ref.watch(mapEventRulesProvider.future);
+  final fix = await ref.read(livePositionProvider.notifier).current();
+  if (fix == null) return const [];
+  return ref
+      .watch(eventsRepositoryProvider)
+      .nearby(
+        fix.latitude,
+        fix.longitude,
+        // Le serveur borne : on demande large, il rend ce que la règle permet.
+        radiusM: 1000000,
+        minPresent: regles.bigEventMinPresent,
+      );
+});
 
 final nearbyEventsProvider = FutureProvider<List<NearbyEvent>>((ref) async {
   if (ref.watch(currentUserIdProvider) == null) return const [];

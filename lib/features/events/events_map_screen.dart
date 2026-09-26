@@ -15,8 +15,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 import '../../core/models/event.dart';
+import '../../core/models/profile.dart';
 import '../../core/palette.dart';
 import '../../core/prefs.dart';
+import '../../core/supabase_providers.dart';
+import '../../core/widgets/avatar.dart';
 import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/utils/erreur_serveur.dart';
@@ -29,6 +32,7 @@ import 'event_screen.dart';
 import 'events_providers.dart';
 import 'map_follow.dart';
 import 'map_gesture_tuning.dart';
+import 'map_markers.dart';
 import 'map_settings_sheet.dart';
 import 'my_point_motion.dart';
 
@@ -115,9 +119,9 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// par petits à-coups visibles.
   final _cadence = FrameGate(const Duration(milliseconds: 16));
 
-  /// Les deux images de mon point (avec et sans flèche) sont-elles posées
-  /// dans le style, et pour quel thème ?
-  bool? _imagesMoiSombre;
+  /// Pour quel thème et quelle photo de profil les deux images de mon point
+  /// (avec et sans flèche) sont-elles posées dans le style ?
+  Object? _imagesMoiCle;
 
   /// La boussole : écoutée tant que la carte est à l'écran, app au premier
   /// plan.
@@ -386,7 +390,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     _envoyeCamera = null;
     _dessineChauds = null;
     _dessineSoirees = null;
-    _imagesMoiSombre = null;
+    _imagesMoiCle = null;
     _lumiere = null;
     // Tourner à deux doigts : permis hors mode boussole ([_appliquerGestes]).
     // L'inclinaison (glisser à deux doigts vers le haut) montre la 3D.
@@ -438,7 +442,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     unawaited(_reglerGestes());
     _lumiere = null;
     // Les images vivent DANS le style : un style rechargé les a perdues.
-    _imagesMoiSombre = null;
+    _imagesMoiCle = null;
     if (mounted) setState(() {});
   }
 
@@ -474,6 +478,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     required NeoPalette p,
     required List<HotSpot> spots,
     required List<NearbyEvent> nearby,
+    required List<NearbyEvent> gros,
     required NeoEvent? event,
   }) async {
     // Les points chauds : un cercle par cellule de 50 m, proportionnel au
@@ -508,11 +513,19 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     final lieu = event?.lat != null && event?.lon != null
         ? (event!.lat!, event.lon!)
         : null;
+    // Les gros événements VUS DE LOIN : seulement ceux qui ne sont pas déjà
+    // dans le rayon choisi (ceux-là ont leur repère ordinaire).
+    final proches = {for (final e in nearby) e.id};
+    final loin = [
+      for (final e in gros)
+        if (!proches.contains(e.id)) e,
+    ];
     final cleSoirees = (
       Object.hashAll([
-        for (final e in nearby)
+        for (final e in [...nearby, ...loin])
           (e.id, e.title, e.presentCount, e.lat, e.lon, e.kind),
       ]),
+      loin.length,
       lieu,
       p.isDark,
     );
@@ -521,11 +534,16 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       await _soirees!.deleteAll();
       _parId
         ..clear()
-        ..addEntries(nearby.map((e) => MapEntry(e.id, e)));
+        ..addEntries(nearby.map((e) => MapEntry(e.id, e)))
+        ..addEntries(loin.map((e) => MapEntry(e.id, e)));
       final fete = await _repere(p, Icons.celebration_rounded);
       final boutique = nearby.any((e) => e.kind != EventKind.open)
           ? await _repere(p, Icons.storefront_rounded)
           : fete;
+      // Un gros événement : plus grand, une flamme — il se voit de loin.
+      final flamme = loin.isEmpty
+          ? fete
+          : await _repere(p, Icons.local_fire_department_rounded, points: 48);
       await _soirees!.createMulti([
         if (lieu != null)
           PointAnnotationOptions(geometry: _pt(lieu.$1, lieu.$2), image: fete),
@@ -537,6 +555,19 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
             textSize: 12,
             textAnchor: TextAnchor.TOP,
             textOffset: [0, 1.3],
+            textColor: p.ink.toARGB32(),
+            textHaloColor: p.surface.toARGB32(),
+            textHaloWidth: 1.5,
+            customData: {'id': e.id},
+          ),
+        for (final e in loin)
+          PointAnnotationOptions(
+            geometry: _pt(e.lat, e.lon),
+            image: flamme,
+            textField: '${e.title}\n${e.presentCount} présents',
+            textSize: 13,
+            textAnchor: TextAnchor.TOP,
+            textOffset: [0, 1.6],
             textColor: p.ink.toARGB32(),
             textHaloColor: p.surface.toARGB32(),
             textHaloWidth: 1.5,
@@ -584,9 +615,11 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     MapFollow suivre = MapFollow.libre,
   }) async {
     try {
-      if (_imagesMoiSombre != p.isDark) {
-        await _poserImagesMoi(p);
-        _imagesMoiSombre = p.isDark;
+      final profil = ref.read(myProfileProvider).value;
+      final cleImages = (p.isDark, profil?.avatarUrl, profil?.displayName);
+      if (_imagesMoiCle != cleImages) {
+        await _poserImagesMoi(p, profil);
+        _imagesMoiCle = cleImages;
       }
       final ou = _pt(frame.lat, frame.lon);
       final image = frame.heading == null ? _imgPoint : _imgFleche;
@@ -680,74 +713,49 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// Les deux images de mon point, posées dans le style : sans flèche (pas
   /// de boussole) et avec — un cône qui s'ouvre vers où je regarde, comme
   /// sur Google Maps. Dessinées à la densité de l'écran.
-  Future<void> _poserImagesMoi(NeoPalette p) async {
+  /// **Mon point : ma photo de profil** (Jay, 2026-09-26), dans un anneau
+  /// de ma couleur ; avec le cône de direction quand la boussole répond.
+  /// Sans photo : mes initiales.
+  Future<void> _poserImagesMoi(NeoPalette p, Profile? profil) async {
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    for (final (id, fleche) in [(_imgPoint, false), (_imgFleche, true)]) {
-      final png = await _imageMoi(p, dpr, fleche: fleche);
-      final cote = (_coteMoi * dpr).round();
-      await _map!.style.addStyleImage(
-        id,
-        dpr,
-        MbxImage(width: cote, height: cote, data: png),
-        false,
-        [],
-        [],
-        null,
-      );
+    final stored = profil?.avatarUrl;
+    final fichier = stored == null || stored.isEmpty
+        ? null
+        : await ref.read(avatarFileProvider(stored).future);
+    final photo = await MapMarkers.photo(fichier);
+    try {
+      for (final (id, fleche) in [(_imgPoint, false), (_imgFleche, true)]) {
+        final png = await MapMarkers.rond(
+          dpr: dpr,
+          cote: _coteMoi,
+          rayon: _rayonMoi,
+          anneau: p.cool,
+          fond: p.ground,
+          photo: photo,
+          initiales: MapMarkers.initiales(profil?.displayName ?? ''),
+          cone: fleche,
+        );
+        final cote = (_coteMoi * dpr).round();
+        await _map!.style.addStyleImage(
+          id,
+          dpr,
+          MbxImage(width: cote, height: cote, data: png),
+          false,
+          [],
+          [],
+          null,
+        );
+      }
+    } finally {
+      photo?.dispose();
     }
   }
 
   /// Côté de l'image de mon point, en points : la place du cône.
-  static const _coteMoi = 72.0;
+  static const _coteMoi = 76.0;
 
-  static Future<Uint8List> _imageMoi(
-    NeoPalette p,
-    double dpr, {
-    required bool fleche,
-  }) async {
-    final cote = _coteMoi * dpr;
-    final c = Offset(cote / 2, cote / 2);
-    final recorder = ui.PictureRecorder();
-    final canvas = Canvas(recorder);
-    if (fleche) {
-      // Le cône : 70° d'ouverture, vers le HAUT de l'image (le nord, avant
-      // rotation), qui s'efface en s'éloignant du point.
-      final rayon = cote / 2;
-      final cone = Path()
-        ..moveTo(c.dx, c.dy)
-        ..arcTo(
-          Rect.fromCircle(center: c, radius: rayon),
-          -math.pi / 2 - 35 * math.pi / 180,
-          70 * math.pi / 180,
-          false,
-        )
-        ..close();
-      canvas.drawPath(
-        cone,
-        Paint()
-          ..shader = ui.Gradient.radial(c, rayon, [
-            p.cool.withValues(alpha: 0.55),
-            p.cool.withValues(alpha: 0),
-          ]),
-      );
-    }
-    // Le point : plein, cerclé de la couleur du fond, pour rester visible
-    // sur une carte claire COMME sombre.
-    canvas.drawCircle(
-      c,
-      9 * dpr,
-      Paint()..color = Colors.black.withValues(alpha: 0.25),
-    );
-    canvas.drawCircle(c, 8 * dpr, Paint()..color = p.ground);
-    canvas.drawCircle(c, 5.5 * dpr, Paint()..color = p.cool);
-    final image = await recorder.endRecording().toImage(
-      cote.round(),
-      cote.round(),
-    );
-    final data = await image.toByteData(format: ui.ImageByteFormat.png);
-    image.dispose();
-    return data!.buffer.asUint8List();
-  }
+  /// Rayon du rond de ma photo, en points.
+  static const _rayonMoi = 17.0;
 
   /// Un cercle de [rayonM] mètres, en polygone (la carte ne sait dessiner un
   /// cercle qu'en PIXELS ; un halo d'incertitude se mesure en mètres).
@@ -771,9 +779,13 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// Le repère d'une soirée : un rond au dégradé de l'app, l'icône dedans,
   /// cerclé de la couleur du fond. Dessiné en image (la carte n'affiche que
   /// des images), à la densité de l'écran pour rester net.
-  Future<Uint8List> _repere(NeoPalette p, IconData icone) async {
+  Future<Uint8List> _repere(
+    NeoPalette p,
+    IconData icone, {
+    double points = 34,
+  }) async {
     final dpr = MediaQuery.devicePixelRatioOf(context);
-    final taille = 34 * dpr;
+    final taille = points * dpr;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     final centre = Offset(taille / 2, taille / 2);
@@ -797,7 +809,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         style: TextStyle(
           fontFamily: icone.fontFamily,
           package: icone.fontPackage,
-          fontSize: 18 * dpr,
+          fontSize: points * 0.53 * dpr,
           color: p.onAction,
         ),
       ),
@@ -820,9 +832,14 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     final event = eventId == null
         ? null
         : ref.watch(eventByIdProvider(eventId));
+    // Les soirées de la CARTE : dans le rayon choisi (roue), et les gros
+    // événements de plus loin.
     final nearby = eventId == null
-        ? ref.watch(nearbyEventsProvider)
+        ? ref.watch(mapEventsProvider)
         : const AsyncValue<List<NearbyEvent>>.data([]);
+    final gros = eventId == null
+        ? ref.watch(bigEventsProvider).value ?? const <NearbyEvent>[]
+        : const <NearbyEvent>[];
     final spots = eventId == null
         ? const <HotSpot>[]
         : ref.watch(eventHotSpotsProvider(eventId)).value ?? const [];
@@ -882,6 +899,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
               p: p,
               spots: spots,
               nearby: nearby.value ?? const [],
+              gros: gros,
               event: event,
             ),
           )

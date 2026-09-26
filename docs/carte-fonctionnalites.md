@@ -38,57 +38,34 @@
 | notification quand l'app est fermée | **non** : aucune notification à distance (pas de Firebase) | à construire pour « demander la position » |
 | trajet à pied | non | service d'itinéraires de Mapbox (payant au-delà d'un seuil gratuit, à vérifier) |
 
-## ⚠️ Décisions à prendre par Jay
+## ✅ Décisions de Jay (2026-09-26)
 
-### A. La position partagée avec les amis (point 2) — la plus lourde
+- **A. Position des amis** : **précise**, et **seulement si l'ami a
+  choisi explicitement de la partager** dans les réglages de la carte
+  (désactivé par défaut). La carte dit **de quand date** la dernière
+  position (« il y a 45 min »).
+- **Cadence** (Jay : *« il ne faut pas surcharger les services et les
+  serveurs »*) : **au plus toutes les 10 secondes** quand on est sur la
+  carte pour se retrouver ; **toutes les 30 minutes** sinon — jamais
+  chaque seconde. À tenir par le SERVEUR (il refuse ou ignore plus
+  fréquent).
+- **B. Zones chaudes** : de CONTENU (Vibes publiques localisées), jamais
+  de personnes — et **plus tard**, quand il y aura beaucoup
+  d'utilisateurs.
+- **C. Demander la position actuelle** : à faire. L'ami reçoit la demande
+  (notification + chat) et doit accepter pour la révéler.
+- **D. Rejoindre un ami (trajet à pied)** : à coder pour tester, mais
+  **bloqué au premier lancement public**.
+- **E. Gros événements** : seuils **réglables depuis le futur centre de
+  contrôle** (lignes de `event_rules`).
 
-C'est un **nouvel objet**, qui ne partage ni la table ni les règles de la
-balise du ping (règle 2 de `CLAUDE.md` : deux règles, deux objets).
+## Ordre de construction
 
-1. **Par défaut, un nouvel utilisateur partage-t-il sa position avec ses
-   amis ?** (Snap : oui, mode fantôme au choix.)
-2. **Quelle précision est montrée** : le point exact, ou arrondi (au
-   quartier, à 100 m) ?
-3. **Combien de temps une « dernière position » reste visible** avant de
-   disparaître (Snap : quelques heures) ?
-4. **Quand est-elle mise à jour** : seulement app ouverte, ou aussi app
-   fermée (même cadence que la balise, une fois par minute — coût
-   batterie) ?
-5. Réglages : mode fantôme (personne), « tous mes amis sauf… »,
-   « seulement… » — lesquels ?
-
-### B. Les zones chaudes (point 4) — ⚠️ touche une décision verrouillée
-
-Deux textes de `CLAUDE.md` : *« Ce qui compte les présents ne le fait que
-dans un événement (le lieu filtre), jamais dans la rue »* (symétrie du
-croisement, reconfirmée le 2026-09-21), et *« Détection d'événements
-publics à grande échelle par clustering géographique »* hors du MVP.
-
-Proposition compatible : **des zones chaudes de CONTENU, pas de
-PERSONNES** — la densité des Vibes publiques localisées (déjà publiées
-volontairement par leurs auteurs), jamais celle des téléphones. À
-confirmer par Jay.
-
-### C. Demander la position actuelle (point 8)
-
-Il faut une **notification même app fermée** : aucune n'existe encore
-(Firebase non installé). Chantier à part, et condition de ce bouton.
-
-### D. Rejoindre un ami (point 8)
-
-Le trajet à pied passe par le service d'itinéraires de Mapbox (API
-« Directions ») : quota gratuit puis payant — tarif à vérifier sur la page
-officielle avant de construire.
-
-### E. Les gros événements de loin (point 3)
-
-À partir de combien de présents une soirée est-elle « grosse » ? Et
-seulement les soirées ouvertes et d'établissement (jamais les privées) ?
-
-## Ordre proposé (à valider)
-
-1. Photos de profil en repères (moi, amis) + événements dans un rayon
-   réglable jusqu'à 50 km (règle au serveur) + gros événements de loin.
+1. ✅ **v0.9.293** — ma photo de profil en repère ; événements dans un
+   rayon réglable (roue, 2 à 50 km, borné par le serveur :
+   `nearby_events(p_radius_m, p_min_present)`) ; gros événements de loin
+   (≥ `big_event_min_present` = 30 présents, jusqu'à `big_event_radius_m`
+   = 150 km, flamme).
 2. Position des amis et ses réglages de confidentialité (décisions A).
 3. Vibes publiques autour de moi (3 km), réglage désactivable.
 4. La roue d'actions sur un ami : profil, message, rejoindre (D) ;

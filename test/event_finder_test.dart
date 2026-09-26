@@ -55,7 +55,12 @@ class _Serveur extends EventsRepository {
   _Serveur(super.ref, this.soirees);
   final List<NearbyEvent> soirees;
   @override
-  Future<List<NearbyEvent>> nearby(double lat, double lon) async => soirees;
+  Future<List<NearbyEvent>> nearby(
+    double lat,
+    double lon, {
+    int? radiusM,
+    int minPresent = 0,
+  }) async => soirees;
 }
 
 class _Profil extends MyProfile {
