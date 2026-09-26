@@ -66,7 +66,17 @@
    `nearby_events(p_radius_m, p_min_present)`) ; gros événements de loin
    (≥ `big_event_min_present` = 30 présents, jusqu'à `big_event_radius_m`
    = 150 km, flamme).
-2. Position des amis et ses réglages de confidentialité (décisions A).
+2. ✅ **v0.9.294** — position des amis. Serveur
+   (`20260926110000_la_position_des_amis.sql`, essai à blanc 13 cas) :
+   `location_sharing` (éteint par défaut), `location_hidden_from`,
+   `friend_locations` (lisible seulement par un ami, si partage, non caché,
+   non bloqué — `private.may_see_location`), `map_rules` (10 s / 30 min /
+   24 h), `share_my_location` (direct), la balise du ping dépose au plus
+   toutes les 30 min, `friends_on_map()`, balai horaire. App :
+   `lib/features/map/friends_map.dart`, ronds des amis (« Prénom · il y a
+   … »), envoi toutes les 10 s carte ouverte si je partage, roue : partager
+   / cacher à…. ⚠️ Hors de l'app, la mise à jour passe par la balise du
+   ping : si la proximité est éteinte, la position n'est plus rafraîchie.
 3. Vibes publiques autour de moi (3 km), réglage désactivable.
 4. La roue d'actions sur un ami : profil, message, rejoindre (D) ;
    « demander la position » après les notifications (C).

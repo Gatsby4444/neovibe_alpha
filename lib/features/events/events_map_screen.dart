@@ -15,6 +15,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart';
 
 import '../../core/models/event.dart';
+import '../../core/clock.dart';
 import '../../core/models/profile.dart';
 import '../../core/palette.dart';
 import '../../core/prefs.dart';
@@ -33,6 +34,7 @@ import 'events_providers.dart';
 import 'map_follow.dart';
 import 'map_gesture_tuning.dart';
 import 'map_markers.dart';
+import '../map/friends_map.dart';
 import 'map_settings_sheet.dart';
 import 'my_point_motion.dart';
 
@@ -92,6 +94,19 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   PointAnnotationManager? _moi;
   PointAnnotationManager? _soirees;
   Cancelable? _tapSoirees;
+
+  /// Mes amis (leur photo, « il y a … ») ; puis MA photo, tout en haut.
+  PointAnnotationManager? _amis;
+  PointAnnotationManager? _moiPhoto;
+  PointAnnotation? _moiPhotoPoint;
+  Object? _dessineAmis;
+
+  /// Les images des amis déjà posées dans le style (clé → identifiant).
+  final _imagesAmis = <Object, String>{};
+
+  /// L'envoi de MA position aux amis, carte ouverte : au plus toutes les
+  /// 10 s (Jay), et seulement si je partage — le serveur le vérifie aussi.
+  Timer? _partage;
 
   /// Ce qui est dessiné dans chaque calque — on ne redessine qu'un calque
   /// dont le contenu a CHANGÉ (la reconstruction de l'écran n'en dit rien).
@@ -178,6 +193,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       _reveiller();
     }, fireImmediately: true);
     _ecouterBoussole();
+    _demarrerPartage();
   }
 
   void _ecouterBoussole() {
@@ -200,6 +216,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     _tapSoirees?.cancel();
     _ticker.dispose();
     _couperBoussole();
+    _arreterPartage();
     super.dispose();
   }
 
@@ -209,9 +226,12 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _ecouterBoussole();
+      _demarrerPartage();
     } else if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
       _couperBoussole();
+      // Hors de l'app, la position des amis passe par la balise (30 min).
+      _arreterPartage();
     }
   }
 
@@ -289,7 +309,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
 
   /// Ce qui a été envoyé en dernier à la carte, pour mon point et son
   /// cercle : on ne renvoie que ce qui a changé ([_poserMoi]).
-  Object? _envoyeHalo, _envoyePoint, _envoyeCamera;
+  Object? _envoyeHalo, _envoyePoint, _envoyeCamera, _envoyePhoto;
 
   /// La vue de derrière est-elle posée (inclinaison + point en bas) ?
   bool _vueDeDerriere = false;
@@ -384,13 +404,19 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     // oublie tout ce qui la désignait, sinon on déplacerait des points qui
     // n'existent plus — en silence.
     _moiPoint = null;
+    _moiPhotoPoint = null;
     _haloPoly = null;
+    _dessineAmis = null;
+    _imagesAmis.clear();
     _envoyeHalo = null;
     _envoyePoint = null;
     _envoyeCamera = null;
+    _envoyePhoto = null;
     _dessineChauds = null;
     _dessineSoirees = null;
     _imagesMoiCle = null;
+    _dessineAmis = null;
+    _imagesAmis.clear();
     _lumiere = null;
     // Tourner à deux doigts : permis hors mode boussole ([_appliquerGestes]).
     // L'inclinaison (glisser à deux doigts vers le haut) montre la 3D.
@@ -418,6 +444,13 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     await _moi!.setIconAllowOverlap(true);
     await _moi!.setIconIgnorePlacement(true);
     _soirees = await a.createPointAnnotationManager();
+    // Au-dessus des soirées : mes amis, puis ma photo.
+    _amis = await a.createPointAnnotationManager();
+    await _amis!.setIconAllowOverlap(true);
+    await _amis!.setTextAllowOverlap(true);
+    _moiPhoto = await a.createPointAnnotationManager();
+    await _moiPhoto!.setIconAllowOverlap(true);
+    await _moiPhoto!.setIconIgnorePlacement(true);
     _tapSoirees = _soirees!.tapEvents(
       onTap: (annotation) {
         final id = annotation.customData?['id'];
@@ -443,6 +476,8 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     _lumiere = null;
     // Les images vivent DANS le style : un style rechargé les a perdues.
     _imagesMoiCle = null;
+    _dessineAmis = null;
+    _imagesAmis.clear();
     if (mounted) setState(() {});
   }
 
@@ -577,6 +612,118 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     }
   }
 
+  /// **Mes amis sur la carte** (Jay, 2026-09-26) : leur photo dans un rond,
+  /// et, dessous, leur prénom et de quand date leur position (« il y a
+  /// 45 min »). Redessinés seulement si l'un a bougé, ou si la minute a
+  /// changé (le « il y a » vieillit).
+  Future<void> _dessinerAmis(
+    NeoPalette p,
+    List<FriendOnMap> amis,
+    DateTime maintenant,
+  ) async {
+    final calque = _amis;
+    if (calque == null || _map == null) return;
+    final cle = (
+      Object.hashAll(amis),
+      maintenant.difference(DateTime(2026)).inMinutes,
+      p.isDark,
+    );
+    if (cle == _dessineAmis) return;
+    _dessineAmis = cle;
+    try {
+      final dpr = MediaQuery.devicePixelRatioOf(context);
+      final images = <String, String>{};
+      for (final ami in amis) {
+        final cleImage = (ami.userId, ami.avatarUrl, ami.displayName, p.isDark);
+        var id = _imagesAmis[cleImage];
+        if (id == null) {
+          id = 'ami-${_imagesAmis.length}';
+          final stored = ami.avatarUrl;
+          final fichier = stored == null || stored.isEmpty
+              ? null
+              : await ref.read(avatarFileProvider(stored).future);
+          final photo = await MapMarkers.photo(fichier);
+          final png = await MapMarkers.rond(
+            dpr: dpr,
+            cote: _cotePhoto,
+            rayon: 15,
+            anneau: p.action,
+            fond: p.ground,
+            photo: photo,
+            initiales: MapMarkers.initiales(ami.displayName),
+          );
+          photo?.dispose();
+          final cote = (_cotePhoto * dpr).round();
+          await _map!.style.addStyleImage(
+            id,
+            dpr,
+            MbxImage(width: cote, height: cote, data: png),
+            false,
+            [],
+            [],
+            null,
+          );
+          _imagesAmis[cleImage] = id;
+        }
+        images[ami.userId] = id;
+      }
+      await calque.deleteAll();
+      if (amis.isEmpty) return;
+      await calque.createMulti([
+        for (final ami in amis)
+          PointAnnotationOptions(
+            geometry: _pt(ami.lat, ami.lon),
+            iconImage: images[ami.userId],
+            textField:
+                '${ami.displayName.split(' ').first} · '
+                '${ilYa(ami.at, maintenant)}',
+            textSize: 11,
+            textAnchor: TextAnchor.TOP,
+            textOffset: [0, 1.6],
+            textColor: p.ink.toARGB32(),
+            textHaloColor: p.surface.toARGB32(),
+            textHaloWidth: 1.5,
+            customData: {'ami': ami.userId},
+          ),
+      ]);
+    } catch (_) {
+      // Carte détruite en plein dessin : rien à rattraper.
+      _dessineAmis = null;
+    }
+  }
+
+  /// **Déposer ma position pour mes amis**, carte ouverte, au plus toutes
+  /// les 10 s — et seulement si je partage (le serveur le revérifie, et
+  /// ignore ce qui arrive plus vite que sa règle).
+  Future<void> _partagerMaPosition() async {
+    if (ref.read(locationSharingProvider).value != true) return;
+    final live = ref.read(livePositionProvider);
+    final fix = live.track ?? live.fix;
+    final depuis = live.trackAt ?? live.at;
+    if (fix == null || depuis == null) return;
+    if (DateTime.now().difference(depuis) > const Duration(minutes: 2)) return;
+    try {
+      await ref
+          .read(friendsMapRepositoryProvider)
+          .shareMyLocation(fix.latitude, fix.longitude, fix.accuracy);
+    } catch (_) {
+      // Réseau absent : le prochain tour réessaiera.
+    }
+  }
+
+  void _demarrerPartage() {
+    _partage ??= Timer.periodic(
+      friendsRefreshEvery,
+      (_) => unawaited(_partagerMaPosition()),
+    );
+    unawaited(_partagerMaPosition());
+  }
+
+  void _arreterPartage() {
+    _partage?.cancel();
+    _partage = null;
+  }
+
   /// Quelque chose bouge : on relance l'horloge si elle dort.
   void _reveiller() {
     if (mounted && !_ticker.isActive) _ticker.start();
@@ -622,8 +769,12 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         _imagesMoiCle = cleImages;
       }
       final ou = _pt(frame.lat, frame.lon);
-      final image = frame.heading == null ? _imgPoint : _imgFleche;
+      final image = frame.heading == null ? _imgVide : _imgCone;
       final cap = frame.heading ?? 0;
+      final photo = _moiPhotoPoint;
+      final clePhoto = (frame.lat, frame.lon);
+      final bougePhoto = photo == null || clePhoto != _envoyePhoto;
+      _envoyePhoto = clePhoto;
       // ⚠️ **Le halo d'incertitude, en MÈTRES.** L'appareil ne sait pas où
       // il est au mètre près (21 m au mieux, 100 m et plus en intérieur).
       // Un point net sans halo affirme une précision qu'on n'a pas.
@@ -683,6 +834,14 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
               ..iconImage = image
               ..iconRotate = cap,
           ),
+        if (bougePhoto && photo == null)
+          _moiPhoto!
+              .create(
+                PointAnnotationOptions(geometry: ou, iconImage: _imgPhoto),
+              )
+              .then((a) => _moiPhotoPoint = a)
+        else if (bougePhoto)
+          _moiPhoto!.update(photo..geometry = ou),
         if (bougeHalo && halo == null)
           _halo!
               .create(
@@ -707,15 +866,13 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   MapFollow _suivre(DateTime now) =>
       now.isBefore(_suiviPretA) ? MapFollow.libre : _suivi;
 
-  static const _imgPoint = 'neovibe-moi-point';
-  static const _imgFleche = 'neovibe-moi-fleche';
+  static const _imgPhoto = 'neovibe-moi-photo';
+  static const _imgCone = 'neovibe-moi-cone';
+  static const _imgVide = 'neovibe-vide';
 
-  /// Les deux images de mon point, posées dans le style : sans flèche (pas
-  /// de boussole) et avec — un cône qui s'ouvre vers où je regarde, comme
-  /// sur Google Maps. Dessinées à la densité de l'écran.
   /// **Mon point : ma photo de profil** (Jay, 2026-09-26), dans un anneau
-  /// de ma couleur ; avec le cône de direction quand la boussole répond.
-  /// Sans photo : mes initiales.
+  /// de ma couleur, face à l'écran ; dessous, le cône de direction posé à
+  /// plat sur la carte quand la boussole répond. Sans photo : mes initiales.
   Future<void> _poserImagesMoi(NeoPalette p, Profile? profil) async {
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final stored = profil?.avatarUrl;
@@ -724,18 +881,26 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         : await ref.read(avatarFileProvider(stored).future);
     final photo = await MapMarkers.photo(fichier);
     try {
-      for (final (id, fleche) in [(_imgPoint, false), (_imgFleche, true)]) {
-        final png = await MapMarkers.rond(
-          dpr: dpr,
-          cote: _coteMoi,
-          rayon: _rayonMoi,
-          anneau: p.cool,
-          fond: p.ground,
-          photo: photo,
-          initiales: MapMarkers.initiales(profil?.displayName ?? ''),
-          cone: fleche,
-        );
-        final cote = (_coteMoi * dpr).round();
+      final images = <String, (Uint8List, double)>{
+        _imgPhoto: (
+          await MapMarkers.rond(
+            dpr: dpr,
+            cote: _cotePhoto,
+            rayon: _rayonMoi,
+            anneau: p.cool,
+            fond: p.ground,
+            photo: photo,
+            initiales: MapMarkers.initiales(profil?.displayName ?? ''),
+          ),
+          _cotePhoto,
+        ),
+        _imgCone: (
+          await MapMarkers.cone(dpr: dpr, cote: _coteMoi, couleur: p.cool),
+          _coteMoi,
+        ),
+      };
+      for (final MapEntry(key: id, value: (png, cotePts)) in images.entries) {
+        final cote = (cotePts * dpr).round();
         await _map!.style.addStyleImage(
           id,
           dpr,
@@ -746,10 +911,22 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
           null,
         );
       }
+      await _map!.style.addStyleImage(
+        _imgVide,
+        1,
+        MbxImage(width: 1, height: 1, data: await MapMarkers.vide()),
+        false,
+        [],
+        [],
+        null,
+      );
     } finally {
       photo?.dispose();
     }
   }
+
+  /// Côté de l'image de ma photo, en points (le rond et son liseré).
+  static const _cotePhoto = 44.0;
 
   /// Côté de l'image de mon point, en points : la place du cône.
   static const _coteMoi = 76.0;
@@ -837,6 +1014,12 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     final nearby = eventId == null
         ? ref.watch(mapEventsProvider)
         : const AsyncValue<List<NearbyEvent>>.data([]);
+    // Mes amis, relus toutes les 10 s tant que la carte est ouverte ; et la
+    // minute, pour que « il y a … » vieillisse.
+    final amis = ref.watch(friendsOnMapProvider).value ?? const <FriendOnMap>[];
+    final minute =
+        ref.watch(tickProvider(const Duration(minutes: 1))).value ??
+        DateTime.now();
     final gros = eventId == null
         ? ref.watch(bigEventsProvider).value ?? const <NearbyEvent>[]
         : const <NearbyEvent>[];
@@ -894,6 +1077,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       // (effacer, effacer, créer, créer) laisseraient deux fois le même
       // point sur la carte.
       _file = _file
+          .then((_) => _dessinerAmis(p, amis, minute))
           .then(
             (_) => _dessiner(
               p: p,

@@ -126,6 +126,56 @@ abstract final class MapMarkers {
     return data!.buffer.asUint8List();
   }
 
+  /// **Le cône de direction seul** — posé À PLAT sur la carte (il tourne
+  /// avec la boussole et s'incline avec elle), sous le rond de profil, qui,
+  /// lui, reste face à l'écran : une photo posée à plat serait écrasée dès
+  /// que la carte s'incline.
+  static Future<Uint8List> cone({
+    required double dpr,
+    required double cote,
+    required Color couleur,
+  }) async {
+    final c = cote * dpr / 2;
+    final centre = Offset(c, c);
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(recorder);
+    final arc = Path()
+      ..moveTo(centre.dx, centre.dy)
+      ..arcTo(
+        Rect.fromCircle(center: centre, radius: c),
+        -math.pi / 2 - 35 * math.pi / 180,
+        70 * math.pi / 180,
+        false,
+      )
+      ..close();
+    canvas.drawPath(
+      arc,
+      Paint()
+        ..shader = ui.Gradient.radial(centre, c, [
+          couleur.withValues(alpha: 0.6),
+          couleur.withValues(alpha: 0),
+        ]),
+    );
+    final image = await recorder.endRecording().toImage(
+      (cote * dpr).round(),
+      (cote * dpr).round(),
+    );
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    return data!.buffer.asUint8List();
+  }
+
+  /// Une image transparente d'un pixel : le cône « éteint » quand la
+  /// boussole ne répond pas.
+  static Future<Uint8List> vide() async {
+    final recorder = ui.PictureRecorder();
+    Canvas(recorder);
+    final image = await recorder.endRecording().toImage(1, 1);
+    final data = await image.toByteData(format: ui.ImageByteFormat.png);
+    image.dispose();
+    return data!.buffer.asUint8List();
+  }
+
   /// Les initiales d'un nom (« Jay B » → « JB »), pour un profil sans photo.
   static String initiales(String nom) {
     final mots = nom.trim().split(RegExp(r'\s+')).where((m) => m.isNotEmpty);
