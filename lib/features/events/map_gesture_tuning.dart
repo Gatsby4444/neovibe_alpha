@@ -25,18 +25,12 @@ abstract final class MapGestureTuning {
   /// trouvées et réglées, écrit au journal — un zéro se voit, il ne se
   /// devine pas (mode « écran virtuel » : carte introuvable, seuils de
   /// Mapbox d'origine).
-  ///
-  /// [deuxDoigtsPourIncliner] : la règle des deux doigts
-  /// (`DevTiltBothFingers`), relue à chaque appel.
-  static Future<({int trouvees, int reglees})> tune({
-    bool deuxDoigtsPourIncliner = true,
-  }) async {
+  static Future<({int trouvees, int reglees})> tune() async {
     try {
       final r = await _canal.invokeMapMethod<String, int>('tune', {
         'rotateDeg': rotateDeg,
         'shoveMaxDeg': shoveMaxDeg,
         'pitchBoost': pitchBoost,
-        'deuxDoigtsPourIncliner': deuxDoigtsPourIncliner,
       });
       final res = (trouvees: r?['trouvees'] ?? 0, reglees: r?['reglees'] ?? 0);
       AppLog.instance.app(

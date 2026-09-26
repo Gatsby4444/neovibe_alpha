@@ -1,6 +1,6 @@
 // Le mode d'affichage de la carte (`AndroidPlatformViewHostingMode`) est
-// marqué expérimental par le paquet Mapbox ; on le choisit exprès, pour
-// comparer la fluidité (réglage développeur, 2026-09-26).
+// marqué expérimental par le paquet Mapbox ; on le choisit exprès (voir
+// `androidHostingMode` plus bas).
 // ignore_for_file: experimental_member_use
 
 import 'dart:async';
@@ -29,7 +29,7 @@ import 'event_screen.dart';
 import 'events_providers.dart';
 import 'map_follow.dart';
 import 'map_gesture_tuning.dart';
-import 'map_test_settings.dart';
+import 'map_settings_sheet.dart';
 import 'my_point_motion.dart';
 
 /// **La carte** (étape 5 du programme du 2026-09-21) : les soirées à portée
@@ -174,10 +174,6 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       _reveiller();
     }, fireImmediately: true);
     _ecouterBoussole();
-    // L'interrupteur change : le moteur est prévenu, pour le geste suivant.
-    ref.listenManual(devTiltBothFingersProvider, (_, _) {
-      unawaited(_reglerGestes());
-    });
   }
 
   void _ecouterBoussole() {
@@ -353,35 +349,18 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     await map.compass.updateSettings(CompassSettings(enabled: !boussole));
   }
 
-  /// Règle les gestes dans le moteur de la carte, avec les interrupteurs de
-  /// test du moment (règle des deux doigts pour incliner).
-  Future<void> _reglerGestes() => MapGestureTuning.tune(
-    deuxDoigtsPourIncliner: ref.read(devTiltBothFingersProvider),
-  );
+  /// Règle les gestes dans le moteur de la carte.
+  Future<void> _reglerGestes() => MapGestureTuning.tune();
 
-  /// **La roue de réglages** (Jay, 2026-09-26) : les interrupteurs de test
-  /// de la carte, sans quitter la carte.
+  /// **La roue de réglages** : les réglages de la carte pour l'utilisateur
+  /// (Jay, 2026-09-26), sans quitter la carte.
   void _ouvrirReglages() {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => const SafeArea(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Padding(
-                padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'Réglages de test de la carte',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-                ),
-              ),
-              MapTestSettings(),
-            ],
-          ),
-        ),
+        child: SingleChildScrollView(child: MapSettingsSheet()),
       ),
     );
   }
@@ -849,8 +828,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         : ref.watch(eventHotSpotsProvider(eventId)).value ?? const [];
 
     final live = ref.watch(livePositionProvider);
-    final affichage = ref.watch(devMapHostingProvider).value;
-    final objets3d = ref.watch(devMap3dProvider);
+    final objets3d = ref.watch(mapBuildings3dProvider);
     // Sur la carte, UNE position : celle que suit mon point ([track]) — le
     // centrage d'arrivée, le bouton et le libellé lisent la même.
     final me = live.track ?? live.fix;
@@ -917,7 +895,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
           title: Text(event?.title ?? 'Autour de moi'),
           actions: [
             IconButton(
-              tooltip: 'Réglages de test',
+              tooltip: 'Réglages de la carte',
               icon: const Icon(Icons.settings_rounded),
               onPressed: _ouvrirReglages,
             ),
@@ -925,37 +903,30 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         ),
         body: Stack(
           children: [
-            // ⚠️ **Le mode d'affichage se COMPARE sur le téléphone**
-            // (Réglages › Développeur › Interrupteurs, 2026-09-26) : Jay
-            // trouvait la carte saccadée, et le passage à la couche de
-            // texture (v0.9.275) n'était qu'une hypothèse. Changer de mode
-            // recrée la carte (sa clé).
-            if (affichage == null)
-              const SizedBox.shrink()
-            else
-              MapWidget(
-                key: ValueKey(affichage),
-                styleUri: MapboxStyles.STANDARD,
-                viewport: _vue,
-                textureView: affichage != MapHosting.natif,
-                androidHostingMode: switch (affichage) {
-                  MapHosting.virtuel => AndroidPlatformViewHostingMode.VD,
-                  MapHosting.texture => AndroidPlatformViewHostingMode.TLHC_HC,
-                  MapHosting.natif => AndroidPlatformViewHostingMode.HC,
-                },
-                onMapCreated: _onMapCreated,
-                onStyleLoadedListener: _onStyleLoaded,
-                onScrollListener: _onPan,
-                // ⚠️ **Toutes les touches à la carte, TOUT DE SUITE.** Sans
-                // ça, Flutter retient chaque doigt le temps de décider si un
-                // de ses propres gestes le réclame, puis le transmet : les
-                // gestes à deux doigts arrivent en retard et mal découpés.
-                gestureRecognizers: {
-                  Factory<OneSequenceGestureRecognizer>(
-                    EagerGestureRecognizer.new,
-                  ),
-                },
-              ),
+            // ⚠️ **Le mode d'affichage : la couche de texture** (`TLHC_HC`),
+            // choisi par Jay le 2026-09-26 après comparaison sur son
+            // téléphone avec l'écran virtuel (le défaut du paquet) et la
+            // vue native. Les réglages de gestes natifs
+            // (`MapGestureTuner.kt`) ont besoin que la carte soit accrochée
+            // aux vues de l'écran : c'est le cas ici, pas en écran virtuel.
+            MapWidget(
+              key: const ValueKey('carte'),
+              styleUri: MapboxStyles.STANDARD,
+              viewport: _vue,
+              androidHostingMode: AndroidPlatformViewHostingMode.TLHC_HC,
+              onMapCreated: _onMapCreated,
+              onStyleLoadedListener: _onStyleLoaded,
+              onScrollListener: _onPan,
+              // ⚠️ **Toutes les touches à la carte, TOUT DE SUITE.** Sans
+              // ça, Flutter retient chaque doigt le temps de décider si un
+              // de ses propres gestes le réclame, puis le transmet : les
+              // gestes à deux doigts arrivent en retard et mal découpés.
+              gestureRecognizers: {
+                Factory<OneSequenceGestureRecognizer>(
+                  EagerGestureRecognizer.new,
+                ),
+              },
+            ),
             if (nearby.hasError)
               Positioned(
                 left: 16,

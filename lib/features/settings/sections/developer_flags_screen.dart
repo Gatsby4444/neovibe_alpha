@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/prefs.dart';
 import '../../cards/native_camera.dart';
-import '../../events/map_test_settings.dart';
 import '../settings_common.dart';
 
 /// Les interrupteurs de test.
@@ -47,10 +46,6 @@ class DeveloperFlagsScreen extends ConsumerWidget {
             value: ref.watch(devShowExpiryProvider),
             onChanged: (v) => ref.read(devShowExpiryProvider.notifier).set(v),
           ),
-          const Divider(),
-          const SettingsHeader('Carte'),
-          // Les mêmes interrupteurs que la roue de réglages de la carte.
-          const MapTestSettings(),
           const Divider(),
           const SettingsHeader('Caméra'),
           SwitchListTile(

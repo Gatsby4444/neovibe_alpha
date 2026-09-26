@@ -611,74 +611,23 @@ final arrivalAvatarProvider = NotifierProvider<ArrivalAvatarPref, String?>(
   ArrivalAvatarPref.new,
 );
 
-/// **Comment la carte est affichée dans l'app** (DÉVELOPPEUR, 2026-09-26) —
-/// pour comparer la fluidité sur le téléphone au lieu de la deviner.
-///
-/// Jay : *« un peu saccadé, comme entre 10 et 20 images par seconde »*. La
-/// carte est un morceau d'Android posé dans l'écran Flutter, et il y a trois
-/// façons de l'y poser ; laquelle est la plus fluide dépend du téléphone. Le
-/// passage à [texture] (v0.9.275) était une hypothèse, et elle n'a pas suffi.
-/// Ce réglage permet de COMPARER les trois sur l'appareil, dans la même
-/// version. À retirer avec la section Développeur, une fois le bon choisi.
-enum MapHosting {
-  /// L'écran virtuel d'Android : le choix par défaut du paquet Mapbox.
-  virtuel('Écran virtuel', 'Le réglage par défaut de Mapbox.'),
-
-  /// La couche de texture : ce que Flutter recommande (depuis v0.9.275).
-  texture('Couche de texture', 'Recommandé par Flutter (actuel).'),
-
-  /// La vue Android posée telle quelle, dessinée par la carte elle-même.
-  natif(
-    'Vue native',
-    "La carte se dessine elle-même, sans passer par Flutter.",
-  );
-
-  const MapHosting(this.label, this.detail);
-  final String label;
-  final String detail;
-}
-
-class DevMapHosting extends AsyncNotifier<MapHosting> {
-  static const prefsKey = 'dev_map_hosting';
-
-  @override
-  Future<MapHosting> build() async {
-    final prefs = await SharedPreferences.getInstance();
-    final lu = prefs.getString(prefsKey);
-    return MapHosting.values.firstWhere(
-      (m) => m.name == lu,
-      orElse: () => MapHosting.texture,
-    );
-  }
-
-  Future<void> set(MapHosting value) async {
-    state = AsyncData(value);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(prefsKey, value.name);
-  }
-}
-
-final devMapHostingProvider = AsyncNotifierProvider<DevMapHosting, MapHosting>(
-  DevMapHosting.new,
-);
-
-/// **Les objets 3D de la carte** (DÉVELOPPEUR, 2026-09-26) — bâtiments,
-/// arbres, ombres. Jay trouve la carte encore un peu saccadée, et le mode
-/// d'affichage n'y change presque rien : le coût est peut-être dans le
-/// DESSIN lui-même, et la 3D en est la part la plus lourde. Cet interrupteur
-/// permet de le vérifier sur le téléphone. À retirer une fois tranché.
-class DevMap3d extends Notifier<bool> {
-  static const prefsKey = 'dev_map_3d';
+/// **Les bâtiments 3D de la carte** — une option de l'UTILISATEUR (Jay,
+/// 2026-09-26 : *« les bâtiments 3D restent en option pour l'utilisateur »*),
+/// dans la roue de réglages de la carte. **Éteinte par défaut** : la 3D est
+/// ce qui coûte le plus à dessiner (mesuré le 2026-09-26 : 63 images/s et
+/// 8 ms par image allumée, contre 83 et 4 ms éteinte).
+class MapBuildings3d extends Notifier<bool> {
+  static const prefsKey = 'map_buildings_3d';
 
   @override
   bool build() {
     _load();
-    return true;
+    return false;
   }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
-    state = prefs.getBool(prefsKey) ?? true;
+    state = prefs.getBool(prefsKey) ?? false;
   }
 
   Future<void> set(bool value) async {
@@ -688,34 +637,6 @@ class DevMap3d extends Notifier<bool> {
   }
 }
 
-final devMap3dProvider = NotifierProvider<DevMap3d, bool>(DevMap3d.new);
-
-/// **La règle des deux doigts pour incliner la carte** (DÉVELOPPEUR,
-/// 2026-09-26) — règle voulue par Jay : *« l'inclinaison, c'est deux doigts
-/// qui bougent dans une même direction, et pas un fixe et un qui bouge »*.
-/// Allumée par défaut ; l'interrupteur (roue de réglages de la carte)
-/// permet de comparer avec et sans. Appliquée par `MapGestureTuner.kt`.
-class DevTiltBothFingers extends Notifier<bool> {
-  static const prefsKey = 'dev_tilt_both_fingers';
-
-  @override
-  bool build() {
-    _load();
-    return true;
-  }
-
-  Future<void> _load() async {
-    final prefs = await SharedPreferences.getInstance();
-    state = prefs.getBool(prefsKey) ?? true;
-  }
-
-  Future<void> set(bool value) async {
-    state = value;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(prefsKey, value);
-  }
-}
-
-final devTiltBothFingersProvider = NotifierProvider<DevTiltBothFingers, bool>(
-  DevTiltBothFingers.new,
+final mapBuildings3dProvider = NotifierProvider<MapBuildings3d, bool>(
+  MapBuildings3d.new,
 );

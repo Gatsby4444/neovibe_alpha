@@ -2,7 +2,6 @@ package com.neovibe.neovibe
 
 import com.neovibe.neovibe.map.TwoFingerArbiter
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 /**
@@ -14,10 +13,8 @@ class TwoFingerArbiterTest {
     private fun choix(
         dax: Float, day: Float, dbx: Float, dby: Float,
         ax: Float = 240f, ay: Float = 1200f, bx: Float = 840f, by: Float = 1200f,
-        regle: Boolean = true,
     ) = TwoFingerArbiter.parts(
         ax, ay, bx, by, ax + dax, ay + day, bx + dbx, by + dby,
-        deuxDoigtsPourIncliner = regle,
     ).choix
 
     @Test
@@ -26,23 +23,9 @@ class TwoFingerArbiterTest {
     }
 
     @Test
-    fun `un doigt fixe et l'autre qui monte, ce n'est PAS une inclinaison`() {
-        // La règle de Jay : un fixe et un qui bouge, c'est tourner.
-        assertEquals(TwoFingerArbiter.ROTATION, choix(0f, -60f, 0f, -4f))
-    }
-
-    @Test
-    fun `sans la règle, le même geste incline`() {
-        assertEquals(TwoFingerArbiter.GLISSEMENT, choix(0f, -60f, 0f, -4f, regle = false))
-    }
-
-    @Test
-    fun `deux doigts dans des directions trop différentes n'inclinent pas`() {
-        // L'un monte, l'autre part de côté : plus de 60° entre eux. Ce
-        // n'est pas une inclinaison (ce qu'il devient — zoom ou rotation —
-        // dépend de la ligne des doigts, et n'est pas l'objet de la règle).
-        assertNotEquals(TwoFingerArbiter.GLISSEMENT, choix(0f, -40f, 40f, -5f))
-        assertEquals(TwoFingerArbiter.GLISSEMENT, choix(0f, -40f, 40f, -5f, regle = false))
+    fun `l'un monte, l'autre à peine, inclinaison`() {
+        // Le glissement se mesure toujours, même si un doigt bouge peu.
+        assertEquals(TwoFingerArbiter.GLISSEMENT, choix(0f, -60f, 0f, -4f))
     }
 
     @Test
