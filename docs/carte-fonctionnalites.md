@@ -3,7 +3,9 @@
 > Liste donnée par Jay le 2026-09-26, après la mise au point de la carte
 > Mapbox (v0.9.273 → v0.9.292). Ce document dit ce qui est demandé, ce qui
 > existe déjà (vérifié en base et dans le code ce jour-là), et les décisions
-> à prendre AVANT de construire. Rien n'est encore construit.
+> à prendre AVANT de construire. Les étapes 1 à 4 sont construites (v0.9.293 →
+> v0.9.296, voir « Ordre de construction ») ; le tableau « Ce qui existe déjà »
+> décrit l'état AVANT ces étapes.
 
 ## Ce que Jay a demandé (ses mots)
 
