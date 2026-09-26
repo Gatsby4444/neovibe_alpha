@@ -13,7 +13,7 @@ abstract final class MapGestureTuning {
   static const rotateDeg = 10.0;
 
   /// Jusqu'où les doigts peuvent être de travers pour incliner (Mapbox : 45°).
-  static const shoveMaxDeg = 60.0;
+  static const shoveMaxDeg = 70.0;
 
   /// Inclinaison deux fois plus vive que chez Mapbox : ~1,5 cm de course
   /// pour 60° (Jay : « 3 cm, c'est trop »).
@@ -39,6 +39,21 @@ abstract final class MapGestureTuning {
     } catch (e) {
       AppLog.instance.error('Carte', 'réglage des gestes impossible : $e');
       return (trouvees: 0, reglees: 0);
+    }
+  }
+
+  /// **Le journal des gestes** — pour chaque geste, ce que le moteur de la
+  /// carte a reconnu, dans l'ordre (déplacement, zoom, rotation,
+  /// inclinaison), avec les doigts, leur écart et leur angle, et l'élan.
+  /// Pour le diagnostic.
+  static Future<String> journal() async {
+    try {
+      final t = await _canal.invokeMethod<String>('journal') ?? '';
+      return t.trim().isEmpty
+          ? '(aucun geste noté — carte pas ouverte, ou introuvable)'
+          : t;
+    } catch (e) {
+      return '(journal illisible : $e)';
     }
   }
 }

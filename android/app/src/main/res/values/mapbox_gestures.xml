@@ -16,9 +16,11 @@
   android/…/map/MapGestureTuner.kt.
 -->
 <resources>
-    <!-- Règle 2 : l'inclinaison prend la main après ~4 mm de montée commune
-         (16dp chez Mapbox, soit 2,5 mm). Avant, la carte se déplace. -->
-    <dimen name="mapbox_defaultShovePixelThreshold">25dp</dimen>
+    <!-- Règle 2 : l'inclinaison prend la main après ~3 mm de montée commune
+         (16dp chez Mapbox, soit 2,5 mm). Avant, la carte se déplace.
+         25dp (~4 mm) le 2026-09-26 matin ; ramené à 20dp le soir — Jay
+         voyait encore la carte se déplacer en inclinant. -->
+    <dimen name="mapbox_defaultShovePixelThreshold">20dp</dimen>
 
     <!-- Un zoom ne part qu'après ~2,5 mm de variation d'écart (7dp chez
          Mapbox, ~1 mm) : deux doigts qui montent ensemble ne gardent jamais

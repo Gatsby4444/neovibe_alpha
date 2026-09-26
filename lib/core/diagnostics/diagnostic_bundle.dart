@@ -15,6 +15,7 @@ import 'card_rules_trace.dart';
 import 'radio_reading.dart';
 import 'service_journal_reading.dart';
 
+import '../../features/events/map_gesture_tuning.dart';
 import '../../features/proximity/background_guard.dart';
 import '../../features/proximity/geo/coarse_location.dart';
 import '../../features/proximity/net/ble_radio.dart';
@@ -842,6 +843,11 @@ class DiagnosticBundle {
         ..writeln(connections())
         ..writeln('\n===== SOIRÉE — LA PRÉSENCE, MINUTE PAR MINUTE =====')
         ..writeln(await eventPresence())
+        // Ajouté le 2026-09-26 : Jay voit parfois la carte se déplacer au
+        // lieu de s'incliner — le journal dit quel geste le moteur a
+        // reconnu, au lieu qu'on le devine.
+        ..writeln('\n===== CARTE — LES GESTES, UN PAR UN =====')
+        ..writeln(await MapGestureTuning.journal())
         ..writeln('\n===== POSITION — CE QU\'ANDROID A ACCORDÉ =====')
         ..writeln(await location())
         // ⚠️ Ajouté le 2026-09-22 : l'après-midi du 21, le service est mort

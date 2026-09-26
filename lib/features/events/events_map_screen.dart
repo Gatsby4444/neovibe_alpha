@@ -329,6 +329,10 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
       GesturesSettings(
         scrollEnabled: true,
         scrollMode: ScrollMode.HORIZONTAL_AND_VERTICAL,
+        // L'élan est le NÔTRE (celui des listes d'Android, MapGestureTuner.kt) :
+        // celui de Mapbox ne part qu'au-delà de 1 000 dp/s, et deux élans se
+        // battraient.
+        scrollDecelerationEnabled: false,
         pinchToZoomEnabled: true,
         pinchPanEnabled: !mode.follows,
         simultaneousRotateAndPinchToZoomEnabled: false,
