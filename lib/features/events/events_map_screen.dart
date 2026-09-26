@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -121,7 +122,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// Les soirées dessinées, par identifiant : ce qu'ouvre un tap.
   final _parId = <String, NearbyEvent>{};
 
-  /// Le mode de lumière appliqué (`day` / `night`).
+  /// Le réglage de style appliqué (lumière jour / nuit, objets 3D).
   String? _lumiere;
 
   /// ⚠️ **Posé une seule fois, au premier build utile.** Recalculer le centre
@@ -288,19 +289,43 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// Le zoom minimum de la vue de derrière : assez près pour les bâtiments.
   static const _zoomDerriere = 17.0;
 
-  /// **Tourner la carte à deux doigts** (Jay, 2026-09-26 : « le geste pour
-  /// orienter soi-même la carte comme sur Google Maps »). Permis partout,
-  /// SAUF en mode boussole : là, c'est ma direction qui oriente la carte, et
-  /// un geste contraire serait défait à l'image suivante. La boussole de
-  /// Mapbox (touchée, elle remet le nord) suit la même règle : visible quand
-  /// la carte est tournée à la main, cachée en mode boussole, où c'est notre
-  /// bouton qui remet le nord.
+  /// **Les gestes, tels que Jay les a définis** (2026-09-26) :
+  ///
+  /// | Doigts | Geste | Effet |
+  /// |---|---|---|
+  /// | 1 | glisser | déplacer la carte |
+  /// | 2 | se rapprocher / s'écarter | zoomer (et se déplacer avec) |
+  /// | 2 | tourner en sens opposés | tourner la carte |
+  /// | 2 | glisser ensemble vers le haut / le bas | incliner la vue |
+  ///
+  /// ⚠️ **Zoomer ne tourne plus la carte.** Par défaut, Mapbox laisse un
+  /// pincement tourner la carte en même temps qu'il zoome
+  /// (`simultaneousRotateAndPinchToZoomEnabled`) : un zoom un peu de
+  /// travers la faisait pivoter. Chaque geste fait désormais UNE chose.
+  ///
+  /// Deux exceptions, qui suivent le mode du bouton :
+  /// - **quand la carte me suit**, pincer zoome sans déplacer : la carte me
+  ///   ramènerait au centre à l'image suivante, et le zoom sauterait ;
+  /// - **en mode boussole**, pas de rotation à deux doigts : c'est ma
+  ///   direction qui oriente la carte, un geste contraire serait défait à
+  ///   l'image suivante. La boussole de Mapbox (touchée, elle remet le nord)
+  ///   est visible hors de ce mode.
   Future<void> _appliquerGestes(MapFollow mode) async {
     final map = _map;
     if (map == null) return;
     final boussole = mode == MapFollow.boussole;
     await map.gestures.updateSettings(
-      GesturesSettings(rotateEnabled: !boussole),
+      GesturesSettings(
+        scrollEnabled: true,
+        scrollMode: ScrollMode.HORIZONTAL_AND_VERTICAL,
+        pinchToZoomEnabled: true,
+        pinchPanEnabled: !mode.follows,
+        simultaneousRotateAndPinchToZoomEnabled: false,
+        increaseRotateThresholdWhenPinchingToZoom: true,
+        increasePinchToZoomThresholdWhenRotating: true,
+        rotateEnabled: !boussole,
+        pitchEnabled: true,
+      ),
     );
     await map.compass.updateSettings(CompassSettings(enabled: !boussole));
   }
@@ -382,15 +407,18 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
   /// (une carte claire la nuit éblouit — capture de 21:43, 2026-09-22), et
   /// sans commerces ni arrêts, qui chargeaient l'ancienne carte (pharmacies,
   /// numéros). Les rues et les quartiers restent : c'est ce qui situe.
-  void _reglerStyle(bool dark) {
+  void _reglerStyle(bool dark, {required bool objets3d}) {
     final map = _map;
-    final voulu = dark ? 'night' : 'day';
+    final voulu = '${dark ? 'night' : 'day'}-$objets3d';
     if (map == null || _lumiere == voulu) return;
     _lumiere = voulu;
     unawaited(
       map.style
           .setStyleImportConfigProperties('basemap', {
-            'lightPreset': voulu,
+            'lightPreset': dark ? 'night' : 'day',
+            // Interrupteur de test (Réglages › Développeur) : la 3D est ce
+            // qui coûte le plus à dessiner.
+            'show3dObjects': objets3d,
             'showPointOfInterestLabels': false,
             'showTransitLabels': false,
             'showLandmarkIcons': false,
@@ -762,6 +790,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
 
     final live = ref.watch(livePositionProvider);
     final affichage = ref.watch(devMapHostingProvider).value;
+    final objets3d = ref.watch(devMap3dProvider);
     // Sur la carte, UNE position : celle que suit mon point ([track]) — le
     // centrage d'arrivée, le bouton et le libellé lisent la même.
     final me = live.track ?? live.fix;
@@ -779,6 +808,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
         if (!mounted) return;
         // À l'ouverture, la carte me suit — comme Google Maps.
         setState(() => _suivi = MapFollow.centre);
+        unawaited(_appliquerGestes(MapFollow.centre));
         _suiviPretA = DateTime.now().add(const Duration(milliseconds: 700));
         _allerA(me.latitude, me.longitude);
       });
@@ -804,7 +834,7 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
     // pendant la construction de l'écran.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      _reglerStyle(p.isDark);
+      _reglerStyle(p.isDark, objets3d: objets3d);
       // ⚠️ **À la file, jamais en parallèle** : deux dessins entrelacés
       // (effacer, effacer, créer, créer) laisseraient deux fois le même
       // point sur la carte.
@@ -853,6 +883,15 @@ class _EventsMapScreenState extends ConsumerState<EventsMapScreen>
                 onMapCreated: _onMapCreated,
                 onStyleLoadedListener: _onStyleLoaded,
                 onScrollListener: _onPan,
+                // ⚠️ **Toutes les touches à la carte, TOUT DE SUITE.** Sans
+                // ça, Flutter retient chaque doigt le temps de décider si un
+                // de ses propres gestes le réclame, puis le transmet : les
+                // gestes à deux doigts arrivent en retard et mal découpés.
+                gestureRecognizers: {
+                  Factory<OneSequenceGestureRecognizer>(
+                    EagerGestureRecognizer.new,
+                  ),
+                },
               ),
             if (nearby.hasError)
               Positioned(

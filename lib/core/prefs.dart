@@ -661,3 +661,31 @@ class DevMapHosting extends AsyncNotifier<MapHosting> {
 final devMapHostingProvider = AsyncNotifierProvider<DevMapHosting, MapHosting>(
   DevMapHosting.new,
 );
+
+/// **Les objets 3D de la carte** (DÉVELOPPEUR, 2026-09-26) — bâtiments,
+/// arbres, ombres. Jay trouve la carte encore un peu saccadée, et le mode
+/// d'affichage n'y change presque rien : le coût est peut-être dans le
+/// DESSIN lui-même, et la 3D en est la part la plus lourde. Cet interrupteur
+/// permet de le vérifier sur le téléphone. À retirer une fois tranché.
+class DevMap3d extends Notifier<bool> {
+  static const prefsKey = 'dev_map_3d';
+
+  @override
+  bool build() {
+    _load();
+    return true;
+  }
+
+  Future<void> _load() async {
+    final prefs = await SharedPreferences.getInstance();
+    state = prefs.getBool(prefsKey) ?? true;
+  }
+
+  Future<void> set(bool value) async {
+    state = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(prefsKey, value);
+  }
+}
+
+final devMap3dProvider = NotifierProvider<DevMap3d, bool>(DevMap3d.new);

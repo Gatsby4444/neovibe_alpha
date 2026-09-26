@@ -66,6 +66,15 @@ class DeveloperFlagsScreen extends ConsumerWidget {
               ],
             ),
           ),
+          SwitchListTile(
+            title: const Text('Objets 3D (bâtiments, arbres, ombres)'),
+            subtitle: const Text(
+              'Éteins-les pour voir si la carte devient plus fluide : ce sont '
+              'eux qui coûtent le plus à dessiner.',
+            ),
+            value: ref.watch(devMap3dProvider),
+            onChanged: (v) => ref.read(devMap3dProvider.notifier).set(v),
+          ),
           const Divider(),
           const SettingsHeader('Caméra'),
           SwitchListTile(
