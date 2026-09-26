@@ -53,6 +53,9 @@ ces éléments (ils ont été rejoués dessus pour le prouver).
 
 > Jay : *« on va écrire notre propre programme serveur. Le but c'est le
 > contrôle, la scalabilité et la polyvalence. Totale. »*
+>
+> **Langage : Rust** (Jay, 2026-09-26). Méthode — deux temps ou tout
+> d'un coup — en discussion.
 
 Toute la logique du serveur est **écrite en SQL dans Postgres** : 215
 fonctions, 122 politiques de sécurité, 11 tâches planifiées. L'app parle
