@@ -8,7 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../location/capture_places.dart';
 import '../location/city_index.dart';
 import '../models/card.dart';
-import '../supabase_providers.dart';
+import '../api/nv_api.dart';
 
 /// Préfixe des identifiants de sauvegardes faites **avant** que le contenu
 /// n'existe côté serveur (« Enregistrer pour moi » cliqué à l'envoi, 2026-08-14).
@@ -391,9 +391,9 @@ class SavedStore {
           .where((id) => !id.startsWith(localIdPrefix))
           .toList();
       if (known.isEmpty) return 0;
-      final rows = await ref
-          .read(supabaseProvider)
-          .rpc('revoked_contents', params: {'p_ids': known});
+      final rows = await ref.read(nvApiProvider).op('revoked_contents', {
+        'p_ids': known,
+      });
       var n = 0;
       for (final id in (rows as List)) {
         await remove(id as String);

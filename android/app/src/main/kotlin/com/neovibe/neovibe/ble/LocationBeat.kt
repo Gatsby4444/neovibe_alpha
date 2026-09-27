@@ -8,7 +8,7 @@ import android.os.Looper
 import androidx.core.content.ContextCompat
 import com.neovibe.neovibe.location.PositionEngine
 import com.neovibe.neovibe.publish.SessionStore
-import com.neovibe.neovibe.publish.SupabaseHttp
+import com.neovibe.neovibe.publish.Serveurs
 import java.util.concurrent.Executors
 
 /**
@@ -340,7 +340,7 @@ class LocationBeat(
             try {
                 val body = "{\"p_lat\":${fix.latitude},\"p_lon\":${fix.longitude}," +
                     "\"p_acc\":${fix.accuracy},\"p_token\":\"${hex(token)}\",\"p_slot\":$slot}"
-                SupabaseHttp(session).rpcText("publish_ping_beacon", body)
+                Serveurs.distant(session).rpcText("publish_ping_beacon", body)
                 publications++
                 dernierePublication = android.os.SystemClock.elapsedRealtime()
                 dernierEchec = null

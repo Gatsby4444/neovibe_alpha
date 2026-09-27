@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/cards/send/share_plan.dart';
 import '../../features/conversations/conversations_repository.dart';
 import '../../features/pulse/pulse_repository.dart';
-import '../supabase_providers.dart';
+import '../api/nv_api.dart';
 
 /// **Le repartage d'un contenu existant** (story, publication) vers ce que
 /// l'écran « À qui ? » a rendu en mode repartage.
@@ -31,7 +31,7 @@ class ContentRepost {
     SharePlan plan, {
     required bool isPublication,
   }) async {
-    final client = ref.read(supabaseProvider);
+    final client = ref.read(nvApiProvider);
     final conversations = ref.read(conversationsRepositoryProvider);
     var atteints = 0;
     var echecs = 0;
@@ -59,10 +59,10 @@ class ContentRepost {
         final convId =
             c.conversationId ??
             await conversations.getOrCreateDirect(c.peerId!);
-        final added = await client.rpc(
-          'share_content',
-          params: {'p_content_id': contentId, 'p_conversation_id': convId},
-        );
+        final added = await client.op('share_content', {
+          'p_content_id': contentId,
+          'p_conversation_id': convId,
+        });
         atteints += (added as int?) ?? 0;
       } catch (_) {
         echecs++;

@@ -16,7 +16,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 const BASE = process.env.NV_SERVEUR ?? 'http://127.0.0.1:8787';
 const WS = BASE.replace('http', 'ws') + '/v1/direct';
 const env = { ...process.env, MSYS_NO_PATHCONV: '1' };
-const sql = (q) => execFileSync('docker', ['exec', '-i', 'nv_rust_db', 'psql', '-At', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'postgres'], { input: q, env }).toString().trim();
+const sql = (q) => execFileSync('docker', ['exec', '-i', 'nv_rust_db', 'psql', '-At', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres', '-d', 'nv_serveur'], { input: q, env }).toString().trim();
 
 async function inscrire(nom) {
   const r = await fetch(`${BASE}/v1/auth/inscription`, {

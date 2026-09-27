@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../api/nv_api.dart';
 import '../supabase_providers.dart';
 import 'diagnostic_bundle.dart';
 
@@ -65,7 +66,7 @@ class DevReport {
     String? note,
     Map<String, dynamic>? data,
   }) async {
-    final client = ref.read(supabaseProvider);
+    final client = ref.read(nvApiProvider);
     final me = ref.read(currentUserIdProvider);
     if (me == null) throw StateError('Connecte-toi pour envoyer un rapport.');
 
@@ -75,7 +76,7 @@ class DevReport {
               '${body.substring(body.length - maxBodyChars)}'
         : body;
 
-    await client.from('dev_reports').insert({
+    await client.op('dev_report_insert', {
       'author_id': me,
       'kind': kind,
       // ⚠️ Depuis le PAQUET Android (`appVersion`/`appBuild` viennent de

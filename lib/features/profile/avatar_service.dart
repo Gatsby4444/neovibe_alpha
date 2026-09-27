@@ -5,9 +5,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show FileOptions;
 
 import '../../core/diagnostics/app_log.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/widgets/avatar.dart';
 import 'avatar_cropper_screen.dart';
@@ -149,19 +149,14 @@ class AvatarService {
   /// et aucun cache ne peut plus se tromper, y compris ceux qu'on ajoutera
   /// plus tard sans y penser.
   Future<String> upload(Uint8List bytes) async {
-    final client = _ref.read(supabaseProvider);
-    final me = client.auth.currentUser!.id;
+    final me = _ref.read(currentUserIdProvider)!;
     final previous = _ref.read(myProfileProvider).value?.avatarUrl;
 
     final path = '$me/avatar_${DateTime.now().millisecondsSinceEpoch}.png';
-    await client.storage
-        .from(_bucket)
-        .uploadBinary(
-          path,
-          bytes,
-          fileOptions: const FileOptions(contentType: 'image/png'),
-        );
-    await client.from('profiles').update({'avatar_url': path}).eq('id', me);
+    await _ref
+        .read(nvFichiersProvider)
+        .deposerOctets(_bucket, path, bytes, type: 'image/png');
+    await _ref.read(nvApiProvider).op('profile_update', {'avatar_url': path});
 
     // L'ancien fichier n'a plus aucun lecteur : le laisser, c'est faire
     // grossir le coffre d'une photo à chaque changement. Sans conséquence si
@@ -181,11 +176,9 @@ class AvatarService {
   /// photo, jamais l'enlever — et rien ne le disait, puisque l'écran
   /// enregistrait sans erreur.
   Future<void> remove() async {
-    final client = _ref.read(supabaseProvider);
-    final me = client.auth.currentUser!.id;
     final previous = _ref.read(myProfileProvider).value?.avatarUrl;
 
-    await client.from('profiles').update({'avatar_url': null}).eq('id', me);
+    await _ref.read(nvApiProvider).op('profile_update', {'avatar_url': null});
     await _deleteObject(previous);
     await _ref.read(avatarFileCacheProvider).purge(previous);
     AppLog.instance.action('Photo de profil retirée');
@@ -197,7 +190,7 @@ class AvatarService {
     final path = avatarPath(stored);
     if (path == null) return;
     try {
-      await _ref.read(supabaseProvider).storage.from(_bucket).remove([path]);
+      await _ref.read(nvFichiersProvider).supprimer(_bucket, [path]);
     } catch (_) {
       // Le fichier a déjà disparu, ou la politique refuse : sans importance,
       // plus rien ne le désigne.

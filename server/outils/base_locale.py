@@ -8,12 +8,28 @@
 3. les migrations propres au serveur Rust (`server/migrations/`) ;
 4. la copie des données de dev (`docdev/copie_base_dev/`, voir
    `copier_base_dev.py`) ;
-5. l'instrument de la preuve (`preuve.sql` : le journal des changements).
+5. l'instrument de la preuve (`preuve.sql` : le journal des changements) ;
+6. **la base du serveur** (`nv_serveur`), copie de la précédente.
 
-Usage, depuis la racine du dépôt :   python server/outils/base_locale.py
-La base reste allumée : `cargo` y vérifie les requêtes (sqlx), les preuves
-et le serveur s'y branchent. Adresse :
-postgres://postgres:neovibe@localhost:54329/postgres
+## ⚠️ Deux bases, deux usages — jamais la même (2026-09-27)
+
+| Base | Qui s'y branche | Ce qui la modifie |
+|---|---|---|
+| `postgres` — **la référence** | la preuve, `cargo` (sqlx) | rien : chaque situation de la preuve est annulée |
+| `nv_serveur` — **la base de travail** | le serveur lancé, les essais de bout en bout, l'app d'essai | le serveur (ses balais passent chaque minute), les essais |
+
+Constaté le 2026-09-27 : le serveur, lancé sur la référence pour un essai,
+a fermé en une minute (balai des soirées, « désertée ») la soirée dont
+5 situations de la preuve avaient besoin. Le balai avait raison ; c'est le
+partage qui était faux.
+
+Usage, depuis la racine du dépôt :
+    python server/outils/base_locale.py            tout remonter
+    python server/outils/base_locale.py --serveur  remettre la base du
+                                                   serveur à l'état de la référence
+Adresses :
+    postgres://postgres:neovibe@localhost:54329/postgres    (la référence)
+    postgres://postgres:neovibe@localhost:54329/nv_serveur  (le serveur)
 """
 import os
 import subprocess
@@ -78,8 +94,27 @@ def main():
 
     print('5. L\'instrument de la preuve…')
     psql('/outils/preuve.sql')
-    print('Prête : postgres://postgres:neovibe@localhost:54329/postgres')
+    base_du_serveur()
+    print('Prête : postgres://postgres:neovibe@localhost:54329/postgres (la référence)')
+
+
+def base_du_serveur():
+    """La base de travail du serveur : une copie de la référence (le modèle
+    exige que personne ne soit branché sur la référence pendant la copie)."""
+    print('6. La base du serveur (copie de la référence)…')
+    for requete in ('drop database if exists nv_serveur with (force)',
+                    'create database nv_serveur template postgres'):
+        r = docker('exec', NOM, 'psql', '-q', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres',
+                   '-d', 'template1', '-c', requete, check=False)
+        if r.returncode:
+            sys.exit(f'{requete} : {r.stderr.decode("utf-8", "replace").strip()}\n'
+                     'Quelque chose est branché sur la référence (un serveur, la preuve, '
+                     'cargo) : l\'arrêter, puis relancer.')
+    print('   postgres://postgres:neovibe@localhost:54329/nv_serveur')
 
 
 if __name__ == '__main__':
-    main()
+    if '--serveur' in sys.argv[1:]:
+        base_du_serveur()
+    else:
+        main()

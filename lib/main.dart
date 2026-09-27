@@ -9,9 +9,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mapbox_maps_flutter/mapbox_maps_flutter.dart'
     show MapboxOptions;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app.dart';
+import 'core/api/demarrage.dart';
+import 'core/api/nv_api.dart';
+import 'core/api/serveur.dart';
 import 'core/motion.dart';
 import 'core/config/env.dart';
 import 'core/publish/publish_bridge.dart';
@@ -99,11 +101,8 @@ Future<void> main() async {
   // La carte (Mapbox, 2026-09-25) : le jeton PUBLIC du compte de Jay.
   MapboxOptions.setAccessToken(Env.mapboxToken);
 
-  await Supabase.initialize(
-    url: Env.supabaseUrl,
-    publishableKey: Env.supabasePublishableKey,
-  );
-  _suivreLeJetonDuTempsReel();
+  await demarrerLeServeur();
+  _suivreLaConnexion();
   await NotificationService.instance.init();
 
   // Tap sur la notification BeReal → capture contrainte (fenêtre 5 min)
@@ -223,49 +222,40 @@ Future<void> main() async {
 /// l'utilisateur ni le client, donc Riverpod n'a aucune raison de reconstruire.
 /// D'où le `refresh` explicite ci-dessous — c'est lui qui remet les flux en
 /// marche.
-void _suivreLeJetonDuTempsReel() {
-  final client = Supabase.instance.client;
-  client.auth.onAuthStateChange.listen((state) {
-    final token = state.session?.accessToken;
-    if (token == null) {
-      if (state.event == AuthChangeEvent.signedOut) {
-        unawaited(PublishBridge.instance.signOut());
-      }
+/// La connexion, suivie pour ce qui vit hors des écrans : la file de
+/// publication native (qui travaille avec ou sans l'app, et a besoin du
+/// badge et de chaque renouvellement — 2026-09-19 ; elle ne le renouvelle
+/// jamais elle-même, voir `SessionStore.kt`) et les abonnements du direct.
+void _suivreLaConnexion() {
+  final auth = nvBackendCourant.auth;
+  Future<void> donnerLeBadge() async {
+    final badge = await auth.badge();
+    if (badge == null) return;
+    await PublishBridge.instance.configure(
+      serveur: Serveur.nom,
+      url: Serveur.rust ? Serveur.url : Env.supabaseUrl,
+      anonKey: Serveur.rust ? '' : Env.supabasePublishableKey,
+      accessToken: badge,
+    );
+  }
+
+  auth.evenements.listen((e) async {
+    if (e == NvEvenementAuth.deconnecte) {
+      unawaited(PublishBridge.instance.signOut());
       return;
     }
-    // La file de publication native travaille avec ou sans l'app : elle a
-    // besoin du jeton, et de chaque renouvellement (2026-09-19). Elle ne
-    // le renouvelle jamais elle-même (voir `SessionStore.kt`).
-    unawaited(
-      PublishBridge.instance.configure(
-        url: Env.supabaseUrl,
-        anonKey: Env.supabasePublishableKey,
-        accessToken: token,
-      ),
-    );
-    if (state.event == AuthChangeEvent.tokenRefreshed ||
-        state.event == AuthChangeEvent.signedIn ||
-        state.event == AuthChangeEvent.initialSession) {
-      client.realtime.setAuth(token);
-      // Et on relance les abonnements : ceux qui étaient tombés ne se
-      // relèveraient pas tout seuls.
-      realtimeEpoch.value++;
-      AppLog.instance.app('jeton temps réel rafraîchi', state.event.name);
-    }
+    await donnerLeBadge();
+    // Et on relance les abonnements : ceux qui étaient tombés ne se
+    // relèveraient pas tout seuls.
+    realtimeEpoch.value++;
+    AppLog.instance.app('jeton temps réel rafraîchi', e.name);
   });
   // Le service de publication dit que son jeton est refusé (l'app était
-  // fermée, le sien a expiré) : on en tire un frais et on le lui dépose.
+  // fermée, le sien a expiré) : on lui en dépose un frais.
   PublishBridge.instance.events.listen((e) async {
     if (e is! PublishNeedsToken) return;
     try {
-      final fresh = await client.auth.refreshSession();
-      final token = fresh.session?.accessToken;
-      if (token == null) return;
-      await PublishBridge.instance.configure(
-        url: Env.supabaseUrl,
-        anonKey: Env.supabasePublishableKey,
-        accessToken: token,
-      );
+      await donnerLeBadge();
       AppLog.instance.app('jeton redonné à la file de publication');
     } catch (err) {
       AppLog.instance.error('jeton pour la file de publication : $err');

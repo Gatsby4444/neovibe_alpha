@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 
 /// Catégorie de conversations créée par l'utilisateur (consigne Jay
@@ -24,12 +24,11 @@ final myCategoriesProvider = FutureProvider<List<ConversationCategory>>((
 ) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('conversation_categories')
-      .select()
-      .order('created_at');
-  return rows.map(ConversationCategory.fromJson).toList();
+  final rows = await ref.watch(nvApiProvider).op('categories_list') as List;
+  return [
+    for (final r in rows)
+      ConversationCategory.fromJson(r as Map<String, dynamic>),
+  ];
 });
 
 /// Appartenances : id de catégorie → ids de conversations.
@@ -38,10 +37,9 @@ final categoryMembersProvider = FutureProvider<Map<String, Set<String>>>((
 ) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return {};
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('conversation_category_members')
-      .select('category_id, conversation_id');
+  final rows =
+      (await ref.watch(nvApiProvider).op('category_members_list') as List)
+          .cast<Map<String, dynamic>>();
   final map = <String, Set<String>>{};
   for (final row in rows) {
     map
@@ -55,18 +53,15 @@ class CategoriesRepository {
   CategoriesRepository(this.ref);
   final Ref ref;
 
-  SupabaseClient get _client => ref.read(supabaseProvider);
+  NvApi get _api => ref.read(nvApiProvider);
 
   Future<void> create(String name) async {
-    final me = _client.auth.currentUser!.id;
-    await _client.from('conversation_categories').insert({
-      'owner_id': me,
-      'name': name.trim(),
-    });
+    final me = ref.read(currentUserIdProvider)!;
+    await _api.op('category_create', {'owner_id': me, 'name': name.trim()});
   }
 
   Future<void> delete(String categoryId) =>
-      _client.from('conversation_categories').delete().eq('id', categoryId);
+      _api.op('category_delete', {'id': categoryId});
 
   Future<void> setMembership(
     String categoryId,
@@ -74,19 +69,15 @@ class CategoriesRepository {
     bool member,
   ) async {
     if (member) {
-      await _client
-          .from('conversation_category_members')
-          .upsert(
-            {'category_id': categoryId, 'conversation_id': conversationId},
-            onConflict: 'category_id,conversation_id',
-            ignoreDuplicates: true,
-          );
+      await _api.op('category_member_add', {
+        'category_id': categoryId,
+        'conversation_id': conversationId,
+      });
     } else {
-      await _client
-          .from('conversation_category_members')
-          .delete()
-          .eq('category_id', categoryId)
-          .eq('conversation_id', conversationId);
+      await _api.op('category_member_remove', {
+        'category_id': categoryId,
+        'conversation_id': conversationId,
+      });
     }
   }
 }

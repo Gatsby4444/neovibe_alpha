@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../supabase_providers.dart';
+import '../api/nv_api.dart';
 
 /// Déclare au serveur qu'un contenu a été **réellement regardé**.
 ///
@@ -71,9 +71,9 @@ class ContentViewReporter {
   Future<void> _report(String contentId) async {
     if (!_reported.add(contentId)) return;
     try {
-      await _ref
-          .read(supabaseProvider)
-          .rpc('record_content_view', params: {'p_content_id': contentId});
+      await _ref.read(nvApiProvider).op('record_content_view', {
+        'p_content_id': contentId,
+      });
     } catch (_) {
       // Un journal qui échoue ne doit jamais faire tomber un écran. On
       // réautorise simplement une tentative ultérieure.

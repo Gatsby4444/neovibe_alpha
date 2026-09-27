@@ -13,6 +13,7 @@ use nv_core::{ops, Ctx, NvError, NvResult};
 use super::regles::{creneau, plausible, PLAFOND_RECOMMANDATIONS_MOIS};
 use super::{cuisine, paliers, rencontres};
 use crate::acces::{self, q};
+use crate::comptes::cuisine::profil_vu;
 use crate::carte::positions;
 
 ops![
@@ -636,9 +637,9 @@ async fn recommendations_list(ctx: &mut Ctx, args: Value) -> NvResult<Value> {
     };
     let profil = |col: &str| {
         format!(
-            "(select to_jsonb(p) || case when p.id <> $1 then '{{\"suspended_at\": null, \"suspended_reason\": null}}'::jsonb else '{{}}'::jsonb end
-                from public.profiles p where p.id = r.{col} and {})",
-            q::peut_voir_profil("$1::uuid", "p.id")
+            "(select {vu} from public.profiles p where p.id = r.{col} and {voit})",
+            vu = profil_vu("p", "$1::uuid"),
+            voit = q::peut_voir_profil("$1::uuid", "p.id")
         )
     };
     let sql = format!(
@@ -687,10 +688,10 @@ async fn blocks_list(ctx: &mut Ctx, args: Value) -> NvResult<Value> {
     let sql = format!(
         "select coalesce(json_agg(t order by t.created_at desc), '[]'::json) from (
            select b.blocked_id, b.created_at,
-                  (select to_jsonb(p) || '{{\"suspended_at\": null, \"suspended_reason\": null}}'::jsonb
-                     from public.profiles p where p.id = b.blocked_id and {}) as profiles
+                  (select {vu} from public.profiles p where p.id = b.blocked_id and {voit}) as profiles
              from public.blocks b where b.blocker_id = $1) t",
-        q::peut_voir_profil("$1::uuid", "p.id")
+        vu = profil_vu("p", "$1::uuid"),
+        voit = q::peut_voir_profil("$1::uuid", "p.id")
     );
     let v = sqlx::query_scalar::<_, Value>(&sql).bind(moi).fetch_one(ctx.db()).await?;
     // L'app ne lit que `blocked_id` et `profiles` : `created_at` servait au tri.

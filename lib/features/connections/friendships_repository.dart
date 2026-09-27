@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/supabase_providers.dart';
+import '../../core/api/nv_api.dart';
 import 'connections_repository.dart';
 import 'friendship.dart';
 
@@ -39,7 +39,7 @@ class FriendshipsRepository {
   /// parcourir, donc à réécrire la même boucle — et à choisir, chacun de son
   /// côté, quoi faire quand la personne est absente.
   Future<Map<String, Friendship>> all() async {
-    final rows = await ref.read(supabaseProvider).rpc('my_friendships') as List;
+    final rows = await ref.read(nvApiProvider).op('my_friendships') as List;
     return {
       for (final row in rows)
         (row as Map<String, dynamic>)['peer_id'] as String: Friendship.fromJson(

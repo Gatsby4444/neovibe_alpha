@@ -106,7 +106,7 @@ class PublishService : Service() {
         PublishPipeline(
             store = store,
             session = { sessions.read() },
-            remote = { SupabaseHttp(it) },
+            remote = { Serveurs.distant(it) },
             tools = tools,
             uploads = uploads,
             onChange = { publish() },

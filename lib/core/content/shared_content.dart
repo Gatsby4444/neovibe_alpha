@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/library_item.dart';
 import '../models/story.dart';
-import '../supabase_providers.dart';
+import '../api/nv_api.dart';
 
 /// Ce que désigne un repartage : une story ou une publication, jamais une
 /// copie.
@@ -22,13 +22,11 @@ final sharedContentProvider = FutureProvider.family<SharedContent, String>((
   ref,
   contentId,
 ) async {
-  final client = ref.watch(supabaseProvider);
+  final client = ref.watch(nvApiProvider);
 
-  final content = await client
-      .from('contents')
-      .select('context, shareable, saveable')
-      .eq('id', contentId)
-      .maybeSingle();
+  final content =
+      await client.op('content_flags', {'id': contentId})
+          as Map<String, dynamic>?;
   if (content == null) return (story: null, item: null);
 
   final shareable = content['shareable'] as bool? ?? false;
@@ -36,11 +34,9 @@ final sharedContentProvider = FutureProvider.family<SharedContent, String>((
 
   switch (content['context'] as String) {
     case 'story':
-      final row = await client
-          .from('stories')
-          .select('*, profiles!stories_owner_id_fkey(*)')
-          .eq('id', contentId)
-          .maybeSingle();
+      final row =
+          await client.op('story_get', {'id': contentId})
+              as Map<String, dynamic>?;
       if (row == null) return (story: null, item: null);
       // `shareable` vit sur `contents` : on le réinjecte pour que le modèle
       // soit complet sans imposer une seconde jointure.
@@ -53,11 +49,9 @@ final sharedContentProvider = FutureProvider.family<SharedContent, String>((
       );
 
     case 'publication':
-      final row = await client
-          .from('library_items')
-          .select('*, library_media(*)')
-          .eq('id', contentId)
-          .maybeSingle();
+      final row =
+          await client.op('library_item_get', {'id': contentId})
+              as Map<String, dynamic>?;
       if (row == null) return (story: null, item: null);
       return (
         story: null,

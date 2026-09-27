@@ -3,10 +3,10 @@ import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/models/event.dart';
 import '../../core/prefs.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/username.dart';
 import '../auth/auth_repository.dart';
@@ -364,7 +364,7 @@ class ArrivalFlow extends Notifier<ArrivalState> {
   /// temporaire** (Jay, 2026-09-24). Même ordre que l'ancien écran : la ligne
   /// d'abord, la photo ensuite (`AvatarService.upload` met à jour la ligne).
   Future<void> _createProfile() async {
-    final userId = ref.read(supabaseProvider).auth.currentUser?.id;
+    final userId = ref.read(currentUserIdProvider);
     if (userId == null) throw const _Readable('Pas de session ouverte.');
     if (!_profileCreated) {
       await ref
@@ -423,7 +423,7 @@ class ArrivalFlow extends Notifier<ArrivalState> {
 
   static String _readable(Object e) {
     if (e is _Readable) return e.message;
-    if (e is AuthException) {
+    if (e is NvApiException) {
       final m = e.message.toLowerCase();
       if (m.contains('already registered') || m.contains('already exists')) {
         return 'Ce mail a déjà un compte : connecte-toi.';

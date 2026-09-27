@@ -1,8 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/models/library_item.dart';
 import '../../core/prefs.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../proximity/geo/live_position.dart';
 
@@ -52,14 +52,11 @@ class MapVibe {
 
 class VibesMapRepository {
   VibesMapRepository(this._client);
-  final SupabaseClient _client;
+  final NvApi _client;
 
   Future<List<MapVibe>> around(double lat, double lng) async {
     final rows =
-        await _client.rpc(
-              'map_vibes_around',
-              params: {'p_lat': lat, 'p_lng': lng},
-            )
+        await _client.op('map_vibes_around', {'p_lat': lat, 'p_lng': lng})
             as List;
     return [
       for (final r in rows)
@@ -75,12 +72,11 @@ class VibesMapRepository {
     double lng,
   ) async {
     if (ids.isEmpty) return const [];
-    final rows = await _client
-        .rpc(
-          'map_vibe_items',
-          params: {'p_ids': ids, 'p_lat': lat, 'p_lng': lng},
-        )
-        .select(LibraryItem.select);
+    final rows = await _client.op('map_vibe_items', {
+      'p_ids': ids,
+      'p_lat': lat,
+      'p_lng': lng,
+    });
     return [
       for (final r in rows as List)
         LibraryItem.fromJson(r as Map<String, dynamic>),
@@ -89,7 +85,7 @@ class VibesMapRepository {
 }
 
 final vibesMapRepositoryProvider = Provider<VibesMapRepository>(
-  (ref) => VibesMapRepository(ref.watch(supabaseProvider)),
+  (ref) => VibesMapRepository(ref.watch(nvApiProvider)),
 );
 
 /// **Les Vibes autour de moi, pour la carte** — rien si l'utilisateur les a

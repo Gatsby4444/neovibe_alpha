@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../core/api/nv_api.dart';
 
 import 'admin_repository.dart';
 import 'evidence_view.dart';
@@ -32,11 +33,11 @@ class _Gate extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    return StreamBuilder<AuthState>(
-      stream: Supabase.instance.client.auth.onAuthStateChange,
+    final auth = ref.watch(nvAuthProvider);
+    return StreamBuilder<NvEvenementAuth>(
+      stream: auth.evenements,
       builder: (context, _) {
-        final session = Supabase.instance.client.auth.currentSession;
-        if (session == null) return const _Login();
+        if (auth.compte == null) return const _Login();
         final admin = ref.watch(amIAdminProvider);
         return admin.when(
           loading: () =>
@@ -69,7 +70,9 @@ class _Message extends StatelessWidget {
           if (signOut) ...[
             const SizedBox(height: 12),
             OutlinedButton(
-              onPressed: () => Supabase.instance.client.auth.signOut(),
+              onPressed: () => ProviderScope.containerOf(
+                context,
+              ).read(nvAuthProvider).deconnexion(),
               child: const Text('Se déconnecter'),
             ),
           ],
@@ -98,10 +101,9 @@ class _LoginState extends State<_Login> {
       _error = null;
     });
     try {
-      await Supabase.instance.client.auth.signInWithPassword(
-        email: _email.text.trim(),
-        password: _password.text,
-      );
+      await ProviderScope.containerOf(context)
+          .read(nvAuthProvider)
+          .connexion(email: _email.text.trim(), password: _password.text);
     } catch (e) {
       setState(() => _error = '$e');
     } finally {
@@ -193,7 +195,9 @@ class _Console extends ConsumerWidget {
             IconButton(
               icon: const Icon(Icons.logout),
               tooltip: 'Se déconnecter',
-              onPressed: () => Supabase.instance.client.auth.signOut(),
+              onPressed: () => ProviderScope.containerOf(
+                context,
+              ).read(nvAuthProvider).deconnexion(),
             ),
           ],
           bottom: const TabBar(

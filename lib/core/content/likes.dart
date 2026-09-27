@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../supabase_providers.dart';
+import '../api/nv_api.dart';
 
 /// L'état d'un contenu vis-à-vis des likes : le compte, et « aimé par moi ».
 class LikeState {
@@ -53,9 +53,9 @@ class LikesStore extends Notifier<Map<String, LikeState>> {
     if (missing.isEmpty) return;
     _pending.addAll(missing);
     try {
-      final rows = await ref
-          .read(supabaseProvider)
-          .rpc('content_likes_summary', params: {'p_ids': missing});
+      final rows = await ref.read(nvApiProvider).op('content_likes_summary', {
+        'p_ids': missing,
+      });
       final next = Map<String, LikeState>.of(state);
       for (final r in rows as List) {
         final row = r as Map<String, dynamic>;
@@ -76,9 +76,9 @@ class LikesStore extends Notifier<Map<String, LikeState>> {
     final before = state[contentId] ?? const LikeState(count: 0, liked: false);
     state = {...state, contentId: before.toggled};
     try {
-      final rows = await ref
-          .read(supabaseProvider)
-          .rpc('toggle_like', params: {'p_content_id': contentId});
+      final rows = await ref.read(nvApiProvider).op('toggle_like', {
+        'p_content_id': contentId,
+      });
       final row = (rows as List).first as Map<String, dynamic>;
       state = {
         ...state,
@@ -95,9 +95,9 @@ class LikesStore extends Notifier<Map<String, LikeState>> {
 
   /// Qui a aimé — pour qui peut voir le contenu.
   Future<List<Liker>> likers(String contentId) async {
-    final rows = await ref
-        .read(supabaseProvider)
-        .rpc('content_likers', params: {'p_content_id': contentId});
+    final rows = await ref.read(nvApiProvider).op('content_likers', {
+      'p_content_id': contentId,
+    });
     return [
       for (final r in rows as List)
         Liker(

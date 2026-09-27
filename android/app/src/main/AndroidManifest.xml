@@ -110,7 +110,8 @@
     <uses-feature android:name="android.hardware.camera" android:required="true" />
 
     <application
-        android:label="NeoVibe"
+        android:label="${nvLabel}"
+        android:usesCleartextTraffic="${nvCleartext}"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

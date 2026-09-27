@@ -75,14 +75,27 @@ if ! grep -q "V3.0 Signer.*$ANCIENNE_CLE" <<< "$CERTS"; then
 fi
 echo "   les deux signataires sont là."
 
-echo "== 3/4 le versionCode progresse-t-il ? =="
+echo "== 3/4 le paquet, puis le versionCode progresse-t-il ? =="
+# ⚠️ Le paquet de l'app de tous les jours, dit positivement : une
+# construction faite avec `NEOVIBE_ESSAI_RUST=1` (l'app d'essai du serveur
+# Rust) porte `com.neovibe.neovibe.essairust`, et ne part jamais comme release.
+if ! "$AAPT" dump badging "$APK" | head -1 | grep -q "name='com.neovibe.neovibe'"; then
+  echo "ARRET : cet APK n'est pas le paquet com.neovibe.neovibe (l'app d'essai ?)." >&2
+  echo "Reconstruis avec tool/build-release.sh, sans NEOVIBE_ESSAI_RUST." >&2
+  exit 1
+fi
 CODE="$("$AAPT" dump badging "$APK" | head -1 | grep -o "versionCode='[0-9]*'" | grep -o "[0-9]*")"
 NOM="$("$AAPT" dump badging "$APK" | head -1 | grep -o "versionName='[^']*'" | cut -d"'" -f2)"
 # ⚠️ **`--exclude-drafts`, sinon le contrôle compare à un fantôme.** Le
 # 2026-09-13, GitHub a répondu 500 à la création tout en créant un BROUILLON
 # sans fichier ; à la seconde tentative, ce brouillon était « la release
 # précédente », son APK introuvable, et le contrôle passait EN SILENCE.
-PRECEDENT="$(gh release list --limit 1 --exclude-drafts --json tagName --jq '.[0].tagName' 2>/dev/null || echo '')"
+#
+# ⚠️ **`--exclude-pre-releases` : le témoin est l'app HABITUELLE.** Depuis le
+# 2026-09-27, l'app d'essai du serveur Rust (un autre paquet) est publiée en
+# pré-version (`server/outils/app_d_essai.sh --publier`) : elle n'est pas
+# « la release précédente » de l'app de tous les jours.
+PRECEDENT="$(gh release list --limit 1 --exclude-drafts --exclude-pre-releases --json tagName --jq '.[0].tagName' 2>/dev/null || echo '')"
 
 if [ -n "$PRECEDENT" ]; then
   # ⚠️ On lit le versionCode de la release précédente sur SON artefact, pas sur

@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/content/likes.dart';
 import '../../core/location/anchor.dart';
 import '../../core/models/library_item.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/api/nv_api.dart';
 
 /// **Les trois modes du fil** (Jay, 2026-09-20) — le sélecteur en haut de
 /// chaque fil, comme celui de la galerie mais en menu déroulant.
@@ -44,18 +44,12 @@ final feedItemsProvider = FutureProvider.family<List<LibraryItem>, FeedQuery>((
   ref,
   q,
 ) async {
-  final rows = await ref
-      .watch(supabaseProvider)
-      .rpc(
-        'feed_items',
-        params: {
-          'p_kind': kLibraryKindVibe,
-          'p_mode': q.mode.rpcValue,
-          'p_lat': q.at?.lat,
-          'p_lng': q.at?.lng,
-        },
-      )
-      .select(LibraryItem.select);
+  final rows = await ref.watch(nvApiProvider).op('feed_items', {
+    'p_kind': kLibraryKindVibe,
+    'p_mode': q.mode.rpcValue,
+    'p_lat': q.at?.lat,
+    'p_lng': q.at?.lng,
+  });
   return [
     for (final r in rows as List)
       LibraryItem.fromJson(r as Map<String, dynamic>),
@@ -71,14 +65,9 @@ final revealedAdderProvider = FutureProvider.family<String?, String>((
 ) async {
   final liked = ref.watch(likesStoreProvider)[contentId]?.liked ?? false;
   if (!liked) return null;
-  final rows = await ref
-      .watch(supabaseProvider)
-      .rpc(
-        'feed_adders',
-        params: {
-          'p_content_ids': [contentId],
-        },
-      );
+  final rows = await ref.watch(nvApiProvider).op('feed_adders', {
+    'p_content_ids': [contentId],
+  });
   final list = rows as List;
   if (list.isEmpty) return null;
   return (list.first as Map<String, dynamic>)['display_name'] as String?;
@@ -91,12 +80,10 @@ class PulseRepository {
   /// Ajoute un contenu au feed de ces amis — anonymement. Rend combien
   /// l'ont reçu (un ami qui l'avait déjà ne compte pas).
   Future<int> addToFeed(String contentId, List<String> friendIds) async {
-    final n = await ref
-        .read(supabaseProvider)
-        .rpc(
-          'add_to_feed',
-          params: {'p_content_id': contentId, 'p_recipient_ids': friendIds},
-        );
+    final n = await ref.read(nvApiProvider).op('add_to_feed', {
+      'p_content_id': contentId,
+      'p_recipient_ids': friendIds,
+    });
     return (n as int?) ?? 0;
   }
 }

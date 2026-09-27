@@ -1,13 +1,21 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/nv_api.dart';
 import '../../core/models/recommendation.dart';
 import '../../core/supabase_providers.dart';
 
-const _selectWithProfiles =
-    '*, '
-    'requester:profiles!recommendations_requester_id_fkey(*), '
-    'intermediary:profiles!recommendations_intermediary_id_fkey(*), '
-    'target:profiles!recommendations_target_id_fkey(*)';
+/// Les recommandations d'un rôle (`requester`, `intermediary`, `target`),
+/// avec les trois profils, les plus récentes d'abord.
+Future<List<Recommendation>> _recommandations(Ref ref, String role) async {
+  final rows =
+      await ref.watch(nvApiProvider).op('recommendations_list', {
+            'p_role': role,
+          })
+          as List;
+  return [
+    for (final r in rows) Recommendation.fromJson(r as Map<String, dynamic>),
+  ];
+}
 
 /// Demandes que J'AI envoyées (en tant que B).
 /// Spec 4.5.5 : jamais de statut négatif visible — on ne montre que
@@ -17,14 +25,8 @@ final myRecommendationRequestsProvider = FutureProvider<List<Recommendation>>((
 ) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('recommendations')
-      .select(_selectWithProfiles)
-      .eq('requester_id', me)
-      .order('created_at', ascending: false);
+  final rows = await _recommandations(ref, 'requester');
   return rows
-      .map(Recommendation.fromJson)
       .where(
         (r) =>
             r.status == RecommendationStatus.requested ||
@@ -40,14 +42,7 @@ final recommendationInboxProvider = FutureProvider<List<Recommendation>>((
 ) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('recommendations')
-      .select(_selectWithProfiles)
-      .eq('intermediary_id', me)
-      .eq('status', 'requested')
-      .order('created_at', ascending: false);
-  return rows.map(Recommendation.fromJson).toList();
+  return _recommandations(ref, 'intermediary');
 });
 
 /// Propositions reçues (en tant que C).
@@ -56,14 +51,7 @@ final recommendationProposalsProvider = FutureProvider<List<Recommendation>>((
 ) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('recommendations')
-      .select(_selectWithProfiles)
-      .eq('target_id', me)
-      .eq('status', 'forwarded')
-      .order('created_at', ascending: false);
-  return rows.map(Recommendation.fromJson).toList();
+  return _recommandations(ref, 'target');
 });
 
 class RecommendationsRepository {
@@ -73,7 +61,7 @@ class RecommendationsRepository {
   /// B demande à A une mise en relation (C décrit en texte libre).
   Future<void> request(String intermediaryId, String targetHint) async {
     final me = ref.read(currentUserIdProvider)!;
-    await ref.read(supabaseProvider).from('recommendations').insert({
+    await ref.read(nvApiProvider).op('recommendation_create', {
       'requester_id': me,
       'intermediary_id': intermediaryId,
       'target_hint': targetHint,
@@ -81,20 +69,17 @@ class RecommendationsRepository {
   }
 
   /// A transmet vers le C qu'il a choisi (plafond 10/mois vérifié serveur).
-  Future<void> forward(String recoId, String targetId) => ref
-      .read(supabaseProvider)
-      .rpc(
-        'forward_recommendation',
-        params: {'reco_id': recoId, 'chosen_target': targetId},
-      );
+  Future<void> forward(String recoId, String targetId) =>
+      ref.read(nvApiProvider).op('forward_recommendation', {
+        'reco_id': recoId,
+        'chosen_target': targetId,
+      });
 
-  Future<void> accept(String recoId) => ref
-      .read(supabaseProvider)
-      .rpc('accept_recommendation', params: {'reco_id': recoId});
+  Future<void> accept(String recoId) =>
+      ref.read(nvApiProvider).op('accept_recommendation', {'reco_id': recoId});
 
-  Future<void> decline(String recoId) => ref
-      .read(supabaseProvider)
-      .rpc('decline_recommendation', params: {'reco_id': recoId});
+  Future<void> decline(String recoId) =>
+      ref.read(nvApiProvider).op('decline_recommendation', {'reco_id': recoId});
 }
 
 final recommendationsRepositoryProvider = Provider(

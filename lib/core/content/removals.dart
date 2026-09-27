@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../api/nv_api.dart';
 import '../supabase_providers.dart';
 
 /// **Ce qui a disparu d'une conversation** — l'ACQUISITION (2026-09-25).
@@ -25,10 +26,13 @@ final removalsProvider = StreamProvider.autoDispose.family<Set<String>, String>(
     // `messagesStreamProvider`).
     ref.watch(realtimeEpochProvider);
     return ref
-        .watch(supabaseProvider)
-        .from('removals')
-        .stream(primaryKey: ['id'])
-        .eq('conversation_id', conversationId)
+        .watch(nvDirectProvider)
+        .lignes(
+          'removals',
+          cle: const ['id'],
+          colonne: 'conversation_id',
+          valeur: conversationId,
+        )
         .map((rows) => {for (final r in rows) r['target_id'] as String});
   },
 );

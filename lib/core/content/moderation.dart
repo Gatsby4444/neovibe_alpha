@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/connections/connections_repository.dart';
 import '../models/profile.dart';
+import '../api/nv_api.dart';
 import '../supabase_providers.dart';
 
 /// Motifs de signalement.
@@ -76,7 +77,7 @@ class ModerationRepository {
     ReportReason reason, {
     String? details,
   }) async {
-    await ref.read(supabaseProvider).from('content_reports').insert({
+    await ref.read(nvApiProvider).op('content_report_create', {
       'content_id': contentId,
       'reporter_id': ref.read(currentUserIdProvider),
       'reason': reason.dbValue,
@@ -92,7 +93,7 @@ class ModerationRepository {
     ReportReason reason, {
     String? details,
   }) async {
-    final client = ref.read(supabaseProvider);
+    final client = ref.read(nvApiProvider);
     final d = details != null && details.isNotEmpty ? details : null;
     switch (target) {
       case ContentReportTarget(:final contentId):
@@ -100,32 +101,23 @@ class ModerationRepository {
       case ProfileReportTarget(:final userId):
         await reportProfile(userId, reason, details: d);
       case DropVibeReportTarget(:final vibeId):
-        await client.rpc(
-          'report_drop_vibe',
-          params: {
-            'p_vibe_id': vibeId,
-            'p_reason': reason.dbValue,
-            'p_details': d,
-          },
-        );
+        await client.op('report_drop_vibe', {
+          'p_vibe_id': vibeId,
+          'p_reason': reason.dbValue,
+          'p_details': d,
+        });
       case EventReportTarget(:final eventId):
-        await client.rpc(
-          'report_event',
-          params: {
-            'p_event': eventId,
-            'p_reason': reason.dbValue,
-            'p_details': d,
-          },
-        );
+        await client.op('report_event', {
+          'p_event': eventId,
+          'p_reason': reason.dbValue,
+          'p_details': d,
+        });
       case SentVibeReportTarget(:final cardId):
-        await client.rpc(
-          'report_sent_vibe',
-          params: {
-            'p_card_id': cardId,
-            'p_reason': reason.dbValue,
-            'p_details': d,
-          },
-        );
+        await client.op('report_sent_vibe', {
+          'p_card_id': cardId,
+          'p_reason': reason.dbValue,
+          'p_details': d,
+        });
     }
   }
 
@@ -134,7 +126,7 @@ class ModerationRepository {
     ReportReason reason, {
     String? details,
   }) async {
-    await ref.read(supabaseProvider).from('profile_reports').insert({
+    await ref.read(nvApiProvider).op('profile_report_create', {
       'target_id': targetId,
       'reporter_id': ref.read(currentUserIdProvider),
       'reason': reason.dbValue,
@@ -147,16 +139,12 @@ class ModerationRepository {
   /// blocage. Celui qui est bloqué n'en est pas informé — c'est le propre d'un
   /// blocage utile.
   Future<void> block(String userId) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('block_user', params: {'p_user_id': userId});
+    await ref.read(nvApiProvider).op('block_user', {'p_user_id': userId});
     _rafraichir();
   }
 
   Future<void> unblock(String userId) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('unblock_user', params: {'p_user_id': userId});
+    await ref.read(nvApiProvider).op('unblock_user', {'p_user_id': userId});
     _rafraichir();
   }
 
@@ -198,15 +186,12 @@ final moderationRepositoryProvider = Provider(ModerationRepository.new);
 final blockedProfilesProvider = FutureProvider<List<Profile>>((ref) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('blocks')
-      .select('blocked_id, profiles!blocks_blocked_id_fkey(*)')
-      .eq('blocker_id', me)
-      .order('created_at', ascending: false);
-  return rows
-      .map((r) => Profile.fromJson(r['profiles'] as Map<String, dynamic>))
-      .toList();
+  final rows = await ref.watch(nvApiProvider).op('blocks_list') as List;
+  return [
+    for (final r in rows.cast<Map<String, dynamic>>())
+      if (r['profiles'] != null)
+        Profile.fromJson(r['profiles'] as Map<String, dynamic>),
+  ];
 });
 
 /// Ai-je bloqué cette personne ?

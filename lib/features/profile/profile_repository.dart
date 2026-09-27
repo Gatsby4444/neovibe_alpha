@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 
 /// **Toutes les écritures sur `profiles`, en un seul endroit.**
@@ -36,7 +37,7 @@ class ProfileRepository {
     required String displayName,
     String? tagName,
   }) => _write(
-    () => ref.read(supabaseProvider).from('profiles').insert({
+    () => ref.read(nvApiProvider).op('profile_create', {
       'id': userId,
       'display_name': displayName,
       'tag_name': (tagName?.isEmpty ?? true) ? null : tagName,
@@ -47,19 +48,15 @@ class ProfileRepository {
   /// la fonction est ouverte à `anon` et ne rend qu'un booléen. Le serveur
   /// reste seul juge au moment de créer le profil.
   Future<bool> usernameAvailable(String username) async =>
-      await ref
-              .read(supabaseProvider)
-              .rpc('username_available', params: {'p_username': username})
+      await ref.read(nvApiProvider).op('username_available', {
+            'p_username': username,
+          })
           as bool;
 
   /// Montrer mon pseudo aux autres et dans les groupes, ou mon username
   /// (Jay, 2026-09-24). La base en déduit `pseudo_shown`.
   Future<void> setShowPseudo(bool value) => _write(
-    () => ref
-        .read(supabaseProvider)
-        .from('profiles')
-        .update({'show_pseudo': value})
-        .eq('id', _me),
+    () => ref.read(nvApiProvider).op('profile_update', {'show_pseudo': value}),
   );
 
   /// Le pseudo, le tag et la bio.
@@ -68,15 +65,11 @@ class ProfileRepository {
     String? tagName,
     String? bio,
   }) => _write(
-    () => ref
-        .read(supabaseProvider)
-        .from('profiles')
-        .update({
-          'display_name': displayName,
-          'tag_name': (tagName?.isEmpty ?? true) ? null : tagName,
-          'bio': (bio?.isEmpty ?? true) ? null : bio,
-        })
-        .eq('id', _me),
+    () => ref.read(nvApiProvider).op('profile_update', {
+      'display_name': displayName,
+      'tag_name': (tagName?.isEmpty ?? true) ? null : tagName,
+      'bio': (bio?.isEmpty ?? true) ? null : bio,
+    }),
   );
 
   /// La **mention spéciale** et son interrupteur.
@@ -89,32 +82,23 @@ class ProfileRepository {
     required String? mention,
     required bool public,
   }) => _write(
-    () => ref
-        .read(supabaseProvider)
-        .from('profiles')
-        .update({
-          'special_mention': (mention?.isEmpty ?? true) ? null : mention,
-          // Une mention vide ne peut pas être publique : il n'y a rien à
-          // publier. Énoncé positivement plutôt que laissé à l'écran.
-          'special_mention_public': (mention?.isEmpty ?? true) ? false : public,
-        })
-        .eq('id', _me),
+    () => ref.read(nvApiProvider).op('profile_update', {
+      'special_mention': (mention?.isEmpty ?? true) ? null : mention,
+      // Une mention vide ne peut pas être publique : il n'y a rien à
+      // publier. Énoncé positivement plutôt que laissé à l'écran.
+      'special_mention_public': (mention?.isEmpty ?? true) ? false : public,
+    }),
   );
 
   /// Recevoir les waves en temps réel, ou en différé (le défaut).
   Future<void> setRealtimeWaves(bool value) => _write(
-    () => ref
-        .read(supabaseProvider)
-        .from('profiles')
-        .update({'realtime_waves': value})
-        .eq('id', _me),
+    () =>
+        ref.read(nvApiProvider).op('profile_update', {'realtime_waves': value}),
   );
 
   // ⚠️ `stories_public` n'est PAS ici : `StoriesRepository.setStoriesPublic`
   // l'écrit déjà. Deux chemins vers la même colonne, c'est la règle 3 de
   // `CLAUDE.md` — et le jour où les deux divergent, rien ne le signale.
-
-  String get _me => ref.read(currentUserIdProvider)!;
 
   /// ⚠️ **L'invalidation appartient à l'écriture, pas à l'appelant.** C'est la
   /// seule façon que deux écrans qui touchent la même table laissent le lecteur

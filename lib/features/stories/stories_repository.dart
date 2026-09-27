@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/content/content_face.dart';
 import '../../core/crypto/chunked_seal.dart';
@@ -9,6 +8,7 @@ import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
 import '../connections/friendship.dart';
 import '../../core/models/story.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
 import '../../core/clock.dart';
@@ -30,19 +30,13 @@ import '../../core/work_dir.dart';
 final storiesSourceProvider = FutureProvider<List<Story>>((ref) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('stories')
-      .select(
-        '*, contents(shareable, saveable), profiles!stories_owner_id_fkey(*)',
-      )
-      .gt('expires_at', DateTime.now().toUtc().toIso8601String())
-      // Chronologique, comme la visionneuse les joue (consigne Jay
-      // 2026-08-14). L'invariant est de toute façon garanti par le
-      // constructeur de `StoryRing` : ce tri-ci ne fait qu'éviter que la
-      // requête dise le contraire de ce que l'app affiche.
-      .order('created_at', ascending: true);
-  return rows.map(Story.fromJson).toList();
+  // Chronologique, comme la visionneuse les joue (consigne Jay 2026-08-14) :
+  // le serveur rend les stories de la plus ancienne à la plus récente.
+  // L'invariant est de toute façon garanti par le constructeur de
+  // `StoryRing` : cet ordre ne fait qu'éviter que la réponse dise le
+  // contraire de ce que l'app affiche.
+  final rows = await ref.watch(nvApiProvider).op('stories_list') as List;
+  return [for (final r in rows) Story.fromJson(r as Map<String, dynamic>)];
 });
 
 /// Regroupe les stories par auteur. L'auteur sans profil joint est écarté :
@@ -140,9 +134,9 @@ final storyViewersProvider = FutureProvider.family<List<StoryViewer>, String>((
   ref,
   storyId,
 ) async {
-  final rows = await ref
-      .watch(supabaseProvider)
-      .rpc('content_viewers', params: {'p_content_id': storyId});
+  final rows = await ref.watch(nvApiProvider).op('content_viewers', {
+    'p_content_id': storyId,
+  });
   return (rows as List)
       .map((r) => StoryViewer.fromJson(r as Map<String, dynamic>))
       .toList();
@@ -153,9 +147,9 @@ final storyViewerCountProvider = FutureProvider.family<int, String>((
   ref,
   storyId,
 ) async {
-  final value = await ref
-      .watch(supabaseProvider)
-      .rpc('content_viewer_count', params: {'p_content_id': storyId});
+  final value = await ref.watch(nvApiProvider).op('content_viewer_count', {
+    'p_content_id': storyId,
+  });
   return (value as int?) ?? 0;
 });
 
@@ -163,7 +157,8 @@ class StoriesRepository {
   StoriesRepository(this.ref);
   final Ref ref;
 
-  SupabaseClient get _client => ref.read(supabaseProvider);
+  NvApi get _api => ref.read(nvApiProvider);
+  NvFichiers get _fichiers => ref.read(nvFichiersProvider);
 
   /// Publie une story : dépôt des faces **chiffrées** dans le bucket
   /// `stories`, puis création de l'identité, du format et de la clé en une
@@ -192,7 +187,7 @@ class StoriesRepository {
     // repli qui ferme fait disparaître du contenu sans que personne comprenne.
     FriendshipTier minTier = FriendshipTier.friend,
   }) async {
-    final me = _client.auth.currentUser!.id;
+    final me = ref.read(currentUserIdProvider)!;
     final storyId = newUuid();
     final frontPath = '$me/${storyId}_front.${frontIsVideo ? 'mp4' : 'jpg'}';
     final backPath = back == null
@@ -202,7 +197,7 @@ class StoriesRepository {
     // La MÊME clé chiffre les deux faces : AES-GCM tire un nonce aléatoire à
     // chaque bloc, deux fichiers distincts restent donc sûrs.
     final mediaKey = await ChunkedSeal.newKey();
-    const sealedType = FileOptions(contentType: 'application/octet-stream');
+    const sealedType = 'application/octet-stream';
 
     // Préparée pour la livraison puis scellée par blocs, en flux — un seul
     // chemin pour les trois écrans qui publient (voir `FaceDelivery`).
@@ -214,33 +209,36 @@ class StoriesRepository {
       mediaKey,
       isVideo: frontIsVideo,
     );
-    await _client.storage
-        .from('stories')
-        .upload(frontPath, sealedFront, fileOptions: sealedType);
+    await _fichiers.deposer(
+      'stories',
+      frontPath,
+      sealedFront,
+      type: sealedType,
+    );
     File? sealedBack;
     if (back != null) {
       sealedBack = File('${temp.path}/seal_${storyId}_b');
       await FaceDelivery.seal(back, sealedBack, mediaKey, isVideo: backIsVideo);
-      await _client.storage
-          .from('stories')
-          .upload(backPath!, sealedBack, fileOptions: sealedType);
+      await _fichiers.deposer(
+        'stories',
+        backPath!,
+        sealedBack,
+        type: sealedType,
+      );
     }
 
-    await _client.rpc(
-      'publish_story',
-      params: {
-        'p_story_id': storyId,
-        'p_card_type': type.dbValue,
-        'p_front_path': frontPath,
-        'p_back_path': backPath,
-        'p_front_is_video': frontIsVideo,
-        'p_back_is_video': backIsVideo,
-        'p_shareable': shareable,
-        'p_media_key': mediaKey,
-        'p_saveable': saveable,
-        'p_min_tier': minTier.name,
-      },
-    );
+    await _api.op('publish_story', {
+      'p_story_id': storyId,
+      'p_card_type': type.dbValue,
+      'p_front_path': frontPath,
+      'p_back_path': backPath,
+      'p_front_is_video': frontIsVideo,
+      'p_back_is_video': backIsVideo,
+      'p_shareable': shareable,
+      'p_media_key': mediaKey,
+      'p_saveable': saveable,
+      'p_min_tier': minTier.name,
+    });
 
     // La clé reste sur l'appareil : rouvrir MA story ne demandera plus le
     // réseau. Elle a été fabriquée ici, elle n'y ajoute aucun droit.
@@ -274,10 +272,7 @@ class StoriesRepository {
   ///
   /// Lève si le contenu a été **révoqué** : c'est le point de contrôle unique.
   Future<String> openMedia(String storyId) async {
-    final key = await _client.rpc(
-      'open_content_media',
-      params: {'p_content_id': storyId},
-    );
+    final key = await _api.op('open_content_media', {'p_content_id': storyId});
     return key as String;
   }
 
@@ -298,7 +293,7 @@ class StoriesRepository {
     // `content_media_keys`, `content_grants`, `content_views` et les
     // signalements. Et le déclencheur sur `stories` inscrit les fichiers du
     // coffre à la suppression (voir `mes_octets_a_supprimer`).
-    await _client.from('contents').delete().eq('id', storyId);
+    await _api.op('content_delete', {'id': storyId});
     // Les fichiers locaux n'ont plus de raison d'être : le serveur ne les sert
     // plus — `story_audience` ne trouve plus de ligne, donc ni la clé ni les
     // octets ne s'obtiennent.
@@ -317,16 +312,11 @@ class StoriesRepository {
   /// Bascule « stories publiques » : les croisés de moins de 24 h voient
   /// mes stories, en plus de mes amis.
   Future<void> setStoriesPublic(bool value) async {
-    final me = _client.auth.currentUser!.id;
-    await _client
-        .from('profiles')
-        .update({'stories_public': value})
-        .eq('id', me);
+    await _api.op('profile_update', {'stories_public': value});
     ref.invalidate(myProfileProvider);
   }
 
-  Future<String> mediaUrl(String path) =>
-      _client.storage.from('stories').createSignedUrl(path, 3600);
+  Future<String> mediaUrl(String path) => _fichiers.lien('stories', path);
 
   void _invalidate() {
     ref.invalidate(storiesSourceProvider);

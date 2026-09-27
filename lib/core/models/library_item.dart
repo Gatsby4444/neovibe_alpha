@@ -169,10 +169,6 @@ class LibraryItem {
     );
   }
 
-  /// La jointure à demander à PostgREST pour obtenir tout ce que [fromJson]
-  /// lit — un seul endroit à tenir quand une colonne change.
-  static const select = '*, contents(shareable, saveable), library_media(*)';
-
   // 🔴 **ÉGALITÉ DE VALEUR — posée le 2026-08-31, six jours après les autres.**
   //
   // Le balayage du 2026-08-25 (checkup `RAPPELS.md` #52) a donné son `==` à

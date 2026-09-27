@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../crypto/media_open.dart';
+import '../api/nv_api.dart';
 import '../supabase_providers.dart';
 import '../video/video_open_trace.dart';
 import 'content_media_cache.dart';
@@ -19,9 +20,9 @@ final libraryKeysProvider = FutureProvider.family<Map<String, String>, String>((
   ref,
   ownerId,
 ) async {
-  final rows = await ref
-      .watch(supabaseProvider)
-      .rpc('library_media_keys', params: {'p_owner_id': ownerId});
+  final rows = await ref.watch(nvApiProvider).op('library_media_keys', {
+    'p_owner_id': ownerId,
+  });
   return {
     for (final row in rows as List)
       (row as Map<String, dynamic>)['content_id'] as String:
@@ -104,7 +105,8 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   ref,
   spec,
 ) async {
-  final client = ref.watch(supabaseProvider);
+  final client = ref.watch(nvApiProvider);
+  final fichiers = ref.watch(nvFichiersProvider);
   final cache = ref.watch(contentMediaCacheProvider);
   final me = ref.watch(currentUserIdProvider);
   final ownKeys = ref.watch(ownKeyStoreProvider);
@@ -132,7 +134,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
   // aller-retour que le préchargement retire du chemin visible.
   Future<String> signedUrl() async =>
       preloader.urlFor(spec.contentId, slot: spec.slot) ??
-      await client.storage.from(spec.bucket).createSignedUrl(spec.path, 3600);
+      await fichiers.lien(spec.bucket, spec.path);
 
   // Ordre de recherche de la clé :
   //   1. MES propres contenus : la clé est sur l'appareil, elle y a été
@@ -149,10 +151,7 @@ final contentFaceProvider = FutureProvider.family<OpenedMedia, ContentFace>((
     // n'enregistre plus la vue : obtenir la clé n'est plus « regarder ».
     key ??= preloader.keyFor(spec.contentId);
     key ??=
-        await client.rpc(
-              'open_content_media',
-              params: {'p_content_id': spec.contentId},
-            )
+        await client.op('open_content_media', {'p_content_id': spec.contentId})
             as String;
     return key;
   }

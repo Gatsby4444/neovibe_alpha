@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/api/nv_api.dart';
 import '../../../core/supabase_providers.dart';
 import '../../connections/friendship.dart';
 import 'share_plan.dart';
@@ -169,11 +170,7 @@ class FriendShareDefaultsRepository {
     final me = ref.read(currentUserIdProvider);
     if (me == null) return const {};
     final rows =
-        await ref
-                .read(supabaseProvider)
-                .from('friend_share_defaults')
-                .select('friend_id, saveable')
-            as List;
+        await ref.read(nvApiProvider).op('friend_share_defaults_list') as List;
     return {
       for (final row in rows)
         (row as Map<String, dynamic>)['friend_id'] as String:
@@ -189,15 +186,17 @@ class FriendShareDefaultsRepository {
   Future<void> setMany(Map<String, bool> saveableByFriend) async {
     final me = ref.read(currentUserIdProvider);
     if (me == null || saveableByFriend.isEmpty) return;
-    await ref.read(supabaseProvider).from('friend_share_defaults').upsert([
-      for (final e in saveableByFriend.entries)
-        {
-          'owner_id': me,
-          'friend_id': e.key,
-          'saveable': e.value,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        },
-    ], onConflict: 'owner_id,friend_id');
+    await ref.read(nvApiProvider).op('friend_share_defaults_upsert', {
+      'rows': [
+        for (final e in saveableByFriend.entries)
+          {
+            'owner_id': me,
+            'friend_id': e.key,
+            'saveable': e.value,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+          },
+      ],
+    });
     ref.invalidate(friendShareDefaultsProvider);
   }
 
@@ -205,12 +204,9 @@ class FriendShareDefaultsRepository {
   Future<void> clear(String friendId) async {
     final me = ref.read(currentUserIdProvider);
     if (me == null) return;
-    await ref
-        .read(supabaseProvider)
-        .from('friend_share_defaults')
-        .delete()
-        .eq('owner_id', me)
-        .eq('friend_id', friendId);
+    await ref.read(nvApiProvider).op('friend_share_default_delete', {
+      'friend_id': friendId,
+    });
     ref.invalidate(friendShareDefaultsProvider);
   }
 }

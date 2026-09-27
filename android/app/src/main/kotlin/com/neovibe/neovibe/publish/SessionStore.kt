@@ -19,7 +19,16 @@ import java.io.File
  * Fichier à part de `job.json` : une session vit et meurt avec la connexion,
  * une publication avec son envoi (règle 2 de `CLAUDE.md`).
  */
-data class Session(val url: String, val anonKey: String, val accessToken: String)
+/**
+ * [serveur] : `supabase` (ou absent, pour une session écrite avant le
+ * 2026-09-27) ou `rust` — voir [Serveurs].
+ */
+data class Session(
+    val url: String,
+    val anonKey: String,
+    val accessToken: String,
+    val serveur: String? = null,
+)
 
 class SessionStore(private val file: File) {
 

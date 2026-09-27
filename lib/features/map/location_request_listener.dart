@@ -1,7 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
 import '../../core/notifications/notification_service.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 
 /// **« Un ami te demande ta position » — la notification** (Jay,
@@ -17,39 +18,28 @@ import '../../core/supabase_providers.dart';
 class LocationRequestListener {
   LocationRequestListener(this.ref) {
     _subscribe();
-    ref.onDispose(() => _channel?.unsubscribe());
+    ref.onDispose(() => _ecoute?.cancel());
   }
 
   final Ref ref;
-  RealtimeChannel? _channel;
+  StreamSubscription<NvChangement>? _ecoute;
 
   void _subscribe() {
-    final client = ref.read(supabaseProvider);
-    final me = client.auth.currentUser?.id;
+    final me = ref.read(currentUserIdProvider);
     if (me == null) return;
-    _channel = client.channel('location-requests:$me')
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.insert,
-        schema: 'public',
-        table: 'location_requests',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'target_id',
-          value: me,
-        ),
-        callback: (payload) => _onDemande(payload.newRecord),
-      )
-      ..subscribe();
+    _ecoute = ref
+        .read(nvDirectProvider)
+        .insertions('location_requests', colonne: 'target_id', valeur: me)
+        .listen((c) => _onDemande(c.ligne));
   }
 
   Future<void> _onDemande(Map<String, dynamic> record) async {
     try {
-      final qui = await ref
-          .read(supabaseProvider)
-          .from('profiles')
-          .select('display_name')
-          .eq('id', record['requester_id'] as String)
-          .single();
+      final qui =
+          await ref.read(nvApiProvider).op('profiles_get', {
+                'p_id': record['requester_id'] as String,
+              })
+              as Map<String, dynamic>;
       await NotificationService.instance.show(
         NotifChannel.position,
         '${qui['display_name']} te demande ta position',

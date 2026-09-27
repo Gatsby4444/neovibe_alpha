@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/config/env.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/api/nv_api.dart';
 
 /// **Rejoindre un ami : le trajet à pied le plus court** (Jay, 2026-09-26) —
 /// la cuisine. Le service d'itinéraires de Mapbox (« Directions », profil
@@ -92,10 +92,8 @@ final walkingRouteServiceProvider = Provider<WalkingRouteService>(
 
 /// « Rejoindre » est-il ouvert ? (Le serveur tranche : `map_rules`.)
 final walkingRouteEnabledProvider = FutureProvider<bool>((ref) async {
-  final r = await ref
-      .watch(supabaseProvider)
-      .from('map_rules')
-      .select('walking_route_enabled')
-      .single();
+  final r =
+      await ref.watch(nvApiProvider).op('map_rules_walking')
+          as Map<String, dynamic>;
   return r['walking_route_enabled'] == true;
 });

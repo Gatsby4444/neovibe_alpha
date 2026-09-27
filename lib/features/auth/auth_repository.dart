@@ -1,8 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/api/nv_api.dart';
 import '../../core/device_identity.dart';
-import '../../core/supabase_providers.dart';
 
 /// Ce que l'inscription a donné.
 enum SignUpOutcome {
@@ -25,29 +24,27 @@ class AuthRepository {
 
   final Ref _ref;
 
-  GoTrueClient get _auth => _ref.read(supabaseProvider).auth;
+  NvAuth get _auth => _ref.read(nvAuthProvider);
 
   Future<void> signIn({required String email, required String password}) =>
-      _auth.signInWithPassword(email: email, password: password);
+      _auth.connexion(email: email, password: password);
 
   /// Crée le compte, **avec l'empreinte du téléphone**.
   ///
   /// C'est le serveur qui compte les comptes créés par ce téléphone et qui
   /// refuse au-delà du plafond (`hook_before_user_created`) : son refus
-  /// remonte ici en [AuthException], avec son message.
+  /// remonte ici en [NvApiException], avec son message.
   Future<SignUpOutcome> signUp({
     required String email,
     required String password,
   }) async {
     final device = await _ref.read(deviceIdentityProvider).fingerprint();
-    final res = await _auth.signUp(
+    final ouverte = await _auth.inscription(
       email: email,
       password: password,
-      data: {'device_hash': ?device},
+      empreinte: device,
     );
-    return res.session == null
-        ? SignUpOutcome.mustConfirmEmail
-        : SignUpOutcome.signedIn;
+    return ouverte ? SignUpOutcome.signedIn : SignUpOutcome.mustConfirmEmail;
   }
 }
 

@@ -5,6 +5,7 @@ import '../../core/models/connection.dart';
 import '../../core/models/connection_request.dart';
 import '../../core/models/wave.dart';
 import '../../core/models/profile.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 
 /// **Tous les profils de mes amis, en UNE requête.**
@@ -30,11 +31,9 @@ final friendProfilesProvider = FutureProvider<Map<String, Profile>>((
   final ids = ref.watch(friendIdsProvider);
   if (ids.isEmpty) return const {};
   final rows =
-      await ref
-              .watch(supabaseProvider)
-              .from('profiles')
-              .select()
-              .inFilter('id', ids.toList())
+      await ref.watch(nvApiProvider).op('profiles_list', {
+            'p_ids': ids.toList(),
+          })
           as List;
   return {
     for (final row in rows)
@@ -57,12 +56,9 @@ final profileByIdProvider = FutureProvider.family<Profile?, String>((
   final connu = lot[id];
   if (connu != null) return connu;
 
-  final data = await ref
-      .watch(supabaseProvider)
-      .from('profiles')
-      .select()
-      .eq('id', id)
-      .maybeSingle();
+  final data =
+      await ref.watch(nvApiProvider).op('profiles_get', {'p_id': id})
+          as Map<String, dynamic>?;
   return data == null ? null : Profile.fromJson(data);
 });
 
@@ -72,12 +68,11 @@ final connectionsStreamProvider = StreamProvider<List<Connection>>((ref) {
   // Sans ça, le socket garde le jeton avec lequel il s'est ouvert et tombe
   // au bout d'une heure — sans le moindre symptôme (2026-08-17).
   ref.watch(realtimeEpochProvider);
-  final client = ref.watch(supabaseProvider);
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return const Stream.empty();
-  return client
-      .from('connections')
-      .stream(primaryKey: ['id'])
+  return ref
+      .watch(nvDirectProvider)
+      .lignes('connections', cle: const ['id'])
       // ⚠️ **Trié par identifiant, et ce tri n'est pas décoratif.** Il triait
       // par statut, ce qui n'a plus de sens depuis que `partial` a disparu
       // (2026-08-28) — mais le RETIRER aurait été pire que le remplacer : sans
@@ -175,15 +170,12 @@ final friendIdsProvider = NotifierProvider<_FriendIds, Set<String>>(
 final wavesProvider = FutureProvider<List<Wave>>((ref) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('waves')
-      .select()
-      .eq('user_id', me)
-      .lte('notify_after', DateTime.now().toUtc().toIso8601String())
-      .order('detected_at', ascending: false)
-      .limit(50);
-  return rows.map(Wave.fromJson).toList();
+  final rows =
+      await ref.watch(nvApiProvider).op('waves_list', {
+            'p_before': DateTime.now().toUtc().toIso8601String(),
+          })
+          as List;
+  return [for (final r in rows) Wave.fromJson(r as Map<String, dynamic>)];
 });
 
 /// Historique de MES demandes de connexion (reçues + envoyées, tous statuts).
@@ -192,13 +184,11 @@ final requestHistoryProvider = FutureProvider<List<ConnectionRequest>>((
 ) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('connection_requests')
-      .select()
-      .order('created_at', ascending: false)
-      .limit(50);
-  return rows.map(ConnectionRequest.fromJson).toList();
+  final rows =
+      await ref.watch(nvApiProvider).op('connection_requests_history') as List;
+  return [
+    for (final r in rows) ConnectionRequest.fromJson(r as Map<String, dynamic>),
+  ];
 });
 
 class ConnectionsRepository {
@@ -229,11 +219,8 @@ class ConnectionsRepository {
     ref.invalidate(connectionsStreamProvider);
   }
 
-  Future<void> _remove(String connectionId) => ref
-      .read(supabaseProvider)
-      .from('connections')
-      .delete()
-      .eq('id', connectionId);
+  Future<void> _remove(String connectionId) =>
+      ref.read(nvApiProvider).op('connection_delete', {'id': connectionId});
 }
 
 final connectionsRepositoryProvider = Provider(

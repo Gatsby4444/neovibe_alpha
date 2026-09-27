@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/supabase_providers.dart';
+import '../../core/api/nv_api.dart';
 import '../drafts/drafts_screen.dart';
 import '../proximity/background_guard_screen.dart';
 import 'sections/appearance_settings_screen.dart';
@@ -32,7 +32,7 @@ class SettingsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final client = ref.watch(supabaseProvider);
+    final auth = ref.watch(nvAuthProvider);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Réglages')),
@@ -114,7 +114,7 @@ class SettingsScreen extends ConsumerWidget {
             leading: const Icon(Icons.logout),
             title: const Text('Se déconnecter'),
             onTap: () async {
-              await client.auth.signOut();
+              await auth.deconnexion();
               if (context.mounted) {
                 Navigator.of(context).popUntil((r) => r.isFirst);
               }

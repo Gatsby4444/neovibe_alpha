@@ -20,7 +20,7 @@ import com.neovibe.neovibe.location.PositionEngine
 import com.neovibe.neovibe.publish.AuthExpired
 import com.neovibe.neovibe.publish.Rejected
 import com.neovibe.neovibe.publish.SessionStore
-import com.neovibe.neovibe.publish.SupabaseHttp
+import com.neovibe.neovibe.publish.Serveurs
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
@@ -187,7 +187,7 @@ class EventPresenceService : Service() {
         worker.execute {
             val outcome = try {
                 val body = "{\"p_lat\":${fix.latitude},\"p_lon\":${fix.longitude},\"p_acc\":${fix.accuracy}}"
-                SupabaseHttp(session).rpcText("report_event_position", body).trim('"', ' ', '\n')
+                Serveurs.distant(session).rpcText("report_event_position", body).trim('"', ' ', '\n')
             } catch (e: AuthExpired) {
                 "auth"
             } catch (e: Rejected) {

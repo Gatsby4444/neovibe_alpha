@@ -3,16 +3,14 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'api/nv_api.dart';
 import 'models/profile.dart';
 
-final supabaseProvider = Provider<SupabaseClient>(
-  (ref) => Supabase.instance.client,
-);
-
-final authStateProvider = StreamProvider<AuthState>(
-  (ref) => ref.watch(supabaseProvider).auth.onAuthStateChange,
+/// La connexion : connecté, déconnecté, badge renouvelé — quel que soit le
+/// serveur (`core/api/nv_api.dart`).
+final authStateProvider = StreamProvider<NvEvenementAuth>(
+  (ref) => ref.watch(nvAuthProvider).evenements,
 );
 
 /// Compteur de renouvellements du jeton temps réel. **Voir `main.dart`.**
@@ -38,14 +36,11 @@ final realtimeEpochProvider = Provider<int>((ref) {
   return realtimeEpoch.value;
 });
 
-final currentUserProvider = Provider<User?>((ref) {
+/// Le compte connecté, ou nul.
+final currentUserIdProvider = Provider<String?>((ref) {
   ref.watch(authStateProvider);
-  return ref.watch(supabaseProvider).auth.currentUser;
+  return ref.watch(nvAuthProvider).compte;
 });
-
-final currentUserIdProvider = Provider<String?>(
-  (ref) => ref.watch(currentUserProvider)?.id,
-);
 
 /// Profil de l'utilisateur courant (null si pas encore créé → onboarding).
 ///
@@ -79,12 +74,9 @@ class MyProfile extends AsyncNotifier<Profile?> {
   }
 
   Future<Profile?> _fetch(String userId, SharedPreferences prefs) async {
-    final data = await ref
-        .read(supabaseProvider)
-        .from('profiles')
-        .select()
-        .eq('id', userId)
-        .maybeSingle();
+    final data =
+        await ref.read(nvApiProvider).op('profiles_get', {'p_id': userId})
+            as Map<String, dynamic>?;
     if (data == null) {
       await prefs.remove(_cle(userId));
       return null;

@@ -174,7 +174,7 @@ class _RootGateState extends ConsumerState<RootGate> {
   @override
   Widget build(BuildContext context) {
     ref.watch(authStateProvider);
-    final user = ref.watch(currentUserProvider);
+    final user = ref.watch(currentUserIdProvider);
 
     // 🚪 **L'ARRIVÉE EN SOIRÉE — 2026-09-24.** Pas de compte → le parcours
     // d'arrivée (prénom, selfie, compte, autorisations), qui remplace l'ancien

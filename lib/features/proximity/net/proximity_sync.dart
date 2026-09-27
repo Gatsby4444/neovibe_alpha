@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/nv_api.dart';
 import '../../../core/supabase_providers.dart';
 import '../ping_store.dart';
 import '../proximity_identity.dart';
@@ -115,11 +116,11 @@ class ProximitySync {
   /// disparu.
   Future<void> _unSeul(
     String quoi,
-    Future<void> Function(dynamic client, String me) geste,
+    Future<void> Function(NvApi client, String me) geste,
   ) async {
     if (!_enCours.add(quoi)) return;
     try {
-      final client = ref.read(supabaseProvider);
+      final client = ref.read(nvApiProvider);
       final me = ref.read(currentUserIdProvider);
       if (me == null) return;
       await geste(client, me);
@@ -146,8 +147,8 @@ class ProximitySync {
   ///
   /// Conséquence pratique : republier est sans risque et sans effet de bord.
   /// C'est ce qui rend une réinstallation indolore — voir `_pullFriendKeys`.
-  Future<void> _publishKeys(dynamic client, String me) async {
-    await client.from('device_keys').upsert({
+  Future<void> _publishKeys(NvApi client, String me) async {
+    await client.op('device_key_upsert', {
       'user_id': me,
       'x25519_pub': base64Encode(await _identity.x25519PublicKey()),
     });
@@ -166,13 +167,13 @@ class ProximitySync {
   /// ⚠️ **On REMPLACE, on n'ajoute pas.** `put` seul faisait qu'une amitié
   /// rompue restait vraie sur l'appareil pour toujours : on continuait de
   /// reconnaître la personne à son ID rotatif et de la présenter comme une amie.
-  Future<void> _pullFriendKeys(dynamic client, String me) async {
+  Future<void> _pullFriendKeys(NvApi client, String me) async {
     // ⚠️ **`key_book`, et plus `device_keys` en direct** (2026-09-12). C'est
     // la même politique de lecture (la vue est `security_invoker`), avec en
     // plus le LIBELLÉ du lien calculé par le serveur — `friend` ou `event`.
     // Depuis que les co-participants d'un événement entrent au carnet, une
     // ligne sans libellé serait un inconnu présenté comme un ami (#99).
-    final rows = await client.from('key_book').select() as List;
+    final rows = await client.op('key_book_list') as List;
 
     if (rows.isEmpty) {
       // Le serveur dit « aucun ami ». C'est une réponse, pas une absence de
@@ -194,16 +195,17 @@ class ProximitySync {
         .toList();
 
     // ⚠️ UNE requête pour tous les profils, au lieu d'une par ami.
-    final profiles =
-        await client
-                .from('profiles')
-                // `tag_name:pseudo_shown` : le pseudo tel que son propriétaire veut
-                // le montrer (2026-09-24), rangé sous la clé que lit la suite.
-                .select('id, display_name, tag_name:pseudo_shown, avatar_url')
-                .inFilter('id', ids)
-            as List;
+    final profiles = await client.op('profiles_list', {'p_ids': ids}) as List;
+    // `tag_name` : le pseudo tel que son propriétaire veut le montrer
+    // (`pseudo_shown`, 2026-09-24), rangé sous la clé que lit la suite.
     final byId = {
-      for (final p in profiles) (p as Map<String, dynamic>)['id'] as String: p,
+      for (final p in profiles.cast<Map<String, dynamic>>())
+        p['id'] as String: {
+          'id': p['id'],
+          'display_name': p['display_name'],
+          'tag_name': p['pseudo_shown'],
+          'avatar_url': p['avatar_url'],
+        },
     };
 
     // Ce que le carnet sait déjà : sert de repli quand un profil est masqué.
@@ -281,7 +283,7 @@ class ProximitySync {
   }
 
   /// Vide la file, en distinguant ce qui mérite une nouvelle tentative.
-  Future<void> _drainOutbox(dynamic client, String me) async {
+  Future<void> _drainOutbox(NvApi client, String me) async {
     final store = ref.read(pingStoreProvider);
     final pending = await store.outbox();
     final remaining = <Map<String, dynamic>>[];
@@ -296,12 +298,9 @@ class ProximitySync {
           // aucun effet observable — c'est la propriete anti-traque, et elle
           // est tenue en base, pas ici : le client ne peut pas s'en dispenser.
           case 'sightings':
-            await client.rpc(
-              'report_sightings',
-              params: {'items': item['items']},
-            );
+            await client.op('report_sightings', {'items': item['items']});
           case 'wave':
-            await client.from('waves').insert({
+            await client.op('wave_insert', {
               'user_id': me,
               'peer_id': item['peerId'],
               'notify_after': item['notifyAfter'],

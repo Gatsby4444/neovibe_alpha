@@ -1,8 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:async';
 
 import '../../core/models/card.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 
 /// Écouteur FOMO global (spec 4.9) — sobre : uniquement
@@ -15,49 +16,38 @@ class FomoListener {
   }
 
   final Ref ref;
-  RealtimeChannel? _channel;
+  final _ecoutes = <StreamSubscription<NvChangement>>[];
 
   void _subscribe() {
-    final client = ref.read(supabaseProvider);
-    final me = client.auth.currentUser?.id;
+    final direct = ref.read(nvDirectProvider);
+    final me = ref.read(currentUserIdProvider);
     if (me == null) return;
 
-    _channel = client.channel('fomo:$me')
+    _ecoutes
       // Card reçue — avec le type dans la notification (même tag que la Card)
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.insert,
-        schema: 'public',
-        table: 'card_deliveries',
-        filter: PostgresChangeFilter(
-          type: PostgresChangeFilterType.eq,
-          column: 'recipient_id',
-          value: me,
-        ),
-        callback: (payload) => _onCardDelivered(payload.newRecord),
+      ..add(
+        direct
+            .insertions('card_deliveries', colonne: 'recipient_id', valeur: me)
+            .listen((c) => _onCardDelivered(c.ligne)),
       )
-      // Publication d'un ami dans sa bibliothèque (visible pour moi via RLS)
-      ..onPostgresChanges(
-        event: PostgresChangeEvent.insert,
-        schema: 'public',
-        table: 'library_items',
-        callback: (payload) => _onLibraryPublished(payload.newRecord),
-      )
-      ..subscribe();
+      // Publication d'un ami dans sa bibliothèque (visible pour moi : le
+      // serveur ne diffuse que ce que la règle de lecture laisse voir)
+      ..add(
+        direct
+            .insertions('library_items')
+            .listen((c) => _onLibraryPublished(c.ligne)),
+      );
   }
 
   Future<void> _onCardDelivered(Map<String, dynamic> record) async {
-    final client = ref.read(supabaseProvider);
+    final api = ref.read(nvApiProvider);
     try {
-      final card = await client
-          .from('cards')
-          .select('card_type, owner_id')
-          .eq('id', record['card_id'] as String)
-          .single();
-      final owner = await client
-          .from('profiles')
-          .select('display_name')
-          .eq('id', card['owner_id'] as String)
-          .single();
+      final card =
+          await api.op('card_get', {'id': record['card_id'] as String})
+              as Map<String, dynamic>;
+      final owner =
+          await api.op('profiles_get', {'p_id': card['owner_id'] as String})
+              as Map<String, dynamic>;
       final type = CardType.fromDb(card['card_type'] as String);
       await NotificationService.instance.show(
         NotifChannel.fomo,
@@ -74,12 +64,9 @@ class FomoListener {
     final ownerId = record['owner_id'] as String?;
     if (ownerId == null || ownerId == me) return;
     try {
-      final owner = await ref
-          .read(supabaseProvider)
-          .from('profiles')
-          .select('display_name')
-          .eq('id', ownerId)
-          .single();
+      final owner =
+          await ref.read(nvApiProvider).op('profiles_get', {'p_id': ownerId})
+              as Map<String, dynamic>;
       await NotificationService.instance.show(
         NotifChannel.fomo,
         '${owner['display_name']} a publié',
@@ -89,7 +76,10 @@ class FomoListener {
   }
 
   void _unsubscribe() {
-    _channel?.unsubscribe();
+    for (final e in _ecoutes) {
+      unawaited(e.cancel());
+    }
+    _ecoutes.clear();
   }
 }
 

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/connection_request.dart';
 import '../../core/clock.dart';
 import '../../core/derived_list.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../connections/connections_repository.dart';
 
@@ -22,13 +23,16 @@ final incomingRequestsProvider = StreamProvider<List<ConnectionRequest>>((ref) {
   // Sans ça, le socket garde le jeton avec lequel il s'est ouvert et tombe
   // au bout d'une heure — sans le moindre symptôme (2026-08-17).
   ref.watch(realtimeEpochProvider);
-  final client = ref.watch(supabaseProvider);
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return const Stream.empty();
-  return client
-      .from('connection_requests')
-      .stream(primaryKey: ['id'])
-      .eq('receiver_id', me)
+  return ref
+      .watch(nvDirectProvider)
+      .lignes(
+        'connection_requests',
+        cle: const ['id'],
+        colonne: 'receiver_id',
+        valeur: me,
+      )
       // ⚠️ **Ne filtre plus sur `isActive`** (2026-08-25, checkup #52) :
       // `isActive` dépend de `DateTime.now()`, donc de l'HEURE, une source que
       // ce flux n'observe pas. Une demande expirée restait affichée jusqu'à ce
@@ -45,13 +49,16 @@ final outgoingRequestsProvider = StreamProvider<List<ConnectionRequest>>((ref) {
   // Sans ça, le socket garde le jeton avec lequel il s'est ouvert et tombe
   // au bout d'une heure — sans le moindre symptôme (2026-08-17).
   ref.watch(realtimeEpochProvider);
-  final client = ref.watch(supabaseProvider);
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return const Stream.empty();
-  return client
-      .from('connection_requests')
-      .stream(primaryKey: ['id'])
-      .eq('sender_id', me)
+  return ref
+      .watch(nvDirectProvider)
+      .lignes(
+        'connection_requests',
+        cle: const ['id'],
+        colonne: 'sender_id',
+        valeur: me,
+      )
       // ⚠️ **Ne filtre plus sur `isActive`** (2026-08-25, checkup #52) :
       // `isActive` dépend de `DateTime.now()`, donc de l'HEURE, une source que
       // ce flux n'observe pas. Une demande expirée restait affichée jusqu'à ce
@@ -212,15 +219,16 @@ class ProximityRepository {
   /// chemin d'acceptation la déclenche — celui de l'écran cœur comme celui de
   /// l'encadré surgissant.
   Future<void> accept(String requestId) async {
-    await ref
-        .read(supabaseProvider)
-        .rpc('accept_connection_request', params: {'req_id': requestId});
+    await ref.read(nvApiProvider).op('accept_connection_request', {
+      'req_id': requestId,
+    });
     ref.invalidate(connectionsStreamProvider);
   }
 
-  Future<void> decline(String requestId) => ref
-      .read(supabaseProvider)
-      .rpc('decline_connection_request', params: {'req_id': requestId});
+  Future<void> decline(String requestId) => ref.read(nvApiProvider).op(
+    'decline_connection_request',
+    {'req_id': requestId},
+  );
 }
 
 final proximityRepositoryProvider = Provider((ref) => ProximityRepository(ref));

@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../supabase_providers.dart';
+import '../api/nv_api.dart';
 
 /// **Supprime pour de bon les octets des contenus qui n'existent plus.**
 ///
@@ -50,8 +50,8 @@ class StorageSweep {
   /// l'utilisateur. Lever ici casserait un lancement pour un fichier mort.
   Future<int> run() async {
     try {
-      final client = _ref.read(supabaseProvider);
-      final rows = await client.rpc('mes_octets_a_supprimer');
+      final client = _ref.read(nvApiProvider);
+      final rows = await client.op('mes_octets_a_supprimer');
 
       // Le serveur rend une ligne par fichier ; l'API Storage travaille par
       // coffre. On regroupe donc, et on ne fait qu'un appel par coffre.
@@ -95,12 +95,13 @@ class StorageSweep {
   /// fois coûterait un aller-retour par fichier à chaque démarrage, pour le cas
   /// qui n'arrive jamais.
   Future<int> _viderLeCoffre(
-    dynamic client,
+    NvApi client,
     String coffre,
     List<String> chemins,
   ) async {
+    final fichiers = _ref.read(nvFichiersProvider);
     try {
-      await client.storage.from(coffre).remove(chemins);
+      await fichiers.supprimer(coffre, chemins);
       await _rayer(client, coffre, chemins);
       return chemins.length;
     } catch (_) {
@@ -109,7 +110,7 @@ class StorageSweep {
       final partis = <String>[];
       for (final chemin in chemins) {
         try {
-          await client.storage.from(coffre).remove([chemin]);
+          await fichiers.supprimer(coffre, [chemin]);
           partis.add(chemin);
         } catch (_) {
           // Celui-là reviendra. Les autres, non.
@@ -127,12 +128,12 @@ class StorageSweep {
   /// place — sinon le serveur oublierait un fichier qui existe encore, et
   /// **plus rien ne le supprimerait jamais**. Une fonction de ménage qui perd
   /// sa liste est pire que pas de ménage.
-  Future<void> _rayer(dynamic client, String coffre, List<String> noms) async {
+  Future<void> _rayer(NvApi client, String coffre, List<String> noms) async {
     try {
-      await client.rpc(
-        'octets_supprimes',
-        params: {'p_bucket': coffre, 'p_names': noms},
-      );
+      await client.op('octets_supprimes', {
+        'p_bucket': coffre,
+        'p_names': noms,
+      });
     } catch (_) {
       // Les fichiers sont partis, l'inscription reste : le prochain passage
       // retentera une suppression sans effet, puis rayera. Sans conséquence.

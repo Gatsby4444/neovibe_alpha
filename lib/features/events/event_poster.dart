@@ -6,9 +6,9 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/diagnostics/app_log.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/widgets/image_cropper_screen.dart';
 import '../../core/work_dir.dart';
@@ -91,16 +91,16 @@ class EventPosterService {
   /// Dépose l'affiche de [eventId] et rend son chemin — à passer ensuite à
   /// `EventsRepository.setDetails`, qui seule la rend visible.
   Future<String> upload(String eventId, File jpeg) async {
-    final client = ref.read(supabaseProvider);
-    final me = client.auth.currentUser!.id;
+    final me = ref.read(currentUserIdProvider)!;
     final path =
         '$me/$eventId/poster_${DateTime.now().millisecondsSinceEpoch}.jpg';
-    await client.storage
-        .from(_bucket)
-        .uploadBinary(
+    await ref
+        .read(nvFichiersProvider)
+        .deposerOctets(
+          _bucket,
           path,
           await jpeg.readAsBytes(),
-          fileOptions: const FileOptions(contentType: 'image/jpeg'),
+          type: 'image/jpeg',
         );
     AppLog.instance.server('Affiche déposée', path);
     return path;
@@ -115,11 +115,7 @@ final eventPosterBytesProvider = FutureProvider.family<Uint8List, String>((
   ref,
   path,
 ) {
-  return ref
-      .watch(supabaseProvider)
-      .storage
-      .from('event_posters')
-      .download(path);
+  return ref.watch(nvFichiersProvider).telecharger('event_posters', path);
 });
 
 /// **La couleur d'une affiche** : sa teinte la plus vive, pour teinter le

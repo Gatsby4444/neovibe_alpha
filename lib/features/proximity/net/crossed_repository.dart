@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/api/nv_api.dart';
 import '../../../core/supabase_providers.dart';
 
 /// Quelqu'un qu'on a croisé dans les dernières 24 h, **et qui n'est pas un ami**.
@@ -121,9 +122,9 @@ enum CrossingOrigin {
 final crossedRecentlyProvider = FutureProvider<List<CrossedPerson>>((
   ref,
 ) async {
-  final client = ref.watch(supabaseProvider);
+  final client = ref.watch(nvApiProvider);
   if (ref.watch(currentUserIdProvider) == null) return const [];
-  final rows = await client.rpc('crossed_recently') as List;
+  final rows = await client.op('crossed_recently') as List;
   return [
     for (final row in rows)
       CrossedPerson.fromJson((row as Map).cast<String, dynamic>()),

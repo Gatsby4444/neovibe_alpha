@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 
 /// **La position des amis sur la carte** (Jay, 2026-09-26) — la cuisine :
@@ -71,51 +71,44 @@ String ilYa(DateTime at, DateTime maintenant) {
 }
 
 class FriendsMapRepository {
-  FriendsMapRepository(this._client);
-  final SupabaseClient _client;
+  FriendsMapRepository(this._client, this._moi);
+  final NvApi _client;
+
+  /// Le compte connecté (lu à chaque appel : il peut changer).
+  final String? Function() _moi;
 
   /// Est-ce que je partage ma position avec mes amis ? (Non par défaut.)
   Future<bool> sharing() async {
-    final me = _client.auth.currentUser?.id;
-    if (me == null) return false;
-    final r = await _client
-        .from('location_sharing')
-        .select('sharing')
-        .eq('user_id', me)
-        .maybeSingle();
+    if (_moi() == null) return false;
+    final r = await _client.op('location_sharing_mine') as Map?;
     return (r?['sharing'] as bool?) ?? false;
   }
 
   /// Partager, ou arrêter — arrêter EFFACE ma position côté serveur.
   Future<void> setSharing(bool on) =>
-      _client.rpc('set_location_sharing', params: {'p_on': on});
+      _client.op('set_location_sharing', {'p_on': on});
 
   /// Les amis à qui je cache ma position.
   Future<Set<String>> hiddenFrom() async {
-    final me = _client.auth.currentUser?.id;
-    if (me == null) return const {};
-    final rows =
-        await _client
-                .from('location_hidden_from')
-                .select('friend_id')
-                .eq('owner_id', me)
-            as List;
+    if (_moi() == null) return const {};
+    final rows = await _client.op('location_hidden_list') as List;
     return {for (final r in rows) (r as Map)['friend_id'] as String};
   }
 
-  Future<void> setHidden(String friendId, bool hidden) => _client.rpc(
+  Future<void> setHidden(String friendId, bool hidden) => _client.op(
     'set_location_hidden',
-    params: {'p_friend': friendId, 'p_hidden': hidden},
+    {'p_friend': friendId, 'p_hidden': hidden},
   );
 
   /// Déposer ma position « en direct » (carte ouverte). Le serveur l'ignore
   /// si je ne partage pas, ou si la précédente a moins de 10 s : rend
   /// `true` seulement si elle a été écrite.
   Future<bool> shareMyLocation(double lat, double lon, double acc) async {
-    final r = await _client.rpc(
-      'share_my_location',
-      params: {'p_lat': lat, 'p_lon': lon, 'p_acc': acc},
-    );
+    final r = await _client.op('share_my_location', {
+      'p_lat': lat,
+      'p_lon': lon,
+      'p_acc': acc,
+    });
     return r == true;
   }
 
@@ -123,10 +116,7 @@ class FriendsMapRepository {
   /// doit accepter (`request_location` — amis seulement, pas deux fois en
   /// deux minutes).
   Future<String> requestLocation(String friendId) async {
-    final id = await _client.rpc(
-      'request_location',
-      params: {'p_friend': friendId},
-    );
+    final id = await _client.op('request_location', {'p_friend': friendId});
     return id as String;
   }
 
@@ -138,25 +128,19 @@ class FriendsMapRepository {
     double? lat,
     double? lon,
     double acc = 0,
-  }) => _client.rpc(
-    'answer_location_request',
-    params: {
-      'p_request': requestId,
-      'p_accept': accept,
-      'p_lat': lat,
-      'p_lon': lon,
-      'p_acc': acc,
-    },
-  );
+  }) => _client.op('answer_location_request', {
+    'p_request': requestId,
+    'p_accept': accept,
+    'p_lat': lat,
+    'p_lon': lon,
+    'p_acc': acc,
+  });
 
   /// Où en est une demande (pour la bulle du chat) ; nulle si je n'y suis
   /// pour rien.
   Future<LocationRequestState?> requestState(String requestId) async {
     final rows =
-        await _client.rpc(
-              'location_request_state',
-              params: {'p_request': requestId},
-            )
+        await _client.op('location_request_state', {'p_request': requestId})
             as List;
     if (rows.isEmpty) return null;
     final r = (rows.first as Map).cast<String, dynamic>();
@@ -174,7 +158,7 @@ class FriendsMapRepository {
 
   /// Mes amis visibles sur ma carte.
   Future<List<FriendOnMap>> friendsOnMap() async {
-    final rows = await _client.rpc('friends_on_map') as List;
+    final rows = await _client.op('friends_on_map') as List;
     return [
       for (final r in rows)
         FriendOnMap.fromJson((r as Map).cast<String, dynamic>()),
@@ -183,7 +167,10 @@ class FriendsMapRepository {
 }
 
 final friendsMapRepositoryProvider = Provider<FriendsMapRepository>(
-  (ref) => FriendsMapRepository(ref.watch(supabaseProvider)),
+  (ref) => FriendsMapRepository(
+    ref.watch(nvApiProvider),
+    () => ref.read(currentUserIdProvider),
+  ),
 );
 
 /// **Est-ce que je partage ma position ?** L'état est au SERVEUR ; ceci n'en

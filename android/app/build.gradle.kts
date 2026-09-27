@@ -42,6 +42,17 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.neovibe.neovibe"
+        // **L'app d'essai du serveur Rust** (docs/serveur-rust.md, étape 11) —
+        // construite avec `NEOVIBE_ESSAI_RUST=1` (et `--dart-define=SERVEUR=rust`) :
+        // - un AUTRE paquet (`….essairust`) : elle s'installe À CÔTÉ de l'app
+        //   habituelle, sans la remplacer ni toucher à ses données ;
+        // - le droit de parler en clair (`http://`) au serveur du PC, qui n'a
+        //   pas encore de certificat. Ce droit n'existe QUE dans cette app
+        //   d'essai : l'app habituelle reste chiffrée de bout en bout.
+        val essaiRust = System.getenv("NEOVIBE_ESSAI_RUST") == "1"
+        if (essaiRust) applicationIdSuffix = ".essairust"
+        manifestPlaceholders["nvCleartext"] = if (essaiRust) "true" else "false"
+        manifestPlaceholders["nvLabel"] = if (essaiRust) "NeoVibe (Rust)" else "NeoVibe"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // ⚠️ **29 (Android 10), décision de Jay du 2026-08-25.**

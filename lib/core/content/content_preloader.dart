@@ -1,7 +1,7 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../supabase_providers.dart';
+import '../api/nv_api.dart';
 import 'content_face.dart';
 import 'content_media_cache.dart';
 
@@ -99,21 +99,18 @@ class ContentPreloader {
     _borne(_done);
 
     try {
-      final client = _ref.read(supabaseProvider);
+      final client = _ref.read(nvApiProvider);
       final cache = _ref.read(contentMediaCacheProvider);
 
       // Les deux appels serveur partent ensemble : ils sont indépendants, et
       // les enchaîner coûterait un aller-retour de plus (leçon du matin).
-      final urlFuture = client.storage
-          .from(spec.bucket)
-          .createSignedUrl(spec.path, 3600);
+      final urlFuture = _ref
+          .read(nvFichiersProvider)
+          .lien(spec.bucket, spec.path);
       final keyFuture = _keys.containsKey(spec.contentId)
           ? Future.value(_keys[spec.contentId]!)
           : client
-                .rpc(
-                  'open_content_media',
-                  params: {'p_content_id': spec.contentId},
-                )
+                .op('open_content_media', {'p_content_id': spec.contentId})
                 .then((v) => v as String);
 
       final cachePath = await cache.streamingPath(

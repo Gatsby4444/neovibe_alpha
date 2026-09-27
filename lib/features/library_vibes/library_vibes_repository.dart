@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/crypto/chunked_seal.dart';
 import '../../core/crypto/media_open.dart';
@@ -12,6 +11,7 @@ import '../../core/diagnostics/app_log.dart';
 import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
 import '../../core/models/library_vibe.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
 import '../../core/content/removals.dart';
@@ -53,7 +53,8 @@ class LibraryVibesRepository {
   LibraryVibesRepository(this.ref);
   final Ref ref;
 
-  SupabaseClient get _client => ref.read(supabaseProvider);
+  NvApi get _api => ref.read(nvApiProvider);
+  NvFichiers get _fichiers => ref.read(nvFichiersProvider);
 
   /// Largeur du placeholder. 20 px : assez pour rendre une ambiance de
   /// couleurs, très loin d'un sujet reconnaissable.
@@ -88,7 +89,7 @@ class LibraryVibesRepository {
     required bool cameraOnly,
     CaptureStamp? stamp,
   }) async {
-    final me = _client.auth.currentUser!.id;
+    final me = ref.read(currentUserIdProvider)!;
     // L'identifiant est fabriqué ICI : il nomme les fichiers dans le coffre,
     // et il faut donc le connaître avant de les déposer.
     final id = newUuid();
@@ -126,10 +127,8 @@ class LibraryVibesRepository {
           '${DateTime.now().difference(started).inMilliseconds} ms',
     );
 
-    Future<void> put(String path, Uint8List bytes, String type) => _client
-        .storage
-        .from(_bucket)
-        .uploadBinary(path, bytes, fileOptions: FileOptions(contentType: type));
+    Future<void> put(String path, Uint8List bytes, String type) =>
+        _fichiers.deposerOctets(_bucket, path, bytes, type: type);
 
     await put(placeholderPath, placeholder, 'image/png');
     await put(sealedPath, sealed, 'application/octet-stream');
@@ -146,29 +145,26 @@ class LibraryVibesRepository {
     // ⚠️ La clé n'est JAMAIS journalisée : le journal est fait pour être
     // copié-collé, y inscrire une clé annulerait tout le mécanisme.
     try {
-      final row = await _client.rpc(
-        'add_vibe_to_library',
-        params: {
-          'p_id': id,
-          'p_conversation_id': conversationId,
-          'p_placeholder_path': placeholderPath,
-          'p_sealed_path': sealedPath,
-          'p_media_key': key,
-          'p_card_type': type.dbValue,
-          'p_front_is_video': isVideo,
-          'p_back_is_video': backIsVideo,
-          'p_saveable_by_others': saveableByOthers,
-          'p_ephemeral': ephemeral,
-          'p_placeholder_back_path': placeholderBackPath,
-          'p_sealed_back_path': sealedBackPath,
-          'p_challenge_id': challengeId,
-          // Rogné et borné par le serveur, qui est seul juge.
-          'p_title': title,
-          // Les faces viennent-elles toutes de la caméra ? Le serveur refuse
-          // sinon (2026-09-25) — ni import, ni fond uni dans un Drop.
-          'p_camera_only': cameraOnly,
-        },
-      );
+      final row = await _api.op('add_vibe_to_library', {
+        'p_id': id,
+        'p_conversation_id': conversationId,
+        'p_placeholder_path': placeholderPath,
+        'p_sealed_path': sealedPath,
+        'p_media_key': key,
+        'p_card_type': type.dbValue,
+        'p_front_is_video': isVideo,
+        'p_back_is_video': backIsVideo,
+        'p_saveable_by_others': saveableByOthers,
+        'p_ephemeral': ephemeral,
+        'p_placeholder_back_path': placeholderBackPath,
+        'p_sealed_back_path': sealedBackPath,
+        'p_challenge_id': challengeId,
+        // Rogné et borné par le serveur, qui est seul juge.
+        'p_title': title,
+        // Les faces viennent-elles toutes de la caméra ? Le serveur refuse
+        // sinon (2026-09-25) — ni import, ni fond uni dans un Drop.
+        'p_camera_only': cameraOnly,
+      });
       final vibe = LibraryVibe.fromJson(Map<String, dynamic>.from(row as Map));
       if (stamp != null) {
         await ref.read(capturePlacesProvider).record(vibe.id, stamp);
@@ -186,9 +182,8 @@ class LibraryVibesRepository {
       // Refusée (Drop fermé, origine refusée…) : les fichiers déjà déposés
       // ne seront jamais référencés — on les retire, sans attendre ni lever.
       unawaited(
-        _client.storage
-            .from(_bucket)
-            .remove([
+        _fichiers
+            .supprimer(_bucket, [
               placeholderPath,
               sealedPath,
               ?placeholderBackPath,
@@ -210,14 +205,14 @@ class LibraryVibesRepository {
   /// Supprime la Vibe **pour tout le monde**. Ses octets partent au balai
   /// serveur ; ici, on oublie aussi le scellé et la vignette locaux.
   Future<void> deleteVibe(LibraryVibe vibe) async {
-    await _client.rpc('delete_drop_vibe', params: {'p_vibe_id': vibe.id});
+    await _api.op('delete_drop_vibe', {'p_vibe_id': vibe.id});
     await _forget(vibe);
   }
 
   /// **Supprimer pour moi** : la Vibe n'est plus lisible par moi (règle de
   /// lecture côté serveur), elle reste pour les autres.
   Future<void> hideVibe(LibraryVibe vibe) async {
-    await _client.rpc('hide_drop_vibe', params: {'p_vibe_id': vibe.id});
+    await _api.op('hide_drop_vibe', {'p_vibe_id': vibe.id});
     await _forget(vibe);
   }
 
@@ -229,15 +224,12 @@ class LibraryVibesRepository {
     required bool saveableByOthers,
     required bool ephemeral,
   }) async {
-    await _client.rpc(
-      'update_drop_vibe',
-      params: {
-        'p_vibe_id': vibe.id,
-        'p_title': title,
-        'p_saveable_by_others': saveableByOthers,
-        'p_ephemeral': ephemeral,
-      },
-    );
+    await _api.op('update_drop_vibe', {
+      'p_vibe_id': vibe.id,
+      'p_title': title,
+      'p_saveable_by_others': saveableByOthers,
+      'p_ephemeral': ephemeral,
+    });
     ref.invalidate(conversationLibraryProvider(vibe.conversationId));
   }
 
@@ -256,13 +248,11 @@ class LibraryVibesRepository {
   Future<List<LibraryVibe>> vibesOf(String conversationId) async {
     // Plus de jointure sur `cards` : la table porte désormais tout ce dont
     // l'affichage a besoin.
-    final rows = await _client
-        .from('library_vibes')
-        .select()
-        .eq('conversation_id', conversationId)
-        .order('reveal_at', ascending: false);
+    final rows =
+        await _api.op('library_vibes_list', {'conversation_id': conversationId})
+            as List;
     return rows
-        .map((r) => LibraryVibe.fromJson(Map<String, dynamic>.from(r)))
+        .map((r) => LibraryVibe.fromJson(Map<String, dynamic>.from(r as Map)))
         .toList();
   }
 
@@ -295,10 +285,7 @@ class LibraryVibesRepository {
       _batches[conversationId] ??= () async {
         try {
           final rows =
-              await _client.rpc(
-                    'drop_keys',
-                    params: {'p_conversation_id': conversationId},
-                  )
+              await _api.op('drop_keys', {'p_conversation_id': conversationId})
                   as List;
           for (final r in rows) {
             final m = r as Map;
@@ -323,11 +310,7 @@ class LibraryVibesRepository {
     final batched = _keys[vibe.id];
     if (batched != null) return batched;
     final single =
-        await _client.rpc(
-              'get_library_vibe_key',
-              params: {'p_vibe_id': vibe.id},
-            )
-            as String;
+        await _api.op('get_library_vibe_key', {'p_vibe_id': vibe.id}) as String;
     return _keys[vibe.id] = single;
   }
 
@@ -385,7 +368,7 @@ class LibraryVibesRepository {
   Future<Uint8List> placeholderBytes(LibraryVibe vibe, {bool back = false}) {
     final path = back ? vibe.placeholderBackPath : vibe.placeholderPath;
     if (path == null) throw StateError('Cette vibe n\'a pas de verso');
-    return _client.storage.from(_bucket).download(path);
+    return _fichiers.telecharger(_bucket, path);
   }
 
   /// Amène le scellé d'une face **sur l'appareil**, et rend le fichier.
@@ -407,7 +390,7 @@ class LibraryVibesRepository {
     final cached = await cache.tryFace(vibe.id, front: !back);
     if (cached != null) return cached;
 
-    final bytes = await _client.storage.from(_bucket).download(path);
+    final bytes = await _fichiers.telecharger(_bucket, path);
     return cache.store(vibe.id, bytes, front: !back);
   }
 
@@ -658,23 +641,17 @@ final conversationLibraryProvider =
 final conversationLibraryLiveProvider = Provider.autoDispose
     .family<void, String>((ref, conversationId) {
       ref.watch(realtimeEpochProvider);
-      final client = ref.watch(supabaseProvider);
-      final channel = client.channel('drop:$conversationId')
-        ..onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'messages',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'conversation_id',
-            value: conversationId,
-          ),
-          callback: (payload) {
-            if (payload.newRecord['kind'] == 'library_add') {
+      final ecoute = ref
+          .watch(nvDirectProvider)
+          .insertions(
+            'messages',
+            colonne: 'conversation_id',
+            valeur: conversationId,
+          )
+          .listen((c) {
+            if (c.ligne['kind'] == 'library_add') {
               ref.invalidate(conversationLibraryProvider(conversationId));
             }
-          },
-        )
-        ..subscribe();
-      ref.onDispose(() => client.removeChannel(channel));
+          });
+      ref.onDispose(ecoute.cancel);
     });

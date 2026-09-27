@@ -149,8 +149,8 @@ protéger le serveur Rust après la disparition du SQL.
 |---|---|
 | **maintenant** | valider ce plan |
 | étape 0 | rien d'obligatoire : je copie les données de dev par l'accès que j'ai déjà. Si ça coince, je demanderai le mot de passe de la base |
-| **avant l'étape 11** | le **VPS** et le **nom de domaine** ; l'**entrepôt des fichiers** (AWS ou autre, en comparant le prix de la sortie) ; recopier les données de dev ou repartir de zéro ; la date du déménagement |
-| en option, plus tôt | une **deuxième app « de test »** sur ton téléphone, à côté de la vraie, reliée au serveur Rust en ligne, pour tester avant la fin. Il faut alors payer le VPS plus tôt |
+| **avant l'étape 12** | le **VPS** et le **nom de domaine** ; l'**entrepôt des fichiers** (AWS ou autre, en comparant le prix de la sortie) ; recopier les données de dev ou repartir de zéro ; la date du déménagement. ✏️ *2026-09-27* : l'étape 11 s'est faite sans eux, contre le serveur lancé sur le PC |
+| ✅ fait le 2026-09-27, sans VPS | une **deuxième app « de test »** sur ton téléphone, à côté de la vraie : « NeoVibe (Rust) », reliée au serveur Rust **du PC, par le Wi-Fi de la maison** (voir « L'app d'essai » plus bas). Avec le VPS, la même app pourra le joindre de partout |
 
 ## 7. Hors de ce chantier
 
@@ -210,7 +210,7 @@ existante**. La plateforme complète vient ensuite.
 | 8. Soirées | ✅ 2026-09-27 — `soirees/` : les 20 opérations et `report_event_position` (le service natif), plus 4 gestes directs (`event_rules_map`, `event_presence_mine`, `event_challenges_list`, `meeting_delete`) ; `regles.rs` (présent, peut inviter / retirer, amis présents, lieu précis, taille, trop loin), `cuisine.rs` (**fermer une soirée** : croisements par présence → rencontres ; entrer dans un moment ; oublier une affiche), `balai.rs` (**le balai de chaque minute** : moments entre amis, partis, fermetures à l'heure et des désertées, purge ; et la mémoire des rencontres, chaque nuit) ; l'affiche vérifiée dans l'entrepôt ; **une seule formule de distance** (`carte::autour::distance_m`, l'ancien en avait deux) — 82 situations identiques (394 au total), balais compris (joués « par le système »). **Défaut de l'ancien serveur trouvé et réparé** (voir le journal) |
 | 9. Carte | ✅ 2026-09-27 — `carte/guichet.rs` : les 9 opérations (amis sur la carte, partage, cacher, demander / répondre / état d'une demande, Vibes autour, Vibes à lire) et 3 gestes directs (`location_sharing_mine`, `location_hidden_list`, `map_rules_walking`) ; **qui voit ma position** écrit une fois (`peut_voir_position`) ; la demande de position passe par **la** conversation directe (`conversations::guichet::conversation_directe`) et le passage obligé des messages ; balais `balai_positions` et `balai_demandes` — 36 situations identiques (430 au total) |
 | 10. Modération et administration | ✅ 2026-09-27 — `moderation/` : signaler (`report_sent_vibe · drop_vibe · event`, et les gestes directs `content_report_create`, `profile_report_create`) avec **la preuve scellée** (`preuves.rs`, ex-`scelle_la_preuve`) ; les 13 gestes d'administration (`admin.rs`), tous refusés hors de `admins` et journalisés — y compris regarder une preuve. La **libération** des preuves (`libere_la_preuve`) est reclassée FONDATION : elle doit voir la disparition d'un signalement par cascade — 45 situations identiques (475 au total) |
-| 11. L'app complète | à faire |
+| 11. L'app complète | ✅ 2026-09-27 — **la couche d'accès de l'app** (`lib/core/api/` : `NvApi` les opérations, `NvDirect` le direct, `NvFichiers` les coffres, `NvAuth` la connexion ; `SupabaseBackend` pour l'app de tous les jours, `RustBackend` pour l'app d'essai — choisi à la construction, `--dart-define=SERVEUR=rust`) : les 48 fichiers de l'app qui parlaient à Supabase n'en parlent plus, les gestes directs sur les tables sont rangés sous le nom de l'opération Rust (`supabase_gestes.dart`). **Trois garde-fous** (`test/couche_d_acces_test.dart`) : seule la couche d'accès parle à Supabase ; chaque opération existe des deux côtés ; **chaque appel envoie exactement les champs que son guichet Rust accepte et exige** (181 appels, contre-testé des deux côtés). Le natif : `Serveurs.distant` → `SupabaseHttp` ou `RustHttp` (la file de publication en morceaux reprenables, la balise du ping, la présence en soirée). Essais de bout en bout contre le vrai serveur : l'app (`test/serveur_rust_bout_en_bout_test.dart` : comptes, refus, amis, conversation, direct, « en train d'écrire », fichiers) et le natif (`RustHttpEssaiTest.kt` : envoi en trois morceaux coupé puis repris, balise, présence, badge refusé — contre-testé). **L'app d'essai** « NeoVibe (Rust) » : un autre paquet, qui s'installe à côté de l'app habituelle (voir plus bas). **La base du serveur est séparée de la référence de la preuve** (`nv_serveur` ≠ `postgres`, `outils/base_locale.py`). Au passage : les recommandations et les bloqués rendent enfin leurs profils par `profil_vu` (ils recopiaient le masque). 475 situations identiques |
 | 12. Mise en ligne et déménagement | à faire |
 
 **Écarts voulus entre l'ancien et le nouveau gardien** (visibles dans la
@@ -283,11 +283,56 @@ l'ancien gardien. Chaque situation peut exiger que l'ancien gardien ÉCRIVE
 | Geste | Commande (depuis `server/`) |
 |---|---|
 | copier les données de dev sur le PC | `python outils/copier_base_dev.py` (depuis la racine du dépôt : `python server/outils/copier_base_dev.py`) |
-| (re)monter la base locale | `python outils/base_locale.py` (depuis la racine du dépôt) |
+| (re)monter la base locale | `python outils/base_locale.py` (depuis la racine du dépôt) — ⚠️ **deux bases** : `postgres`, **la référence** de la preuve (personne ne la modifie), et `nv_serveur`, **la base de travail** du serveur et des essais, copiée de la référence |
+| remettre la base du serveur à l'état de la référence | `python server/outils/base_locale.py --serveur` |
 | construire | `bash outils/cargo.sh build` — ⚠️ sur ce PC, la chaîne « GNU » de Rust a un éditeur de liens incomplet : le script branche celui de WinLibs |
-| jouer la preuve | `bash outils/cargo.sh run -p nv-proof -- [filtre]` |
+| jouer la preuve | `bash outils/cargo.sh run -p nv-proof -- [filtre]` (sur la référence) |
 | monter l'entrepôt de fichiers local | `python server/outils/entrepot_local.py` (SeaweedFS, port 8333 ; MinIO n'est plus distribué en image — constaté le 2026-09-27) ; accès dans `docdev/serveur_local.env`, chargés par `outils/cargo.sh` |
-| lancer le serveur | `bash outils/cargo.sh run -p nv-server` (écoute sur `127.0.0.1:8787`) |
+| lancer le serveur | `bash outils/cargo.sh run -p nv-server` (écoute sur `127.0.0.1:8787`, base `nv_serveur`) |
+| lancer le serveur **pour le téléphone** | `bash server/outils/serveur_telephone.sh` (écoute sur le réseau local ; liens de fichiers à l'adresse du PC) |
+| construire **l'app d'essai** | `bash server/outils/app_d_essai.sh` → `build/essai_rust/NeoVibe-Rust.apk` ; avec `--publier` : une pré-version GitHub `essai-rust-v<version>` (à télécharger sur le téléphone, jamais vue par le bouton de mise à jour de l'app habituelle) |
+| essais de bout en bout (serveur lancé) | `NV_SERVEUR_ESSAI=http://127.0.0.1:8787 flutter test test/serveur_rust_bout_en_bout_test.dart` ; natif : `cd android && NV_SERVEUR_ESSAI=http://127.0.0.1:8787 ./gradlew :app:testDebugUnitTest --tests '*RustHttpEssaiTest*'` |
+
+## L'app d'essai (étape 11)
+
+**Ce que c'est.** Une deuxième app sur ton téléphone, « NeoVibe (Rust) »,
+qui fait tout ce que fait NeoVibe mais parle au **serveur Rust lancé sur le
+PC** au lieu de Supabase. C'est un **autre paquet**
+(`com.neovibe.neovibe.essairust`) : elle s'installe **à côté** de ton app
+habituelle, sans la remplacer ni toucher à ses données. Ton app de tous les
+jours, elle, reste sur Supabase jusqu'au déménagement.
+
+**Comment elle joint le serveur.** Par le **Wi-Fi de la maison** : le
+téléphone et le PC doivent être sur la même box, le PC allumé, le serveur
+lancé (`serveur_telephone.sh`). Hors de la maison, elle ne trouve rien —
+c'est le rôle du futur VPS. L'adresse du PC est gravée dans l'app : si la
+box lui en donne une autre, il faut la reconstruire (le script le signale).
+
+**Une seule fois : ouvrir le pare-feu de Windows**, pour que le téléphone
+puisse entrer — PowerShell **en administrateur** :
+
+```
+New-NetFirewallRule -DisplayName "NeoVibe essai (serveur Rust)" -Direction Inbound -Protocol TCP -LocalPort 8787,8333 -RemoteAddress LocalSubnet -Action Allow -Profile Any
+```
+
+`LocalSubnet` : seuls les appareils de la maison peuvent entrer. Pour
+refermer : `Remove-NetFirewallRule -DisplayName "NeoVibe essai (serveur Rust)"`.
+
+**Ce qu'il faut savoir en l'utilisant.**
+
+- **Connecte-toi avec ton compte habituel** : la base du serveur est une
+  copie de la base de dev (tes amis, tes conversations, tes soirées, au jour
+  de la copie). Tout ce que tu fais dans l'app d'essai reste sur le PC.
+- **Les anciennes photos et vidéos ne s'affichent pas** : leurs fichiers
+  sont restés chez Supabase (le déménagement des fichiers est l'étape 12).
+  Tout ce que tu crées dans l'app d'essai s'affiche.
+- **Pour tester à deux** (chat, ping, soirée), l'autre téléphone doit aussi
+  avoir l'app d'essai : les deux mondes ne se voient pas.
+- **Le bouton « Mise à jour » de l'app d'essai installe l'app habituelle**
+  (il lit la dernière version publiée) : l'app d'essai se met à jour par
+  une nouvelle construction.
+- **Ne lance pas le ping dans les deux apps en même temps** : le téléphone
+  annoncerait deux identités.
 
 ## Annexe A — l'inventaire, domaine par domaine
 

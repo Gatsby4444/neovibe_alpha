@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/theme.dart';
 import '../../core/utils/formats.dart';
@@ -40,7 +41,7 @@ class SuspendedScreen extends ConsumerWidget {
               ),
               const SizedBox(height: 24),
               OutlinedButton(
-                onPressed: () => ref.read(supabaseProvider).auth.signOut(),
+                onPressed: () => ref.read(nvAuthProvider).deconnexion(),
                 child: const Text('Se déconnecter'),
               ),
             ],
@@ -55,8 +56,7 @@ class SuspendedScreen extends ConsumerWidget {
 final mySuspensionProvider =
     FutureProvider<({DateTime since, String? reason})?>((ref) async {
       if (ref.watch(currentUserIdProvider) == null) return null;
-      final rows =
-          await ref.watch(supabaseProvider).rpc('my_suspension') as List;
+      final rows = await ref.watch(nvApiProvider).op('my_suspension') as List;
       if (rows.isEmpty) return null;
       final r = (rows.first as Map).cast<String, dynamic>();
       return (

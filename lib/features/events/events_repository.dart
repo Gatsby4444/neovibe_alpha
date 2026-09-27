@@ -1,9 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/api/nv_api.dart';
 import '../../core/diagnostics/app_log.dart';
 import '../../core/models/event.dart';
-import '../../core/supabase_providers.dart';
 import 'events_providers.dart';
 
 /// **La cuisine du mode événement** : tout ce qui parle au serveur, et rien
@@ -21,12 +20,12 @@ class EventsRepository {
   EventsRepository(this.ref);
   final Ref ref;
 
-  SupabaseClient get _client => ref.read(supabaseProvider);
+  NvApi get _api => ref.read(nvApiProvider);
 
   // ─── Lectures ───────────────────────────────────────────────────────────
 
   Future<List<NeoEvent>> myEvents() async {
-    final rows = await _client.rpc('my_events') as List;
+    final rows = await _api.op('my_events') as List;
     return [
       for (final r in rows)
         NeoEvent.fromJson((r as Map).cast<String, dynamic>()),
@@ -34,8 +33,7 @@ class EventsRepository {
   }
 
   Future<List<EventPerson>> people(String eventId) async {
-    final rows =
-        await _client.rpc('event_people', params: {'p_event': eventId}) as List;
+    final rows = await _api.op('event_people', {'p_event': eventId}) as List;
     return [
       for (final r in rows)
         EventPerson.fromJson((r as Map).cast<String, dynamic>()),
@@ -43,9 +41,7 @@ class EventsRepository {
   }
 
   Future<List<HotSpot>> hotSpots(String eventId) async {
-    final rows =
-        await _client.rpc('event_hot_spots', params: {'p_event': eventId})
-            as List;
+    final rows = await _api.op('event_hot_spots', {'p_event': eventId}) as List;
     return [
       for (final r in rows)
         HotSpot.fromJson((r as Map).cast<String, dynamic>()),
@@ -66,15 +62,12 @@ class EventsRepository {
     int minPresent = 0,
   }) async {
     final rows =
-        await _client.rpc(
-              'nearby_events',
-              params: {
-                'p_lat': lat,
-                'p_lon': lon,
-                'p_radius_m': ?radiusM,
-                'p_min_present': minPresent,
-              },
-            )
+        await _api.op('nearby_events', {
+              'p_lat': lat,
+              'p_lon': lon,
+              'p_radius_m': ?radiusM,
+              'p_min_present': minPresent,
+            })
             as List;
     return [
       for (final r in rows)
@@ -85,10 +78,7 @@ class EventsRepository {
   /// **Les règles de la carte** que le serveur applique — pour les
   /// ANNONCER à l'écran (curseur du rayon, seuil des gros événements).
   Future<MapEventRules> mapRules() async {
-    final r = await _client
-        .from('event_rules')
-        .select('nearby_radius_m, nearby_radius_max_m, big_event_min_present')
-        .single();
+    final r = await _api.op('event_rules_map') as Map<String, dynamic>;
     return MapEventRules(
       radiusMinKm: ((r['nearby_radius_m'] as num) / 1000).ceil(),
       radiusMaxKm: ((r['nearby_radius_max_m'] as num) / 1000).floor(),
@@ -99,41 +89,31 @@ class EventsRepository {
   /// Y ai-je été un jour ? (Une présence, même finie.) Pour la galerie :
   /// un événement privé où j'étais invité sans venir n'est pas un moment.
   Future<bool> wasThere(String eventId) async {
-    final me = _client.auth.currentUser!.id;
-    final rows = await _client
-        .from('event_presences')
-        .select('id')
-        .eq('event_id', eventId)
-        .eq('user_id', me)
-        .limit(1);
+    final rows =
+        await _api.op('event_presence_mine', {'event_id': eventId}) as List;
     return rows.isNotEmpty;
   }
 
   /// Le récap d'un événement (fini ou en cours) : présents, Vibes, gens
   /// rencontrés, nouveaux amis, amis présents.
   Future<EventRecap> recap(String eventId) async {
-    final rows =
-        await _client.rpc('event_recap', params: {'p_event': eventId}) as List;
+    final rows = await _api.op('event_recap', {'p_event': eventId}) as List;
     return EventRecap.fromJson((rows.first as Map).cast<String, dynamic>());
   }
 
   /// Les défis posés dans un événement, le plus récent d'abord.
   Future<List<EventChallenge>> challenges(String eventId) async {
-    final rows = await _client
-        .from('event_challenges')
-        .select('id, event_id, author_id, text, created_at')
-        .eq('event_id', eventId)
-        .order('created_at', ascending: false);
-    return [for (final r in rows) EventChallenge.fromJson(r)];
+    final rows =
+        await _api.op('event_challenges_list', {'event_id': eventId}) as List;
+    return [
+      for (final r in rows) EventChallenge.fromJson(r as Map<String, dynamic>),
+    ];
   }
 
   /// Poser un défi : il faut être sur place — le serveur vérifie.
   Future<String> postChallenge(String eventId, String text) async {
     final id =
-        await _client.rpc(
-              'post_challenge',
-              params: {'p_event': eventId, 'p_text': text},
-            )
+        await _api.op('post_challenge', {'p_event': eventId, 'p_text': text})
             as String;
     ref.invalidate(eventChallengesProvider(eventId));
     return id;
@@ -143,7 +123,7 @@ class EventsRepository {
 
   /// Qui j'ai rencontré, où, quand — 2 ans, la plus récente d'abord.
   Future<List<Meeting>> myMeetings() async {
-    final rows = await _client.rpc('my_meetings') as List;
+    final rows = await _api.op('my_meetings') as List;
     return [
       for (final r in rows)
         Meeting.fromJson((r as Map).cast<String, dynamic>()),
@@ -155,8 +135,7 @@ class EventsRepository {
   Future<Map<String, MetBefore>> metBefore(Iterable<String> userIds) async {
     final ids = userIds.toSet().toList();
     if (ids.isEmpty) return const {};
-    final rows =
-        await _client.rpc('met_before', params: {'p_users': ids}) as List;
+    final rows = await _api.op('met_before', {'p_users': ids}) as List;
     return {
       for (final r in rows)
         (r as Map)['user_id'] as String: MetBefore.fromJson(
@@ -167,7 +146,7 @@ class EventsRepository {
 
   /// Effacer une rencontre de MA mémoire (l'autre garde la sienne).
   Future<void> forgetMeeting(String meetingId) async {
-    await _client.from('meetings').delete().eq('id', meetingId);
+    await _api.op('meeting_delete', {'id': meetingId});
     ref.invalidate(myMeetingsProvider);
   }
 
@@ -185,20 +164,17 @@ class EventsRepository {
     String? placeName,
   }) async {
     final id =
-        await _client.rpc(
-              'create_open_event',
-              params: {
-                'p_title': title,
-                'p_lat': lat,
-                'p_lon': lon,
-                'p_ends_at': endsAt.toUtc().toIso8601String(),
-                // La précision de la position : le serveur refuse au-delà
-                // de `event_rules.place_max_accuracy_m` (2026-09-25).
-                'p_acc': accuracy,
-                // La taille : un des trois rayons, le serveur refuse le reste.
-                'p_radius_m': size.radiusM,
-              },
-            )
+        await _api.op('create_open_event', {
+              'p_title': title,
+              'p_lat': lat,
+              'p_lon': lon,
+              'p_ends_at': endsAt.toUtc().toIso8601String(),
+              // La précision de la position : le serveur refuse au-delà
+              // de `event_rules.place_max_accuracy_m` (2026-09-25).
+              'p_acc': accuracy,
+              // La taille : un des trois rayons, le serveur refuse le reste.
+              'p_radius_m': size.radiusM,
+            })
             as String;
     await _nommerLeLieu(id, placeName);
     _eventsChanged();
@@ -210,10 +186,10 @@ class EventsRepository {
   /// sort à deux fois. Organisateur seul, soirée en cours, et avec un lieu
   /// (`set_event_size`).
   Future<void> setSize(String eventId, EventSize size) async {
-    await _client.rpc(
-      'set_event_size',
-      params: {'p_event': eventId, 'p_size': size.dbValue},
-    );
+    await _api.op('set_event_size', {
+      'p_event': eventId,
+      'p_size': size.dbValue,
+    });
     _eventsChanged();
     ref.invalidate(nearbyEventsProvider);
   }
@@ -223,10 +199,10 @@ class EventsRepository {
   /// fonction à part (`set_event_place`) : le créateur peut le changer
   /// ensuite, et les fonctions de création ne changent pas de forme.
   Future<void> setPlace(String eventId, String? placeName) async {
-    await _client.rpc(
-      'set_event_place',
-      params: {'p_event': eventId, 'p_place_name': placeName},
-    );
+    await _api.op('set_event_place', {
+      'p_event': eventId,
+      'p_place_name': placeName,
+    });
     _eventsChanged();
   }
 
@@ -240,15 +216,12 @@ class EventsRepository {
     String? posterPath,
     bool clearPoster = false,
   }) async {
-    await _client.rpc(
-      'set_event_details',
-      params: {
-        'p_event': eventId,
-        'p_description': description,
-        'p_poster_path': posterPath,
-        'p_clear_poster': clearPoster,
-      },
-    );
+    await _api.op('set_event_details', {
+      'p_event': eventId,
+      'p_description': description,
+      'p_poster_path': posterPath,
+      'p_clear_poster': clearPoster,
+    });
     _eventsChanged();
     ref.invalidate(nearbyEventsProvider);
   }
@@ -277,20 +250,17 @@ class EventsRepository {
     String? placeName,
   }) => AppLog.instance.trace('create_private_event', () async {
     final id =
-        await _client.rpc(
-              'create_private_event',
-              params: {
-                'p_title': title,
-                'p_starts_at': (startsAt ?? DateTime.now())
-                    .toUtc()
-                    .toIso8601String(),
-                'p_ends_at': endsAt?.toUtc().toIso8601String(),
-                'p_lat': lat,
-                'p_lon': lon,
-                'p_member_ids': memberIds,
-                'p_acc': accuracy,
-              },
-            )
+        await _api.op('create_private_event', {
+              'p_title': title,
+              'p_starts_at': (startsAt ?? DateTime.now())
+                  .toUtc()
+                  .toIso8601String(),
+              'p_ends_at': endsAt?.toUtc().toIso8601String(),
+              'p_lat': lat,
+              'p_lon': lon,
+              'p_member_ids': memberIds,
+              'p_acc': accuracy,
+            })
             as String;
     await _nommerLeLieu(id, placeName);
     _eventsChanged();
@@ -298,26 +268,21 @@ class EventsRepository {
   }, details: '${memberIds.length} invité(s)');
 
   Future<void> invite(String eventId, String userId) async {
-    await _client.rpc(
-      'invite_to_event',
-      params: {'p_event': eventId, 'p_user': userId},
-    );
+    await _api.op('invite_to_event', {'p_event': eventId, 'p_user': userId});
     _peopleChanged(eventId);
   }
 
   Future<void> remove(String eventId, String userId) async {
-    await _client.rpc(
-      'remove_from_event',
-      params: {'p_event': eventId, 'p_user': userId},
-    );
+    await _api.op('remove_from_event', {'p_event': eventId, 'p_user': userId});
     _peopleChanged(eventId);
   }
 
   Future<void> setRole(String eventId, String userId, EventRole role) async {
-    await _client.rpc(
-      'set_event_member_role',
-      params: {'p_event': eventId, 'p_user': userId, 'p_role': role.name},
-    );
+    await _api.op('set_event_member_role', {
+      'p_event': eventId,
+      'p_user': userId,
+      'p_role': role.name,
+    });
     _peopleChanged(eventId);
   }
 
@@ -331,24 +296,21 @@ class EventsRepository {
     double? lon,
     bool clearPlace = false,
   }) async {
-    await _client.rpc(
-      'update_event_settings',
-      params: {
-        'p_event': eventId,
-        'p_title': title,
-        'p_members_can_add': membersCanAdd,
-        'p_members_can_remove': membersCanRemove,
-        'p_ends_at': endsAt?.toUtc().toIso8601String(),
-        'p_lat': lat,
-        'p_lon': lon,
-        'p_clear_place': clearPlace,
-      },
-    );
+    await _api.op('update_event_settings', {
+      'p_event': eventId,
+      'p_title': title,
+      'p_members_can_add': membersCanAdd,
+      'p_members_can_remove': membersCanRemove,
+      'p_ends_at': endsAt?.toUtc().toIso8601String(),
+      'p_lat': lat,
+      'p_lon': lon,
+      'p_clear_place': clearPlace,
+    });
     _eventsChanged();
   }
 
   Future<void> close(String eventId) async {
-    await _client.rpc('close_event', params: {'p_event': eventId});
+    await _api.op('close_event', {'p_event': eventId});
     _eventsChanged();
     _peopleChanged(eventId);
   }
@@ -363,21 +325,18 @@ class EventsRepository {
     required double lon,
     double? accuracy,
   }) => AppLog.instance.trace('join_event', () async {
-    await _client.rpc(
-      'join_event',
-      params: {
-        'p_event': eventId,
-        'p_lat': lat,
-        'p_lon': lon,
-        'p_acc': accuracy,
-      },
-    );
+    await _api.op('join_event', {
+      'p_event': eventId,
+      'p_lat': lat,
+      'p_lon': lon,
+      'p_acc': accuracy,
+    });
     _eventsChanged();
     _peopleChanged(eventId);
   });
 
   Future<void> leave(String eventId) async {
-    await _client.rpc('leave_event', params: {'p_event': eventId});
+    await _api.op('leave_event', {'p_event': eventId});
     _eventsChanged();
     _peopleChanged(eventId);
   }

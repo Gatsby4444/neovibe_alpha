@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/api/nv_api.dart';
 import '../../core/clock.dart';
 import '../../core/content/removals.dart';
 import '../../core/crypto/chunked_seal.dart';
@@ -22,10 +22,7 @@ final myParticipationProvider = FutureProvider<Map<String, DateTime>>((
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return const {};
   final rows =
-      await ref
-              .watch(supabaseProvider)
-              .from('conversation_participation')
-              .select('conversation_id, last_at')
+      await ref.watch(nvApiProvider).op('conversation_participation_list')
           as List;
   return {
     for (final row in rows)
@@ -45,26 +42,21 @@ void noteConversationActivity(Ref ref) {
 
 /// Liste de mes conversations avec membres et dernier message.
 final conversationsProvider = FutureProvider<List<Conversation>>((ref) async {
-  final client = ref.watch(supabaseProvider);
+  final api = ref.watch(nvApiProvider);
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
 
-  final rows = await client
-      .from('conversations')
-      .select('*, members:conversation_members(profiles(*))')
-      .order('created_at', ascending: false);
-  final conversations = rows.map(Conversation.fromJson).toList();
+  final rows = await api.op('conversations_list') as List;
+  final conversations = [
+    for (final r in rows) Conversation.fromJson(r as Map<String, dynamic>),
+  ];
 
   // Dernier message par conversation (requête groupée simple pour la V1)
   final result = <Conversation>[];
   for (final conv in conversations) {
-    final last = await client
-        .from('messages')
-        .select()
-        .eq('conversation_id', conv.id)
-        .order('created_at', ascending: false)
-        .limit(1)
-        .maybeSingle();
+    final last =
+        await api.op('message_last', {'conversation_id': conv.id})
+            as Map<String, dynamic>?;
     result.add(
       last == null ? conv : conv.copyWith(lastMessage: Message.fromJson(last)),
     );
@@ -121,15 +113,19 @@ final messagesStreamProvider = StreamProvider.family<List<Message>, String>((
   // Sans ça, le socket garde le jeton avec lequel il s'est ouvert et tombe
   // au bout d'une heure — sans le moindre symptôme (2026-08-17).
   ref.watch(realtimeEpochProvider);
-  final client = ref.watch(supabaseProvider);
-  return client
-      .from('messages')
-      .stream(primaryKey: ['id'])
-      .eq('conversation_id', conversationId)
-      // ATTENTION : sur un stream, order() est DESCENDANT par défaut
-      // (l'inverse du REST) — c'est ce qui empilait les messages en haut
-      // du chat (bug remonté par Jay, 2026-07-12).
-      .order('created_at', ascending: true)
+  return ref
+      .watch(nvDirectProvider)
+      .lignes(
+        'messages',
+        cle: const ['id'],
+        colonne: 'conversation_id',
+        valeur: conversationId,
+        // ⚠️ Le plus ancien d'abord : c'est ce qui empilait les messages en
+        // haut du chat quand l'ordre était laissé par défaut (bug remonté
+        // par Jay, 2026-07-12).
+        ordre: 'created_at',
+        croissant: true,
+      )
       .map((rows) => rows.map(Message.fromJson).toList(growable: false));
 });
 
@@ -170,35 +166,29 @@ final conversationDetailProvider = FutureProvider.family<Conversation, String>((
   ref,
   id,
 ) async {
-  final row = await ref
-      .watch(supabaseProvider)
-      .from('conversations')
-      .select('*, members:conversation_members(profiles(*))')
-      .eq('id', id)
-      .single();
+  final row =
+      await ref.watch(nvApiProvider).op('conversation_get', {'id': id})
+          as Map<String, dynamic>;
   return Conversation.fromJson(row);
 });
 
 /// URL signée d'un média de message. Même origine, même motif.
 final messageMediaUrlProvider = FutureProvider.family<String, String>(
-  (ref, path) => ref
-      .watch(supabaseProvider)
-      .storage
-      .from('media')
-      .createSignedUrl(path, 3600),
+  (ref, path) => ref.watch(nvFichiersProvider).lien('media', path),
 );
 
 class ConversationsRepository {
   ConversationsRepository(this.ref);
   final Ref ref;
 
-  SupabaseClient get _client => ref.read(supabaseProvider);
+  NvApi get _api => ref.read(nvApiProvider);
+  NvFichiers get _fichiers => ref.read(nvFichiersProvider);
+  String get _moi => ref.read(currentUserIdProvider)!;
 
   Future<String> getOrCreateDirect(String peerId) async {
-    final id = await _client.rpc(
-      'get_or_create_direct_conversation',
-      params: {'peer': peerId},
-    );
+    final id = await _api.op('get_or_create_direct_conversation', {
+      'peer': peerId,
+    });
     return id as String;
   }
 
@@ -220,31 +210,31 @@ class ConversationsRepository {
   /// derniers pouvaient échouer en laissant un groupe à moitié formé.
   Future<String> createGroup(String title, List<String> memberIds) =>
       AppLog.instance.trace('create_group_conversation', () async {
-        final id = await _client.rpc(
-          'create_group_conversation',
-          params: {'p_title': title, 'p_member_ids': memberIds},
-        );
+        final id = await _api.op('create_group_conversation', {
+          'p_title': title,
+          'p_member_ids': memberIds,
+        });
         return id as String;
       }, details: '${memberIds.length} membre(s)');
 
-  Future<void> renameGroup(String conversationId, String title) => _client
-      .from('conversations')
-      .update({'title': title})
-      .eq('id', conversationId);
+  Future<void> renameGroup(String conversationId, String title) => _api.op(
+    'conversation_update_title',
+    {'id': conversationId, 'title': title},
+  );
 
-  Future<void> addMember(String conversationId, String userId) => _client
-      .from('conversation_members')
-      .insert({'conversation_id': conversationId, 'user_id': userId});
+  Future<void> addMember(String conversationId, String userId) => _api.op(
+    'conversation_member_add',
+    {'conversation_id': conversationId, 'user_id': userId},
+  );
 
-  Future<void> removeMember(String conversationId, String userId) => _client
-      .from('conversation_members')
-      .delete()
-      .eq('conversation_id', conversationId)
-      .eq('user_id', userId);
+  Future<void> removeMember(String conversationId, String userId) => _api.op(
+    'conversation_member_remove',
+    {'conversation_id': conversationId, 'user_id': userId},
+  );
 
   Future<void> sendText(String conversationId, String body) async {
-    final me = _client.auth.currentUser!.id;
-    await _client.from('messages').insert({
+    final me = _moi;
+    await _api.op('message_send', {
       'conversation_id': conversationId,
       'sender_id': me,
       'kind': 'text',
@@ -259,15 +249,13 @@ class ConversationsRepository {
     File file,
     MessageKind kind,
   ) async {
-    final me = _client.auth.currentUser!.id;
+    final me = _moi;
     final ext = kind == MessageKind.video ? 'mp4' : 'jpg';
     final contentType = kind == MessageKind.video ? 'video/mp4' : 'image/jpeg';
     final path =
         '$me/${DateTime.now().millisecondsSinceEpoch}_${file.hashCode}.$ext';
-    await _client.storage
-        .from('media')
-        .upload(path, file, fileOptions: FileOptions(contentType: contentType));
-    await _client.from('messages').insert({
+    await _fichiers.deposer('media', path, file, type: contentType);
+    await _api.op('message_send', {
       'conversation_id': conversationId,
       'sender_id': me,
       'kind': kind.name,
@@ -276,24 +264,17 @@ class ConversationsRepository {
   }
 
   Future<void> markRead(List<Message> messages) async {
-    final me = _client.auth.currentUser!.id;
+    final me = _moi;
     final unreadOthers = messages
         .where((m) => m.senderId != me)
         .map((m) => m.id)
         .toList();
     if (unreadOthers.isEmpty) return;
-    await _client
-        .from('message_reads')
-        .upsert(
-          unreadOthers.map((id) => {'message_id': id, 'user_id': me}).toList(),
-          onConflict: 'message_id,user_id',
-          ignoreDuplicates: true,
-        );
+    await _api.op('message_reads_mark', {'message_ids': unreadOthers});
   }
 
   /// URL signée pour un média de messagerie.
-  Future<String> mediaUrl(String path) =>
-      _client.storage.from('media').createSignedUrl(path, 3600);
+  Future<String> mediaUrl(String path) => _fichiers.lien('media', path);
 
   // ---------------------------------------------------------------------
   // Les messages vocaux (2026-09-13)
@@ -313,30 +294,24 @@ class ConversationsRepository {
     File clear,
     Duration duration,
   ) async {
-    final me = _client.auth.currentUser!.id;
+    final me = _moi;
     final key = await ChunkedSeal.newKey();
     final sealed = File('${clear.path}.nvc');
     try {
       await ChunkedSeal.sealFile(clear, sealed, key);
       final path = '$me/${DateTime.now().millisecondsSinceEpoch}_voice.nvc';
-      await _client.storage
-          .from('media')
-          .upload(
-            path,
-            sealed,
-            fileOptions: const FileOptions(
-              contentType: 'application/octet-stream',
-            ),
-          );
-      await _client.rpc(
-        'send_voice_message',
-        params: {
-          'p_conversation_id': conversationId,
-          'p_media_path': path,
-          'p_duration_ms': duration.inMilliseconds,
-          'p_media_key': key,
-        },
+      await _fichiers.deposer(
+        'media',
+        path,
+        sealed,
+        type: 'application/octet-stream',
       );
+      await _api.op('send_voice_message', {
+        'p_conversation_id': conversationId,
+        'p_media_path': path,
+        'p_duration_ms': duration.inMilliseconds,
+        'p_media_key': key,
+      });
       noteConversationActivity(ref);
     } finally {
       for (final f in [clear, sealed]) {
@@ -351,10 +326,9 @@ class ConversationsRepository {
   /// conversation et que le message vit encore. Obtenir la clé n'est pas une
   /// vue : rien n'est décompté.
   Future<String> voiceKey(String messageId) async {
-    final key = await _client.rpc(
-      'open_voice_message',
-      params: {'p_message_id': messageId},
-    );
+    final key = await _api.op('open_voice_message', {
+      'p_message_id': messageId,
+    });
     return key as String;
   }
 }

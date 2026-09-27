@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/content/content_media_cache.dart';
 import '../../core/content/own_keys.dart';
@@ -16,6 +15,7 @@ import '../../core/models/card.dart';
 import '../../core/models/library_item.dart';
 import '../../core/models/profile.dart';
 import '../../core/publish/publish_bridge.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/utils/ids.dart';
 import '../cards/native_media.dart';
@@ -39,19 +39,20 @@ final libraryItemsProvider = FutureProvider.family<List<LibraryItem>, String>((
   final me = ref.watch(currentUserIdProvider);
   final copie = ownerId == me ? await _copieLocale(ownerId) : null;
   try {
-    final rows = await ref
-        .watch(supabaseProvider)
-        .from('library_items')
-        .select(LibraryItem.select)
-        .eq('owner_id', ownerId)
-        // Que des Vibes, dit positivement : une ligne d'un autre format
-        // (aucune depuis la purge du 2026-09-21) n'arriverait pas ici.
-        .eq('kind', kLibraryKindVibe)
-        .order('created_at', ascending: false);
+    // Que des Vibes (`kind = 'card'`), dit positivement par le serveur : une
+    // ligne d'un autre format (aucune depuis la purge du 2026-09-21)
+    // n'arriverait pas ici.
+    final rows =
+        await ref.watch(nvApiProvider).op('library_items_of', {
+              'owner_id': ownerId,
+            })
+            as List;
     if (copie != null) {
       unawaited(copie.writeAsString(jsonEncode(rows)).catchError((_) => copie));
     }
-    return rows.map(LibraryItem.fromJson).toList();
+    return [
+      for (final r in rows) LibraryItem.fromJson(r as Map<String, dynamic>),
+    ];
   } catch (e) {
     if (copie == null || !await copie.exists()) rethrow;
     final rows = jsonDecode(await copie.readAsString()) as List;
@@ -70,19 +71,16 @@ Future<File> _copieLocale(String ownerId) async {
 final libraryAccessProvider = FutureProvider<List<String>>((ref) async {
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return [];
-  final rows = await ref
-      .watch(supabaseProvider)
-      .from('library_access')
-      .select('grantee_id')
-      .eq('owner_id', me);
-  return rows.map((r) => r['grantee_id'] as String).toList();
+  final rows = await ref.watch(nvApiProvider).op('library_access_list') as List;
+  return [for (final r in rows) (r as Map)['grantee_id'] as String];
 });
 
 class LibraryRepository {
   LibraryRepository(this.ref);
   final Ref ref;
 
-  SupabaseClient get _client => ref.read(supabaseProvider);
+  NvApi get _api => ref.read(nvApiProvider);
+  NvFichiers get _fichiers => ref.read(nvFichiersProvider);
 
   static const _bucket = 'library';
 
@@ -126,7 +124,7 @@ class LibraryRepository {
     bool saveable = false,
     ContentAnchor? anchor,
   }) async {
-    final me = _client.auth.currentUser!.id;
+    final me = ref.read(currentUserIdProvider)!;
     final bridge = PublishBridge.instance;
     final itemId = newUuid();
     final dirPath = await bridge.jobDir(itemId);
@@ -229,10 +227,7 @@ class LibraryRepository {
   /// Réclame la clé d'une publication. Sans décompte : une publication n'a pas
   /// de limite de vues. Lève si le contenu a été **révoqué**.
   Future<String> openMedia(String itemId) async {
-    final key = await _client.rpc(
-      'open_content_media',
-      params: {'p_content_id': itemId},
-    );
+    final key = await _api.op('open_content_media', {'p_content_id': itemId});
     return key as String;
   }
 
@@ -241,24 +236,20 @@ class LibraryRepository {
     // porte l'identité. Le graphe et les vues la suivent — une publication
     // supprimée par son auteur disparaît vraiment, contrairement à une story
     // expirée dont le journal survit.
-    await _client.from('contents').delete().eq('id', itemId);
+    await _api.op('content_delete', {'id': itemId});
     await ref.read(contentMediaCacheProvider).purge(itemId);
     // La clé locale de MON contenu part avec lui : sans contenu, elle ne
     // déchiffre plus rien et n'est qu'un secret orphelin de plus sur le disque.
     // Ajouté le 2026-08-31 — c'était le seul appelant qui manquait à
     // `OwnKeyStore.remove`, dont la documentation promettait un effacement.
     await ref.read(ownKeyStoreProvider).remove(itemId);
-    final me = _client.auth.currentUser!.id;
+    final me = ref.read(currentUserIdProvider)!;
     ref.invalidate(libraryItemsProvider(me));
     ref.invalidate(libraryKeysProvider(me));
   }
 
   Future<void> setVisibility(LibraryVisibility visibility) async {
-    final me = _client.auth.currentUser!.id;
-    await _client
-        .from('profiles')
-        .update({'library_visibility': visibility.name})
-        .eq('id', me);
+    await _api.op('profile_update', {'library_visibility': visibility.name});
     // ⚠️ L'invalidation appartient à l'écriture (2026-08-25). Elle était faite
     // par l'écran appelant : un second appelant l'aurait oubliée, et lui seul
     // aurait affiché du périmé.
@@ -266,24 +257,14 @@ class LibraryRepository {
   }
 
   Future<void> grantAccess(String userId) async {
-    final me = _client.auth.currentUser!.id;
-    await _client.from('library_access').insert({
-      'owner_id': me,
-      'grantee_id': userId,
-    });
+    await _api.op('library_access_grant', {'grantee_id': userId});
   }
 
   Future<void> revokeAccess(String userId) async {
-    final me = _client.auth.currentUser!.id;
-    await _client
-        .from('library_access')
-        .delete()
-        .eq('owner_id', me)
-        .eq('grantee_id', userId);
+    await _api.op('library_access_revoke', {'grantee_id': userId});
   }
 
-  Future<String> mediaUrl(String path) =>
-      _client.storage.from(_bucket).createSignedUrl(path, 3600);
+  Future<String> mediaUrl(String path) => _fichiers.lien(_bucket, path);
 }
 
 final libraryRepositoryProvider = Provider((ref) => LibraryRepository(ref));

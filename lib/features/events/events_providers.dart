@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/derived_list.dart';
 import '../../core/location/distance.dart';
 import '../../core/prefs.dart';
 import '../../core/models/event.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../proximity/geo/coarse_location.dart';
 import '../proximity/geo/live_position.dart';
@@ -34,14 +34,16 @@ final myPresencesStreamProvider = StreamProvider<List<Map<String, dynamic>>>((
   ref,
 ) {
   ref.watch(realtimeEpochProvider);
-  final client = ref.watch(supabaseProvider);
   final me = ref.watch(currentUserIdProvider);
   if (me == null) return Stream.value(const []);
-  return client
-      .from('event_presences')
-      .stream(primaryKey: ['id'])
-      .eq('user_id', me)
-      .map((rows) => rows.toList(growable: false));
+  return ref
+      .watch(nvDirectProvider)
+      .lignes(
+        'event_presences',
+        cle: const ['id'],
+        colonne: 'user_id',
+        valeur: me,
+      );
 });
 
 /// L'événement où je suis présent **maintenant** — un seul, par construction
@@ -115,26 +117,26 @@ final currentEventProvider = Provider<NeoEvent?>((ref) {
 final eventPresencesStreamProvider =
     StreamProvider.family<List<Map<String, dynamic>>, String>((ref, eventId) {
       ref.watch(realtimeEpochProvider);
-      final client = ref.watch(supabaseProvider);
-      return client
-          .from('event_presences')
-          .stream(primaryKey: ['id'])
-          .eq('event_id', eventId)
-          .map((rows) => rows.toList(growable: false));
+      return ref
+          .watch(nvDirectProvider)
+          .lignes(
+            'event_presences',
+            cle: const ['id'],
+            colonne: 'event_id',
+            valeur: eventId,
+          );
     });
 
 /// Les invités de tous les groupes d'événement où je suis, bruts.
 final eventGroupMembersStreamProvider =
     StreamProvider<List<Map<String, dynamic>>>((ref) {
       ref.watch(realtimeEpochProvider);
-      final client = ref.watch(supabaseProvider);
       if (ref.watch(currentUserIdProvider) == null) {
         return Stream.value(const []);
       }
-      return client
-          .from('event_group_members')
-          .stream(primaryKey: ['event_id', 'user_id'])
-          .map((rows) => rows.toList(growable: false));
+      return ref
+          .watch(nvDirectProvider)
+          .lignes('event_group_members', cle: const ['event_id', 'user_id']);
     });
 
 /// Les gens d'un événement — invités et présents, avec leur relation.
@@ -311,21 +313,11 @@ final eventChallengesLiveProvider = Provider.autoDispose.family<void, String>((
   eventId,
 ) {
   ref.watch(realtimeEpochProvider);
-  final client = ref.watch(supabaseProvider);
-  final channel = client.channel('challenges:$eventId')
-    ..onPostgresChanges(
-      event: PostgresChangeEvent.insert,
-      schema: 'public',
-      table: 'event_challenges',
-      filter: PostgresChangeFilter(
-        type: PostgresChangeFilterType.eq,
-        column: 'event_id',
-        value: eventId,
-      ),
-      callback: (_) => ref.invalidate(eventChallengesProvider(eventId)),
-    )
-    ..subscribe();
-  ref.onDispose(() => client.removeChannel(channel));
+  final ecoute = ref
+      .watch(nvDirectProvider)
+      .insertions('event_challenges', colonne: 'event_id', valeur: eventId)
+      .listen((_) => ref.invalidate(eventChallengesProvider(eventId)));
+  ref.onDispose(ecoute.cancel);
 });
 
 /// Ma mémoire des rencontres (2 ans).

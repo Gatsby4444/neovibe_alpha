@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../core/motion.dart';
 
@@ -17,6 +16,7 @@ import '../../core/widgets/card_type_badge.dart';
 import '../../core/models/story.dart';
 import '../../core/content/shared_content.dart';
 import '../../core/content/content_face.dart';
+import '../../core/api/nv_api.dart';
 import '../../core/supabase_providers.dart';
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
@@ -53,7 +53,8 @@ class ChatScreen extends ConsumerStatefulWidget {
 class _ChatScreenState extends ConsumerState<ChatScreen> {
   final _input = TextEditingController();
   final _scroll = ScrollController();
-  RealtimeChannel? _typingChannel;
+  NvCanal? _typingChannel;
+  StreamSubscription<Map<String, dynamic>>? _typingEcoute;
   Timer? _typingReset;
   String? _typingName;
   DateTime _lastTypingSent = DateTime.fromMillisecondsSinceEpoch(0);
@@ -69,40 +70,39 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   void _setupTypingChannel() {
-    final client = ref.read(supabaseProvider);
-    final me = client.auth.currentUser!.id;
-    _typingChannel = client.channel('typing:${widget.conversationId}')
-      ..onBroadcast(
-        event: 'typing',
-        callback: (payload) {
-          final sender = payload['user_id'] as String?;
-          if (sender == me) return;
-          setState(() => _typingName = payload['name'] as String?);
-          _typingReset?.cancel();
-          _typingReset = Timer(const Duration(seconds: 4), () {
-            if (mounted) setState(() => _typingName = null);
-          });
-        },
-      )
-      ..subscribe();
+    final me = ref.read(currentUserIdProvider)!;
+    final canal = ref
+        .read(nvDirectProvider)
+        .canal('typing:${widget.conversationId}');
+    _typingChannel = canal;
+    _typingEcoute = canal.diffusions.listen((payload) {
+      final sender = payload['user_id'] as String?;
+      if (sender == me || !mounted) return;
+      setState(() => _typingName = payload['name'] as String?);
+      _typingReset?.cancel();
+      _typingReset = Timer(const Duration(seconds: 4), () {
+        if (mounted) setState(() => _typingName = null);
+      });
+    });
   }
 
   void _notifyTyping() {
     // Sobriété : un signal toutes les 3 s maximum
     if (DateTime.now().difference(_lastTypingSent).inSeconds < 3) return;
     _lastTypingSent = DateTime.now();
-    final me = ref.read(supabaseProvider).auth.currentUser!.id;
+    final me = ref.read(currentUserIdProvider)!;
     final myProfile = ref.read(myProfileProvider).value;
-    _typingChannel?.sendBroadcastMessage(
-      event: 'typing',
-      payload: {'user_id': me, 'name': myProfile?.chatName ?? ''},
-    );
+    _typingChannel?.diffuser({
+      'user_id': me,
+      'name': myProfile?.chatName ?? '',
+    });
   }
 
   @override
   void dispose() {
     _typingReset?.cancel();
-    _typingChannel?.unsubscribe();
+    unawaited(_typingEcoute?.cancel());
+    unawaited(_typingChannel?.fermer());
     _input.dispose();
     _scroll.dispose();
     super.dispose();

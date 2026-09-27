@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path_provider/path_provider.dart';
 
-import '../supabase_providers.dart';
+import '../api/nv_api.dart';
 
 /// Chemin de l'avatar dans le bucket, à partir de ce qui est stocké dans
 /// `profiles.avatar_url`.
@@ -169,10 +169,8 @@ final avatarFileProvider = FutureProvider.family<File?, String>((
 
   try {
     final bytes = await ref
-        .watch(supabaseProvider)
-        .storage
-        .from('avatars')
-        .download(path);
+        .watch(nvFichiersProvider)
+        .telecharger('avatars', path);
     return cache.put(path, bytes);
   } catch (_) {
     return null;

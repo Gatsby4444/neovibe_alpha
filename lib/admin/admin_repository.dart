@@ -1,7 +1,8 @@
 import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../core/api/nv_api.dart';
 
 /// **La cuisine de la console** : les RPC `admin_*`, et rien d'autre. Aucun
 /// écran ne connaît un nom de fonction ; il demande ici. Chaque écriture
@@ -10,19 +11,18 @@ class AdminRepository {
   AdminRepository(this.ref);
   final Ref ref;
 
-  SupabaseClient get _c => Supabase.instance.client;
+  NvApi get _c => ref.read(nvApiProvider);
 
   Future<bool> amIAdmin() async =>
-      (await _c.rpc('am_i_admin') as bool?) ?? false;
+      (await _c.op('am_i_admin') as bool?) ?? false;
 
   Future<Map<String, dynamic>> stats() async {
-    final rows = await _c.rpc('admin_stats') as List;
+    final rows = await _c.op('admin_stats') as List;
     return (rows.first as Map).cast<String, dynamic>();
   }
 
   Future<List<Map<String, dynamic>>> reports(String status) async {
-    final rows =
-        await _c.rpc('admin_reports', params: {'p_status': status}) as List;
+    final rows = await _c.op('admin_reports', {'p_status': status}) as List;
     return [for (final r in rows) (r as Map).cast<String, dynamic>()];
   }
 
@@ -31,10 +31,7 @@ class AdminRepository {
   /// serveur journalise chaque ouverture (`view_evidence`).
   Future<List<Map<String, dynamic>>> evidence(String kind, String id) async {
     final rows =
-        await _c.rpc(
-              'admin_report_evidence',
-              params: {'p_kind': kind, 'p_report': id},
-            )
+        await _c.op('admin_report_evidence', {'p_kind': kind, 'p_report': id})
             as List;
     return [for (final r in rows) (r as Map).cast<String, dynamic>()];
   }
@@ -43,14 +40,14 @@ class AdminRepository {
   /// administrateur seulement (`moderation_read_held`). Déchiffrés en
   /// mémoire par l'appelant ([SealedBytes]), jamais écrits.
   Future<Uint8List> heldBytes(String bucket, String path) =>
-      _c.storage.from(bucket).download(path);
+      ref.read(nvFichiersProvider).telecharger(bucket, path);
 
   /// Retire l'affiche ET la description d'une soirée (2026-09-25).
   Future<void> removeEventPoster(String eventId, String reason) async {
-    await _c.rpc(
-      'admin_remove_event_poster',
-      params: {'p_event': eventId, 'p_reason': reason},
-    );
+    await _c.op('admin_remove_event_poster', {
+      'p_event': eventId,
+      'p_reason': reason,
+    });
     _changed();
   }
 
@@ -60,65 +57,51 @@ class AdminRepository {
     required bool dismiss,
     String? note,
   }) async {
-    await _c.rpc(
-      'admin_resolve_report',
-      params: {
-        'p_kind': kind,
-        'p_report': id,
-        'p_dismiss': dismiss,
-        'p_note': note,
-      },
-    );
+    await _c.op('admin_resolve_report', {
+      'p_kind': kind,
+      'p_report': id,
+      'p_dismiss': dismiss,
+      'p_note': note,
+    });
     _changed();
   }
 
   Future<void> suspend(String userId, String reason) async {
-    await _c.rpc(
-      'admin_suspend_user',
-      params: {'p_user': userId, 'p_reason': reason},
-    );
+    await _c.op('admin_suspend_user', {'p_user': userId, 'p_reason': reason});
     _changed();
   }
 
   Future<void> unsuspend(String userId, String? note) async {
-    await _c.rpc(
-      'admin_unsuspend_user',
-      params: {'p_user': userId, 'p_note': note},
-    );
+    await _c.op('admin_unsuspend_user', {'p_user': userId, 'p_note': note});
     _changed();
   }
 
   Future<void> deleteContent(String contentId, String reason) async {
-    await _c.rpc(
-      'admin_delete_content',
-      params: {'p_content': contentId, 'p_reason': reason},
-    );
+    await _c.op('admin_delete_content', {
+      'p_content': contentId,
+      'p_reason': reason,
+    });
     _changed();
   }
 
   Future<List<Map<String, dynamic>>> events() async {
-    final rows = await _c.rpc('admin_events') as List;
+    final rows = await _c.op('admin_events') as List;
     return [for (final r in rows) (r as Map).cast<String, dynamic>()];
   }
 
   Future<void> closeEvent(String eventId, String reason) async {
-    await _c.rpc(
-      'admin_close_event',
-      params: {'p_event': eventId, 'p_reason': reason},
-    );
+    await _c.op('admin_close_event', {'p_event': eventId, 'p_reason': reason});
     _changed();
   }
 
   Future<List<Map<String, dynamic>>> actions() async {
-    final rows =
-        await _c.rpc('admin_actions', params: {'p_limit': 200}) as List;
+    final rows = await _c.op('admin_actions', {'p_limit': 200}) as List;
     return [for (final r in rows) (r as Map).cast<String, dynamic>()];
   }
 
   Future<List<Map<String, dynamic>>> users(String? query) async {
     final rows =
-        await _c.rpc('admin_users', params: {'p_query': query, 'p_limit': 100})
-            as List;
+        await _c.op('admin_users', {'p_query': query, 'p_limit': 100}) as List;
     return [for (final r in rows) (r as Map).cast<String, dynamic>()];
   }
 

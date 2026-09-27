@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../core/config/env.dart';
+import '../core/api/demarrage.dart';
 import 'admin_app.dart';
 
 /// **La console d'administration** — un second point d'entrée du même
@@ -22,9 +21,6 @@ import 'admin_app.dart';
 /// administrateur.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Supabase.initialize(
-    url: Env.supabaseUrl,
-    publishableKey: Env.supabasePublishableKey,
-  );
+  await demarrerLeServeur();
   runApp(const ProviderScope(child: AdminApp()));
 }

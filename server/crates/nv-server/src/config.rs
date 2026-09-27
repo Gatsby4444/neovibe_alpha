@@ -3,7 +3,7 @@
 //!
 //! | Variable | Sens | Par défaut |
 //! |---|---|---|
-//! | `NV_DATABASE_URL` | la base | la base locale de travail (port 54329) |
+//! | `NV_DATABASE_URL` | la base | la base locale DU SERVEUR, `nv_serveur` (port 54329) — jamais la référence de la preuve (`outils/base_locale.py`) |
 //! | `NV_ADRESSE` | où écouter | `127.0.0.1:8787` |
 //! | `NV_DB_CONNEXIONS` | taille du réservoir de connexions | `20` |
 //! | `NV_BADGE_CLE` | la clé des badges (base64, `nv-server nouvelle-cle`) | éphémère (développement) |
@@ -35,7 +35,7 @@ impl Config {
         let publique = var("NV_S3_PUBLIQUE").unwrap_or_else(|| interne.clone());
         Ok(Config {
             database_url: var("NV_DATABASE_URL")
-                .unwrap_or_else(|| "postgres://postgres:neovibe@localhost:54329/postgres".into()),
+                .unwrap_or_else(|| "postgres://postgres:neovibe@localhost:54329/nv_serveur".into()),
             adresse: var("NV_ADRESSE").unwrap_or_else(|| "127.0.0.1:8787".into()),
             db_connections: var("NV_DB_CONNEXIONS")
                 .map(|s| s.parse().context("NV_DB_CONNEXIONS"))

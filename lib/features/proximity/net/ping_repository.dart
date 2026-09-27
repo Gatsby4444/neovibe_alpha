@@ -2,7 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/supabase_providers.dart';
+import '../../../core/api/nv_api.dart';
 import '../geo/coarse_location.dart';
 
 /// **Le seul chemin vers le serveur pour le ping de proximité.**
@@ -33,18 +33,13 @@ class PingRepository {
     required CoarseFix fix,
     required Uint8List token,
     required int slot,
-  }) => ref
-      .read(supabaseProvider)
-      .rpc(
-        'publish_ping_beacon',
-        params: {
-          'p_lat': fix.latitude,
-          'p_lon': fix.longitude,
-          'p_acc': fix.accuracy,
-          'p_token': _hex(token),
-          'p_slot': slot,
-        },
-      );
+  }) => ref.read(nvApiProvider).op('publish_ping_beacon', {
+    'p_lat': fix.latitude,
+    'p_lon': fix.longitude,
+    'p_acc': fix.accuracy,
+    'p_token': _hex(token),
+    'p_slot': slot,
+  });
 
   /// Cesse de s'annoncer.
   ///
@@ -52,7 +47,7 @@ class PingRepository {
   /// position en base après que l'utilisateur a coupé le ping — c'est-à-dire
   /// exactement ce qu'il vient de refuser.
   Future<void> retireBeacon() =>
-      ref.read(supabaseProvider).rpc('retire_ping_beacon');
+      ref.read(nvApiProvider).op('retire_ping_beacon');
 
   /// **Combien de balises fraîches dans le voisinage. Un entier, rien d'autre.**
   ///
@@ -77,7 +72,7 @@ class PingRepository {
   /// n'y a **aucune connexion GATT** dans le ping, et la liste n'avait **qu'un
   /// seul lecteur** en Dart. Elle ne protégeait donc aucune limite radio.
   Future<int> neighbourCount() async {
-    final n = await ref.read(supabaseProvider).rpc('ping_neighbour_count');
+    final n = await ref.read(nvApiProvider).op('ping_neighbour_count');
     return (n as num?)?.toInt() ?? 0;
   }
 
@@ -92,9 +87,10 @@ class PingRepository {
   }) async {
     final list = tokensHex.toList(growable: false);
     if (list.isEmpty) return 0;
-    final n = await ref
-        .read(supabaseProvider)
-        .rpc('confirm_ping', params: {'p_tokens': list, 'p_slot': slot});
+    final n = await ref.read(nvApiProvider).op('confirm_ping', {
+      'p_tokens': list,
+      'p_slot': slot,
+    });
     return (n as num?)?.toInt() ?? 0;
   }
 
@@ -104,7 +100,7 @@ class PingRepository {
   /// (`last_seen_at`), la vue décide de ce qu'elle affiche — y compris les 30 s
   /// d'indulgence voulues par Jay quand quelqu'un sort de portée.
   Future<List<NearbyPerson>> nearby() async {
-    final rows = await ref.read(supabaseProvider).rpc('ping_nearby');
+    final rows = await ref.read(nvApiProvider).op('ping_nearby');
     return [
       for (final row in (rows as List? ?? const []))
         NearbyPerson.fromJson(row as Map<String, dynamic>),
@@ -114,9 +110,10 @@ class PingRepository {
   /// Ouvre la messagerie de proximité. ⚠️ Le serveur **refuse** si la proximité
   /// n'a pas été constatée mutuellement, et si les deux sont déjà amis.
   Future<String> openConversation(String peerId) async {
-    final id = await ref
-        .read(supabaseProvider)
-        .rpc('get_or_create_proximity_conversation', params: {'peer': peerId});
+    final id = await ref.read(nvApiProvider).op(
+      'get_or_create_proximity_conversation',
+      {'peer': peerId},
+    );
     return id as String;
   }
 
@@ -130,9 +127,10 @@ class PingRepository {
   /// demande est refusée. **Le BLE reste la barrière ; il ne transporte
   /// simplement plus le message.**
   Future<String> requestConnection(String peerId) async {
-    final id = await ref
-        .read(supabaseProvider)
-        .rpc('request_connection_from_proximity', params: {'peer': peerId});
+    final id = await ref.read(nvApiProvider).op(
+      'request_connection_from_proximity',
+      {'peer': peerId},
+    );
     return id as String;
   }
 

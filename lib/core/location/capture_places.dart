@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../diagnostics/app_log.dart';
+import '../api/nv_api.dart';
 import '../supabase_providers.dart';
 import 'anchor.dart';
 
@@ -40,7 +41,7 @@ class CapturePlaces {
   /// n'empêche pas un envoi — il est journalisé.
   Future<void> record(String objectId, CaptureStamp stamp) async {
     try {
-      await ref.read(supabaseProvider).from('capture_places').upsert({
+      await ref.read(nvApiProvider).op('capture_place_record', {
         'object_id': objectId,
         'owner_id': ref.read(currentUserIdProvider),
         'taken_at': stamp.takenAt.toUtc().toIso8601String(),
@@ -55,12 +56,11 @@ class CapturePlaces {
   /// Le lieu de prise de MON objet, ou nul (pas le mien, ou pas noté).
   Future<CaptureStamp?> of(String objectId) async {
     try {
-      final row = await ref
-          .read(supabaseProvider)
-          .from('capture_places')
-          .select()
-          .eq('object_id', objectId)
-          .maybeSingle();
+      final row =
+          await ref.read(nvApiProvider).op('capture_place_get', {
+                'object_id': objectId,
+              })
+              as Map<String, dynamic>?;
       if (row == null) return null;
       final lat = (row['lat'] as num?)?.toDouble();
       final lon = (row['lon'] as num?)?.toDouble();

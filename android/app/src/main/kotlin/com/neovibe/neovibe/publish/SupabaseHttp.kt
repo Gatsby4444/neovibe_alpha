@@ -65,7 +65,7 @@ interface Remote {
  * refus métier fait **400** avec un `message` lisible (« Une publication
  * contient de 1 à 20 médias ») ; un jeton faux fait **401** `PGRST301`.
  */
-class SupabaseHttp(private val session: Session) : Remote {
+class SupabaseHttp(private val session: Session) : Distant {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -202,7 +202,7 @@ class SupabaseHttp(private val session: Session) : Remote {
      * Un appel RPC dont on lit la réponse (`report_event_position` rend
      * `present` / `away` / `none`, 2026-09-21). Mêmes trois sortes d'erreurs.
      */
-    fun rpcText(name: String, jsonBody: String): String {
+    override fun rpcText(name: String, jsonBody: String): String {
         val req = Request.Builder()
             .url("${session.url}/rest/v1/rpc/$name")
             .auth()

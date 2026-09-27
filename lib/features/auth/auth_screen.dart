@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../core/api/nv_api.dart';
 
 import 'auth_repository.dart';
 import '../../core/theme.dart';
@@ -48,7 +49,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
       if (mounted && Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
-    } on AuthException catch (e) {
+    } on NvApiException catch (e) {
       _showError(e.message);
     } catch (e) {
       _showError('Erreur inattendue : $e');
