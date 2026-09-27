@@ -308,8 +308,16 @@ lancé (`serveur_telephone.sh`). Hors de la maison, elle ne trouve rien —
 c'est le rôle du futur VPS. L'adresse du PC est gravée dans l'app : si la
 box lui en donne une autre, il faut la reconstruire (le script le signale).
 
-**Une seule fois : ouvrir le pare-feu de Windows**, pour que le téléphone
-puisse entrer — PowerShell **en administrateur** :
+⚠️ Le Wi-Fi **principal** de la box, pas le Wi-Fi « invité » : celui-là
+isole les appareils les uns des autres, et le téléphone ne verrait pas le
+PC.
+
+**Le pare-feu de Windows.** Sur le PC de Jay, il laisse déjà entrer
+(relevé le 2026-09-27 : règles « nv-server » et « Docker Desktop
+Backend », entrantes, autorisées, réseau public — créées au premier
+lancement ; les deux ports répondent depuis un conteneur, hors de l'accès
+local). **Seulement si le téléphone ne joint pas le serveur**, ouvrir les
+deux ports — PowerShell **en administrateur** :
 
 ```
 New-NetFirewallRule -DisplayName "NeoVibe essai (serveur Rust)" -Direction Inbound -Protocol TCP -LocalPort 8787,8333 -RemoteAddress LocalSubnet -Action Allow -Profile Any
