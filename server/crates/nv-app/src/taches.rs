@@ -17,6 +17,8 @@ ops![
     balai_canaux => balai_canaux,
     balai_ping => balai_ping,
     balai_vues => balai_vues,
+    balai_positions => balai_positions,
+    balai_demandes => balai_demandes,
 ];
 
 async fn balai_soirees(ctx: &mut Ctx, _: Value) -> NvResult<Value> {
@@ -49,4 +51,12 @@ async fn balai_ping(ctx: &mut Ctx, _: Value) -> NvResult<Value> {
 
 async fn balai_vues(ctx: &mut Ctx, _: Value) -> NvResult<Value> {
     crate::relations::balai_vues(ctx.db()).await.map(|_| Value::Null)
+}
+
+async fn balai_positions(ctx: &mut Ctx, _: Value) -> NvResult<Value> {
+    crate::carte::balai_positions(ctx.db()).await.map(|_| Value::Null)
+}
+
+async fn balai_demandes(ctx: &mut Ctx, _: Value) -> NvResult<Value> {
+    crate::carte::balai_demandes(ctx.db()).await.map(|_| Value::Null)
 }

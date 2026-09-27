@@ -74,7 +74,7 @@ async fn create_group_conversation(ctx: &mut Ctx, args: Value) -> NvResult<Value
 }
 
 /// Une conversation à deux, retrouvée par sa clé de paire ou créée.
-async fn conversation_a_deux(ctx: &mut Ctx, moi: Uuid, pair: Uuid, type_: &str, prefixe: &str, indispo: &'static str) -> NvResult<Value> {
+async fn conversation_a_deux(ctx: &mut Ctx, moi: Uuid, pair: Uuid, type_: &str, prefixe: &str, indispo: &'static str) -> NvResult<Uuid> {
     let cle = format!("{prefixe}:{}:{}", moi.min(pair), moi.max(pair));
     sqlx::query!(
         "insert into public.conversations (conversation_type, pair_key, created_by)
@@ -101,7 +101,7 @@ async fn conversation_a_deux(ctx: &mut Ctx, moi: Uuid, pair: Uuid, type_: &str, 
     )
     .execute(ctx.db())
     .await?;
-    Ok(json!(id))
+    Ok(id)
 }
 
 #[derive(Deserialize)]
@@ -110,14 +110,22 @@ struct Pair {
     peer: Uuid,
 }
 
+/// **La conversation directe** de deux amis, retrouvée ou créée — réservée
+/// aux amis. (Aussi le chemin de la demande de position : un seul endroit
+/// décide qui peut s'écrire en privé.)
+pub async fn conversation_directe(ctx: &mut Ctx, moi: Option<Uuid>, pair: Uuid) -> NvResult<Uuid> {
+    let moi = match moi {
+        Some(m) if acces::sont_amis(ctx.db(), m, pair).await? => m,
+        _ => return Err(NvError::refused("Messagerie directe réservée aux connexions établies")),
+    };
+    conversation_a_deux(ctx, moi, pair, "direct", "direct", "Conversation directe indisponible").await
+}
+
 /// `get_or_create_direct_conversation` : réservée aux amis.
 async fn get_or_create_direct_conversation(ctx: &mut Ctx, args: Value) -> NvResult<Value> {
     let a: Pair = parse(args)?;
-    let moi = match ctx.actor.maybe_uid() {
-        Some(m) if acces::sont_amis(ctx.db(), m, a.peer).await? => m,
-        _ => return Err(NvError::refused("Messagerie directe réservée aux connexions établies")),
-    };
-    conversation_a_deux(ctx, moi, a.peer, "direct", "direct", "Conversation directe indisponible").await
+    let moi = ctx.actor.maybe_uid();
+    Ok(json!(conversation_directe(ctx, moi, a.peer).await?))
 }
 
 /// `get_or_create_proximity_conversation` : le canal de proximité, ouvert
@@ -143,7 +151,7 @@ async fn get_or_create_proximity_conversation(ctx: &mut Ctx, args: Value) -> NvR
         .await?,
     };
     let Some(moi) = moi.filter(|_| recent) else { return Err(NvError::refused("Proximité non constatée")) };
-    conversation_a_deux(ctx, moi, a.peer, "proximity", "prox", "Canal de proximité indisponible").await
+    Ok(json!(conversation_a_deux(ctx, moi, a.peer, "proximity", "prox", "Canal de proximité indisponible").await?))
 }
 
 #[derive(Deserialize)]

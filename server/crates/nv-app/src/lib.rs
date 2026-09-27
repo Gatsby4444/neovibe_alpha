@@ -35,5 +35,6 @@ pub fn registry() -> Vec<Op> {
     ops.extend(vibes::registry());
     ops.extend(pulse::registry());
     ops.extend(soirees::registry());
+    ops.extend(carte::registry());
     ops
 }

@@ -1,0 +1,269 @@
+# Domaine 9 — la carte (docs/serveur-rust.md, annexe A.8).
+#
+# Dans la copie : Mimi, Jay2 et les bots 92 et 93 partagent leur position
+# (récente) ; Mimi et les bots sont amis de Charles, Jay2 non. Testeur est
+# ami de Charles et ne partage pas. La demande de position d05bb47c… (Jay2 →
+# Mimi) est expirée.
+
+[[cas]]
+nom = "mes amis sur la carte"
+qui = "charles"
+rpc = "friends_on_map"
+sans_ordre = true
+
+[[cas]]
+nom = "mes amis sur la carte, sauf qui me cache sa position"
+qui = "charles"
+rpc = "friends_on_map"
+avant = "insert into public.location_hidden_from (owner_id, friend_id) values ('{{mimi}}', '{{charles}}')"
+sans_ordre = true
+
+[[cas]]
+nom = "mes amis sur la carte, et la position qu'on m'a donnée"
+qui = "charles"
+rpc = "friends_on_map"
+avant = "insert into public.location_reveals (requester_id, target_id, lat, lon, acc, at, expires_at) values ('{{charles}}', '{{testeur}}', 48.85, 2.35, 12.5, now() - interval '5 minutes', now() + interval '55 minutes'), ('{{charles}}', '{{mimi}}', 48.86, 2.36, 3, now(), now() + interval '1 hour')"
+sans_ordre = true
+
+[[cas]]
+nom = "déposer ma position sans la partager (rien)"
+qui = "charles"
+rpc = "share_my_location"
+args = { p_lat = 48.85, p_lon = 2.35, p_acc = 10.0 }
+
+[[cas]]
+nom = "déposer ma position partagée"
+qui = "mimi"
+rpc = "share_my_location"
+args = { p_lat = 48.85, p_lon = 2.35, p_acc = 10.0 }
+doit_changer = ["public.friend_locations"]
+
+[[cas]]
+nom = "déposer ma position trop souvent (rien)"
+qui = "mimi"
+rpc = "share_my_location"
+args = { p_lat = 48.85, p_lon = 2.35, p_acc = 10.0 }
+avant = "update public.friend_locations set at = now() - interval '3 seconds' where user_id = '{{mimi}}'"
+
+[[cas]]
+nom = "déposer une position sans coordonnées (rien)"
+qui = "mimi"
+rpc = "share_my_location"
+args = { p_lat = "{{null}}", p_lon = 2.35 }
+
+[[cas]]
+nom = "déposer une position hors bornes (rien)"
+qui = "mimi"
+rpc = "share_my_location"
+args = { p_lat = 95.0, p_lon = 2.35 }
+
+[[cas]]
+nom = "déposer ma position en étant suspendue"
+qui = "mimi"
+rpc = "share_my_location"
+args = { p_lat = 48.85, p_lon = 2.35 }
+avant = "update public.profiles set suspended_at = now() where id = '{{mimi}}'"
+attendu = "refuse"
+
+[[cas]]
+nom = "partager ma position"
+qui = "charles"
+rpc = "set_location_sharing"
+args = { p_on = true }
+doit_changer = ["public.location_sharing"]
+
+[[cas]]
+nom = "arrêter de partager (ma position s'efface)"
+qui = "mimi"
+rpc = "set_location_sharing"
+args = { p_on = false }
+doit_changer = ["public.location_sharing", "public.friend_locations"]
+
+[[cas]]
+nom = "cacher ma position à un ami"
+qui = "charles"
+rpc = "set_location_hidden"
+args = { p_friend = "{{mimi}}", p_hidden = true }
+doit_changer = ["public.location_hidden_from"]
+
+[[cas]]
+nom = "la montrer de nouveau"
+qui = "charles"
+rpc = "set_location_hidden"
+args = { p_friend = "{{mimi}}", p_hidden = false }
+avant = "insert into public.location_hidden_from (owner_id, friend_id) values ('{{charles}}', '{{mimi}}')"
+doit_changer = ["public.location_hidden_from"]
+
+[[cas]]
+nom = "demander sa position à un ami"
+qui = "charles"
+rpc = "request_location"
+args = { p_friend = "{{mimi}}" }
+doit_changer = ["public.location_requests", "public.messages"]
+
+[[cas]]
+nom = "demander sa position à un ami, sans conversation encore"
+qui = "charles"
+rpc = "request_location"
+args = { p_friend = "{{malik}}" }
+doit_changer = ["public.location_requests", "public.messages", "public.conversations"]
+
+[[cas]]
+nom = "demander sa position à quelqu'un qui n'est pas un ami"
+qui = "charles"
+rpc = "request_location"
+args = { p_friend = "{{yanis}}" }
+attendu = "refuse"
+
+[[cas]]
+nom = "se demander sa propre position"
+qui = "charles"
+rpc = "request_location"
+args = { p_friend = "{{charles}}" }
+attendu = "refuse"
+
+[[cas]]
+nom = "redemander trop vite"
+qui = "charles"
+rpc = "request_location"
+args = { p_friend = "{{mimi}}" }
+avant = "insert into public.location_requests (requester_id, target_id, message_id, created_at) values ('{{charles}}', '{{mimi}}', gen_random_uuid(), now() - interval '30 seconds')"
+attendu = "refuse"
+
+[[cas]]
+nom = "demander sa position à un ami qui m'a bloqué"
+qui = "charles"
+rpc = "request_location"
+args = { p_friend = "{{mimi}}" }
+avant = "insert into public.blocks (blocker_id, blocked_id) values ('{{mimi}}', '{{charles}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "accepter une demande de position"
+qui = "mimi"
+rpc = "answer_location_request"
+args = { p_request = "77777777-0000-4000-8000-000000000011", p_accept = true, p_lat = 48.85, p_lon = 2.35, p_acc = 9.5 }
+avant = "insert into public.location_requests (id, requester_id, target_id, message_id, created_at) values ('77777777-0000-4000-8000-000000000011', '{{charles}}', '{{mimi}}', gen_random_uuid(), now() - interval '1 minute')"
+doit_changer = ["public.location_requests", "public.location_reveals"]
+
+[[cas]]
+nom = "accepter une demande sans donner de position"
+qui = "mimi"
+rpc = "answer_location_request"
+args = { p_request = "77777777-0000-4000-8000-000000000011", p_accept = true }
+avant = "insert into public.location_requests (id, requester_id, target_id, message_id, created_at) values ('77777777-0000-4000-8000-000000000011', '{{charles}}', '{{mimi}}', gen_random_uuid(), now() - interval '1 minute')"
+attendu = "refuse"
+
+[[cas]]
+nom = "refuser une demande de position"
+qui = "mimi"
+rpc = "answer_location_request"
+args = { p_request = "77777777-0000-4000-8000-000000000011", p_accept = false }
+avant = "insert into public.location_requests (id, requester_id, target_id, message_id, created_at) values ('77777777-0000-4000-8000-000000000011', '{{charles}}', '{{mimi}}', gen_random_uuid(), now() - interval '1 minute')"
+doit_changer = ["public.location_requests"]
+
+[[cas]]
+nom = "répondre à sa propre demande"
+qui = "charles"
+rpc = "answer_location_request"
+args = { p_request = "77777777-0000-4000-8000-000000000011", p_accept = false }
+avant = "insert into public.location_requests (id, requester_id, target_id, message_id, created_at) values ('77777777-0000-4000-8000-000000000011', '{{charles}}', '{{mimi}}', gen_random_uuid(), now() - interval '1 minute')"
+attendu = "refuse"
+
+[[cas]]
+nom = "répondre deux fois"
+qui = "mimi"
+rpc = "answer_location_request"
+args = { p_request = "77777777-0000-4000-8000-000000000011", p_accept = false }
+avant = "insert into public.location_requests (id, requester_id, target_id, message_id, created_at, answered_at, accepted) values ('77777777-0000-4000-8000-000000000011', '{{charles}}', '{{mimi}}', gen_random_uuid(), now() - interval '1 minute', now(), true)"
+attendu = "refuse"
+
+[[cas]]
+nom = "répondre à une demande expirée"
+qui = "mimi"
+rpc = "answer_location_request"
+args = { p_request = "d05bb47c-6b15-4e7f-b585-17aec7ec4b37", p_accept = true, p_lat = 48.85, p_lon = 2.35 }
+attendu = "refuse"
+
+[[cas]]
+nom = "où en est ma demande"
+qui = "charles"
+rpc = "location_request_state"
+args = { p_request = "77777777-0000-4000-8000-000000000011" }
+avant = "insert into public.location_requests (id, requester_id, target_id, message_id, created_at) values ('77777777-0000-4000-8000-000000000011', '{{charles}}', '{{mimi}}', gen_random_uuid(), now() - interval '1 minute')"
+
+[[cas]]
+nom = "où en est une demande expirée"
+qui = "mimi"
+rpc = "location_request_state"
+args = { p_request = "d05bb47c-6b15-4e7f-b585-17aec7ec4b37" }
+
+[[cas]]
+nom = "où en est la demande de deux autres (rien)"
+qui = "charles"
+rpc = "location_request_state"
+args = { p_request = "d05bb47c-6b15-4e7f-b585-17aec7ec4b37" }
+
+[[cas]]
+nom = "les Vibes autour de moi sur la carte"
+qui = "charles"
+rpc = "map_vibes_around"
+args = { p_lat = 48.857, p_lng = 2.352 }
+avant = """update public.library_items set created_at = now() - interval '1 hour' where id in ('ba2a0d29-008c-44f1-9221-0e6be258668f', '07a67541-95c2-4219-90a3-6f2a2f5936b2', '7ace5ce3-aed3-4b8f-a83a-da4f83285e6d');
+update public.contents set anchor_lat = 48.8566, anchor_lng = 2.3522 where id in ('ba2a0d29-008c-44f1-9221-0e6be258668f', '07a67541-95c2-4219-90a3-6f2a2f5936b2');
+update public.contents set anchor_lat = 48.95, anchor_lng = 2.3522 where id = '7ace5ce3-aed3-4b8f-a83a-da4f83285e6d'"""
+sans_ordre = true
+
+[[cas]]
+nom = "lire les Vibes de la carte (seulement celles qui sont autour)"
+qui = "charles"
+rpc = "map_vibe_items"
+args = { p_ids = ["ba2a0d29-008c-44f1-9221-0e6be258668f", "7ace5ce3-aed3-4b8f-a83a-da4f83285e6d", "07a67541-95c2-4219-90a3-6f2a2f5936b2"], p_lat = 48.857, p_lng = 2.352 }
+avant = """update public.library_items set created_at = now() - interval '1 hour' where id in ('ba2a0d29-008c-44f1-9221-0e6be258668f', '07a67541-95c2-4219-90a3-6f2a2f5936b2', '7ace5ce3-aed3-4b8f-a83a-da4f83285e6d');
+update public.library_items set created_at = now() - interval '2 hours' where id = '07a67541-95c2-4219-90a3-6f2a2f5936b2';
+update public.contents set anchor_lat = 48.8566, anchor_lng = 2.3522 where id in ('ba2a0d29-008c-44f1-9221-0e6be258668f', '07a67541-95c2-4219-90a3-6f2a2f5936b2');
+update public.contents set anchor_lat = 48.95, anchor_lng = 2.3522 where id = '7ace5ce3-aed3-4b8f-a83a-da4f83285e6d'"""
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li) || jsonb_build_object('contents', (select jsonb_build_object('shareable', c.shareable, 'saveable', c.saveable) from public.contents c where c.id = li.id), 'library_media', coalesce((select jsonb_agg(to_jsonb(m) order by m.slot) from public.library_media m where m.item_id = li.id), '[]'::jsonb))), '[]'::jsonb) from public.map_vibe_items(p_ids => array['ba2a0d29-008c-44f1-9221-0e6be258668f', '7ace5ce3-aed3-4b8f-a83a-da4f83285e6d', '07a67541-95c2-4219-90a3-6f2a2f5936b2']::uuid[], p_lat => 48.857, p_lng => 2.352) li"
+
+[[cas]]
+nom = "est-ce que je partage ma position ?"
+qui = "mimi"
+op = "location_sharing_mine"
+ancien_resultat = "select to_json(t) from (select sharing from public.location_sharing where user_id = '{{mimi}}') t"
+
+[[cas]]
+nom = "est-ce que je partage ma position ? (jamais réglé)"
+qui = "charles"
+op = "location_sharing_mine"
+ancien_resultat = "select to_json(t) from (select sharing from public.location_sharing where user_id = '{{charles}}') t"
+
+[[cas]]
+nom = "à qui je cache ma position"
+qui = "charles"
+op = "location_hidden_list"
+avant = "insert into public.location_hidden_from (owner_id, friend_id) values ('{{charles}}', '{{mimi}}'), ('{{charles}}', '{{testeur}}'), ('{{mimi}}', '{{charles}}')"
+ancien_resultat = "select coalesce(json_agg(t), '[]'::json) from (select friend_id from public.location_hidden_from where owner_id = '{{charles}}') t"
+sans_ordre = true
+
+[[cas]]
+nom = "« Rejoindre » est-il ouvert ?"
+qui = "charles"
+op = "map_rules_walking"
+ancien_resultat = "select to_json(t) from (select walking_route_enabled from public.map_rules) t"
+
+[[cas]]
+nom = "le balai des positions"
+qui = "systeme"
+op = "balai_positions"
+ancien = "delete from public.friend_locations where at < now() - (select friend_position_max_age from public.map_rules)"
+avant = "update public.friend_locations set at = now() - interval '2 days' where user_id = '00000000-0000-4000-8000-000000000093'"
+doit_changer = ["public.friend_locations"]
+
+[[cas]]
+nom = "le balai des demandes de position"
+qui = "systeme"
+op = "balai_demandes"
+ancien = "delete from public.location_reveals where expires_at < now(); delete from public.location_requests where created_at < now() - interval '2 days'"
+avant = """insert into public.location_reveals (requester_id, target_id, lat, lon, at, expires_at) values ('{{charles}}', '{{mimi}}', 48.85, 2.35, now() - interval '2 hours', now() - interval '1 hour');
+insert into public.location_requests (requester_id, target_id, message_id, created_at) values ('{{charles}}', '{{mimi}}', gen_random_uuid(), now() - interval '3 days')"""
+doit_changer = ["public.location_reveals", "public.location_requests"]
