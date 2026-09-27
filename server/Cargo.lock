@@ -1649,6 +1649,7 @@ dependencies = [
 name = "nv-proof"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "futures",
  "nv-app",
  "nv-core",
