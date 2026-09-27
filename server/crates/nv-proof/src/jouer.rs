@@ -20,6 +20,8 @@ use crate::compare::{self, Issue};
 /// (`*_octets_a_supprimer`, `events_affiche_au_balai`), l'annonce des
 /// disparitions (`*_annonce_disparition`), l'activité des conversations
 /// (`messages_activity`), et les annonces du direct et de la preuve.
+// (La libération des preuves, `*_libere`, n'y est pas : c'est une
+// FONDATION — elle doit voir la disparition d'un signalement par cascade.)
 pub const DECLENCHEURS_DU_GARDIEN: &[(&str, &str)] = &[
     ("public.messages", "messages_rules"),
     ("public.card_deliveries", "card_deliveries_rules"),
@@ -29,13 +31,9 @@ pub const DECLENCHEURS_DU_GARDIEN: &[(&str, &str)] = &[
     ("public.recommendations", "recommendations_refuse_si_suspendu"),
     ("public.waves", "waves_refuse_si_suspendu"),
     ("public.card_reports", "card_reports_scelle"),
-    ("public.card_reports", "card_reports_libere"),
     ("public.content_reports", "content_reports_scelle"),
-    ("public.content_reports", "content_reports_libere"),
     ("public.event_reports", "event_reports_scelle"),
-    ("public.event_reports", "event_reports_libere"),
     ("public.library_vibe_reports", "library_vibe_reports_scelle"),
-    ("public.library_vibe_reports", "library_vibe_reports_libere"),
     ("public.connections", "connections_delete_oublie"),
     ("public.ping_pairs", "ping_pairs_meeting"),
     ("public.event_crossings", "event_crossings_meeting"),

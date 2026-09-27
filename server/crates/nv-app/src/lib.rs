@@ -16,6 +16,7 @@ pub mod comptes;
 pub mod conversations;
 pub mod direct;
 pub mod fichiers;
+pub mod moderation;
 pub mod pulse;
 pub mod relations;
 pub mod soirees;
@@ -36,5 +37,6 @@ pub fn registry() -> Vec<Op> {
     ops.extend(pulse::registry());
     ops.extend(soirees::registry());
     ops.extend(carte::registry());
+    ops.extend(moderation::registry());
     ops
 }

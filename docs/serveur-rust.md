@@ -209,7 +209,7 @@ existante**. La plateforme complète vient ensuite.
 | 7. Pulse | ✅ 2026-09-27 — `pulse.rs` : `feed_items` (les trois sources — croisés, ajouts des amis, autour de moi —, fraîcheur `feed_rules`, 200 au plus ; l'ordre vit dans `rang`, seul endroit où brancher la pertinence), `feed_adders` (révélé seulement après mon like), `add_to_feed` ; **« autour de moi » écrit une fois pour le fil et la carte** (`carte/autour.rs` : `vibes_autour`, `distance_m`) ; une publication a une seule forme de lecture (`publication_complete`) — 14 situations identiques (312 au total) |
 | 8. Soirées | ✅ 2026-09-27 — `soirees/` : les 20 opérations et `report_event_position` (le service natif), plus 4 gestes directs (`event_rules_map`, `event_presence_mine`, `event_challenges_list`, `meeting_delete`) ; `regles.rs` (présent, peut inviter / retirer, amis présents, lieu précis, taille, trop loin), `cuisine.rs` (**fermer une soirée** : croisements par présence → rencontres ; entrer dans un moment ; oublier une affiche), `balai.rs` (**le balai de chaque minute** : moments entre amis, partis, fermetures à l'heure et des désertées, purge ; et la mémoire des rencontres, chaque nuit) ; l'affiche vérifiée dans l'entrepôt ; **une seule formule de distance** (`carte::autour::distance_m`, l'ancien en avait deux) — 82 situations identiques (394 au total), balais compris (joués « par le système »). **Défaut de l'ancien serveur trouvé et réparé** (voir le journal) |
 | 9. Carte | ✅ 2026-09-27 — `carte/guichet.rs` : les 9 opérations (amis sur la carte, partage, cacher, demander / répondre / état d'une demande, Vibes autour, Vibes à lire) et 3 gestes directs (`location_sharing_mine`, `location_hidden_list`, `map_rules_walking`) ; **qui voit ma position** écrit une fois (`peut_voir_position`) ; la demande de position passe par **la** conversation directe (`conversations::guichet::conversation_directe`) et le passage obligé des messages ; balais `balai_positions` et `balai_demandes` — 36 situations identiques (430 au total) |
-| 10. Modération et administration | à faire |
+| 10. Modération et administration | ✅ 2026-09-27 — `moderation/` : signaler (`report_sent_vibe · drop_vibe · event`, et les gestes directs `content_report_create`, `profile_report_create`) avec **la preuve scellée** (`preuves.rs`, ex-`scelle_la_preuve`) ; les 13 gestes d'administration (`admin.rs`), tous refusés hors de `admins` et journalisés — y compris regarder une preuve. La **libération** des preuves (`libere_la_preuve`) est reclassée FONDATION : elle doit voir la disparition d'un signalement par cascade — 45 situations identiques (475 au total) |
 | 11. L'app complète | à faire |
 | 12. Mise en ligne et déménagement | à faire |
 
@@ -268,7 +268,9 @@ les chemins, effacements en cascade compris : les contraintes (liens,
 unicité, formes), l'horodatage des profils (`set_updated_at`), les pierres
 tombales des fichiers (`inscrit_*`, `oublie_l_affiche`), l'annonce des
 disparitions (`annonce_une_disparition`), l'activité des conversations
-(`note_conversation_activity`), et les annonces du direct (`nv.annoncer`).
+(`note_conversation_activity`), les annonces du direct (`nv.annoncer`), et la
+libération des preuves de modération (`libere_la_preuve` : un signalement
+qui disparaît par cascade — son contenu effacé — doit libérer ses fichiers).
 Tout le reste des déclencheurs de l'ancien gardien est traduit en Rust ;
 **la preuve joue le nouveau côté avec ces déclencheurs coupés** (sinon
 l'ancien tiendrait à la place du Rust une règle oubliée), et le test

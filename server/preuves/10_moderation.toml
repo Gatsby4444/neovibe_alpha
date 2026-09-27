@@ -1,0 +1,355 @@
+# Domaine 10 — modération et administration (docs/serveur-rust.md, annexe A.9).
+#
+# Charles est administrateur (le seul, dans la copie). Les signalements sont
+# posés par les situations : la copie n'en a aucun.
+# - af9d1db5… : une Vibe de Charles livrée au bot 14 ;
+# - 59a3046f… : une publication de Charles (2 faces) ;
+# - S2 (88888888-…04) : une soirée ouverte de Charles, avec une affiche.
+
+# ─── Signaler ──────────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "signaler une Vibe reçue (la preuve est scellée)"
+qui = "00000000-0000-4000-8000-000000000014"
+rpc = "report_sent_vibe"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df", p_reason = "inappropriate", p_details = "  choquant  " }
+doit_changer = ["public.card_reports", "public.moderation_holds"]
+
+[[cas]]
+nom = "signaler deux fois la même Vibe (rien de plus)"
+qui = "00000000-0000-4000-8000-000000000014"
+rpc = "report_sent_vibe"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df", p_reason = "other", p_details = "" }
+avant = "insert into public.card_reports (card_id, author_id, reporter_id, reason) values ('af9d1db5-40a8-4d79-aa40-62ef026465df', '{{charles}}', '00000000-0000-4000-8000-000000000014', 'inappropriate')"
+
+[[cas]]
+nom = "signaler une Vibe qu'on ne m'a pas envoyée"
+qui = "testeur"
+rpc = "report_sent_vibe"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df", p_reason = "other", p_details = "x" }
+attendu = "refuse"
+
+[[cas]]
+nom = "signaler sa propre Vibe"
+qui = "charles"
+rpc = "report_sent_vibe"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df", p_reason = "other", p_details = "x" }
+avant = "insert into public.card_deliveries (card_id, recipient_id) values ('af9d1db5-40a8-4d79-aa40-62ef026465df', '{{charles}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "signaler une Vibe d'un Drop"
+qui = "charles"
+rpc = "report_drop_vibe"
+args = { p_vibe_id = "66666666-0000-4000-8000-000000000030", p_reason = "harassment", p_details = "{{null}}" }
+avant = """insert into public.library_vibes (id, conversation_id, author_id, reveal_at, placeholder_path, sealed_path, sealed_back_path, back_is_video) values ('66666666-0000-4000-8000-000000000030', 'ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', now(), '{{testeur}}/p.jpg', '{{testeur}}/s.bin', '{{testeur}}/sb.bin', true);
+insert into public.library_vibe_keys (vibe_id, media_key) values ('66666666-0000-4000-8000-000000000030', 'cle')"""
+doit_changer = ["public.library_vibe_reports", "public.moderation_holds"]
+
+[[cas]]
+nom = "signaler une Vibe d'un Drop dont je ne suis pas"
+qui = "mimi"
+rpc = "report_drop_vibe"
+args = { p_vibe_id = "66666666-0000-4000-8000-000000000030", p_reason = "harassment", p_details = "x" }
+avant = "insert into public.library_vibes (id, conversation_id, author_id, reveal_at, placeholder_path, sealed_path) values ('66666666-0000-4000-8000-000000000030', 'ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', now(), '{{testeur}}/p.jpg', '{{testeur}}/s.bin')"
+attendu = "refuse"
+
+[[cas]]
+nom = "signaler sa propre Vibe du Drop"
+qui = "testeur"
+rpc = "report_drop_vibe"
+args = { p_vibe_id = "66666666-0000-4000-8000-000000000030", p_reason = "harassment", p_details = "x" }
+avant = "insert into public.library_vibes (id, conversation_id, author_id, reveal_at, placeholder_path, sealed_path) values ('66666666-0000-4000-8000-000000000030', 'ce573f65-3b61-4df1-995c-3cefc5620c64', '{{testeur}}', now(), '{{testeur}}/p.jpg', '{{testeur}}/s.bin')"
+attendu = "refuse"
+
+[[cas]]
+nom = "signaler une soirée (son affiche est scellée)"
+qui = "testeur"
+rpc = "report_event"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_reason = "inappropriate", p_details = "affiche" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at, poster_path) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour', '{{charles}}/88888888-0000-4000-8000-000000000004/affiche.jpg')"""
+doit_changer = ["public.event_reports", "public.moderation_holds"]
+
+[[cas]]
+nom = "signaler sa propre soirée"
+qui = "charles"
+rpc = "report_event"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_reason = "other", p_details = "x" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "signaler une soirée privée qu'on ne voit pas"
+qui = "yanis"
+rpc = "report_event"
+args = { p_event = "1e585520-6edb-4aa3-a231-9ed749cd0aa5", p_reason = "other", p_details = "x" }
+attendu = "refuse"
+
+[[cas]]
+nom = "signaler un contenu que je vois (ses faces sont scellées)"
+qui = "testeur"
+op = "content_report_create"
+args = { content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e", reporter_id = "{{testeur}}", reason = "inappropriate", details = "vu" }
+ancien = "insert into public.content_reports (content_id, reporter_id, reason, details) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}', 'inappropriate', 'vu')"
+doit_changer = ["public.content_reports", "public.moderation_holds"]
+
+[[cas]]
+nom = "signaler une story (ses faces sont scellées, avec leur clé)"
+qui = "charles"
+op = "content_report_create"
+args = { content_id = "77777777-0000-4000-8000-000000000001", reporter_id = "{{charles}}", reason = "other" }
+avant = """insert into public.contents (id, owner_id, context, shareable, saveable) values ('77777777-0000-4000-8000-000000000001', '{{testeur}}', 'story', true, false);
+insert into public.stories (id, owner_id, card_type, front_path, back_path, back_is_video) values ('77777777-0000-4000-8000-000000000001', '{{testeur}}', 'standard', '{{testeur}}/s.jpg', '{{testeur}}/s2.mp4', true);
+insert into public.content_media_keys (content_id, media_key) values ('77777777-0000-4000-8000-000000000001', 'cle-story')"""
+ancien = "insert into public.content_reports (content_id, reporter_id, reason) values ('77777777-0000-4000-8000-000000000001', '{{charles}}', 'other')"
+doit_changer = ["public.content_reports", "public.moderation_holds"]
+
+[[cas]]
+nom = "signaler un contenu caché"
+qui = "yanis"
+op = "content_report_create"
+args = { content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e", reporter_id = "{{yanis}}", reason = "other" }
+ancien = "insert into public.content_reports (content_id, reporter_id, reason) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{yanis}}', 'other')"
+attendu = "refuse"
+
+[[cas]]
+nom = "signaler un contenu au nom d'un autre"
+qui = "testeur"
+op = "content_report_create"
+args = { content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e", reporter_id = "{{mimi}}", reason = "other" }
+ancien = "insert into public.content_reports (content_id, reporter_id, reason) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{mimi}}', 'other')"
+attendu = "refuse"
+
+[[cas]]
+nom = "signaler deux fois un contenu"
+qui = "testeur"
+op = "content_report_create"
+args = { content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e", reporter_id = "{{testeur}}", reason = "other" }
+avant = "insert into public.content_reports (content_id, reporter_id, reason) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}', 'other')"
+ancien = "insert into public.content_reports (content_id, reporter_id, reason) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}', 'other')"
+attendu = "refuse"
+
+[[cas]]
+nom = "signaler un profil"
+qui = "testeur"
+op = "profile_report_create"
+args = { target_id = "{{yanis}}", reporter_id = "{{testeur}}", reason = "impersonation", details = "faux compte" }
+ancien = "insert into public.profile_reports (target_id, reporter_id, reason, details) values ('{{yanis}}', '{{testeur}}', 'impersonation', 'faux compte')"
+doit_changer = ["public.profile_reports"]
+
+[[cas]]
+nom = "se signaler soi-même"
+qui = "testeur"
+op = "profile_report_create"
+args = { target_id = "{{testeur}}", reporter_id = "{{testeur}}", reason = "other" }
+ancien = "insert into public.profile_reports (target_id, reporter_id, reason) values ('{{testeur}}', '{{testeur}}', 'other')"
+attendu = "refuse"
+
+[[cas]]
+nom = "signaler un profil au nom d'un autre"
+qui = "testeur"
+op = "profile_report_create"
+args = { target_id = "{{yanis}}", reporter_id = "{{mimi}}", reason = "other" }
+ancien = "insert into public.profile_reports (target_id, reporter_id, reason) values ('{{yanis}}', '{{mimi}}', 'other')"
+attendu = "refuse"
+
+# ─── Administrer ───────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "suis-je administrateur ? (oui)"
+qui = "charles"
+rpc = "am_i_admin"
+
+[[cas]]
+nom = "suis-je administrateur ? (non)"
+qui = "testeur"
+rpc = "am_i_admin"
+
+[[cas]]
+nom = "le tableau de bord"
+qui = "charles"
+rpc = "admin_stats"
+avant = "insert into public.profile_reports (target_id, reporter_id, reason) values ('{{yanis}}', '{{testeur}}', 'other')"
+
+[[cas]]
+nom = "le tableau de bord, sans être administrateur"
+qui = "testeur"
+rpc = "admin_stats"
+attendu = "refuse"
+
+[[cas]]
+nom = "les signalements ouverts"
+qui = "charles"
+rpc = "admin_reports"
+avant = """insert into public.profile_reports (target_id, reporter_id, reason, created_at) values ('{{yanis}}', '{{testeur}}', 'other', now() - interval '1 hour');
+insert into public.content_reports (content_id, reporter_id, reason, created_at) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}', 'inappropriate', now() - interval '2 hours');
+insert into public.card_reports (card_id, author_id, reporter_id, reason, created_at) values ('af9d1db5-40a8-4d79-aa40-62ef026465df', '{{charles}}', '00000000-0000-4000-8000-000000000014', 'minor', now() - interval '3 hours');
+insert into public.profile_reports (target_id, reporter_id, reason, status) values ('{{mimi}}', '{{testeur}}', 'other', 'resolved')"""
+
+[[cas]]
+nom = "tous les signalements"
+qui = "charles"
+rpc = "admin_reports"
+args = { p_status = "{{null}}" }
+avant = """insert into public.profile_reports (target_id, reporter_id, reason, created_at) values ('{{yanis}}', '{{testeur}}', 'other', now() - interval '1 hour');
+insert into public.profile_reports (target_id, reporter_id, reason, status) values ('{{mimi}}', '{{testeur}}', 'other', 'resolved')"""
+
+[[cas]]
+nom = "regarder la preuve d'un signalement (journalisé)"
+qui = "charles"
+rpc = "admin_report_evidence"
+args = { p_kind = "sent_vibe", p_report = "99999999-0000-4000-8000-000000000010" }
+avant = "insert into public.card_reports (id, card_id, author_id, reporter_id, reason) values ('99999999-0000-4000-8000-000000000010', 'af9d1db5-40a8-4d79-aa40-62ef026465df', '{{charles}}', '00000000-0000-4000-8000-000000000014', 'minor')"
+doit_changer = ["public.moderation_actions"]
+
+[[cas]]
+nom = "regarder une preuve sans être administrateur"
+qui = "testeur"
+rpc = "admin_report_evidence"
+args = { p_kind = "sent_vibe", p_report = "99999999-0000-4000-8000-000000000010" }
+avant = "insert into public.card_reports (id, card_id, author_id, reporter_id, reason) values ('99999999-0000-4000-8000-000000000010', 'af9d1db5-40a8-4d79-aa40-62ef026465df', '{{charles}}', '00000000-0000-4000-8000-000000000014', 'minor')"
+attendu = "refuse"
+
+[[cas]]
+nom = "trancher un signalement de contenu (la preuve est libérée)"
+qui = "charles"
+rpc = "admin_resolve_report"
+args = { p_kind = "content", p_report = "99999999-0000-4000-8000-000000000011", p_note = "retiré" }
+avant = "insert into public.content_reports (id, content_id, reporter_id, reason) values ('99999999-0000-4000-8000-000000000011', '59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}', 'inappropriate')"
+doit_changer = ["public.content_reports", "public.moderation_holds", "public.moderation_actions"]
+
+[[cas]]
+nom = "écarter un signalement de profil"
+qui = "charles"
+rpc = "admin_resolve_report"
+args = { p_kind = "profile", p_report = "99999999-0000-4000-8000-000000000012", p_dismiss = true }
+avant = "insert into public.profile_reports (id, target_id, reporter_id, reason) values ('99999999-0000-4000-8000-000000000012', '{{yanis}}', '{{testeur}}', 'other')"
+doit_changer = ["public.profile_reports", "public.moderation_actions"]
+
+[[cas]]
+nom = "trancher un signalement de Vibe envoyée"
+qui = "charles"
+rpc = "admin_resolve_report"
+args = { p_kind = "sent_vibe", p_report = "99999999-0000-4000-8000-000000000010" }
+avant = "insert into public.card_reports (id, card_id, author_id, reporter_id, reason) values ('99999999-0000-4000-8000-000000000010', 'af9d1db5-40a8-4d79-aa40-62ef026465df', '{{charles}}', '00000000-0000-4000-8000-000000000014', 'minor')"
+doit_changer = ["public.card_reports", "public.moderation_holds", "public.moderation_actions"]
+
+[[cas]]
+nom = "trancher un signalement d'un genre inconnu"
+qui = "charles"
+rpc = "admin_resolve_report"
+args = { p_kind = "autre", p_report = "99999999-0000-4000-8000-000000000012" }
+attendu = "refuse"
+
+[[cas]]
+nom = "trancher un signalement introuvable"
+qui = "charles"
+rpc = "admin_resolve_report"
+args = { p_kind = "event", p_report = "99999999-0000-4000-8000-000000000099" }
+attendu = "refuse"
+
+[[cas]]
+nom = "retirer un contenu signalé"
+qui = "charles"
+rpc = "admin_delete_content"
+args = { p_content = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e", p_reason = "contenu illicite" }
+avant = "insert into public.content_reports (content_id, reporter_id, reason) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}', 'inappropriate')"
+doit_changer = ["public.contents", "public.content_reports", "public.moderation_actions"]
+
+[[cas]]
+nom = "retirer un contenu introuvable"
+qui = "charles"
+rpc = "admin_delete_content"
+args = { p_content = "99999999-0000-4000-8000-000000000099", p_reason = "x" }
+attendu = "refuse"
+
+[[cas]]
+nom = "suspendre un compte (il sort de sa soirée)"
+qui = "charles"
+rpc = "admin_suspend_user"
+args = { p_user = "{{mimi}}", p_reason = "harcèlement" }
+doit_changer = ["public.profiles", "public.event_presences", "public.moderation_actions"]
+
+[[cas]]
+nom = "se suspendre soi-même"
+qui = "charles"
+rpc = "admin_suspend_user"
+args = { p_user = "{{charles}}", p_reason = "x" }
+attendu = "refuse"
+
+[[cas]]
+nom = "suspendre un administrateur"
+qui = "charles"
+rpc = "admin_suspend_user"
+args = { p_user = "{{mimi}}", p_reason = "x" }
+avant = "insert into public.admins (user_id) values ('{{mimi}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "suspendre un compte introuvable"
+qui = "charles"
+rpc = "admin_suspend_user"
+args = { p_user = "99999999-0000-4000-8000-000000000099", p_reason = "x" }
+attendu = "refuse"
+
+[[cas]]
+nom = "suspendre sans être administrateur"
+qui = "testeur"
+rpc = "admin_suspend_user"
+args = { p_user = "{{mimi}}", p_reason = "x" }
+attendu = "refuse"
+
+[[cas]]
+nom = "lever une suspension"
+qui = "charles"
+rpc = "admin_unsuspend_user"
+args = { p_user = "{{mimi}}" }
+avant = "update public.profiles set suspended_at = now(), suspended_reason = 'x' where id = '{{mimi}}'"
+doit_changer = ["public.profiles", "public.moderation_actions"]
+
+[[cas]]
+nom = "chercher des comptes"
+qui = "charles"
+rpc = "admin_users"
+args = { p_query = "es" }
+
+[[cas]]
+nom = "les derniers comptes"
+qui = "charles"
+rpc = "admin_users"
+args = { p_limit = 5 }
+
+[[cas]]
+nom = "les soirées ouvertes"
+qui = "charles"
+rpc = "admin_events"
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{testeur}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{testeur}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+sans_ordre = true
+
+[[cas]]
+nom = "fermer une soirée"
+qui = "charles"
+rpc = "admin_close_event"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_reason = "signalée" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{testeur}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{testeur}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+doit_changer = ["public.events", "public.moderation_actions"]
+
+[[cas]]
+nom = "retirer l'affiche d'une soirée"
+qui = "charles"
+rpc = "admin_remove_event_poster"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_reason = "affiche choquante" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{testeur}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at, poster_path, description) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{testeur}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour', '{{testeur}}/88888888-0000-4000-8000-000000000004/a.jpg', 'Venez')"""
+doit_changer = ["public.events", "public.storage_tombstones", "public.moderation_actions"]
+
+[[cas]]
+nom = "le journal de modération"
+qui = "charles"
+rpc = "admin_actions"
+args = { p_limit = 1000 }
+avant = """insert into public.moderation_actions (admin_id, action, target_user, reason, created_at) values ('{{charles}}', 'suspend_user', '{{mimi}}', 'x', now() - interval '1 hour'), ('{{charles}}', 'unsuspend_user', '{{mimi}}', null, now())"""
