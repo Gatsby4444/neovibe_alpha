@@ -177,12 +177,17 @@ async fn cote_ancien(db: &mut PgConnection, c: &Cas) -> Result<Cote, String> {
         None => ("anon", json!({ "role": "anon" })),
     };
     exec(db, "savepoint ancien").await?;
+    // Le serveur lui-même (un balai) : les droits du propriétaire, sans
+    // identité — comme l'ancien réveil (pg_cron).
+    let role = if c.systeme { "postgres" } else { role };
     exec(db, &format!("set local role {role}")).await?;
-    sqlx::query("select set_config('request.jwt.claims', $1, true)")
-        .bind(claims.to_string())
-        .execute(&mut *db)
-        .await
-        .map_err(|e| e.to_string())?;
+    if !c.systeme {
+        sqlx::query("select set_config('request.jwt.claims', $1, true)")
+            .bind(claims.to_string())
+            .execute(&mut *db)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
     let issue = if c.ancien.is_some() || c.ancien_resultat.is_some() {
         let sql = c.ancien.as_deref().unwrap_or("select 1");
         match sqlx::raw_sql(sql).execute(&mut *db).await {
@@ -235,7 +240,15 @@ async fn cote_nouveau(
         exec(&mut tx, &format!("alter table {table} disable trigger {declencheur}")).await?;
     }
     let actor = c.qui.map(Actor::User).unwrap_or(Actor::Anonymous);
-    let mut ctx = Ctx::open(tx, actor, Some(std::sync::Arc::new(crate::factice::EntrepotFactice))).await.map_err(|e| e.to_string())?;
+    let affiches: std::collections::HashSet<String> =
+        sqlx::query_scalar::<_, String>("select name from storage.objects where bucket_id = 'event_posters'")
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .collect();
+    let entrepot = std::sync::Arc::new(crate::factice::EntrepotFactice { affiches });
+    let mut ctx = Ctx::open(tx, actor, Some(entrepot)).await.map_err(|e| e.to_string())?;
     let resultat = run(&mut ctx, c.args.clone()).await;
     let mut tx = ctx.tx;
     let cote = match resultat {
@@ -274,7 +287,11 @@ pub async fn jouer(
         .fetch_one(&mut *tx)
         .await
         .map_err(|e| e.to_string())?;
-    let c = &crate::cas::avec_creneau(c, creneau);
+    // `{{minutes+120}}`, `{{minutes-30}}`… : l'heure de CETTE transaction,
+    // décalée (une heure de fin de soirée, par exemple).
+    let maintenant: chrono::DateTime<chrono::Utc> =
+        sqlx::query_scalar("select now()").fetch_one(&mut *tx).await.map_err(|e| e.to_string())?;
+    let c = &crate::cas::avec_heure(&crate::cas::avec_creneau(c, creneau), maintenant);
     if let Some(avant) = &c.avant {
         exec(&mut tx, avant).await?;
     }

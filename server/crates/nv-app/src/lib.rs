@@ -18,6 +18,8 @@ pub mod direct;
 pub mod fichiers;
 pub mod pulse;
 pub mod relations;
+pub mod soirees;
+pub mod taches;
 pub mod vibes;
 
 use nv_core::ops::Op;
@@ -32,5 +34,6 @@ pub fn registry() -> Vec<Op> {
     ops.extend(conversations::guichet::registry());
     ops.extend(vibes::registry());
     ops.extend(pulse::registry());
+    ops.extend(soirees::registry());
     ops
 }

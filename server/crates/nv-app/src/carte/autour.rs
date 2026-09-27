@@ -3,13 +3,18 @@
 //! `private.distance_m`). Écrite une seule fois, ici.
 use crate::acces::q;
 
-/// `private.distance_m(lat1, lng1, lat2, lng2)` : la distance en mètres
-/// (grand cercle, rayon terrestre 6 371 km) — une expression SQL, calculée
-/// par la base avec ses fonctions, au dernier chiffre près comme avant.
+/// **La distance en mètres** entre deux points (grand cercle, rayon
+/// terrestre 6 371 km) — une expression SQL, calculée par la base avec ses
+/// fonctions, au dernier chiffre près comme avant.
+///
+/// L'ancien gardien en avait DEUX copies : `private.distance_m` (le fil, la
+/// carte) et `private.meters_between` (les soirées), qui ne différaient que
+/// par la borne `least(1, …)` — sans effet hors des points antipodes (plus de
+/// 20 000 km). Il n'y en a plus qu'une, la plus sûre des deux.
 pub fn distance_m(lat1: &str, lng1: &str, lat2: &str, lng2: &str) -> String {
     format!(
-        "(2 * 6371000 * asin(sqrt(power(sin(radians({lat2} - {lat1}) / 2), 2) \
-         + cos(radians({lat1})) * cos(radians({lat2})) * power(sin(radians({lng2} - {lng1}) / 2), 2))))"
+        "(2 * 6371000 * asin(least(1, sqrt(power(sin(radians({lat2} - {lat1}) / 2), 2) \
+         + cos(radians({lat1})) * cos(radians({lat2})) * power(sin(radians({lng2} - {lng1}) / 2), 2)))))"
     )
 }
 

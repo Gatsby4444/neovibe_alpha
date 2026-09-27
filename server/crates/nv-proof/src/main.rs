@@ -46,8 +46,9 @@ async fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // Les opérations du guichet, plus les balais (que le guichet n'expose pas).
     let registre: HashMap<&'static str, nv_core::ops::OpFn> =
-        nv_app::registry().into_iter().map(|o| (o.name, o.run)).collect();
+        nv_app::registry().into_iter().chain(nv_app::taches::registry()).map(|o| (o.name, o.run)).collect();
     let series = match jouer::colonnes_de_serie(&pool).await {
         Ok(s) => s,
         Err(e) => {

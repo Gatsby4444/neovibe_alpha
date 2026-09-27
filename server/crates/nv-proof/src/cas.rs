@@ -3,7 +3,7 @@
 //! ```toml
 //! [[cas]]
 //! nom = "un nom déjà pris"
-//! qui = "charles"                 # un alias de preuves/qui.toml, un uuid, ou "anon"
+//! qui = "charles"                 # un alias de preuves/qui.toml, un uuid, "anon" ou "systeme"
 //! rpc = "username_available"      # l'ancienne fonction SQL (public.…)
 //! op = "username_available"       # l'opération Rust (par défaut : rpc)
 //! args = { p_username = "charles" }
@@ -65,6 +65,9 @@ pub struct Cas {
     pub nom: String,
     /// `None` = personne n'est connecté.
     pub qui: Option<uuid::Uuid>,
+    /// `qui = "systeme"` : le serveur lui-même (un balai) — l'ancien côté se
+    /// joue avec les droits du propriétaire de la base, sans identité.
+    pub systeme: bool,
     pub rpc: Option<String>,
     pub op: String,
     pub args: Value,
@@ -118,12 +121,58 @@ pub fn avec_creneau(c: &Cas, creneau: i64) -> Cas {
         fichier: c.fichier.clone(),
         nom: c.nom.clone(),
         qui: c.qui,
+        systeme: c.systeme,
         rpc: c.rpc.clone(),
         op: c.op.clone(),
         args: creneau_json(&c.args, creneau),
         ancien: c.ancien.as_deref().map(|s| creneau_textuel(s, creneau)),
         ancien_resultat: c.ancien_resultat.as_deref().map(|s| creneau_textuel(s, creneau)),
         avant: c.avant.as_deref().map(|s| creneau_textuel(s, creneau)),
+        sans_ordre: c.sans_ordre,
+        sans_effet: c.sans_effet,
+        plus_strict: c.plus_strict,
+        attendu: c.attendu.clone(),
+        ignorer: c.ignorer.clone(),
+        ecart: c.ecart.clone(),
+        ecart_champs: c.ecart_champs.clone(),
+        doit_changer: c.doit_changer.clone(),
+    }
+}
+
+fn heure_textuelle(s: &str, maintenant: chrono::DateTime<chrono::Utc>) -> String {
+    let mut sortie = s.to_string();
+    while let Some(debut) = sortie.find("{{minutes") {
+        let Some(fin) = sortie[debut..].find("}}").map(|f| debut + f) else { break };
+        let decalage: i64 = sortie[debut + "{{minutes".len()..fin].parse().unwrap_or(0);
+        let heure = (maintenant + chrono::Duration::minutes(decalage)).to_rfc3339();
+        sortie.replace_range(debut..fin + 2, &heure);
+    }
+    sortie
+}
+
+fn heure_json(v: &Value, maintenant: chrono::DateTime<chrono::Utc>) -> Value {
+    match v {
+        Value::String(s) => Value::String(heure_textuelle(s, maintenant)),
+        Value::Array(a) => Value::Array(a.iter().map(|x| heure_json(x, maintenant)).collect()),
+        Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), heure_json(x, maintenant))).collect()),
+        autre => autre.clone(),
+    }
+}
+
+/// La situation, avec l'heure de sa transaction (décalée) à la place de
+/// `{{minutes+120}}`, `{{minutes-30}}`… — écrite comme une date ISO.
+pub fn avec_heure(c: &Cas, maintenant: chrono::DateTime<chrono::Utc>) -> Cas {
+    Cas {
+        fichier: c.fichier.clone(),
+        nom: c.nom.clone(),
+        qui: c.qui,
+        systeme: c.systeme,
+        rpc: c.rpc.clone(),
+        op: c.op.clone(),
+        args: heure_json(&c.args, maintenant),
+        ancien: c.ancien.as_deref().map(|s| heure_textuelle(s, maintenant)),
+        ancien_resultat: c.ancien_resultat.as_deref().map(|s| heure_textuelle(s, maintenant)),
+        avant: c.avant.as_deref().map(|s| heure_textuelle(s, maintenant)),
         sans_ordre: c.sans_ordre,
         sans_effet: c.sans_effet,
         plus_strict: c.plus_strict,
@@ -149,6 +198,8 @@ fn remplacer(s: &str, qui: &BTreeMap<String, String>) -> String {
 
 fn remplacer_json(v: Value, qui: &BTreeMap<String, String>) -> Value {
     match v {
+        // TOML n'a pas de `null` : « {{null}} » en tient lieu.
+        Value::String(s) if s == "{{null}}" => Value::Null,
         Value::String(s) => Value::String(remplacer(&s, qui)),
         Value::Array(a) => Value::Array(a.into_iter().map(|x| remplacer_json(x, qui)).collect()),
         Value::Object(o) => {
@@ -183,7 +234,7 @@ pub fn charger(filtre: &str) -> Result<Vec<Cas>, String> {
                 continue;
             }
             let qui_id = match c.qui.as_str() {
-                "anon" => None,
+                "anon" | "systeme" => None,
                 alias => {
                     let brut = qui.get(alias).cloned().unwrap_or_else(|| alias.to_string());
                     Some(uuid::Uuid::parse_str(&brut).map_err(|_| {
@@ -202,6 +253,7 @@ pub fn charger(filtre: &str) -> Result<Vec<Cas>, String> {
                 fichier: nom_fichier.clone(),
                 nom: c.nom,
                 qui: qui_id,
+                systeme: c.qui == "systeme",
                 rpc: c.rpc,
                 op,
                 args: remplacer_json(args, &qui),

@@ -207,7 +207,7 @@ existante**. La plateforme complète vient ensuite.
 | 5. Conversations | ✅ 2026-09-27 — **le passage obligé de tout message** (`conversations/messages.rs`, ex-`enforce_message_rules`) ; 6 opérations (groupe, conversation directe, canal de proximité, masquer, vocal envoyé / écouté) et 15 gestes directs (liste et détail des conversations avec leurs membres, titre, membres, envoi, dernier message, lus, participation, catégories) ; balais `balai_general` (ex-`neovibe_purge`) et `balai_canaux` — 42 situations identiques. Écart voulu : un vocal, un partage ou un ajout en bibliothèque ne s'écrivent plus directement dans le chat (chacun a sa porte et ses règles) |
 | 6. Vibes et contenus | ✅ 2026-09-27 — `vibes/` : **le passage obligé des livraisons** (`livraisons.rs`, ex-`enforce_card_delivery_rules`, règles puis écriture) ; les Vibes envoyées (`cartes.rs` : clé, visionnages, replays, réglages, suppression, envoi avec une demande d'ami, et les gestes directs `card_get · create`, `card_delivery_create · mine`, `card_deliveries_pending_replay`, `card_replay_requests_mine`, `friend_share_defaults_*`) ; les contenus (`contenus.rs` : clé, vues, likes, partage, retraits, clés d'une bibliothèque, `content_flags · delete`, lieu de prise) ; le Drop (`drop.rs` : dépôt, clés, réglages, retrait, masquage, liste ; le reveal de 18 h 30 réécrit) ; publier et relire (`publication.rs` : story, bibliothèque, accès restreint, publication, bibliothèque d'un compte, stories) ; l'ancre gommée (`carte/ancre.rs`) ; **un profil se rend d'une seule façon** (`comptes::cuisine::profil_vu`, aussi pour les membres d'une conversation et l'auteur d'une story) ; balais `balai_drop` et `balai_retraits` — 135 situations identiques (298 au total). **Défaut de l'ancien serveur trouvé et réparé** (voir le journal) |
 | 7. Pulse | ✅ 2026-09-27 — `pulse.rs` : `feed_items` (les trois sources — croisés, ajouts des amis, autour de moi —, fraîcheur `feed_rules`, 200 au plus ; l'ordre vit dans `rang`, seul endroit où brancher la pertinence), `feed_adders` (révélé seulement après mon like), `add_to_feed` ; **« autour de moi » écrit une fois pour le fil et la carte** (`carte/autour.rs` : `vibes_autour`, `distance_m`) ; une publication a une seule forme de lecture (`publication_complete`) — 14 situations identiques (312 au total) |
-| 8. Soirées | à faire |
+| 8. Soirées | ✅ 2026-09-27 — `soirees/` : les 20 opérations et `report_event_position` (le service natif), plus 4 gestes directs (`event_rules_map`, `event_presence_mine`, `event_challenges_list`, `meeting_delete`) ; `regles.rs` (présent, peut inviter / retirer, amis présents, lieu précis, taille, trop loin), `cuisine.rs` (**fermer une soirée** : croisements par présence → rencontres ; entrer dans un moment ; oublier une affiche), `balai.rs` (**le balai de chaque minute** : moments entre amis, partis, fermetures à l'heure et des désertées, purge ; et la mémoire des rencontres, chaque nuit) ; l'affiche vérifiée dans l'entrepôt ; **une seule formule de distance** (`carte::autour::distance_m`, l'ancien en avait deux) — 82 situations identiques (394 au total), balais compris (joués « par le système »). **Défaut de l'ancien serveur trouvé et réparé** (voir le journal) |
 | 9. Carte | à faire |
 | 10. Modération et administration | à faire |
 | 11. L'app complète | à faire |
@@ -256,6 +256,12 @@ preuve, chacun justifié) :
   preuve sous l'identité du destinataire, réparé
   (`20260927120000_replay_sur_vibe_illimitee.sql`, calcul en grand entier).
   Le Rust le faisait déjà juste. Audit 22/22.
+- 2026-09-27 : **retirer quelqu'un d'une soirée privée (ou la quitter)
+  échouait TOUJOURS** (« left_reason is of type event_leave_reason but
+  expression is of type text ») : le bouton « Retirer » de l'app ne pouvait
+  jamais réussir. Reproduit par la preuve sous l'identité de Charles, réparé
+  (`20260927130000_retirer_d_une_soiree_privee.sql`). Le Rust le faisait
+  déjà juste. Audit 22/22.
 
 **Les fondations** — ce qui RESTE dans la base, parce qu'il doit voir tous
 les chemins, effacements en cascade compris : les contraintes (liens,

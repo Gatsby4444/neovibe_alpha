@@ -91,6 +91,14 @@ fn balai_retraits<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFutur
     Box::pin(nv_app::vibes::balai_retraits(db))
 }
 
+fn balai_soirees<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, NvResult<String>> {
+    Box::pin(nv_app::soirees::balai::balayer(db))
+}
+
+fn balai_rencontres<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, NvResult<String>> {
+    Box::pin(nv_app::soirees::balai::oublier_les_rencontres(db))
+}
+
 /// Toutes les tâches du serveur — avec le rythme de l'ancien réveil (pg_cron).
 pub fn toutes() -> Vec<Tache> {
     vec![
@@ -109,6 +117,10 @@ pub fn toutes() -> Vec<Tache> {
         Tache { nom: "balai_drop", rythme: Rythme::Toutes(300), geste: balai_drop },
         // neovibe_purge_removals : 41 * * * *
         Tache { nom: "balai_retraits", rythme: Rythme::ChaqueHeureA(41), geste: balai_retraits },
+        // neovibe_events : * * * * *
+        Tache { nom: "balai_soirees", rythme: Rythme::Toutes(60), geste: balai_soirees },
+        // neovibe_purge_meetings : 23 4 * * *
+        Tache { nom: "balai_rencontres", rythme: Rythme::ChaqueJourA(4, 23), geste: balai_rencontres },
     ]
 }
 

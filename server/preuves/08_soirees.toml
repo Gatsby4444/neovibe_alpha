@@ -1,0 +1,746 @@
+# Domaine 8 — les soirées (docs/serveur-rust.md, annexe A.7).
+#
+# Deux soirées posées par les situations (la copie de dev n'en a pas
+# d'ouverte avec un lieu) :
+# - S1 (88888888-…02, conversation …01) : la soirée PRIVÉE de Charles, à Paris
+#   (48,8566 ; 2,3522, rayon 50 m), commencée il y a une heure ; Testeur y est
+#   invité (membre simple) ;
+# - S2 (88888888-…04, conversation …03) : la soirée OUVERTE de Charles, au même
+#   endroit, jusqu'à dans deux heures ; Charles y est présent.
+# Et dans la copie : le « moment » de Mimi (1e585520…, sans lieu, Mimi
+# présente, Jay2 partie) ; la soirée terminée de Charles (350d19a0…).
+
+# ─── Créer ─────────────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "ouvrir une soirée là où je suis"
+qui = "charles"
+rpc = "create_open_event"
+args = { p_title = "  Chez Paul  ", p_lat = 48.8566, p_lon = 2.3522, p_ends_at = "{{minutes+120}}", p_acc = 10.0 }
+doit_changer = ["public.events", "public.conversations", "public.event_group_members", "public.conversation_members", "public.event_presences", "public.event_positions"]
+
+[[cas]]
+nom = "ouvrir une grande soirée"
+qui = "charles"
+rpc = "create_open_event"
+args = { p_title = "Festival", p_lat = 48.8566, p_lon = 2.3522, p_ends_at = "{{minutes+600}}", p_radius_m = 120, p_acc = 10.0 }
+doit_changer = ["public.events"]
+
+[[cas]]
+nom = "ouvrir une soirée avec une position imprécise"
+qui = "charles"
+rpc = "create_open_event"
+args = { p_title = "Chez Paul", p_lat = 48.8566, p_lon = 2.3522, p_ends_at = "{{minutes+120}}", p_acc = 512.4 }
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir une soirée sans précision de position"
+qui = "charles"
+rpc = "create_open_event"
+args = { p_title = "Chez Paul", p_lat = 48.8566, p_lon = 2.3522, p_ends_at = "{{minutes+120}}" }
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir une soirée déjà finie"
+qui = "charles"
+rpc = "create_open_event"
+args = { p_title = "Chez Paul", p_lat = 48.8566, p_lon = 2.3522, p_ends_at = "{{minutes-5}}", p_acc = 10.0 }
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir une soirée de plus de 24 h"
+qui = "charles"
+rpc = "create_open_event"
+args = { p_title = "Chez Paul", p_lat = 48.8566, p_lon = 2.3522, p_ends_at = "{{minutes+1500}}", p_acc = 10.0 }
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir une soirée d'une taille inconnue"
+qui = "charles"
+rpc = "create_open_event"
+args = { p_title = "Chez Paul", p_lat = 48.8566, p_lon = 2.3522, p_ends_at = "{{minutes+120}}", p_radius_m = 77, p_acc = 10.0 }
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir une soirée sans nom"
+qui = "charles"
+rpc = "create_open_event"
+args = { p_title = "   ", p_lat = 48.8566, p_lon = 2.3522, p_ends_at = "{{minutes+120}}", p_acc = 10.0 }
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir une soirée en étant suspendu"
+qui = "charles"
+rpc = "create_open_event"
+args = { p_title = "Chez Paul", p_lat = 48.8566, p_lon = 2.3522, p_ends_at = "{{minutes+120}}", p_acc = 10.0 }
+avant = "update public.profiles set suspended_at = now() where id = '{{charles}}'"
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir une soirée depuis un moment (on en sort)"
+qui = "mimi"
+rpc = "create_open_event"
+args = { p_title = "On bouge", p_lat = 48.8566, p_lon = 2.3522, p_ends_at = "{{minutes+120}}", p_acc = 10.0 }
+doit_changer = ["public.events", "public.event_presences"]
+
+[[cas]]
+nom = "créer une soirée privée, en invitant des amis (et un inconnu)"
+qui = "charles"
+rpc = "create_private_event"
+args = { p_title = "Anniversaire", p_member_ids = ["{{testeur}}", "{{yanis}}", "{{charles}}", "{{mimi}}"] }
+doit_changer = ["public.events", "public.conversations", "public.event_group_members", "public.conversation_members"]
+
+[[cas]]
+nom = "créer une soirée privée avec un lieu, plus tard"
+qui = "charles"
+rpc = "create_private_event"
+args = { p_title = "Dîner", p_starts_at = "{{minutes+60}}", p_ends_at = "{{minutes+240}}", p_lat = 48.8566, p_lon = 2.3522, p_acc = 20.0 }
+doit_changer = ["public.events"]
+
+[[cas]]
+nom = "créer une soirée privée avec un lieu imprécis"
+qui = "charles"
+rpc = "create_private_event"
+args = { p_title = "Dîner", p_lat = 48.8566, p_lon = 2.3522, p_acc = 150.0 }
+attendu = "refuse"
+
+# ─── Entrer, sortir, être là ───────────────────────────────────────────────
+
+[[cas]]
+nom = "entrer dans une soirée ouverte en y étant"
+qui = "testeur"
+rpc = "join_event"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_lat = 48.8567, p_lon = 2.3522, p_acc = 10.0 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', 'admin', '{{charles}}');
+insert into public.conversation_members (conversation_id, user_id) values ('88888888-0000-4000-8000-000000000003', '{{charles}}');
+insert into public.event_presences (event_id, user_id, joined_at, last_position_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '1 hour', now());
+insert into public.event_positions (event_id, user_id, lat, lon, acc, reported_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', 48.8566, 2.3522, 5, now())"""
+doit_changer = ["public.event_presences", "public.event_positions", "public.conversation_members"]
+
+[[cas]]
+nom = "entrer dans une soirée ouverte de trop loin"
+qui = "testeur"
+rpc = "join_event"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_lat = 48.87, p_lon = 2.35, p_acc = 10.0 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "entrer dans une soirée ouverte sans position"
+qui = "testeur"
+rpc = "join_event"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_acc = 10.0 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "entrer dans une soirée privée sans y être invité"
+qui = "yanis"
+rpc = "join_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_lat = 48.8566, p_lon = 2.3522, p_acc = 10.0 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "entrer dans une soirée privée où je suis invité"
+qui = "testeur"
+rpc = "join_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_lat = 48.8566, p_lon = 2.3523, p_acc = 10.0 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{charles}}', 'admin', '{{charles}}'), ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'member', '{{charles}}');
+insert into public.conversation_members (conversation_id, user_id) values ('88888888-0000-4000-8000-000000000001', '{{charles}}'), ('88888888-0000-4000-8000-000000000001', '{{testeur}}')"""
+doit_changer = ["public.event_presences", "public.event_positions", "public.events"]
+
+[[cas]]
+nom = "entrer dans une soirée pas encore commencée"
+qui = "testeur"
+rpc = "join_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_lat = 48.8566, p_lon = 2.3523, p_acc = 10.0 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() + interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'member', '{{charles}}')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "entrer dans une soirée terminée"
+qui = "charles"
+rpc = "join_event"
+args = { p_event = "350d19a0-9d88-4ff5-bb3a-c6d75480a905", p_lat = 50.6365476, p_lon = 3.0599511, p_acc = 10.0 }
+attendu = "refuse"
+
+[[cas]]
+nom = "rejoindre un moment près de ceux qui y sont"
+qui = "jay2"
+rpc = "join_event"
+args = { p_event = "1e585520-6edb-4aa3-a231-9ed749cd0aa5", p_lat = 48.8567, p_lon = 2.3523, p_acc = 15.0 }
+avant = "insert into public.event_positions (event_id, user_id, lat, lon, acc, reported_at) values ('1e585520-6edb-4aa3-a231-9ed749cd0aa5', '{{mimi}}', 48.8566, 2.3522, 5, now()) on conflict (event_id, user_id) do update set lat = excluded.lat, lon = excluded.lon, reported_at = now()"
+doit_changer = ["public.event_presences"]
+
+[[cas]]
+nom = "rejoindre un moment loin de ceux qui y sont"
+qui = "jay2"
+rpc = "join_event"
+args = { p_event = "1e585520-6edb-4aa3-a231-9ed749cd0aa5", p_lat = 48.95, p_lon = 2.3522, p_acc = 15.0 }
+avant = "insert into public.event_positions (event_id, user_id, lat, lon, acc, reported_at) values ('1e585520-6edb-4aa3-a231-9ed749cd0aa5', '{{mimi}}', 48.8566, 2.3522, 5, now()) on conflict (event_id, user_id) do update set lat = excluded.lat, lon = excluded.lon, reported_at = now()"
+attendu = "refuse"
+
+[[cas]]
+nom = "sortir d'une soirée"
+qui = "charles"
+rpc = "leave_event"
+args = { p_event = "88888888-0000-4000-8000-000000000004" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+insert into public.event_presences (event_id, user_id, joined_at, last_position_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '1 hour', now());
+insert into public.event_positions (event_id, user_id, lat, lon, acc, reported_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', 48.8566, 2.3522, 5, now())"""
+doit_changer = ["public.event_presences", "public.event_positions"]
+
+[[cas]]
+nom = "ma position pendant la soirée (toujours là)"
+qui = "charles"
+rpc = "report_event_position"
+args = { p_lat = 48.8567, p_lon = 2.3523, p_acc = 8.0 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+insert into public.event_presences (event_id, user_id, joined_at, last_position_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '1 hour', now() - interval '5 minutes')"""
+doit_changer = ["public.event_positions", "public.event_presences"]
+
+[[cas]]
+nom = "ma position pendant la soirée (parti trop loin)"
+qui = "charles"
+rpc = "report_event_position"
+args = { p_lat = 48.87, p_lon = 2.3522, p_acc = 8.0 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+insert into public.event_presences (event_id, user_id, joined_at, last_position_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '1 hour', now() - interval '5 minutes');
+insert into public.event_positions (event_id, user_id, lat, lon, acc, reported_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', 48.8566, 2.3522, 5, now())"""
+doit_changer = ["public.event_presences", "public.event_positions"]
+
+[[cas]]
+nom = "ma position sans soirée"
+qui = "testeur"
+rpc = "report_event_position"
+args = { p_lat = 48.87, p_lon = 2.3522 }
+
+[[cas]]
+nom = "ma présence sans position"
+qui = "mimi"
+rpc = "report_event_position"
+args = { p_lat = "{{null}}", p_lon = "{{null}}" }
+
+# ─── Le groupe d'une soirée privée ─────────────────────────────────────────
+
+[[cas]]
+nom = "inviter un ami dans ma soirée privée"
+qui = "charles"
+rpc = "invite_to_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{mimi}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{charles}}', 'admin', '{{charles}}'), ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'member', '{{charles}}')"""
+doit_changer = ["public.event_group_members", "public.conversation_members"]
+
+[[cas]]
+nom = "inviter quelqu'un qui n'est pas un ami"
+qui = "charles"
+rpc = "invite_to_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{yanis}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{charles}}', 'admin', '{{charles}}')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "un simple membre ne peut pas inviter"
+qui = "testeur"
+rpc = "invite_to_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{charles}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'member', '{{charles}}')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "un invité admin invite un de ses amis"
+qui = "testeur"
+rpc = "invite_to_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{charles}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{mimi}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{mimi}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'admin', '{{mimi}}')"""
+doit_changer = ["public.event_group_members"]
+
+[[cas]]
+nom = "inviter dans une soirée ouverte (impossible : on y entre sur place)"
+qui = "charles"
+rpc = "invite_to_event"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_user = "{{mimi}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', 'admin', '{{charles}}')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "retirer un invité de ma soirée privée"
+qui = "charles"
+rpc = "remove_from_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{testeur}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{charles}}', 'admin', '{{charles}}'), ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'member', '{{charles}}');
+insert into public.conversation_members (conversation_id, user_id) values ('88888888-0000-4000-8000-000000000001', '{{charles}}'), ('88888888-0000-4000-8000-000000000001', '{{testeur}}');
+insert into public.event_presences (event_id, user_id, joined_at) values ('88888888-0000-4000-8000-000000000002', '{{testeur}}', now() - interval '10 minutes')"""
+doit_changer = ["public.event_group_members", "public.conversation_members", "public.event_presences"]
+
+[[cas]]
+nom = "partir soi-même d'une soirée privée"
+qui = "testeur"
+rpc = "remove_from_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{testeur}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, members_can_remove) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour', false);
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'member', '{{charles}}');
+insert into public.event_presences (event_id, user_id, joined_at) values ('88888888-0000-4000-8000-000000000002', '{{testeur}}', now() - interval '10 minutes')"""
+doit_changer = ["public.event_group_members", "public.event_presences"]
+
+[[cas]]
+nom = "retirer le créateur de sa soirée"
+qui = "testeur"
+rpc = "remove_from_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{charles}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'admin', '{{charles}}')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "un inconnu retire un invité"
+qui = "yanis"
+rpc = "remove_from_event"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{testeur}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'member', '{{charles}}')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "nommer un invité admin"
+qui = "charles"
+rpc = "set_event_member_role"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{testeur}}", p_role = "admin" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'member', '{{charles}}')"""
+doit_changer = ["public.event_group_members"]
+
+[[cas]]
+nom = "le créateur ne change pas son propre rôle"
+qui = "charles"
+rpc = "set_event_member_role"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{charles}}", p_role = "member" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "un invité règle les rôles"
+qui = "testeur"
+rpc = "set_event_member_role"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_user = "{{testeur}}", p_role = "admin" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour')"""
+attendu = "refuse"
+
+# ─── Régler la soirée ──────────────────────────────────────────────────────
+
+[[cas]]
+nom = "régler ma soirée (nom, droits, fin, lieu effacé)"
+qui = "charles"
+rpc = "update_event_settings"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_title = "  Nouveau nom ", p_members_can_add = false, p_ends_at = "{{minutes+180}}", p_clear_place = true }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour')"""
+doit_changer = ["public.events", "public.conversations"]
+
+[[cas]]
+nom = "donner un lieu à ma soirée sans lieu"
+qui = "charles"
+rpc = "update_event_settings"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_lat = 48.86, p_lon = 2.35 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', now() - interval '1 hour')"""
+doit_changer = ["public.events"]
+
+[[cas]]
+nom = "régler la soirée d'un autre"
+qui = "testeur"
+rpc = "update_event_settings"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_title = "Volé" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "régler une soirée terminée"
+qui = "charles"
+rpc = "update_event_settings"
+args = { p_event = "350d19a0-9d88-4ff5-bb3a-c6d75480a905", p_title = "Trop tard" }
+attendu = "refuse"
+
+[[cas]]
+nom = "décrire ma soirée"
+qui = "charles"
+rpc = "set_event_details"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_description = "  Venez nombreux !  ", p_poster_path = "{{null}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+doit_changer = ["public.events"]
+
+[[cas]]
+nom = "décrire ma soirée trop longuement"
+qui = "charles"
+rpc = "set_event_details"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_poster_path = "{{null}}", p_description = "012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "poser une affiche qui n'a pas été déposée"
+qui = "charles"
+rpc = "set_event_details"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_description = "Salut", p_poster_path = "{{charles}}/88888888-0000-4000-8000-000000000004/affiche.jpg" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "poser mon affiche (et oublier l'ancienne)"
+qui = "charles"
+rpc = "set_event_details"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_description = "Salut", p_poster_path = "{{charles}}/88888888-0000-4000-8000-000000000004/affiche.jpg" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at, poster_path) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour', '{{charles}}/88888888-0000-4000-8000-000000000004/vieille.jpg');
+insert into storage.objects (bucket_id, name, owner) values ('event_posters', '{{charles}}/88888888-0000-4000-8000-000000000004/affiche.jpg', '{{charles}}')"""
+doit_changer = ["public.events", "public.storage_tombstones"]
+
+[[cas]]
+nom = "poser l'affiche d'une autre soirée"
+qui = "charles"
+rpc = "set_event_details"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_description = "Salut", p_poster_path = "{{charles}}/350d19a0-9d88-4ff5-bb3a-c6d75480a905/affiche.jpg" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+insert into storage.objects (bucket_id, name, owner) values ('event_posters', '{{charles}}/350d19a0-9d88-4ff5-bb3a-c6d75480a905/affiche.jpg', '{{charles}}')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "retirer l'affiche de ma soirée"
+qui = "charles"
+rpc = "set_event_details"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_description = "Salut", p_poster_path = "{{null}}", p_clear_poster = true }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at, poster_path) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour', '{{charles}}/88888888-0000-4000-8000-000000000004/vieille.jpg')"""
+doit_changer = ["public.events", "public.storage_tombstones"]
+
+[[cas]]
+nom = "décrire la soirée d'un autre"
+qui = "testeur"
+rpc = "set_event_details"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_description = "Volé", p_poster_path = "{{null}}" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "nommer le lieu de ma soirée"
+qui = "charles"
+rpc = "set_event_place"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_place_name = "  Chez moi  " }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour')"""
+doit_changer = ["public.events"]
+
+[[cas]]
+nom = "nommer le lieu trop longuement"
+qui = "charles"
+rpc = "set_event_place"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_place_name = "0123456789012345678901234567890123456789012345678901234567890" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "nommer le lieu de la soirée d'un autre"
+qui = "testeur"
+rpc = "set_event_place"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_place_name = "Chez moi" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "agrandir ma soirée"
+qui = "charles"
+rpc = "set_event_size"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_size = "grand" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+doit_changer = ["public.events"]
+
+[[cas]]
+nom = "une taille inconnue"
+qui = "charles"
+rpc = "set_event_size"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_size = "immense" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "une taille pour une soirée sans lieu"
+qui = "charles"
+rpc = "set_event_size"
+args = { p_event = "88888888-0000-4000-8000-000000000002", p_size = "bar" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "poser un défi sur place"
+qui = "charles"
+rpc = "post_challenge"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_text = "  Chanter une chanson  " }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+insert into public.conversation_members (conversation_id, user_id) values ('88888888-0000-4000-8000-000000000003', '{{charles}}');
+insert into public.event_presences (event_id, user_id, joined_at, last_position_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '1 hour', now())"""
+doit_changer = ["public.event_challenges", "public.messages"]
+
+[[cas]]
+nom = "poser un défi sans être sur place"
+qui = "testeur"
+rpc = "post_challenge"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_text = "Chanter une chanson" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "poser un défi trop court"
+qui = "charles"
+rpc = "post_challenge"
+args = { p_event = "88888888-0000-4000-8000-000000000004", p_text = "ab" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+insert into public.conversation_members (conversation_id, user_id) values ('88888888-0000-4000-8000-000000000003', '{{charles}}');
+insert into public.event_presences (event_id, user_id, joined_at, last_position_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '1 hour', now())"""
+attendu = "refuse"
+
+[[cas]]
+nom = "fermer ma soirée (les présents longtemps ensemble se sont croisés)"
+qui = "charles"
+rpc = "close_event"
+args = { p_event = "88888888-0000-4000-8000-000000000004" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '3 hours', now() + interval '2 hours', now() - interval '3 hours');
+update public.event_presences set left_at = now(), left_reason = 'manual' where user_id in ('{{testeur}}', '{{yanis}}', '{{lea}}') and left_at is null;
+insert into public.event_presences (event_id, user_id, joined_at, last_position_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '2 hours', now()), ('88888888-0000-4000-8000-000000000004', '{{testeur}}', now() - interval '90 minutes', now()), ('88888888-0000-4000-8000-000000000004', '{{yanis}}', now() - interval '10 minutes', now());
+insert into public.event_presences (event_id, user_id, joined_at, left_at, left_reason) values ('88888888-0000-4000-8000-000000000004', '{{lea}}', now() - interval '3 hours', now() - interval '100 minutes', 'manual');
+insert into public.event_positions (event_id, user_id, lat, lon, acc, reported_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', 48.8566, 2.3522, 5, now())"""
+doit_changer = ["public.events", "public.event_crossings", "public.meetings", "public.event_presences", "public.event_positions"]
+
+[[cas]]
+nom = "fermer la soirée d'un autre"
+qui = "testeur"
+rpc = "close_event"
+args = { p_event = "88888888-0000-4000-8000-000000000004" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+attendu = "refuse"
+
+# ─── Lire ──────────────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "les points chauds de ma soirée"
+qui = "charles"
+rpc = "event_hot_spots"
+args = { p_event = "88888888-0000-4000-8000-000000000004" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+update public.event_presences set left_at = now(), left_reason = 'manual' where user_id in ('{{testeur}}', '{{lea}}') and left_at is null;
+insert into public.event_presences (event_id, user_id, joined_at, last_position_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '1 hour', now()), ('88888888-0000-4000-8000-000000000004', '{{testeur}}', now() - interval '1 hour', now()), ('88888888-0000-4000-8000-000000000004', '{{lea}}', now() - interval '1 hour', now());
+insert into public.event_positions (event_id, user_id, lat, lon, acc, reported_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', 48.8566, 2.3522, 5, now()), ('88888888-0000-4000-8000-000000000004', '{{testeur}}', 48.85661, 2.35221, 5, now()), ('88888888-0000-4000-8000-000000000004', '{{lea}}', 48.8575, 2.3530, 5, now())"""
+sans_ordre = true
+
+[[cas]]
+nom = "les points chauds d'une soirée qui ne me concerne pas"
+qui = "yanis"
+rpc = "event_hot_spots"
+args = { p_event = "88888888-0000-4000-8000-000000000004" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+attendu = "refuse"
+
+[[cas]]
+nom = "les gens de ma soirée privée"
+qui = "charles"
+rpc = "event_people"
+args = { p_event = "88888888-0000-4000-8000-000000000002" }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000001', 'event', 'Soirée test', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at) values ('88888888-0000-4000-8000-000000000002', 'private', 'Soirée test', '{{charles}}', '88888888-0000-4000-8000-000000000001', 48.8566, 2.3522, 50, now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000002', '{{charles}}', 'admin', '{{charles}}'), ('88888888-0000-4000-8000-000000000002', '{{testeur}}', 'member', '{{charles}}'), ('88888888-0000-4000-8000-000000000002', '{{mimi}}', 'admin', '{{charles}}');
+update public.event_presences set left_at = now(), left_reason = 'manual' where user_id in ('{{testeur}}', '{{yanis}}') and left_at is null;
+insert into public.event_presences (event_id, user_id, joined_at) values ('88888888-0000-4000-8000-000000000002', '{{testeur}}', now() - interval '20 minutes'), ('88888888-0000-4000-8000-000000000002', '{{yanis}}', now() - interval '5 minutes')"""
+
+[[cas]]
+nom = "le récap de ma soirée terminée"
+qui = "charles"
+rpc = "event_recap"
+args = { p_event = "350d19a0-9d88-4ff5-bb3a-c6d75480a905" }
+
+[[cas]]
+nom = "le récap d'une soirée qui ne me concerne pas"
+qui = "yanis"
+rpc = "event_recap"
+args = { p_event = "350d19a0-9d88-4ff5-bb3a-c6d75480a905" }
+attendu = "refuse"
+
+[[cas]]
+nom = "mes soirées"
+qui = "charles"
+rpc = "my_events"
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+insert into public.event_group_members (event_id, user_id, role, added_by) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', 'admin', '{{charles}}');
+update public.event_presences set left_at = now(), left_reason = 'manual' where user_id = '{{testeur}}' and left_at is null;
+insert into public.event_presences (event_id, user_id, joined_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '1 hour'), ('88888888-0000-4000-8000-000000000004', '{{testeur}}', now() - interval '30 minutes')"""
+
+[[cas]]
+nom = "les soirées de Mimi"
+qui = "mimi"
+rpc = "my_events"
+
+[[cas]]
+nom = "les soirées autour de moi"
+qui = "testeur"
+rpc = "nearby_events"
+args = { p_lat = 48.857, p_lon = 2.353, p_radius_m = 5000 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at, description) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour', 'Bienvenue');
+insert into public.event_presences (event_id, user_id, joined_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '1 hour')"""
+
+[[cas]]
+nom = "les grosses soirées autour de moi (aucune)"
+qui = "testeur"
+rpc = "nearby_events"
+args = { p_lat = 48.857, p_lon = 2.353, p_radius_m = 100000, p_min_present = 30 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour')"""
+
+[[cas]]
+nom = "les soirées autour de moi, organisateur bloqué"
+qui = "testeur"
+rpc = "nearby_events"
+args = { p_lat = 48.857, p_lon = 2.353 }
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '1 hour', now() + interval '2 hours', now() - interval '1 hour');
+insert into public.blocks (blocker_id, blocked_id) values ('{{charles}}', '{{testeur}}')"""
+
+[[cas]]
+nom = "mes rencontres"
+qui = "charles"
+rpc = "my_meetings"
+avant = """insert into public.meetings (user_id, other_id, origin, event_title, met_at, last_at) values ('{{charles}}', '{{yanis}}', 'event', 'Goat', now() - interval '2 days', now() - interval '2 days'), ('{{charles}}', '{{yanis}}', 'ping', null, now() - interval '1 day', now() - interval '1 day'), ('{{charles}}', '{{testeur}}', 'ping', null, now() - interval '3 days', now() - interval '3 days')"""
+
+[[cas]]
+nom = "déjà rencontrés ?"
+qui = "charles"
+rpc = "met_before"
+args = { p_users = ["{{yanis}}", "{{testeur}}", "{{lea}}"] }
+avant = """insert into public.meetings (user_id, other_id, origin, event_title, met_at, last_at) values ('{{charles}}', '{{yanis}}', 'event', 'Goat', now() - interval '2 days', now() - interval '2 days'), ('{{charles}}', '{{yanis}}', 'ping', null, now() - interval '1 day', now() - interval '1 day'), ('{{charles}}', '{{testeur}}', 'ping', null, now() - interval '3 days', now() - interval '3 days')"""
+sans_ordre = true
+
+[[cas]]
+nom = "les règles annoncées par la carte"
+qui = "charles"
+op = "event_rules_map"
+ancien_resultat = "select to_json(t) from (select nearby_radius_m, nearby_radius_max_m, big_event_min_present from public.event_rules) t"
+
+[[cas]]
+nom = "y ai-je été ?"
+qui = "jay2"
+op = "event_presence_mine"
+args = { event_id = "1e585520-6edb-4aa3-a231-9ed749cd0aa5" }
+ancien_resultat = "select coalesce(json_agg(t), '[]'::json) from (select id from public.event_presences where event_id = '1e585520-6edb-4aa3-a231-9ed749cd0aa5' and user_id = '{{jay2}}' limit 1) t"
+
+[[cas]]
+nom = "les défis d'une soirée"
+qui = "charles"
+op = "event_challenges_list"
+args = { event_id = "350d19a0-9d88-4ff5-bb3a-c6d75480a905" }
+ancien_resultat = "select coalesce(json_agg(t order by t.created_at desc), '[]'::json) from (select id, event_id, author_id, text, created_at from public.event_challenges where event_id = '350d19a0-9d88-4ff5-bb3a-c6d75480a905') t"
+
+[[cas]]
+nom = "les défis d'une soirée qui ne me concerne pas"
+qui = "yanis"
+op = "event_challenges_list"
+args = { event_id = "350d19a0-9d88-4ff5-bb3a-c6d75480a905" }
+ancien_resultat = "select coalesce(json_agg(t order by t.created_at desc), '[]'::json) from (select id, event_id, author_id, text, created_at from public.event_challenges where event_id = '350d19a0-9d88-4ff5-bb3a-c6d75480a905') t"
+
+[[cas]]
+nom = "oublier une rencontre"
+qui = "charles"
+op = "meeting_delete"
+args = { id = "99999999-0000-4000-8000-000000000001" }
+avant = "insert into public.meetings (id, user_id, other_id, origin) values ('99999999-0000-4000-8000-000000000001', '{{charles}}', '{{yanis}}', 'ping')"
+ancien = "delete from public.meetings where id = '99999999-0000-4000-8000-000000000001'"
+doit_changer = ["public.meetings"]
+
+[[cas]]
+nom = "oublier la rencontre d'un autre (rien)"
+qui = "yanis"
+op = "meeting_delete"
+args = { id = "99999999-0000-4000-8000-000000000001" }
+avant = "insert into public.meetings (id, user_id, other_id, origin) values ('99999999-0000-4000-8000-000000000001', '{{charles}}', '{{yanis}}', 'ping')"
+ancien = "delete from public.meetings where id = '99999999-0000-4000-8000-000000000001'"
+
+# ─── Les balais ────────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "le balai des soirées : l'heure, les partis, les désertées, les vieilles"
+qui = "systeme"
+op = "balai_soirees"
+ancien = "select private.sweep_events()"
+avant = """insert into public.conversations (id, conversation_type, title, created_by) values ('88888888-0000-4000-8000-000000000003', 'event', 'Ouverte', '{{charles}}'), ('88888888-0000-4000-8000-000000000005', 'event', 'Privée', '{{charles}}'), ('88888888-0000-4000-8000-000000000007', 'event', 'Vieille', '{{charles}}');
+insert into public.events (id, kind, title, created_by, conversation_id, lat, lon, radius_m, starts_at, scheduled_end_at, opened_at) values ('88888888-0000-4000-8000-000000000004', 'open', 'Ouverte', '{{charles}}', '88888888-0000-4000-8000-000000000003', 48.8566, 2.3522, 50, now() - interval '3 hours', now() - interval '1 minute', now() - interval '3 hours');
+insert into public.events (id, kind, title, created_by, conversation_id, starts_at, opened_at) values ('88888888-0000-4000-8000-000000000006', 'private', 'Privée', '{{charles}}', '88888888-0000-4000-8000-000000000005', now() - interval '3 hours', now() - interval '3 hours');
+insert into public.events (id, kind, title, created_by, conversation_id, starts_at, opened_at, closed_at, close_reason) values ('88888888-0000-4000-8000-000000000008', 'private', 'Vieille', '{{charles}}', '88888888-0000-4000-8000-000000000007', now() - interval '9 days', now() - interval '9 days', now() - interval '6 days', 'host');
+update public.event_presences set left_at = now(), left_reason = 'manual' where user_id in ('{{charles}}', '{{testeur}}', '{{lea}}', '{{mimi}}') and left_at is null;
+insert into public.event_presences (event_id, user_id, joined_at, last_position_at) values ('88888888-0000-4000-8000-000000000004', '{{charles}}', now() - interval '3 hours', now() - interval '1 minute'), ('88888888-0000-4000-8000-000000000004', '{{testeur}}', now() - interval '2 hours', now() - interval '2 hours');
+insert into public.event_presences (event_id, user_id, joined_at, last_ping_at) values ('88888888-0000-4000-8000-000000000006', '{{lea}}', now() - interval '3 hours', now());
+insert into public.event_presences (event_id, user_id, joined_at, left_at, left_reason) values ('88888888-0000-4000-8000-000000000006', '{{mimi}}', now() - interval '3 hours', now() - interval '2 hours', 'manual'), ('88888888-0000-4000-8000-000000000006', '{{yanis}}', now() - interval '3 hours', now() - interval '2 hours', 'manual'), ('88888888-0000-4000-8000-000000000006', '{{chloe}}', now() - interval '3 hours', now() - interval '2 hours', 'manual'), ('88888888-0000-4000-8000-000000000006', '{{malik}}', now() - interval '3 hours', now() - interval '2 hours', 'manual')"""
+doit_changer = ["public.events", "public.event_presences", "public.event_crossings", "public.conversations"]
+
+[[cas]]
+nom = "le balai des soirées : deux amis ensemble ouvrent un moment"
+qui = "systeme"
+op = "balai_soirees"
+ancien = "select private.sweep_events()"
+avant = """update public.event_presences set left_at = now(), left_reason = 'manual' where user_id in ('{{charles}}', '{{testeur}}') and left_at is null;
+insert into public.sightings (observer_id, seen_id, slot) values ('{{charles}}', '{{testeur}}', {{creneau}}), ('{{testeur}}', '{{charles}}', {{creneau}}), ('{{charles}}', '{{testeur}}', {{creneau-1}}), ('{{testeur}}', '{{charles}}', {{creneau-1}}), ('{{charles}}', '{{testeur}}', {{creneau-2}}), ('{{testeur}}', '{{charles}}', {{creneau-2}}) on conflict do nothing"""
+doit_changer = ["public.events", "public.event_presences", "public.event_group_members"]
+
+[[cas]]
+nom = "la mémoire des rencontres s'efface après deux ans"
+qui = "systeme"
+op = "balai_rencontres"
+ancien = "select public.purge_meetings()"
+avant = "insert into public.meetings (user_id, other_id, origin, met_at, last_at) values ('{{charles}}', '{{yanis}}', 'ping', now() - interval '3 years', now() - interval '3 years')"
+doit_changer = ["public.meetings"]

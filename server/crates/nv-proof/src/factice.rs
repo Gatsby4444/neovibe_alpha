@@ -7,7 +7,12 @@ use futures::FutureExt;
 use nv_core::fichiers::{Entrepot, Morceau};
 use nv_core::NvResult;
 
-pub struct EntrepotFactice;
+pub struct EntrepotFactice {
+    /// Les affiches de soirée présentes (relevées dans `storage.objects` de
+    /// la base locale, après la mise en place de la situation) : la règle
+    /// « l'affiche existe » se prouve ainsi contre ce que l'ancien lisait.
+    pub affiches: std::collections::HashSet<String>,
+}
 
 impl Entrepot for EntrepotFactice {
     fn lien_lecture(&self, _: &str, _: &str, _: u64) -> NvResult<String> {
@@ -31,8 +36,9 @@ impl Entrepot for EntrepotFactice {
     fn abandonner_envoi<'a>(&'a self, _: &'a str, _: &'a str, _: &'a str) -> BoxFuture<'a, NvResult<()>> {
         async { Ok(()) }.boxed()
     }
-    fn taille<'a>(&'a self, _: &'a str, _: &'a str) -> BoxFuture<'a, NvResult<Option<u64>>> {
-        async { Ok(None) }.boxed()
+    fn taille<'a>(&'a self, coffre: &'a str, nom: &'a str) -> BoxFuture<'a, NvResult<Option<u64>>> {
+        let present = coffre == "event_posters" && self.affiches.contains(nom);
+        async move { Ok(present.then_some(0)) }.boxed()
     }
     fn supprimer<'a>(&'a self, _: &'a str, _: Vec<String>) -> BoxFuture<'a, NvResult<()>> {
         async { Ok(()) }.boxed()
