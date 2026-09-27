@@ -17,6 +17,7 @@ pub mod conversations;
 pub mod direct;
 pub mod fichiers;
 pub mod relations;
+pub mod vibes;
 
 use nv_core::ops::Op;
 
@@ -28,5 +29,6 @@ pub fn registry() -> Vec<Op> {
     ops.extend(direct::registry());
     ops.extend(relations::guichet::registry());
     ops.extend(conversations::guichet::registry());
+    ops.extend(vibes::registry());
     ops
 }

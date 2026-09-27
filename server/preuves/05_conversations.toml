@@ -205,6 +205,7 @@ op = "conversations_list"
 ancien_resultat = "select coalesce(json_agg(t order by t.created_at desc), '[]') from (select c.*, (select coalesce(json_agg(json_build_object('profiles', (select to_json(p) from public.profiles p where p.id = cm.user_id))), '[]') from public.conversation_members cm where cm.conversation_id = c.id) as members from public.conversations c) t"
 ecart = "la suspension d'un autre compte ne se lit plus"
 ecart_champs = ["suspended_at", "suspended_reason"]
+sans_ordre = true
 
 [[cas]]
 nom = "une conversation dont je suis membre"
@@ -214,6 +215,7 @@ args = { id = "ce573f65-3b61-4df1-995c-3cefc5620c64" }
 ancien_resultat = "select to_json(t) from (select c.*, (select coalesce(json_agg(json_build_object('profiles', (select to_json(p) from public.profiles p where p.id = cm.user_id))), '[]') from public.conversation_members cm where cm.conversation_id = c.id) as members from public.conversations c where c.id = 'ce573f65-3b61-4df1-995c-3cefc5620c64') t"
 ecart = "la suspension d'un autre compte ne se lit plus"
 ecart_champs = ["suspended_at", "suspended_reason"]
+sans_ordre = true
 
 [[cas]]
 nom = "renommer un groupe dont je suis membre"

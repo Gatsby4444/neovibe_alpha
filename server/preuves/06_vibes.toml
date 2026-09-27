@@ -1,0 +1,1030 @@
+# Domaine 6 — Vibes et contenus (docs/serveur-rust.md, annexe A.6).
+#
+# Données de la copie de dev :
+# - af9d1db5… : une Vibe de Charles (vues illimitées) livrée au bot 14
+#   (livraison 67407afb…) ; 89fb3c15… : une Vibe de Charles jamais livrée ;
+#   8b457956… : une Vibe de Charles livrée à cinq bots ;
+# - 59a3046f… : une publication de Charles (non partageable), 26e067e4… : une
+#   autre (partageable) ; 07a67541… : une publication de Sofia, que Charles a
+#   aimée mais ne peut plus voir ; 2e3ebac7… : une publication de Charles
+#   aimée une fois ;
+# - ce573f65… : la conversation directe Charles–Testeur ; 35fad5e5… : Charles–Mimi ;
+# - 2673ff29… : le Drop de la soirée TERMINÉE de Charles ; 6a69f92a… : le Drop
+#   de la soirée privée ouverte de Mimi (Mimi présente, Jay2 partie).
+# Yanis ne voit rien de Charles (ni ami, ni croisé).
+
+# ─── Les Vibes envoyées ─────────────────────────────────────────────────
+
+[[cas]]
+nom = "déposer la clé de ma Vibe"
+qui = "charles"
+rpc = "set_card_media_key"
+args = { p_card_id = "66666666-0000-4000-8000-000000000001", p_media_key = "cle-neuve" }
+avant = "insert into public.cards (id, owner_id, front_path) values ('66666666-0000-4000-8000-000000000001', '{{charles}}', '{{charles}}/neuve.jpg')"
+doit_changer = ["public.card_media_keys"]
+
+[[cas]]
+nom = "déposer la clé de la Vibe d'un autre"
+qui = "testeur"
+rpc = "set_card_media_key"
+args = { p_card_id = "66666666-0000-4000-8000-000000000001", p_media_key = "cle-volee" }
+avant = "insert into public.cards (id, owner_id, front_path) values ('66666666-0000-4000-8000-000000000001', '{{charles}}', '{{charles}}/neuve.jpg')"
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir ma propre Vibe"
+qui = "charles"
+rpc = "open_card_media"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df" }
+
+[[cas]]
+nom = "ouvrir une Vibe reçue (un visionnage de plus)"
+qui = "00000000-0000-4000-8000-000000000014"
+rpc = "open_card_media"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df" }
+doit_changer = ["public.card_deliveries"]
+
+[[cas]]
+nom = "ouvrir une Vibe qu'on ne m'a pas envoyée"
+qui = "testeur"
+rpc = "open_card_media"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df" }
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir une Vibe dont les visionnages sont épuisés"
+qui = "00000000-0000-4000-8000-000000000014"
+rpc = "open_card_media"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df" }
+avant = """update public.cards set max_views = 1 where id = 'af9d1db5-40a8-4d79-aa40-62ef026465df';
+update public.card_deliveries set view_count = 1 where id = '67407afb-8548-4d5f-ac6a-3bfaced7f70b'"""
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir une Vibe passée en vues illimitées après un replay accordé"
+qui = "00000000-0000-4000-8000-000000000014"
+rpc = "open_card_media"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df" }
+avant = "update public.card_deliveries set view_count = 3, replay_requested_at = now(), replay_granted_at = now() where id = '67407afb-8548-4d5f-ac6a-3bfaced7f70b'"
+doit_changer = ["public.card_deliveries"]
+
+[[cas]]
+nom = "marquer vue une Vibe reçue"
+qui = "00000000-0000-4000-8000-000000000014"
+rpc = "mark_card_viewed"
+args = { delivery_id = "67407afb-8548-4d5f-ac6a-3bfaced7f70b" }
+doit_changer = ["public.card_deliveries"]
+
+[[cas]]
+nom = "marquer vue une Vibe passée en vues illimitées après un replay accordé"
+qui = "00000000-0000-4000-8000-000000000014"
+rpc = "mark_card_viewed"
+args = { delivery_id = "67407afb-8548-4d5f-ac6a-3bfaced7f70b" }
+avant = "update public.card_deliveries set view_count = 3, replay_requested_at = now(), replay_granted_at = now() where id = '67407afb-8548-4d5f-ac6a-3bfaced7f70b'"
+doit_changer = ["public.card_deliveries"]
+
+[[cas]]
+nom = "marquer vue la Vibe d'un autre destinataire"
+qui = "testeur"
+rpc = "mark_card_viewed"
+args = { delivery_id = "67407afb-8548-4d5f-ac6a-3bfaced7f70b" }
+attendu = "refuse"
+
+[[cas]]
+nom = "demander un replay"
+qui = "00000000-0000-4000-8000-000000000014"
+rpc = "request_replay"
+args = { delivery_id = "67407afb-8548-4d5f-ac6a-3bfaced7f70b" }
+doit_changer = ["public.card_deliveries"]
+
+[[cas]]
+nom = "demander deux fois un replay"
+qui = "00000000-0000-4000-8000-000000000014"
+rpc = "request_replay"
+args = { delivery_id = "67407afb-8548-4d5f-ac6a-3bfaced7f70b" }
+avant = "update public.card_deliveries set replay_requested_at = now() where id = '67407afb-8548-4d5f-ac6a-3bfaced7f70b'"
+attendu = "refuse"
+
+[[cas]]
+nom = "accorder un replay qui n'a pas été demandé"
+qui = "charles"
+rpc = "grant_replay"
+args = { delivery_id = "67407afb-8548-4d5f-ac6a-3bfaced7f70b" }
+attendu = "refuse"
+
+[[cas]]
+nom = "accorder un replay demandé"
+qui = "charles"
+rpc = "grant_replay"
+args = { delivery_id = "67407afb-8548-4d5f-ac6a-3bfaced7f70b" }
+avant = "update public.card_deliveries set replay_requested_at = now() where id = '67407afb-8548-4d5f-ac6a-3bfaced7f70b'"
+doit_changer = ["public.card_deliveries"]
+
+[[cas]]
+nom = "accorder un replay sur la Vibe d'un autre"
+qui = "testeur"
+rpc = "grant_replay"
+args = { delivery_id = "67407afb-8548-4d5f-ac6a-3bfaced7f70b" }
+avant = "update public.card_deliveries set replay_requested_at = now() where id = '67407afb-8548-4d5f-ac6a-3bfaced7f70b'"
+attendu = "refuse"
+
+[[cas]]
+nom = "régler une Vibe envoyée"
+qui = "charles"
+rpc = "update_sent_vibe"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df", p_max_views = 3, p_view_duration_seconds = 5, p_scrubbable = true, p_saveable = true }
+doit_changer = ["public.cards"]
+
+[[cas]]
+nom = "régler une Vibe 1/1 (jamais gardable) et un Oneshot (jamais de durée)"
+qui = "charles"
+rpc = "update_sent_vibe"
+args = { p_card_id = "a7c85834-56af-4cc5-bcff-3259c812d55a", p_max_views = 2, p_view_duration_seconds = 5, p_scrubbable = false, p_saveable = true }
+doit_changer = ["public.cards"]
+
+[[cas]]
+nom = "régler la Vibe d'un autre"
+qui = "testeur"
+rpc = "update_sent_vibe"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df", p_max_views = 3, p_view_duration_seconds = 5, p_scrubbable = true, p_saveable = true }
+attendu = "refuse"
+
+[[cas]]
+nom = "régler une Vibe hors bornes (6 vues)"
+qui = "charles"
+rpc = "update_sent_vibe"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df", p_max_views = 6, p_view_duration_seconds = 5, p_scrubbable = true, p_saveable = true }
+attendu = "refuse"
+
+[[cas]]
+nom = "régler une Vibe en étant suspendu"
+qui = "charles"
+rpc = "update_sent_vibe"
+args = { p_card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df", p_max_views = 3, p_view_duration_seconds = 5, p_scrubbable = true, p_saveable = true }
+avant = "update public.profiles set suspended_at = now() where id = '{{charles}}'"
+attendu = "refuse"
+
+[[cas]]
+nom = "supprimer une Vibe envoyée"
+qui = "charles"
+rpc = "delete_sent_vibe"
+args = { p_card_id = "8b457956-64a7-44e3-931b-dc69fbc20647" }
+doit_changer = ["public.cards", "public.card_deliveries"]
+
+[[cas]]
+nom = "supprimer la Vibe d'un autre"
+qui = "testeur"
+rpc = "delete_sent_vibe"
+args = { p_card_id = "8b457956-64a7-44e3-931b-dc69fbc20647" }
+attendu = "refuse"
+
+[[cas]]
+nom = "envoyer une Vibe avec une demande d'ami à quelqu'un croisé"
+qui = "charles"
+rpc = "request_connection_with_vibe"
+args = { peer = "{{yanis}}", p_card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc" }
+avant = "insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{yanis}}'::uuid), greatest('{{charles}}'::uuid, '{{yanis}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now()"
+doit_changer = ["public.connection_requests", "public.card_deliveries"]
+
+[[cas]]
+nom = "joindre une Vibe à une demande déjà en attente"
+qui = "charles"
+rpc = "request_connection_with_vibe"
+args = { peer = "{{yanis}}", p_card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc" }
+avant = """insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{yanis}}'::uuid), greatest('{{charles}}'::uuid, '{{yanis}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now();
+insert into public.connection_requests (sender_id, receiver_id, status, expires_at) values ('{{charles}}', '{{yanis}}', 'pending', now() + interval '7 days')"""
+doit_changer = ["public.connection_requests", "public.card_deliveries"]
+
+[[cas]]
+nom = "envoyer une Vibe avec une demande à quelqu'un jamais croisé"
+qui = "charles"
+rpc = "request_connection_with_vibe"
+args = { peer = "{{yanis}}", p_card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc" }
+attendu = "refuse"
+
+[[cas]]
+nom = "envoyer une Vibe avec une demande à un ami"
+qui = "charles"
+rpc = "request_connection_with_vibe"
+args = { peer = "{{testeur}}", p_card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc" }
+attendu = "refuse"
+
+[[cas]]
+nom = "envoyer avec une demande la Vibe d'un autre"
+qui = "testeur"
+rpc = "request_connection_with_vibe"
+args = { peer = "{{yanis}}", p_card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc" }
+attendu = "refuse"
+
+[[cas]]
+nom = "envoyer une Vibe avec une demande en étant suspendu"
+qui = "charles"
+rpc = "request_connection_with_vibe"
+args = { peer = "{{yanis}}", p_card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc" }
+avant = """insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{yanis}}'::uuid), greatest('{{charles}}'::uuid, '{{yanis}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now();
+update public.profiles set suspended_at = now() where id = '{{charles}}'"""
+attendu = "refuse"
+
+# ─── Ce que l'app faisait directement sur les Vibes ─────────────────────
+
+[[cas]]
+nom = "lire ma Vibe"
+qui = "charles"
+op = "card_get"
+args = { id = "af9d1db5-40a8-4d79-aa40-62ef026465df" }
+ancien_resultat = "select to_json(c) from public.cards c where c.id = 'af9d1db5-40a8-4d79-aa40-62ef026465df'"
+
+[[cas]]
+nom = "lire une Vibe reçue"
+qui = "00000000-0000-4000-8000-000000000014"
+op = "card_get"
+args = { id = "af9d1db5-40a8-4d79-aa40-62ef026465df" }
+ancien_resultat = "select to_json(c) from public.cards c where c.id = 'af9d1db5-40a8-4d79-aa40-62ef026465df'"
+
+[[cas]]
+nom = "lire une Vibe qui ne m'est pas destinée"
+qui = "testeur"
+op = "card_get"
+args = { id = "af9d1db5-40a8-4d79-aa40-62ef026465df" }
+ancien_resultat = "select to_json(c) from public.cards c where c.id = 'af9d1db5-40a8-4d79-aa40-62ef026465df'"
+
+[[cas]]
+nom = "créer une Vibe"
+qui = "charles"
+op = "card_create"
+args = { owner_id = "{{charles}}", card_type = "standard", front_path = "{{charles}}/p_front.jpg", back_path = "{{charles}}/p_back.jpg", view_duration_seconds = 7, max_views = 2, saveable = false, imported = false, front_is_video = false, back_is_video = false, scrubbable = false, encrypted = true }
+ancien = "insert into public.cards (owner_id, card_type, front_path, back_path, view_duration_seconds, max_views, saveable, imported, front_is_video, back_is_video, scrubbable, encrypted) values ('{{charles}}', 'standard', '{{charles}}/p_front.jpg', '{{charles}}/p_back.jpg', 7, 2, false, false, false, false, false, true)"
+ancien_resultat = "select to_json(c) from public.cards c where c.front_path = '{{charles}}/p_front.jpg'"
+doit_changer = ["public.cards"]
+
+[[cas]]
+nom = "créer une Vibe en laissant les réglages par défaut"
+qui = "charles"
+op = "card_create"
+args = { owner_id = "{{charles}}", card_type = "oneshot", front_path = "{{charles}}/o_front.jpg", encrypted = true }
+ancien = "insert into public.cards (owner_id, card_type, front_path, encrypted) values ('{{charles}}', 'oneshot', '{{charles}}/o_front.jpg', true)"
+ancien_resultat = "select to_json(c) from public.cards c where c.front_path = '{{charles}}/o_front.jpg'"
+attendu = "refuse"
+
+[[cas]]
+nom = "créer une Vibe au nom d'un autre"
+qui = "charles"
+op = "card_create"
+args = { owner_id = "{{testeur}}", front_path = "{{testeur}}/x.jpg" }
+ancien = "insert into public.cards (owner_id, front_path) values ('{{testeur}}', '{{testeur}}/x.jpg')"
+attendu = "refuse"
+
+[[cas]]
+nom = "créer une Vibe en étant suspendu"
+qui = "charles"
+op = "card_create"
+args = { owner_id = "{{charles}}", front_path = "{{charles}}/x.jpg" }
+avant = "update public.profiles set suspended_at = now() where id = '{{charles}}'"
+ancien = "insert into public.cards (owner_id, front_path) values ('{{charles}}', '{{charles}}/x.jpg')"
+attendu = "refuse"
+
+[[cas]]
+nom = "livrer ma Vibe à un ami"
+qui = "charles"
+op = "card_delivery_create"
+args = { card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc", recipient_id = "{{testeur}}" }
+ancien = "insert into public.card_deliveries (card_id, recipient_id) values ('89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc', '{{testeur}}')"
+doit_changer = ["public.card_deliveries"]
+
+[[cas]]
+nom = "livrer ma Vibe à quelqu'un qui n'est pas un ami"
+qui = "charles"
+op = "card_delivery_create"
+args = { card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc", recipient_id = "{{yanis}}" }
+ancien = "insert into public.card_deliveries (card_id, recipient_id) values ('89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc', '{{yanis}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "livrer la Vibe d'un autre"
+qui = "testeur"
+op = "card_delivery_create"
+args = { card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc", recipient_id = "{{bot01}}" }
+ancien = "insert into public.card_deliveries (card_id, recipient_id) values ('89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc', '{{bot01}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "livrer une Vibe 1/1 à un second destinataire"
+qui = "charles"
+op = "card_delivery_create"
+args = { card_id = "66666666-0000-4000-8000-000000000002", recipient_id = "{{mimi}}" }
+avant = """insert into public.cards (id, owner_id, card_type, front_path) values ('66666666-0000-4000-8000-000000000002', '{{charles}}', 'one_of_one', '{{charles}}/u.jpg');
+insert into public.card_deliveries (card_id, recipient_id) values ('66666666-0000-4000-8000-000000000002', '{{testeur}}')"""
+ancien = "insert into public.card_deliveries (card_id, recipient_id) values ('66666666-0000-4000-8000-000000000002', '{{mimi}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "les replays demandés sur ma Vibe"
+qui = "charles"
+op = "card_deliveries_pending_replay"
+args = { card_id = "8b457956-64a7-44e3-931b-dc69fbc20647" }
+avant = "update public.card_deliveries set replay_requested_at = now() where card_id = '8b457956-64a7-44e3-931b-dc69fbc20647' and recipient_id in ('00000000-0000-4000-8000-000000000077', '00000000-0000-4000-8000-000000000084')"
+ancien_resultat = "select coalesce(json_agg(d), '[]'::json) from public.card_deliveries d where d.card_id = '8b457956-64a7-44e3-931b-dc69fbc20647' and d.replay_requested_at is not null and d.replay_granted_at is null"
+sans_ordre = true
+
+[[cas]]
+nom = "les replays demandés sur la Vibe d'un autre (rien)"
+qui = "testeur"
+op = "card_deliveries_pending_replay"
+args = { card_id = "8b457956-64a7-44e3-931b-dc69fbc20647" }
+avant = "update public.card_deliveries set replay_requested_at = now() where card_id = '8b457956-64a7-44e3-931b-dc69fbc20647'"
+ancien_resultat = "select coalesce(json_agg(d), '[]'::json) from public.card_deliveries d where d.card_id = '8b457956-64a7-44e3-931b-dc69fbc20647' and d.replay_requested_at is not null and d.replay_granted_at is null"
+
+[[cas]]
+nom = "tous les replays demandés sur mes Vibes"
+qui = "charles"
+op = "card_replay_requests_mine"
+avant = "update public.card_deliveries set replay_requested_at = now() where card_id in ('8b457956-64a7-44e3-931b-dc69fbc20647', 'af9d1db5-40a8-4d79-aa40-62ef026465df')"
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(d) || jsonb_build_object('cards', to_jsonb(c))), '[]'::jsonb) from public.card_deliveries d join public.cards c on c.id = d.card_id where c.owner_id = '{{charles}}' and d.replay_requested_at is not null and d.replay_granted_at is null"
+sans_ordre = true
+
+[[cas]]
+nom = "ma livraison d'une Vibe"
+qui = "00000000-0000-4000-8000-000000000014"
+op = "card_delivery_mine"
+args = { card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df" }
+ancien_resultat = "select to_json(d) from public.card_deliveries d where d.card_id = 'af9d1db5-40a8-4d79-aa40-62ef026465df' and d.recipient_id = '00000000-0000-4000-8000-000000000014'"
+
+[[cas]]
+nom = "ma livraison d'une Vibe qu'on ne m'a pas envoyée"
+qui = "testeur"
+op = "card_delivery_mine"
+args = { card_id = "af9d1db5-40a8-4d79-aa40-62ef026465df" }
+ancien_resultat = "select to_json(d) from public.card_deliveries d where d.card_id = 'af9d1db5-40a8-4d79-aa40-62ef026465df' and d.recipient_id = '{{testeur}}'"
+
+[[cas]]
+nom = "poser mes réglages d'envoi par ami"
+qui = "charles"
+op = "friend_share_defaults_upsert"
+args = { rows = [ { owner_id = "{{charles}}", friend_id = "{{testeur}}", saveable = true, updated_at = "2026-09-27T10:00:00Z" }, { owner_id = "{{charles}}", friend_id = "{{mimi}}", saveable = false, updated_at = "2026-09-27T10:00:00Z" } ] }
+ancien = "insert into public.friend_share_defaults (owner_id, friend_id, saveable, updated_at) values ('{{charles}}', '{{testeur}}', true, '2026-09-27T10:00:00Z'), ('{{charles}}', '{{mimi}}', false, '2026-09-27T10:00:00Z') on conflict (owner_id, friend_id) do update set saveable = excluded.saveable, updated_at = excluded.updated_at"
+doit_changer = ["public.friend_share_defaults"]
+
+[[cas]]
+nom = "poser un réglage d'envoi au nom d'un autre"
+qui = "charles"
+op = "friend_share_defaults_upsert"
+args = { rows = [ { owner_id = "{{testeur}}", friend_id = "{{mimi}}", saveable = true, updated_at = "2026-09-27T10:00:00Z" } ] }
+ancien = "insert into public.friend_share_defaults (owner_id, friend_id, saveable, updated_at) values ('{{testeur}}', '{{mimi}}', true, '2026-09-27T10:00:00Z') on conflict (owner_id, friend_id) do update set saveable = excluded.saveable, updated_at = excluded.updated_at"
+attendu = "refuse"
+
+[[cas]]
+nom = "lire mes réglages d'envoi par ami"
+qui = "charles"
+op = "friend_share_defaults_list"
+ancien_resultat = "select coalesce(json_agg(json_build_object('friend_id', friend_id, 'saveable', saveable)), '[]'::json) from public.friend_share_defaults"
+sans_ordre = true
+
+[[cas]]
+nom = "retirer un réglage d'envoi"
+qui = "charles"
+op = "friend_share_default_delete"
+args = { friend_id = "{{testeur}}" }
+avant = "insert into public.friend_share_defaults (owner_id, friend_id, saveable) values ('{{charles}}', '{{testeur}}', true) on conflict (owner_id, friend_id) do nothing"
+ancien = "delete from public.friend_share_defaults where owner_id = '{{charles}}' and friend_id = '{{testeur}}'"
+doit_changer = ["public.friend_share_defaults"]
+
+# ─── Les contenus ────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "la clé de ma publication"
+qui = "charles"
+rpc = "open_content_media"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+
+[[cas]]
+nom = "la clé d'une publication que je peux voir"
+qui = "testeur"
+rpc = "open_content_media"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+
+[[cas]]
+nom = "la clé d'une publication qui m'est cachée"
+qui = "yanis"
+rpc = "open_content_media"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+attendu = "refuse"
+
+[[cas]]
+nom = "noter une vue"
+qui = "testeur"
+rpc = "record_content_view"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+doit_changer = ["public.content_views"]
+
+[[cas]]
+nom = "noter une seconde vue"
+qui = "testeur"
+rpc = "record_content_view"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+avant = "insert into public.content_views (content_id, viewer_id, first_viewed_at) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}', now() - interval '1 hour') on conflict do nothing"
+doit_changer = ["public.content_views"]
+
+[[cas]]
+nom = "noter une vue de ma propre publication (rien ne change)"
+qui = "charles"
+rpc = "record_content_view"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+
+[[cas]]
+nom = "noter une vue d'une publication cachée"
+qui = "yanis"
+rpc = "record_content_view"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+attendu = "refuse"
+
+[[cas]]
+nom = "qui a vu ma publication"
+qui = "charles"
+rpc = "content_viewers"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+avant = "insert into public.content_views (content_id, viewer_id) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}'), ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{yanis}}'), ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{mimi}}') on conflict do nothing"
+sans_ordre = true
+
+[[cas]]
+nom = "combien ont vu ma publication"
+qui = "charles"
+rpc = "content_viewer_count"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+avant = "insert into public.content_views (content_id, viewer_id) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}'), ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{yanis}}') on conflict do nothing"
+
+[[cas]]
+nom = "qui a vu la publication d'un autre (rien)"
+qui = "testeur"
+rpc = "content_viewers"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+avant = "insert into public.content_views (content_id, viewer_id) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{mimi}}') on conflict do nothing"
+
+[[cas]]
+nom = "aimer une publication"
+qui = "testeur"
+rpc = "toggle_like"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+doit_changer = ["public.content_likes"]
+
+[[cas]]
+nom = "ne plus aimer une publication"
+qui = "testeur"
+rpc = "toggle_like"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+avant = "insert into public.content_likes (content_id, user_id) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}')"
+doit_changer = ["public.content_likes"]
+
+[[cas]]
+nom = "aimer une publication cachée"
+qui = "yanis"
+rpc = "toggle_like"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+attendu = "refuse"
+
+[[cas]]
+nom = "retirer mon like d'une publication qui m'est devenue cachée"
+qui = "charles"
+rpc = "toggle_like"
+args = { p_content_id = "07a67541-95c2-4219-90a3-6f2a2f5936b2" }
+attendu = "refuse"
+
+[[cas]]
+nom = "aimer en étant suspendu"
+qui = "testeur"
+rpc = "toggle_like"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+avant = "update public.profiles set suspended_at = now() where id = '{{testeur}}'"
+attendu = "refuse"
+
+[[cas]]
+nom = "qui a aimé une publication"
+qui = "testeur"
+rpc = "content_likers"
+args = { p_content_id = "2e3ebac7-820a-4329-84dd-d8f4c0cb633a" }
+
+[[cas]]
+nom = "qui a aimé une publication cachée"
+qui = "yanis"
+rpc = "content_likers"
+args = { p_content_id = "2e3ebac7-820a-4329-84dd-d8f4c0cb633a" }
+
+[[cas]]
+nom = "le résumé des likes de plusieurs contenus"
+qui = "testeur"
+rpc = "content_likes_summary"
+args = { p_ids = ["2e3ebac7-820a-4329-84dd-d8f4c0cb633a", "07a67541-95c2-4219-90a3-6f2a2f5936b2", "59a3046f-a9f3-40dd-8b12-9a1b19dd147e", "99999999-9999-4999-8999-999999999999"] }
+avant = "insert into public.content_likes (content_id, user_id) values ('59a3046f-a9f3-40dd-8b12-9a1b19dd147e', '{{testeur}}')"
+
+[[cas]]
+nom = "partager une publication dans une conversation"
+qui = "charles"
+rpc = "share_content"
+args = { p_content_id = "26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9", p_conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64" }
+doit_changer = ["public.content_grants", "public.messages"]
+
+[[cas]]
+nom = "partager une publication non partageable"
+qui = "charles"
+rpc = "share_content"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e", p_conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64" }
+attendu = "refuse"
+
+[[cas]]
+nom = "partager dans une conversation dont je ne suis pas membre"
+qui = "testeur"
+rpc = "share_content"
+args = { p_content_id = "26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9", p_conversation_id = "35fad5e5-6d8c-47ac-8fd4-f47db67f4b78" }
+attendu = "refuse"
+
+[[cas]]
+nom = "partager une publication retirée"
+qui = "charles"
+rpc = "share_content"
+args = { p_content_id = "26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9", p_conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64" }
+avant = "update public.contents set revoked_at = now() where id = '26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9'"
+attendu = "refuse"
+
+[[cas]]
+nom = "partager une publication à quelqu'un qui m'a bloqué"
+qui = "charles"
+rpc = "share_content"
+args = { p_content_id = "26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9", p_conversation_id = "ce573f65-3b61-4df1-995c-3cefc5620c64" }
+avant = "insert into public.blocks (blocker_id, blocked_id) values ('{{testeur}}', '{{charles}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "les contenus retirés parmi une liste"
+qui = "testeur"
+rpc = "revoked_contents"
+args = { p_ids = ["26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9", "59a3046f-a9f3-40dd-8b12-9a1b19dd147e"] }
+avant = "update public.contents set revoked_at = now() where id = '26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9'"
+
+[[cas]]
+nom = "les clés d'une bibliothèque"
+qui = "testeur"
+rpc = "library_media_keys"
+args = { p_owner_id = "{{charles}}" }
+sans_ordre = true
+
+[[cas]]
+nom = "les clés d'une bibliothèque cachée"
+qui = "yanis"
+rpc = "library_media_keys"
+args = { p_owner_id = "{{charles}}" }
+
+[[cas]]
+nom = "ce que permet un contenu"
+qui = "testeur"
+op = "content_flags"
+args = { id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+ancien_resultat = "select to_json(t) from (select context, shareable, saveable from public.contents where id = '59a3046f-a9f3-40dd-8b12-9a1b19dd147e') t"
+
+[[cas]]
+nom = "ce que permet un contenu caché"
+qui = "yanis"
+op = "content_flags"
+args = { id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+ancien_resultat = "select to_json(t) from (select context, shareable, saveable from public.contents where id = '59a3046f-a9f3-40dd-8b12-9a1b19dd147e') t"
+
+[[cas]]
+nom = "supprimer ma publication"
+qui = "charles"
+op = "content_delete"
+args = { id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+ancien = "delete from public.contents where id = '59a3046f-a9f3-40dd-8b12-9a1b19dd147e'"
+doit_changer = ["public.contents", "public.library_items", "public.library_media"]
+
+[[cas]]
+nom = "supprimer la publication d'un autre (rien ne change)"
+qui = "testeur"
+op = "content_delete"
+args = { id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+ancien = "delete from public.contents where id = '59a3046f-a9f3-40dd-8b12-9a1b19dd147e'"
+
+[[cas]]
+nom = "noter le lieu de prise"
+qui = "charles"
+op = "capture_place_record"
+args = { object_id = "66666666-0000-4000-8000-000000000003", owner_id = "{{charles}}", taken_at = "2026-09-27T10:00:00Z", lat = 48.85, lon = 2.35 }
+ancien = "insert into public.capture_places (object_id, owner_id, taken_at, lat, lon) values ('66666666-0000-4000-8000-000000000003', '{{charles}}', '2026-09-27T10:00:00Z', 48.85, 2.35) on conflict (object_id) do update set owner_id = excluded.owner_id, taken_at = excluded.taken_at, lat = excluded.lat, lon = excluded.lon"
+doit_changer = ["public.capture_places"]
+
+[[cas]]
+nom = "noter deux fois le lieu de prise du même objet"
+qui = "charles"
+op = "capture_place_record"
+args = { object_id = "66666666-0000-4000-8000-000000000003", owner_id = "{{charles}}", taken_at = "2026-09-27T10:00:00Z", lat = 48.85, lon = 2.35 }
+avant = "insert into public.capture_places (object_id, owner_id, taken_at) values ('66666666-0000-4000-8000-000000000003', '{{charles}}', now())"
+ancien = "insert into public.capture_places (object_id, owner_id, taken_at, lat, lon) values ('66666666-0000-4000-8000-000000000003', '{{charles}}', '2026-09-27T10:00:00Z', 48.85, 2.35) on conflict (object_id) do update set owner_id = excluded.owner_id, taken_at = excluded.taken_at, lat = excluded.lat, lon = excluded.lon"
+attendu = "refuse"
+
+[[cas]]
+nom = "noter le lieu de prise d'un objet au nom d'un autre"
+qui = "charles"
+op = "capture_place_record"
+args = { object_id = "66666666-0000-4000-8000-000000000003", owner_id = "{{testeur}}", taken_at = "2026-09-27T10:00:00Z" }
+ancien = "insert into public.capture_places (object_id, owner_id, taken_at) values ('66666666-0000-4000-8000-000000000003', '{{testeur}}', '2026-09-27T10:00:00Z') on conflict (object_id) do update set owner_id = excluded.owner_id, taken_at = excluded.taken_at"
+attendu = "refuse"
+
+[[cas]]
+nom = "lire le lieu de prise de mon objet"
+qui = "charles"
+op = "capture_place_get"
+args = { object_id = "66666666-0000-4000-8000-000000000003" }
+avant = "insert into public.capture_places (object_id, owner_id, taken_at, lat, lon) values ('66666666-0000-4000-8000-000000000003', '{{charles}}', now(), 48.85, 2.35)"
+ancien_resultat = "select to_json(c) from public.capture_places c where c.object_id = '66666666-0000-4000-8000-000000000003'"
+
+[[cas]]
+nom = "lire le lieu de prise de l'objet d'un autre"
+qui = "testeur"
+op = "capture_place_get"
+args = { object_id = "66666666-0000-4000-8000-000000000003" }
+avant = "insert into public.capture_places (object_id, owner_id, taken_at) values ('66666666-0000-4000-8000-000000000003', '{{charles}}', now())"
+ancien_resultat = "select to_json(c) from public.capture_places c where c.object_id = '66666666-0000-4000-8000-000000000003'"
+
+# ─── Le Drop ─────────────────────────────────────────────────────────────
+
+[[cas]]
+nom = "déposer une Vibe dans le Drop d'une conversation"
+qui = "charles"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000010", p_conversation_id = "35fad5e5-6d8c-47ac-8fd4-f47db67f4b78", p_placeholder_path = "{{charles}}/ph.jpg", p_sealed_path = "{{charles}}/se.bin", p_media_key = "k", p_card_type = "standard", p_front_is_video = false, p_back_is_video = false, p_saveable_by_others = true, p_ephemeral = false, p_title = "  Un titre  ", p_camera_only = true }
+doit_changer = ["public.library_vibes", "public.library_vibe_keys", "public.messages"]
+
+[[cas]]
+nom = "déposer au Drop avec seulement l'essentiel (valeurs par défaut)"
+qui = "charles"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000010", p_conversation_id = "35fad5e5-6d8c-47ac-8fd4-f47db67f4b78", p_placeholder_path = "{{charles}}/ph.jpg", p_sealed_path = "{{charles}}/se.bin", p_media_key = "k", p_camera_only = true }
+doit_changer = ["public.library_vibes", "public.library_vibe_keys", "public.messages"]
+
+[[cas]]
+nom = "déposer au Drop une Vibe importée"
+qui = "charles"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000010", p_conversation_id = "35fad5e5-6d8c-47ac-8fd4-f47db67f4b78", p_placeholder_path = "{{charles}}/ph.jpg", p_sealed_path = "{{charles}}/se.bin", p_media_key = "k", p_camera_only = false }
+attendu = "refuse"
+
+[[cas]]
+nom = "déposer au Drop une Vibe BeReal"
+qui = "charles"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000010", p_conversation_id = "35fad5e5-6d8c-47ac-8fd4-f47db67f4b78", p_placeholder_path = "{{charles}}/ph.jpg", p_sealed_path = "{{charles}}/se.bin", p_media_key = "k", p_card_type = "bereal", p_camera_only = true }
+attendu = "refuse"
+
+[[cas]]
+nom = "déposer au Drop avec un titre trop long"
+qui = "charles"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000010", p_conversation_id = "35fad5e5-6d8c-47ac-8fd4-f47db67f4b78", p_placeholder_path = "{{charles}}/ph.jpg", p_sealed_path = "{{charles}}/se.bin", p_media_key = "k", p_title = "0123456789012345678901234567890123456789012345678901234567890", p_camera_only = true }
+attendu = "refuse"
+
+[[cas]]
+nom = "déposer au Drop d'une conversation dont je ne suis pas membre"
+qui = "testeur"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000010", p_conversation_id = "35fad5e5-6d8c-47ac-8fd4-f47db67f4b78", p_placeholder_path = "{{testeur}}/ph.jpg", p_sealed_path = "{{testeur}}/se.bin", p_media_key = "k", p_camera_only = true }
+attendu = "refuse"
+
+[[cas]]
+nom = "déposer un défi hors d'une soirée"
+qui = "charles"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000010", p_conversation_id = "35fad5e5-6d8c-47ac-8fd4-f47db67f4b78", p_placeholder_path = "{{charles}}/ph.jpg", p_sealed_path = "{{charles}}/se.bin", p_media_key = "k", p_challenge_id = "99999999-9999-4999-8999-999999999999", p_camera_only = true }
+attendu = "refuse"
+
+[[cas]]
+nom = "déposer au Drop en étant suspendu"
+qui = "charles"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000010", p_conversation_id = "35fad5e5-6d8c-47ac-8fd4-f47db67f4b78", p_placeholder_path = "{{charles}}/ph.jpg", p_sealed_path = "{{charles}}/se.bin", p_media_key = "k", p_camera_only = true }
+avant = "update public.profiles set suspended_at = now() where id = '{{charles}}'"
+attendu = "refuse"
+
+[[cas]]
+nom = "déposer au Drop d'une soirée où je suis"
+qui = "mimi"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000012", p_conversation_id = "6a69f92a-326c-48a0-a9a6-f2c2bc6b1ac1", p_placeholder_path = "{{mimi}}/ph.jpg", p_sealed_path = "{{mimi}}/se.bin", p_media_key = "k", p_ephemeral = true, p_saveable_by_others = true, p_camera_only = true }
+doit_changer = ["public.library_vibes", "public.library_vibe_keys", "public.messages"]
+
+[[cas]]
+nom = "déposer au Drop d'une soirée que j'ai quittée"
+qui = "jay2"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000012", p_conversation_id = "6a69f92a-326c-48a0-a9a6-f2c2bc6b1ac1", p_placeholder_path = "{{jay2}}/ph.jpg", p_sealed_path = "{{jay2}}/se.bin", p_media_key = "k", p_camera_only = true }
+attendu = "refuse"
+
+[[cas]]
+nom = "déposer au Drop d'une soirée terminée"
+qui = "charles"
+rpc = "add_vibe_to_library"
+args = { p_id = "66666666-0000-4000-8000-000000000012", p_conversation_id = "2673ff29-a7ce-4899-a917-15c909c3cc2c", p_placeholder_path = "{{charles}}/ph.jpg", p_sealed_path = "{{charles}}/se.bin", p_media_key = "k", p_camera_only = true }
+attendu = "refuse"
+
+[[cas]]
+nom = "la clé d'une Vibe révélée du Drop"
+qui = "charles"
+rpc = "get_library_vibe_key"
+args = { p_vibe_id = "1c9a8aab-76ba-4d3b-bfd7-897911da52ee" }
+
+[[cas]]
+nom = "la clé d'une Vibe d'un Drop dont je ne suis pas"
+qui = "testeur"
+rpc = "get_library_vibe_key"
+args = { p_vibe_id = "1c9a8aab-76ba-4d3b-bfd7-897911da52ee" }
+attendu = "refuse"
+
+[[cas]]
+nom = "la clé d'une Vibe pas encore révélée"
+qui = "charles"
+rpc = "get_library_vibe_key"
+args = { p_vibe_id = "1c9a8aab-76ba-4d3b-bfd7-897911da52ee" }
+avant = "update public.library_vibes set reveal_at = now() + interval '1 hour' where id = '1c9a8aab-76ba-4d3b-bfd7-897911da52ee'"
+attendu = "refuse"
+
+[[cas]]
+nom = "toutes les clés d'un Drop"
+qui = "charles"
+rpc = "drop_keys"
+args = { p_conversation_id = "2673ff29-a7ce-4899-a917-15c909c3cc2c" }
+sans_ordre = true
+
+[[cas]]
+nom = "toutes les clés d'un Drop dont je ne suis pas"
+qui = "testeur"
+rpc = "drop_keys"
+args = { p_conversation_id = "2673ff29-a7ce-4899-a917-15c909c3cc2c" }
+
+[[cas]]
+nom = "modifier ma Vibe du Drop d'une soirée"
+qui = "charles"
+rpc = "update_drop_vibe"
+args = { p_vibe_id = "1c9a8aab-76ba-4d3b-bfd7-897911da52ee", p_title = " Nouveau ", p_saveable_by_others = true, p_ephemeral = true }
+doit_changer = ["public.library_vibes"]
+
+[[cas]]
+nom = "modifier ma Vibe du Drop d'une conversation"
+qui = "charles"
+rpc = "update_drop_vibe"
+args = { p_vibe_id = "66666666-0000-4000-8000-000000000013", p_title = "", p_saveable_by_others = false, p_ephemeral = true }
+avant = "insert into public.library_vibes (id, conversation_id, author_id, reveal_at, placeholder_path, sealed_path, saveable_by_others) values ('66666666-0000-4000-8000-000000000013', '35fad5e5-6d8c-47ac-8fd4-f47db67f4b78', '{{charles}}', now(), '{{charles}}/p.jpg', '{{charles}}/s.bin', true)"
+doit_changer = ["public.library_vibes"]
+
+[[cas]]
+nom = "modifier la Vibe du Drop d'un autre"
+qui = "testeur"
+rpc = "update_drop_vibe"
+args = { p_vibe_id = "1c9a8aab-76ba-4d3b-bfd7-897911da52ee", p_title = "x", p_saveable_by_others = true, p_ephemeral = false }
+attendu = "refuse"
+
+[[cas]]
+nom = "modifier ma Vibe du Drop avec un titre trop long"
+qui = "charles"
+rpc = "update_drop_vibe"
+args = { p_vibe_id = "1c9a8aab-76ba-4d3b-bfd7-897911da52ee", p_title = "0123456789012345678901234567890123456789012345678901234567890", p_saveable_by_others = true, p_ephemeral = false }
+attendu = "refuse"
+
+[[cas]]
+nom = "retirer ma Vibe du Drop"
+qui = "charles"
+rpc = "delete_drop_vibe"
+args = { p_vibe_id = "1c9a8aab-76ba-4d3b-bfd7-897911da52ee" }
+doit_changer = ["public.library_vibes", "public.removals"]
+
+[[cas]]
+nom = "l'organisatrice retire la Vibe d'un autre"
+qui = "mimi"
+rpc = "delete_drop_vibe"
+args = { p_vibe_id = "66666666-0000-4000-8000-000000000011" }
+avant = "insert into public.library_vibes (id, conversation_id, author_id, reveal_at, placeholder_path, sealed_path) values ('66666666-0000-4000-8000-000000000011', '6a69f92a-326c-48a0-a9a6-f2c2bc6b1ac1', '{{jay2}}', now(), '{{jay2}}/p.jpg', '{{jay2}}/s.bin')"
+doit_changer = ["public.library_vibes"]
+
+[[cas]]
+nom = "retirer la Vibe du Drop d'un autre"
+qui = "charles"
+rpc = "delete_drop_vibe"
+args = { p_vibe_id = "66666666-0000-4000-8000-000000000011" }
+avant = "insert into public.library_vibes (id, conversation_id, author_id, reveal_at, placeholder_path, sealed_path) values ('66666666-0000-4000-8000-000000000011', '6a69f92a-326c-48a0-a9a6-f2c2bc6b1ac1', '{{jay2}}', now(), '{{jay2}}/p.jpg', '{{jay2}}/s.bin')"
+attendu = "refuse"
+
+[[cas]]
+nom = "masquer une Vibe du Drop"
+qui = "charles"
+rpc = "hide_drop_vibe"
+args = { p_vibe_id = "7d808847-dc0c-4a2b-b330-7805342377c5" }
+doit_changer = ["public.library_vibe_hidden"]
+
+[[cas]]
+nom = "masquer une Vibe d'un Drop dont je ne suis pas"
+qui = "testeur"
+rpc = "hide_drop_vibe"
+args = { p_vibe_id = "7d808847-dc0c-4a2b-b330-7805342377c5" }
+attendu = "refuse"
+
+[[cas]]
+nom = "les Vibes d'un Drop, sauf celles que j'ai masquées"
+qui = "charles"
+op = "library_vibes_list"
+args = { conversation_id = "2673ff29-a7ce-4899-a917-15c909c3cc2c" }
+avant = "insert into public.library_vibe_hidden (user_id, vibe_id) values ('{{charles}}', '7d808847-dc0c-4a2b-b330-7805342377c5')"
+ancien_resultat = "select coalesce(json_agg(v order by v.reveal_at desc), '[]'::json) from public.library_vibes v where v.conversation_id = '2673ff29-a7ce-4899-a917-15c909c3cc2c'"
+sans_ordre = true
+
+[[cas]]
+nom = "les Vibes d'un Drop dont je ne suis pas"
+qui = "testeur"
+op = "library_vibes_list"
+args = { conversation_id = "2673ff29-a7ce-4899-a917-15c909c3cc2c" }
+ancien_resultat = "select coalesce(json_agg(v order by v.reveal_at desc), '[]'::json) from public.library_vibes v where v.conversation_id = '2673ff29-a7ce-4899-a917-15c909c3cc2c'"
+
+# ─── Publier et relire ───────────────────────────────────────────────────
+
+[[cas]]
+nom = "publier une story"
+qui = "charles"
+rpc = "publish_story"
+args = { p_story_id = "66666666-0000-4000-8000-000000000020", p_card_type = "standard", p_front_path = "{{charles}}/s_f.jpg", p_back_path = "{{charles}}/s_b.jpg", p_front_is_video = false, p_back_is_video = false, p_shareable = true, p_media_key = "k", p_saveable = false, p_min_tier = "close" }
+doit_changer = ["public.contents", "public.stories", "public.content_media_keys"]
+
+[[cas]]
+nom = "publier une story avec les valeurs par défaut"
+qui = "charles"
+rpc = "publish_story"
+args = { p_story_id = "66666666-0000-4000-8000-000000000020", p_card_type = "oneshot", p_front_path = "{{charles}}/s_f.jpg", p_back_path = "{{charles}}/s_b.mp4", p_front_is_video = true, p_back_is_video = true, p_shareable = false, p_media_key = "k" }
+doit_changer = ["public.contents", "public.stories", "public.content_media_keys"]
+
+[[cas]]
+nom = "publier une story en étant suspendu"
+qui = "charles"
+rpc = "publish_story"
+args = { p_story_id = "66666666-0000-4000-8000-000000000020", p_card_type = "standard", p_front_path = "{{charles}}/s_f.jpg", p_front_is_video = false, p_shareable = true, p_media_key = "k" }
+avant = "update public.profiles set suspended_at = now() where id = '{{charles}}'"
+attendu = "refuse"
+
+[[cas]]
+nom = "publier une Vibe dans ma bibliothèque (photo + vidéo, localisée)"
+qui = "charles"
+rpc = "publish_to_library"
+args = { p_item_id = "66666666-0000-4000-8000-000000000021", p_kind = "card", p_card_type = "standard", p_media = [ { path = "{{charles}}/a.jpg", is_video = false, width = 1080, height = 1920 }, { path = "{{charles}}/b.mp4", is_video = true, duration_ms = 30000, poster_path = "{{charles}}/b.jpg", width = 1080, height = 1920 } ], p_caption = "Salut", p_is_public = true, p_shareable = true, p_saveable = false, p_media_key = "k", p_anchor_lat = 48.8566, p_anchor_lng = 2.3522 }
+doit_changer = ["public.contents", "public.library_items", "public.library_media", "public.content_media_keys"]
+
+[[cas]]
+nom = "publier une photo : durée et couverture ignorées"
+qui = "charles"
+rpc = "publish_to_library"
+args = { p_item_id = "66666666-0000-4000-8000-000000000021", p_kind = "card", p_card_type = "oneshot", p_media = [ { path = "{{charles}}/a.jpg", is_video = false, duration_ms = 5000, poster_path = "{{charles}}/c.jpg" } ], p_caption = "", p_is_public = false, p_shareable = false, p_saveable = true, p_media_key = "k", p_aspect_w = 9, p_aspect_h = 16 }
+doit_changer = ["public.contents", "public.library_items", "public.library_media", "public.content_media_keys"]
+
+[[cas]]
+nom = "publier avec un chemin hors de mon dossier"
+qui = "charles"
+rpc = "publish_to_library"
+args = { p_item_id = "66666666-0000-4000-8000-000000000021", p_kind = "card", p_card_type = "standard", p_media = [ { path = "{{testeur}}/a.jpg" } ], p_caption = "", p_is_public = true, p_shareable = true, p_saveable = false, p_media_key = "k" }
+attendu = "refuse"
+
+[[cas]]
+nom = "publier avec une couverture hors de mon dossier"
+qui = "charles"
+rpc = "publish_to_library"
+args = { p_item_id = "66666666-0000-4000-8000-000000000021", p_kind = "card", p_card_type = "standard", p_media = [ { path = "{{charles}}/a.mp4", is_video = true, poster_path = "{{testeur}}/c.jpg" } ], p_caption = "", p_is_public = true, p_shareable = true, p_saveable = false, p_media_key = "k" }
+attendu = "refuse"
+
+[[cas]]
+nom = "publier une Vibe à trois faces"
+qui = "charles"
+rpc = "publish_to_library"
+args = { p_item_id = "66666666-0000-4000-8000-000000000021", p_kind = "card", p_card_type = "standard", p_media = [ { path = "{{charles}}/a.jpg" }, { path = "{{charles}}/b.jpg" }, { path = "{{charles}}/c.jpg" } ], p_caption = "", p_is_public = true, p_shareable = true, p_saveable = false, p_media_key = "k" }
+attendu = "refuse"
+
+[[cas]]
+nom = "publier une vidéo de plus d'une minute"
+qui = "charles"
+rpc = "publish_to_library"
+args = { p_item_id = "66666666-0000-4000-8000-000000000021", p_kind = "card", p_card_type = "standard", p_media = [ { path = "{{charles}}/a.mp4", is_video = true, duration_ms = 61000 } ], p_caption = "", p_is_public = true, p_shareable = true, p_saveable = false, p_media_key = "k" }
+attendu = "refuse"
+
+[[cas]]
+nom = "publier sans liste de médias"
+qui = "charles"
+rpc = "publish_to_library"
+args = { p_item_id = "66666666-0000-4000-8000-000000000021", p_kind = "card", p_card_type = "standard", p_media = "pas une liste", p_caption = "", p_is_public = true, p_shareable = true, p_saveable = false, p_media_key = "k" }
+attendu = "refuse"
+
+[[cas]]
+nom = "publier un chemin sans dossier (accepté, comme avant)"
+qui = "charles"
+rpc = "publish_to_library"
+args = { p_item_id = "66666666-0000-4000-8000-000000000021", p_kind = "card", p_card_type = "standard", p_media = [ { path = "a.jpg" } ], p_caption = "", p_is_public = true, p_shareable = true, p_saveable = false, p_media_key = "k" }
+doit_changer = ["public.library_media"]
+
+[[cas]]
+nom = "publier dans ma bibliothèque en étant suspendu"
+qui = "charles"
+rpc = "publish_to_library"
+args = { p_item_id = "66666666-0000-4000-8000-000000000021", p_kind = "card", p_card_type = "standard", p_media = [ { path = "{{charles}}/a.jpg" } ], p_caption = "", p_is_public = true, p_shareable = true, p_saveable = false, p_media_key = "k" }
+avant = "update public.profiles set suspended_at = now() where id = '{{charles}}'"
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir ma bibliothèque à un ami"
+qui = "charles"
+op = "library_access_grant"
+args = { grantee_id = "{{mimi}}" }
+ancien = "insert into public.library_access (owner_id, grantee_id) values ('{{charles}}', '{{mimi}}')"
+doit_changer = ["public.library_access"]
+
+[[cas]]
+nom = "ouvrir ma bibliothèque à quelqu'un qui n'est pas un ami"
+qui = "charles"
+op = "library_access_grant"
+args = { grantee_id = "{{yanis}}" }
+ancien = "insert into public.library_access (owner_id, grantee_id) values ('{{charles}}', '{{yanis}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "ouvrir deux fois ma bibliothèque au même ami"
+qui = "charles"
+op = "library_access_grant"
+args = { grantee_id = "{{mimi}}" }
+avant = "insert into public.library_access (owner_id, grantee_id) values ('{{charles}}', '{{mimi}}')"
+ancien = "insert into public.library_access (owner_id, grantee_id) values ('{{charles}}', '{{mimi}}')"
+attendu = "refuse"
+
+[[cas]]
+nom = "ceux qui voient ma bibliothèque"
+qui = "charles"
+op = "library_access_list"
+avant = "insert into public.library_access (owner_id, grantee_id) values ('{{charles}}', '{{mimi}}'), ('{{charles}}', '{{testeur}}'), ('{{testeur}}', '{{charles}}')"
+ancien_resultat = "select coalesce(json_agg(json_build_object('grantee_id', grantee_id)), '[]'::json) from public.library_access where owner_id = '{{charles}}'"
+sans_ordre = true
+
+[[cas]]
+nom = "refermer ma bibliothèque"
+qui = "charles"
+op = "library_access_revoke"
+args = { grantee_id = "{{mimi}}" }
+avant = "insert into public.library_access (owner_id, grantee_id) values ('{{charles}}', '{{mimi}}')"
+ancien = "delete from public.library_access where owner_id = '{{charles}}' and grantee_id = '{{mimi}}'"
+doit_changer = ["public.library_access"]
+
+[[cas]]
+nom = "lire une publication visible"
+qui = "testeur"
+op = "library_item_get"
+args = { id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+ancien_resultat = "select to_jsonb(li) || jsonb_build_object('library_media', coalesce((select jsonb_agg(to_jsonb(m) order by m.slot) from public.library_media m where m.item_id = li.id), '[]'::jsonb)) from public.library_items li where li.id = '59a3046f-a9f3-40dd-8b12-9a1b19dd147e'"
+
+[[cas]]
+nom = "lire une publication cachée"
+qui = "yanis"
+op = "library_item_get"
+args = { id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e" }
+ancien_resultat = "select to_jsonb(li) || jsonb_build_object('library_media', coalesce((select jsonb_agg(to_jsonb(m) order by m.slot) from public.library_media m where m.item_id = li.id), '[]'::jsonb)) from public.library_items li where li.id = '59a3046f-a9f3-40dd-8b12-9a1b19dd147e'"
+
+[[cas]]
+nom = "la bibliothèque d'un ami"
+qui = "testeur"
+op = "library_items_of"
+args = { owner_id = "{{charles}}" }
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li) || jsonb_build_object('contents', (select jsonb_build_object('shareable', c.shareable, 'saveable', c.saveable) from public.contents c where c.id = li.id), 'library_media', coalesce((select jsonb_agg(to_jsonb(m) order by m.slot) from public.library_media m where m.item_id = li.id), '[]'::jsonb)) order by li.created_at desc), '[]'::jsonb) from public.library_items li where li.owner_id = '{{charles}}' and li.kind = 'card'"
+
+[[cas]]
+nom = "ma bibliothèque (y compris ce qui n'est pas public)"
+qui = "charles"
+op = "library_items_of"
+args = { owner_id = "{{charles}}" }
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li) || jsonb_build_object('contents', (select jsonb_build_object('shareable', c.shareable, 'saveable', c.saveable) from public.contents c where c.id = li.id), 'library_media', coalesce((select jsonb_agg(to_jsonb(m) order by m.slot) from public.library_media m where m.item_id = li.id), '[]'::jsonb)) order by li.created_at desc), '[]'::jsonb) from public.library_items li where li.owner_id = '{{charles}}' and li.kind = 'card'"
+
+[[cas]]
+nom = "la bibliothèque d'un inconnu"
+qui = "yanis"
+op = "library_items_of"
+args = { owner_id = "{{charles}}" }
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li) order by li.created_at desc), '[]'::jsonb) from public.library_items li where li.owner_id = '{{charles}}' and li.kind = 'card'"
+
+[[cas]]
+nom = "les stories que je peux voir"
+qui = "charles"
+op = "stories_list"
+avant = """insert into public.contents (id, owner_id, context, shareable, saveable) values ('77777777-0000-4000-8000-000000000001', '{{testeur}}', 'story', true, false), ('77777777-0000-4000-8000-000000000002', '{{yanis}}', 'story', false, false), ('77777777-0000-4000-8000-000000000003', '{{mimi}}', 'story', false, true);
+insert into public.stories (id, owner_id, card_type, front_path, created_at) values ('77777777-0000-4000-8000-000000000001', '{{testeur}}', 'standard', '{{testeur}}/s.jpg', now() - interval '2 hours'), ('77777777-0000-4000-8000-000000000002', '{{yanis}}', 'standard', '{{yanis}}/s.jpg', now() - interval '1 hour'), ('77777777-0000-4000-8000-000000000003', '{{mimi}}', 'oneshot', '{{mimi}}/s.jpg', now() - interval '3 hours')"""
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(s) || jsonb_build_object('contents', (select jsonb_build_object('shareable', c.shareable, 'saveable', c.saveable) from public.contents c where c.id = s.id), 'profiles', (select to_jsonb(p) from public.profiles p where p.id = s.owner_id)) order by s.created_at), '[]'::jsonb) from public.stories s where s.expires_at > now()"
+
+[[cas]]
+nom = "lire une story visible"
+qui = "charles"
+op = "story_get"
+args = { id = "77777777-0000-4000-8000-000000000001" }
+avant = """insert into public.contents (id, owner_id, context, shareable, saveable) values ('77777777-0000-4000-8000-000000000001', '{{testeur}}', 'story', true, false);
+insert into public.stories (id, owner_id, card_type, front_path) values ('77777777-0000-4000-8000-000000000001', '{{testeur}}', 'standard', '{{testeur}}/s.jpg')"""
+ancien_resultat = "select to_jsonb(s) || jsonb_build_object('profiles', (select to_jsonb(p) from public.profiles p where p.id = s.owner_id)) from public.stories s where s.id = '77777777-0000-4000-8000-000000000001'"
+
+[[cas]]
+nom = "lire une story cachée"
+qui = "yanis"
+op = "story_get"
+args = { id = "77777777-0000-4000-8000-000000000001" }
+avant = """insert into public.contents (id, owner_id, context, shareable, saveable) values ('77777777-0000-4000-8000-000000000001', '{{testeur}}', 'story', true, false);
+insert into public.stories (id, owner_id, card_type, front_path) values ('77777777-0000-4000-8000-000000000001', '{{testeur}}', 'standard', '{{testeur}}/s.jpg')"""
+ancien_resultat = "select to_jsonb(s) || jsonb_build_object('profiles', (select to_jsonb(p) from public.profiles p where p.id = s.owner_id)) from public.stories s where s.id = '77777777-0000-4000-8000-000000000001'"

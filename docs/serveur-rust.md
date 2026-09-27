@@ -205,7 +205,7 @@ existante**. La plateforme complète vient ensuite.
 | 3. Le direct | ✅ 2026-09-27 — `GET /v1/direct` (WebSocket : badge, abonnements `table:colonne=valeur`, diffusions `typing:…`, renouvellement du badge sans coupure) ; la base ANNONCE chaque changement des 10 tables suivies (`nv.annoncer`, canal `nv_direct` : tous les chemins y passent, cascades et balais compris) ; chaque ligne passe la règle de lecture de sa table (`nv-app/src/direct.rs`) ; `direct_instantane` (l'état à l'abonnement) — 15 situations identiques ; essai de bout en bout `outils/essai_direct.mjs` (deux comptes, message, « en train d'écrire », refus d'un non-membre, badge renouvelé) ✅. Écart voulu : « en train d'écrire » réservé aux membres de la conversation (avant : tout compte connaissant l'identifiant) |
 | 4. Relations et proximité | ✅ 2026-09-27 — les 16 opérations (ping, croisements, demandes d'ami, blocages, recommandations, paliers) et 9 gestes directs de l'app (`device_key_upsert`, `key_book_list`, `connection_delete`, `connection_requests_history`, `recommendations_list`, `recommendation_create`, `blocks_list`, `waves_list`, `wave_insert`) ; déclencheurs traduits (`on_ping_pair_born`, `oublie_ce_qui_derivait_du_lien`) ; balais `balai_ping`, `balai_vues`, `paliers` — 58 situations identiques. **Défaut de l'ancien serveur trouvé et réparé** (voir le journal) |
 | 5. Conversations | ✅ 2026-09-27 — **le passage obligé de tout message** (`conversations/messages.rs`, ex-`enforce_message_rules`) ; 6 opérations (groupe, conversation directe, canal de proximité, masquer, vocal envoyé / écouté) et 15 gestes directs (liste et détail des conversations avec leurs membres, titre, membres, envoi, dernier message, lus, participation, catégories) ; balais `balai_general` (ex-`neovibe_purge`) et `balai_canaux` — 42 situations identiques. Écart voulu : un vocal, un partage ou un ajout en bibliothèque ne s'écrivent plus directement dans le chat (chacun a sa porte et ses règles) |
-| 6. Vibes et contenus | 🟡 commencée le 2026-09-27 — relevé complet (26 opérations + gestes directs) ; écrits : les questions `audience_contenu` et `a_recu_la_carte` (`acces.rs`), le passage obligé des livraisons (`vibes/livraisons.rs`, pas encore branché) ; RESTE : cartes, contenus, Drop, publication, preuves |
+| 6. Vibes et contenus | ✅ 2026-09-27 — `vibes/` : **le passage obligé des livraisons** (`livraisons.rs`, ex-`enforce_card_delivery_rules`, règles puis écriture) ; les Vibes envoyées (`cartes.rs` : clé, visionnages, replays, réglages, suppression, envoi avec une demande d'ami, et les gestes directs `card_get · create`, `card_delivery_create · mine`, `card_deliveries_pending_replay`, `card_replay_requests_mine`, `friend_share_defaults_*`) ; les contenus (`contenus.rs` : clé, vues, likes, partage, retraits, clés d'une bibliothèque, `content_flags · delete`, lieu de prise) ; le Drop (`drop.rs` : dépôt, clés, réglages, retrait, masquage, liste ; le reveal de 18 h 30 réécrit) ; publier et relire (`publication.rs` : story, bibliothèque, accès restreint, publication, bibliothèque d'un compte, stories) ; l'ancre gommée (`carte/ancre.rs`) ; **un profil se rend d'une seule façon** (`comptes::cuisine::profil_vu`, aussi pour les membres d'une conversation et l'auteur d'une story) ; balais `balai_drop` et `balai_retraits` — 135 situations identiques (298 au total). **Défaut de l'ancien serveur trouvé et réparé** (voir le journal) |
 | 7. Pulse | à faire |
 | 8. Soirées | à faire |
 | 9. Carte | à faire |
@@ -249,6 +249,13 @@ preuve, chacun justifié) :
   identité, réparé au plus étroit — une livraison à un non-ami n'est permise
   qu'avec SA demande en attente portant CETTE Vibe
   (`20260927110100_la_vibe_jointe_a_une_demande.sql`). Audit 22/22.
+- 2026-09-27 : **une Vibe passée en « vues illimitées » après un replay
+  accordé ne s'ouvrait plus** (« integer out of range » : la limite + 1
+  dépassait le plus grand entier). Chemin réel : Vibe à 2 vues, replay
+  demandé puis accordé, puis l'auteur la passe en illimité. Reproduit par la
+  preuve sous l'identité du destinataire, réparé
+  (`20260927120000_replay_sur_vibe_illimitee.sql`, calcul en grand entier).
+  Le Rust le faisait déjà juste. Audit 22/22.
 
 **Les fondations** — ce qui RESTE dans la base, parce qu'il doit voir tous
 les chemins, effacements en cascade compris : les contraintes (liens,

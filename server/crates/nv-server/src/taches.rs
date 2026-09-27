@@ -83,6 +83,14 @@ fn paliers<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, N
     Box::pin(nv_app::relations::paliers::recalculer_tous(db))
 }
 
+fn balai_drop<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, NvResult<String>> {
+    Box::pin(nv_app::vibes::balai_drop(db))
+}
+
+fn balai_retraits<'a>(db: &'a mut PgConnection, _: &'a dyn Entrepot) -> BoxFuture<'a, NvResult<String>> {
+    Box::pin(nv_app::vibes::balai_retraits(db))
+}
+
 /// Toutes les tâches du serveur — avec le rythme de l'ancien réveil (pg_cron).
 pub fn toutes() -> Vec<Tache> {
     vec![
@@ -97,6 +105,10 @@ pub fn toutes() -> Vec<Tache> {
         Tache { nom: "balai_canaux", rythme: Rythme::Toutes(300), geste: balai_canaux },
         // neovibe_tiers : 11 3 * * *
         Tache { nom: "paliers", rythme: Rythme::ChaqueJourA(3, 11), geste: paliers },
+        // neovibe_purge_library : */5 * * * *
+        Tache { nom: "balai_drop", rythme: Rythme::Toutes(300), geste: balai_drop },
+        // neovibe_purge_removals : 41 * * * *
+        Tache { nom: "balai_retraits", rythme: Rythme::ChaqueHeureA(41), geste: balai_retraits },
     ]
 }
 

@@ -315,6 +315,15 @@ pub mod q {
         format!("exists (select 1 from public.conversation_members mc_ where mc_.conversation_id = {c} and mc_.user_id = {uid})")
     }
 
+    /// `private.is_drop_organizer(conversation, compte)` : l'organisateur de
+    /// la soirée de ce Drop — son créateur, ou le créateur de son lieu.
+    pub fn organise_le_drop(conv: &str, uid: &str) -> String {
+        format!(
+            "exists (select 1 from public.events od_e left join public.venues od_v on od_v.id = od_e.venue_id \
+             where od_e.conversation_id = {conv} and (od_e.created_by = {uid} or od_v.created_by = {uid}))"
+        )
+    }
+
     /// `private.is_admin(compte)`.
     pub fn est_admin(uid: &str) -> String {
         format!("exists (select 1 from public.admins ad_ where ad_.user_id = {uid})")
@@ -394,6 +403,11 @@ pub async fn membre_conversation(db: &mut PgConnection, conv: Uuid, uid: Uuid) -
 /// `private.is_admin(compte)`.
 pub async fn est_admin(db: &mut PgConnection, uid: Uuid) -> NvResult<bool> {
     vrai(db, &q::est_admin("$1::uuid"), &[P::U(uid)]).await
+}
+
+/// `private.content_audience(contenu, compte)`.
+pub async fn audience_contenu(db: &mut PgConnection, contenu: Uuid, uid: Uuid) -> NvResult<bool> {
+    vrai(db, &q::audience_contenu("$1::uuid", "$2::uuid"), &[P::U(contenu), P::U(uid)]).await
 }
 
 /// `private.can_view_profile(lecteur, cible)`.

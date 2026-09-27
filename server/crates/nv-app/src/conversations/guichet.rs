@@ -8,6 +8,7 @@ use nv_core::{ops, Ctx, NvError, NvResult};
 
 use super::messages::{self, Nouveau};
 use crate::acces::{self, q, vrai, P};
+use crate::comptes::cuisine::profil_vu;
 use crate::direct::Table;
 
 ops![
@@ -271,10 +272,11 @@ fn requete_conversations(filtre: &str) -> String {
     format!(
         "select coalesce(json_agg(t order by t.created_at desc), '[]'::json) from (
            select c.*, (select coalesce(json_agg(json_build_object('profiles',
-                          (select to_jsonb(p) || case when p.id <> $1 then '{{\"suspended_at\": null, \"suspended_reason\": null}}'::jsonb else '{{}}'::jsonb end
-                             from public.profiles p where p.id = cm.user_id and {vis}))), '[]'::json)
+                          (select {vu} from public.profiles p where p.id = cm.user_id and {vis}))
+                          order by cm.joined_at, cm.user_id), '[]'::json)
                           from public.conversation_members cm where cm.conversation_id = c.id) as members
              from public.conversations c where {membre} and {filtre}) t",
+        vu = profil_vu("p", "$1::uuid"),
         vis = q::peut_voir_profil("$1::uuid", "p.id"),
         membre = q::membre_conversation("c.id", "$1::uuid"),
     )

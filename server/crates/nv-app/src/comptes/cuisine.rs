@@ -53,24 +53,29 @@ pub async fn chiffres_du_profil(db: &mut PgConnection, cible: Uuid) -> NvResult<
 
 // ─── Les profils (ce que l'app lisait et écrivait directement) ─────────────
 
-/// La ligne complète des profils demandés (ceux que la règle d'accès laisse
-/// voir ont déjà été choisis par l'appelant).
+/// **Un profil tel que `moi` le voit** (une expression SQL `jsonb` sur la
+/// ligne `p` de `profiles`) — la seule façon de rendre un profil, qu'il soit
+/// lu seul ou joint à une story.
 ///
 /// ⚠️ **Écart voulu** (2026-09-27) : la suspension d'un autre compte que le
 /// mien (`suspended_at`, `suspended_reason`) est masquée. L'ancien guichet
 /// la donnait à quiconque voyait le profil ; l'app ne s'en sert pas
 /// (seule ma propre suspension compte, via `my_suspension`).
-pub async fn profils(db: &mut PgConnection, moi: Option<Uuid>, ids: &[Uuid]) -> NvResult<Value> {
-    Ok(sqlx::query_scalar!(
-        r#"select coalesce(json_agg(to_jsonb(p) || case when p.id is distinct from $1
-                    then '{"suspended_at": null, "suspended_reason": null}'::jsonb
-                    else '{}'::jsonb end), '[]'::json) as "j!"
-             from public.profiles p where p.id = any($2)"#,
-        moi,
-        ids
+pub fn profil_vu(p: &str, moi: &str) -> String {
+    format!(
+        "(to_jsonb({p}) || case when {p}.id is distinct from {moi} \
+         then '{{\"suspended_at\": null, \"suspended_reason\": null}}'::jsonb else '{{}}'::jsonb end)"
     )
-    .fetch_one(db)
-    .await?)
+}
+
+/// La ligne complète des profils demandés (ceux que la règle d'accès laisse
+/// voir ont déjà été choisis par l'appelant), telle que [`profil_vu`].
+pub async fn profils(db: &mut PgConnection, moi: Option<Uuid>, ids: &[Uuid]) -> NvResult<Value> {
+    let sql = format!(
+        "select coalesce(json_agg({}), '[]'::json) from public.profiles p where p.id = any($2)",
+        profil_vu("p", "$1::uuid")
+    );
+    Ok(sqlx::query_scalar::<_, Value>(&sql).bind(moi).bind(ids).fetch_one(db).await?)
 }
 
 /// Crée mon profil.

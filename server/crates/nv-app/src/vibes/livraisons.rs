@@ -14,47 +14,42 @@ use nv_core::{NvError, NvResult};
 
 use crate::acces;
 
-/// Livre `carte` à `destinataire` ; rend la ligne écrite, ou `None` si elle
-/// existait déjà et que `ignorer_doublon` est demandé.
-pub async fn livrer(
-    db: &mut PgConnection,
-    carte: Uuid,
-    destinataire: Uuid,
-    message: Option<Uuid>,
-    ignorer_doublon: bool,
-) -> NvResult<Option<Value>> {
+/// Les règles d'une livraison (sans l'écrire).
+pub async fn regles(db: &mut PgConnection, carte: Uuid, destinataire: Uuid) -> NvResult<()> {
     let c = sqlx::query!(r#"select owner_id, card_type::text as "card_type!" from public.cards where id = $1"#, carte)
         .fetch_optional(&mut *db)
         .await?;
-    if let Some(c) = &c {
-        if c.owner_id != destinataire && !acces::sont_amis(db, c.owner_id, destinataire).await? {
-            let demande_jointe = sqlx::query_scalar!(
-                r#"select exists (select 1 from public.connection_requests r
-                                   where r.sender_id = $1 and r.receiver_id = $2 and r.card_id = $3
-                                     and r.status = 'pending' and r.expires_at > now()) as "b!""#,
-                c.owner_id,
-                destinataire,
-                carte
-            )
-            .fetch_one(&mut *db)
-            .await?;
-            if !demande_jointe {
-                return Err(NvError::refused("Les Cards ne peuvent être envoyées qu'à des connexions"));
-            }
-        }
-        if c.card_type == "one_of_one" {
-            let deja = sqlx::query_scalar!(
-                r#"select exists (select 1 from public.card_deliveries where card_id = $1) as "b!""#,
-                carte
-            )
-            .fetch_one(&mut *db)
-            .await?;
-            if deja {
-                return Err(NvError::refused("Une Card One of One ne peut avoir qu'un seul destinataire"));
-            }
+    let Some(c) = c else { return Ok(()) };
+    if c.owner_id != destinataire && !acces::sont_amis(db, c.owner_id, destinataire).await? {
+        let demande_jointe = sqlx::query_scalar!(
+            r#"select exists (select 1 from public.connection_requests r
+                               where r.sender_id = $1 and r.receiver_id = $2 and r.card_id = $3
+                                 and r.status = 'pending' and r.expires_at > now()) as "b!""#,
+            c.owner_id,
+            destinataire,
+            carte
+        )
+        .fetch_one(&mut *db)
+        .await?;
+        if !demande_jointe {
+            return Err(NvError::refused("Les Cards ne peuvent être envoyées qu'à des connexions"));
         }
     }
-    let ligne = if ignorer_doublon {
+    if c.card_type == "one_of_one" {
+        let deja = sqlx::query_scalar!(r#"select exists (select 1 from public.card_deliveries where card_id = $1) as "b!""#, carte)
+            .fetch_one(&mut *db)
+            .await?;
+        if deja {
+            return Err(NvError::refused("Une Card One of One ne peut avoir qu'un seul destinataire"));
+        }
+    }
+    Ok(())
+}
+
+/// Écrit la livraison (les règles ont été vérifiées) ; `None` si elle
+/// existait déjà et que le doublon est ignoré.
+pub async fn inserer(db: &mut PgConnection, carte: Uuid, destinataire: Uuid, message: Option<Uuid>, ignorer_doublon: bool) -> NvResult<Option<Value>> {
+    Ok(if ignorer_doublon {
         sqlx::query_scalar!(
             r#"insert into public.card_deliveries as d (card_id, recipient_id, message_id) values ($1, $2, $3)
                on conflict do nothing returning to_json(d) as "j!""#,
@@ -76,6 +71,11 @@ pub async fn livrer(
             .fetch_one(db)
             .await?,
         )
-    };
-    Ok(ligne)
+    })
+}
+
+/// Les règles, puis l'écriture.
+pub async fn livrer(db: &mut PgConnection, carte: Uuid, destinataire: Uuid, message: Option<Uuid>, ignorer_doublon: bool) -> NvResult<Option<Value>> {
+    regles(db, carte, destinataire).await?;
+    inserer(db, carte, destinataire, message, ignorer_doublon).await
 }

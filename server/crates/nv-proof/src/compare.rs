@@ -131,13 +131,17 @@ fn masquer_ecart(v: &Value, champs: &[String]) -> Value {
     }
 }
 
+/// Les listes se comparent sans l'ordre — à tous les niveaux (les membres
+/// d'une conversation, les médias d'une publication…) : l'ancien guichet ne
+/// promettait aucun ordre à l'intérieur d'une ligne.
 fn canon_liste(v: &Value) -> Value {
     match v {
         Value::Array(a) => {
-            let mut s: Vec<String> = a.iter().map(|x| x.to_string()).collect();
+            let mut s: Vec<String> = a.iter().map(|x| canon_liste(x).to_string()).collect();
             s.sort();
             Value::Array(s.into_iter().map(Value::String).collect())
         }
+        Value::Object(o) => Value::Object(o.iter().map(|(k, x)| (k.clone(), canon_liste(x))).collect()),
         autre => autre.clone(),
     }
 }
