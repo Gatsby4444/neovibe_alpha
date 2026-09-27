@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/event.dart';
 import '../../core/notifications/notification_service.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../connections/connections_repository.dart';
 import 'events_providers.dart';
 

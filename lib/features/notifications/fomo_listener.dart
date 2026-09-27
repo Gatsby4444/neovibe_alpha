@@ -4,7 +4,7 @@ import 'dart:async';
 import '../../core/models/card.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 
 /// Écouteur FOMO global (spec 4.9) — sobre : uniquement
 /// « [Ami] t'a envoyé une Card [Type] » et « [Ami] a publié ».

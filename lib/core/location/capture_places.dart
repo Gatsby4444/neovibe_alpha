@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../diagnostics/app_log.dart';
 import '../api/nv_api.dart';
-import '../supabase_providers.dart';
+import '../session_providers.dart';
 import 'anchor.dart';
 
 /// **Quand et où une Vibe a été prise** (Jay, 2026-09-25 : *« on enregistre

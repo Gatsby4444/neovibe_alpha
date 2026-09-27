@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 
 /// **La position des amis sur la carte** (Jay, 2026-09-26) — la cuisine :
 /// ce qui parle au serveur. Les règles vivent au serveur

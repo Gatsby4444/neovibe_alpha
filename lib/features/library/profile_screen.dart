@@ -5,7 +5,7 @@ import '../../core/models/profile.dart';
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
 import '../../core/typography.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/widgets/cover_host.dart';
 import '../connections/friends_list_screen.dart';
 import '../connections/heart_screen.dart';

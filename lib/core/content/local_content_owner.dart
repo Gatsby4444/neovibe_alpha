@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../supabase_providers.dart';
+import '../session_providers.dart';
 import '../../features/cards/card_media_cache.dart';
 import 'content_media_cache.dart';
 import 'content_preloader.dart';

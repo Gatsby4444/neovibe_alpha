@@ -19,7 +19,7 @@ import '../../core/clock.dart';
 import '../../core/models/profile.dart';
 import '../../core/palette.dart';
 import '../../core/prefs.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/widgets/avatar.dart';
 import '../../core/widgets/top_banner.dart';
 import '../../core/theme.dart';

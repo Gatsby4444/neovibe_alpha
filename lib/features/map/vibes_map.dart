@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/library_item.dart';
 import '../../core/prefs.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../proximity/geo/live_position.dart';
 
 /// **Les Vibes publiques autour de moi, sur la carte** (Jay, 2026-09-26) —

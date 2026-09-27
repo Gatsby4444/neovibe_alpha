@@ -9,7 +9,7 @@ import '../../core/models/card.dart';
 import '../connections/friendship.dart';
 import '../../core/models/story.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/utils/ids.dart';
 import '../../core/clock.dart';
 import '../../core/derived_list.dart';

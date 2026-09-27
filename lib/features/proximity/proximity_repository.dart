@@ -4,7 +4,7 @@ import '../../core/models/connection_request.dart';
 import '../../core/clock.dart';
 import '../../core/derived_list.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../connections/connections_repository.dart';
 
 /// Les demandes de connexion, **et il n'y a plus qu'un seul endroit où elles

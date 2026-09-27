@@ -4,7 +4,7 @@ import '../../core/typography.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/theme.dart';
 import '../../core/utils/erreur_serveur.dart';
 import '../../core/utils/formats.dart';

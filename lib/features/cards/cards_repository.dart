@@ -8,7 +8,7 @@ import '../../core/utils/ids.dart';
 import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
 import '../../core/prefs.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../conversations/conversations_repository.dart';
 import 'card_media_cache.dart';
 import '../../core/work_dir.dart';

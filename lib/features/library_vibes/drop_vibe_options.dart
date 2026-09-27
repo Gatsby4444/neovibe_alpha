@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/content/moderation.dart';
 import '../../core/models/library_vibe.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/utils/erreur_serveur.dart';

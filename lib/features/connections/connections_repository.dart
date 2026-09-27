@@ -6,7 +6,7 @@ import '../../core/models/connection_request.dart';
 import '../../core/models/wave.dart';
 import '../../core/models/profile.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 
 /// **Tous les profils de mes amis, en UNE requête.**
 ///

@@ -4,7 +4,7 @@ import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/message.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/utils/formats.dart';
 import '../conversations/chat_screen.dart';
 import '../conversations/conversations_repository.dart';

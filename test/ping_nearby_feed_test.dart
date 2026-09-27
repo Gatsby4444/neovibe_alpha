@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/clock.dart';
-import 'package:neovibe/core/supabase_providers.dart';
+import 'package:neovibe/core/session_providers.dart';
 import 'package:neovibe/features/connections/connections_repository.dart';
 import 'package:neovibe/core/models/connection.dart';
 import 'package:neovibe/features/proximity/net/ping_beacon_service.dart';

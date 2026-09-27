@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/nv_api.dart';
-import '../supabase_providers.dart';
+import '../session_providers.dart';
 
 /// **Ce qui a disparu d'une conversation** — l'ACQUISITION (2026-09-25).
 ///

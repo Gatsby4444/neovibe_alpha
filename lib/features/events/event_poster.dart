@@ -9,7 +9,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../core/diagnostics/app_log.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/widgets/image_cropper_screen.dart';
 import '../../core/work_dir.dart';
 import '../cards/native_media.dart';

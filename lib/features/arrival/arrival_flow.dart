@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/event.dart';
 import '../../core/prefs.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/username.dart';
 import '../auth/auth_repository.dart';
 import '../events/events_providers.dart';

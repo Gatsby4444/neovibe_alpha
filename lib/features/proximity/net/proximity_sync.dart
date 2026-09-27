@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/nv_api.dart';
-import '../../../core/supabase_providers.dart';
+import '../../../core/session_providers.dart';
 import '../ping_store.dart';
 import '../proximity_identity.dart';
 import 'connection_trace.dart';

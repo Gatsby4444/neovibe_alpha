@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/models/profile.dart';
-import '../../../core/supabase_providers.dart';
+import '../../../core/session_providers.dart';
 import '../../connections/connections_repository.dart';
 import '../../library/library_repository.dart';
 import '../../stories/stories_repository.dart';

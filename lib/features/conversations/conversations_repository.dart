@@ -9,7 +9,7 @@ import '../../core/crypto/chunked_seal.dart';
 import '../../core/derived_list.dart';
 import '../../core/diagnostics/app_log.dart';
 import '../../core/models/message.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 
 /// **Ma participation** : par conversation, la date de mon dernier message.
 ///

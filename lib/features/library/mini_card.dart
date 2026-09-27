@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/content/content_face.dart';
 import '../../core/content/video_poster.dart';
 import '../../core/models/library_item.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../../core/widgets/reel_route.dart';

@@ -5,7 +5,7 @@ import '../../../core/content/content_face.dart';
 import '../../../core/content/content_view_reporter.dart';
 import '../../../core/content/likes.dart';
 import '../../../core/models/library_item.dart';
-import '../../../core/supabase_providers.dart';
+import '../../../core/session_providers.dart';
 import '../../../core/widgets/anchor_scope.dart';
 import '../../../core/widgets/like_burst.dart';
 import '../../../core/widgets/pinch_to_close.dart';

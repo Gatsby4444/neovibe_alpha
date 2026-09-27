@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../features/cards/native_media.dart';
-import '../supabase_providers.dart';
+import '../session_providers.dart';
 import 'content_face.dart';
 import 'content_media_cache.dart';
 

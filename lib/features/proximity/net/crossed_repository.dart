@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/api/nv_api.dart';
-import '../../../core/supabase_providers.dart';
+import '../../../core/session_providers.dart';
 
 /// Quelqu'un qu'on a croisé dans les dernières 24 h, **et qui n'est pas un ami**.
 ///

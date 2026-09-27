@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../api/nv_api.dart';
-import '../supabase_providers.dart';
+import '../session_providers.dart';
 import 'diagnostic_bundle.dart';
 
 /// Envoi d'un rapport de diagnostic au serveur.

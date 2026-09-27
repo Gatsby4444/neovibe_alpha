@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api/nv_api.dart';
-import '../../../core/supabase_providers.dart';
+import '../../../core/session_providers.dart';
 import '../../connections/friendship.dart';
 import 'share_plan.dart';
 

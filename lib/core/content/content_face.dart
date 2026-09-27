@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../crypto/media_open.dart';
 import '../api/nv_api.dart';
-import '../supabase_providers.dart';
+import '../session_providers.dart';
 import '../video/video_open_trace.dart';
 import 'content_media_cache.dart';
 import 'content_preloader.dart';

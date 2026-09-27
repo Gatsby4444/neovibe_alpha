@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/content/content_face.dart';
 import 'package:neovibe/core/models/library_item.dart';
-import 'package:neovibe/core/supabase_providers.dart';
+import 'package:neovibe/core/session_providers.dart';
 import 'package:neovibe/features/library/mini_card.dart';
 
 /// **Une zone neutre sous chaque mini** (Jay, 2026-09-18) : balayer une

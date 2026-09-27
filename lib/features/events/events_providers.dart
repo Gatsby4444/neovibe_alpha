@@ -7,7 +7,7 @@ import '../../core/location/distance.dart';
 import '../../core/prefs.dart';
 import '../../core/models/event.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../proximity/geo/coarse_location.dart';
 import '../proximity/geo/live_position.dart';
 import 'events_repository.dart';

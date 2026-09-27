@@ -8,7 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/widgets/avatar.dart';
 import '../profile/avatar_service.dart';
 import '../../core/models/profile.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/username.dart';
 import '../profile/profile_repository.dart';
 

@@ -8,7 +8,7 @@ import 'core/day_cycle_background.dart';
 import 'core/day_cycle_clock.dart';
 import 'core/diagnostics/app_log_observers.dart';
 import 'core/prefs.dart';
-import 'core/supabase_providers.dart';
+import 'core/session_providers.dart';
 import 'core/theme.dart';
 import 'core/widgets/ambience.dart';
 import 'features/arrival/arrival_flow.dart';

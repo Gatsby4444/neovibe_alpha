@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 
 /// Catégorie de conversations créée par l'utilisateur (consigne Jay
 /// 2026-07-12) : nom libre de 25 caractères max, une conversation peut

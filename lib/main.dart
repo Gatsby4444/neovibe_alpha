@@ -21,7 +21,7 @@ import 'core/diagnostics/app_log.dart';
 import 'core/diagnostics/app_log_observers.dart';
 import 'core/notifications/notification_service.dart';
 import 'core/prefs.dart';
-import 'core/supabase_providers.dart';
+import 'core/session_providers.dart';
 import 'features/cards/card_capture_screen.dart';
 import 'features/cards/card_media_cache.dart';
 import 'package:rive/rive.dart' as rive;

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../core/supabase_providers.dart';
+import '../../../core/session_providers.dart';
 import '../../../core/theme.dart';
 import '../../../core/typography.dart';
 import '../../cards/send/share_defaults.dart';

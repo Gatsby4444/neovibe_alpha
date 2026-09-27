@@ -16,7 +16,7 @@ import '../../core/models/library_item.dart';
 import '../../core/models/profile.dart';
 import '../../core/publish/publish_bridge.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/utils/ids.dart';
 import '../cards/native_media.dart';
 

@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/connection.dart';
 import '../../core/models/profile.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/utils/erreur_serveur.dart';
 import '../../core/widgets/back_guard.dart';
 import '../../core/widgets/cover_host.dart';

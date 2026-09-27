@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/models/event.dart';
 import 'package:neovibe/core/models/profile.dart';
-import 'package:neovibe/core/supabase_providers.dart';
+import 'package:neovibe/core/session_providers.dart';
 import 'package:neovibe/features/connections/connections_repository.dart';
 import 'package:neovibe/features/events/event_finder_screen.dart';
 import 'package:neovibe/features/events/events_repository.dart';

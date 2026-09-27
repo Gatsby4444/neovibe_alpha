@@ -19,7 +19,7 @@ import '../../core/widgets/content_overflow_menu.dart';
 import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../../core/models/story.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/utils/formats.dart';
 import '../../core/video/video_open_trace.dart';
 import '../../core/widgets/avatar.dart';

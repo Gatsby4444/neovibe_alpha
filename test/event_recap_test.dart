@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/models/event.dart';
 import 'package:neovibe/core/models/library_vibe.dart';
 import 'package:neovibe/core/models/profile.dart';
-import 'package:neovibe/core/supabase_providers.dart';
+import 'package:neovibe/core/session_providers.dart';
 import 'package:neovibe/features/events/event_recap_screen.dart';
 import 'package:neovibe/features/events/events_providers.dart';
 import 'package:neovibe/features/library_vibes/library_vibes_repository.dart';

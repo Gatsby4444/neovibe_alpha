@@ -17,7 +17,7 @@ import '../../core/models/story.dart';
 import '../../core/content/shared_content.dart';
 import '../../core/content/content_face.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/prefs.dart';
 import '../../core/theme.dart';
 import '../../core/utils/formats.dart';

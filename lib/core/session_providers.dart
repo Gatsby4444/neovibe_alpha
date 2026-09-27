@@ -1,3 +1,7 @@
+// **La session**, quel que soit le serveur : qui est connecté, son profil,
+// et l'époque du direct. S'appelait `supabase_providers.dart` jusqu'au
+// 2026-09-27 — un nom qui ne disait plus vrai depuis la couche d'accès
+// (`core/api/`, docs/serveur-rust.md étape 11).
 import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/foundation.dart';
@@ -17,8 +21,9 @@ final authStateProvider = StreamProvider<NvEvenementAuth>(
 ///
 /// ⚠️ Il n'existe que pour une raison : **un `StreamProvider` en erreur y
 /// reste**. Le renouvellement du jeton ne change ni l'identifiant de
-/// l'utilisateur, ni le client Supabase — Riverpod n'a donc aucune raison de
-/// reconstruire les abonnements, et ceux qui étaient tombés restent tombés.
+/// l'utilisateur, ni le branchement du serveur — Riverpod n'a donc aucune
+/// raison de reconstruire les abonnements, et ceux qui étaient tombés restent
+/// tombés.
 final realtimeEpoch = ValueNotifier<int>(0);
 
 /// À **surveiller par tout provider adossé au temps réel.**

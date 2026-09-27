@@ -14,7 +14,7 @@ import '../../core/widgets/card_type_badge.dart';
 import '../../core/widgets/save_button.dart';
 import '../../core/widgets/vibe_face.dart';
 import '../../core/prefs.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import 'card_media_cache.dart';
 import 'cards_repository.dart';
 import '../../core/widgets/pull_down_to_close.dart';

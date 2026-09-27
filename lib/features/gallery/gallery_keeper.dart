@@ -6,7 +6,7 @@ import '../../core/content/saved_store.dart';
 import '../../core/diagnostics/app_log.dart';
 import '../../core/models/event.dart';
 import '../../core/models/library_vibe.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../events/events_providers.dart';
 import '../events/events_repository.dart';
 import '../library_vibes/library_vibes_repository.dart';

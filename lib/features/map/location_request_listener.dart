@@ -3,7 +3,7 @@ import 'dart:async';
 
 import '../../core/notifications/notification_service.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 
 /// **« Un ami te demande ta position » — la notification** (Jay,
 /// 2026-09-26). Écoute EN DIRECT les demandes qui me visent

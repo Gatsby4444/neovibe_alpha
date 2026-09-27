@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/connections/connections_repository.dart';
 import '../models/profile.dart';
 import '../api/nv_api.dart';
-import '../supabase_providers.dart';
+import '../session_providers.dart';
 
 /// Motifs de signalement.
 ///

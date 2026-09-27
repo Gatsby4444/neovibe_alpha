@@ -2,7 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/api/nv_api.dart';
 import '../../core/models/recommendation.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 
 /// Les recommandations d'un rôle (`requester`, `intermediary`, `target`),
 /// avec les trois profils, les plus récentes d'abord.

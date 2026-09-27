@@ -6,7 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/models/connection_request.dart';
 import '../../core/models/recommendation.dart';
 import '../../core/models/wave.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/utils/formats.dart';
 import '../proximity/proximity_repository.dart';
 import '../recommendations/recommendation_screens.dart';

@@ -11,7 +11,7 @@ import '../../core/theme.dart';
 import '../../core/typography.dart';
 import '../../core/widgets/ambience.dart';
 import '../cards/native_camera.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/username.dart';
 import '../auth/auth_screen.dart';
 import 'arrival_flow.dart';

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/widgets/avatar.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../connections/connections_repository.dart';
 import 'conversations_repository.dart';
 

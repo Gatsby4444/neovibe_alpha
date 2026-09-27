@@ -12,7 +12,7 @@ import '../../core/media/face_delivery.dart';
 import '../../core/models/card.dart';
 import '../../core/models/library_vibe.dart';
 import '../../core/api/nv_api.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/utils/ids.dart';
 import '../../core/content/removals.dart';
 import '../../core/location/capture_places.dart';

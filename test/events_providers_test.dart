@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:neovibe/core/supabase_providers.dart';
+import 'package:neovibe/core/session_providers.dart';
 import 'package:neovibe/features/events/events_providers.dart';
 
 /// **Le mode événement — ce qui se compte, pas ce qui se voit.**

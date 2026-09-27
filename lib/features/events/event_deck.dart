@@ -9,7 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/content/moderation.dart';
 import '../../core/models/event.dart';
 import '../../core/models/profile.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../../core/theme.dart';
 import '../../core/utils/formats.dart';
 import '../../core/widgets/avatar.dart';

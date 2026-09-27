@@ -7,7 +7,7 @@ import '../../core/content/content_face.dart';
 import '../../core/content/content_media_cache.dart';
 import '../../core/content/own_keys.dart';
 import '../../core/publish/publish_bridge.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import 'library_repository.dart';
 
 /// **Les publications en cours, telles que la grille du profil les montre.**

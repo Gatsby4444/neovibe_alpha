@@ -3,7 +3,7 @@ import '../../core/theme.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/recommendation.dart';
-import '../../core/supabase_providers.dart';
+import '../../core/session_providers.dart';
 import '../connections/connections_repository.dart';
 import 'recommendations_repository.dart';
 

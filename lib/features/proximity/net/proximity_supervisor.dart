@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../../core/supabase_providers.dart';
+import '../../../core/session_providers.dart';
 import '../ping_store.dart';
 import '../proximity_identity.dart';
 import 'advert_plan.dart';
