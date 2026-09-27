@@ -788,9 +788,50 @@ d'autre. **On recommence autrement, on ne reformule pas plus fort.**
 
 ---
 
+## Règle impérative : LES SOUS-AGENTS SONT DES ÉTAPES, PAS DES OPTIONS
+
+> 🧪 **À L'ESSAI depuis le 2026-09-27** (Jay : *« c'est un test, et si cela
+> marche moins bien on revient au système d'avant »*). Bilan à faire avec Jay
+> après quelques sessions de travail réel — `RAPPELS.md` #175. Retour arrière =
+> supprimer `.claude/agents/` et cette section ; rien d'autre n'en dépend.
+
+*Consigne de Jay, 2026-09-27.* Les agents de `.claude/agents/` ne servent que
+s'ils sont appelés : nos pannes passées ne venaient pas d'un outil manquant,
+mais d'une étape sautée. Leur appel est donc **obligatoire** aux trois moments
+suivants :
+
+1. **Avant toute suppression, tout renommage ou tout changement de signature**
+   (table, colonne, fonction, règle, widget, provider, fichier, méthode
+   native, fonction Rust) → **`cartographe`**.
+2. **Avant toute livraison qui touche au serveur** (SQL de la base ou
+   `server/`) → **`gardien-securite`**.
+3. **Avant tout commit qui change du code** (pas un commit de documents seuls)
+   → **`relecteur-architecture`**.
+
+Et à tout moment, **une conclusion sur l'état des données ou une panne à
+reproduire** → **`verificateur-base`**.
+
+**Facultatif** : un regard extérieur sur l'interface, ou des ressources
+graphiques → **`designer`**. Il ne lit **pas** ce fichier (`omitClaudeMd`) :
+il ne connaît que les faits et les contraintes non négociables écrits dans sa
+fiche. **Toute décision produit verrouillée ajoutée ici doit y être reportée**
+si elle touche à l'interface. Ses propositions passent par le filtre de la
+thèse, puis par Jay ; ses fichiers restent dans `design/propositions/`
+jusqu'à accord.
+
+- **Le rapport d'un agent est une donnée, pas un verdict** : je le vérifie
+  avant d'agir, et je le résume à Jay en langage simple.
+- **Sauter l'étape se dit à Jay**, avec la raison. Ça ne se décide jamais en
+  silence.
+- **Bilan après quelques sessions** : un agent qui ne trouve jamais rien, ou
+  qui coûte plus qu'il ne rapporte, se retire.
+
+---
+
 ## Avant de considérer une tâche terminée
 
 1. `dart format` + `flutter analyze` propres
 2. Rapport de session à jour avec les modifications de la tâche
 3. Aucun secret en clair dans le diff
 4. Si la tâche touche une décision verrouillée ci-dessus sans validation de Jay : s'arrêter et demander confirmation plutôt que d'implémenter
+5. Les sous-agents obligatoires ont été appelés (voir la règle ci-dessus), ou leur omission a été dite à Jay
