@@ -27,7 +27,7 @@ pub fn registry() -> Vec<Op> {
 /// base, comme à l'appel d'une fonction SQL : une valeur inconnue est
 /// refusée avant toute règle. `type_` est toujours un nom écrit dans le
 /// code, jamais une valeur venue de l'app.
-pub(crate) async fn enumeration(db: &mut sqlx::PgConnection, type_: &str, v: Option<&str>) -> nv_core::NvResult<Option<String>> {
+pub async fn enumeration(db: &mut sqlx::PgConnection, type_: &str, v: Option<&str>) -> nv_core::NvResult<Option<String>> {
     let Some(v) = v else { return Ok(None) };
     let sql = format!("select $1::text::public.{type_}::text");
     Ok(Some(sqlx::query_scalar::<_, String>(&sql).bind(v).fetch_one(db).await?))

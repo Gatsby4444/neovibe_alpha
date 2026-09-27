@@ -16,6 +16,7 @@ pub mod comptes;
 pub mod conversations;
 pub mod direct;
 pub mod fichiers;
+pub mod pulse;
 pub mod relations;
 pub mod vibes;
 
@@ -30,5 +31,6 @@ pub fn registry() -> Vec<Op> {
     ops.extend(relations::guichet::registry());
     ops.extend(conversations::guichet::registry());
     ops.extend(vibes::registry());
+    ops.extend(pulse::registry());
     ops
 }

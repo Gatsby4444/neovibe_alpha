@@ -279,11 +279,26 @@ async fn library_access_revoke(ctx: &mut Ctx, args: Value) -> NvResult<Value> {
 
 // ─── Relire ce qui a été publié ────────────────────────────────────────────
 
-/// Les médias d'une publication, dans l'ordre de leurs cases.
-const MEDIAS: &str = "coalesce((select jsonb_agg(to_jsonb(m) order by m.slot) from public.library_media m where m.item_id = li.id), '[]'::jsonb)";
+/// Les médias d'une publication (`li` : sa ligne), dans l'ordre de leurs
+/// cases.
+fn medias(li: &str) -> String {
+    format!("coalesce((select jsonb_agg(to_jsonb(pm_) order by pm_.slot) from public.library_media pm_ where pm_.item_id = {li}.id), '[]'::jsonb)")
+}
+
 /// Ce qu'un contenu permet.
 fn permissions(id: &str) -> String {
-    format!("(select jsonb_build_object('shareable', c.shareable, 'saveable', c.saveable) from public.contents c where c.id = {id})")
+    format!("(select jsonb_build_object('shareable', pc_.shareable, 'saveable', pc_.saveable) from public.contents pc_ where pc_.id = {id})")
+}
+
+/// **Une publication telle que l'app la lit** (`li` : sa ligne de
+/// `library_items`) : ses colonnes, ce qu'elle permet (`contents`) et ses
+/// médias (`library_media`) — la forme de la bibliothèque et du fil.
+pub(crate) fn publication_complete(li: &str) -> String {
+    format!(
+        "(to_jsonb({li}) || jsonb_build_object('contents', {perm}, 'library_media', {med}))",
+        perm = permissions(&format!("{li}.id")),
+        med = medias(li)
+    )
 }
 
 #[derive(Deserialize)]
@@ -297,9 +312,10 @@ async fn library_item_get(ctx: &mut Ctx, args: Value) -> NvResult<Value> {
     let moi = ctx.actor.uid()?;
     let a: Id = parse(args)?;
     let sql = format!(
-        "select to_jsonb(li) || jsonb_build_object('library_media', {MEDIAS})
-           from public.library_items li where li.id = $1::uuid and {}",
-        q::audience_publication("li.id", "$2::uuid")
+        "select to_jsonb(li) || jsonb_build_object('library_media', {med})
+           from public.library_items li where li.id = $1::uuid and {aud}",
+        med = medias("li"),
+        aud = q::audience_publication("li.id", "$2::uuid")
     );
     Ok(sqlx::query_scalar::<_, Value>(&sql).bind(a.id).bind(moi).fetch_optional(ctx.db()).await?.unwrap_or(Value::Null))
 }
@@ -316,11 +332,10 @@ async fn library_items_of(ctx: &mut Ctx, args: Value) -> NvResult<Value> {
     let moi = ctx.actor.uid()?;
     let a: UnProprietaire = parse(args)?;
     let sql = format!(
-        "select coalesce(jsonb_agg(to_jsonb(li) || jsonb_build_object('contents', {perm}, 'library_media', {MEDIAS})
-                  order by li.created_at desc), '[]'::jsonb)
+        "select coalesce(jsonb_agg({complete} order by li.created_at desc), '[]'::jsonb)
            from public.library_items li
           where li.owner_id = $1::uuid and li.kind = 'card' and {aud}",
-        perm = permissions("li.id"),
+        complete = publication_complete("li"),
         aud = q::audience_publication("li.id", "$2::uuid")
     );
     Ok(sqlx::query_scalar::<_, Value>(&sql).bind(a.owner_id).bind(moi).fetch_one(ctx.db()).await?)

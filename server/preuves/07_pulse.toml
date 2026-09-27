@@ -1,0 +1,133 @@
+# Domaine 7 — Pulse, le fil (docs/serveur-rust.md, annexe A.6).
+#
+# Mise en place commune des situations du fil (les publications de la copie
+# ont plus de 3 jours : on les rajeunit) :
+# - Charles a croisé Sofia (ping) → sa publication publique 07a67541… ;
+# - Testeur a ajouté au fil de Charles la publication de Léa a68a269b… ;
+# - la publication de Chloé ba2a0d29… est localisée à Paris (48,8566 ; 2,3522) ;
+# - Yanis (7ace5ce3…) n'est rien pour Charles : jamais dans son fil.
+
+[[cas]]
+nom = "mon fil : les trois sources"
+qui = "charles"
+rpc = "feed_items"
+args = { p_kind = "card", p_mode = "all", p_lat = 48.857, p_lng = 2.352 }
+avant = """update public.library_items set created_at = now() - interval '1 hour' where id in ('07a67541-95c2-4219-90a3-6f2a2f5936b2', 'a68a269b-ba69-4bf7-b63d-6b7abceccb28', 'ba2a0d29-008c-44f1-9221-0e6be258668f', '7ace5ce3-aed3-4b8f-a83a-da4f83285e6d');
+update public.library_items set created_at = now() - interval '2 hours' where id = 'a68a269b-ba69-4bf7-b63d-6b7abceccb28';
+update public.library_items set created_at = now() - interval '3 hours' where id = 'ba2a0d29-008c-44f1-9221-0e6be258668f';
+insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{sofia}}'::uuid), greatest('{{charles}}'::uuid, '{{sofia}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now();
+insert into public.feed_adds (content_id, adder_id, recipient_id) values ('a68a269b-ba69-4bf7-b63d-6b7abceccb28', '{{testeur}}', '{{charles}}');
+update public.contents set anchor_lat = 48.8566, anchor_lng = 2.3522 where id = 'ba2a0d29-008c-44f1-9221-0e6be258668f'"""
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li) || jsonb_build_object('contents', (select jsonb_build_object('shareable', c.shareable, 'saveable', c.saveable) from public.contents c where c.id = li.id), 'library_media', coalesce((select jsonb_agg(to_jsonb(m) order by m.slot) from public.library_media m where m.item_id = li.id), '[]'::jsonb))), '[]'::jsonb) from public.feed_items(p_kind => 'card', p_mode => 'all', p_lat => 48.857, p_lng => 2.352) li"
+
+[[cas]]
+nom = "mon fil : seulement ce que mes amis m'ont ajouté"
+qui = "charles"
+rpc = "feed_items"
+args = { p_kind = "card", p_mode = "friends" }
+avant = """update public.library_items set created_at = now() - interval '1 hour' where id in ('07a67541-95c2-4219-90a3-6f2a2f5936b2', 'a68a269b-ba69-4bf7-b63d-6b7abceccb28', 'ba2a0d29-008c-44f1-9221-0e6be258668f');
+insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{sofia}}'::uuid), greatest('{{charles}}'::uuid, '{{sofia}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now();
+insert into public.feed_adds (content_id, adder_id, recipient_id) values ('a68a269b-ba69-4bf7-b63d-6b7abceccb28', '{{testeur}}', '{{charles}}')"""
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li) || jsonb_build_object('contents', (select jsonb_build_object('shareable', c.shareable, 'saveable', c.saveable) from public.contents c where c.id = li.id), 'library_media', coalesce((select jsonb_agg(to_jsonb(m) order by m.slot) from public.library_media m where m.item_id = li.id), '[]'::jsonb))), '[]'::jsonb) from public.feed_items(p_kind => 'card', p_mode => 'friends') li"
+
+[[cas]]
+nom = "mon fil : seulement autour de moi"
+qui = "charles"
+rpc = "feed_items"
+args = { p_kind = "card", p_mode = "around", p_lat = 48.857, p_lng = 2.352 }
+avant = """update public.library_items set created_at = now() - interval '1 hour' where id in ('07a67541-95c2-4219-90a3-6f2a2f5936b2', 'ba2a0d29-008c-44f1-9221-0e6be258668f');
+update public.contents set anchor_lat = 48.8566, anchor_lng = 2.3522 where id in ('ba2a0d29-008c-44f1-9221-0e6be258668f', '07a67541-95c2-4219-90a3-6f2a2f5936b2');
+update public.contents set anchor_lat = 48.9, anchor_lng = 2.3522 where id = '07a67541-95c2-4219-90a3-6f2a2f5936b2'"""
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li) || jsonb_build_object('contents', (select jsonb_build_object('shareable', c.shareable, 'saveable', c.saveable) from public.contents c where c.id = li.id), 'library_media', coalesce((select jsonb_agg(to_jsonb(m) order by m.slot) from public.library_media m where m.item_id = li.id), '[]'::jsonb))), '[]'::jsonb) from public.feed_items(p_kind => 'card', p_mode => 'around', p_lat => 48.857, p_lng => 2.352) li"
+
+[[cas]]
+nom = "mon fil autour de moi, sans position (rien)"
+qui = "charles"
+rpc = "feed_items"
+args = { p_kind = "card", p_mode = "around" }
+avant = """update public.library_items set created_at = now() - interval '1 hour' where id = 'ba2a0d29-008c-44f1-9221-0e6be258668f';
+update public.contents set anchor_lat = 48.8566, anchor_lng = 2.3522 where id = 'ba2a0d29-008c-44f1-9221-0e6be258668f'"""
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li)), '[]'::jsonb) from public.feed_items(p_kind => 'card', p_mode => 'around') li"
+
+[[cas]]
+nom = "mon fil : l'auteur qui m'a bloqué en disparaît, le contenu retiré aussi"
+qui = "charles"
+rpc = "feed_items"
+args = { p_kind = "card", p_mode = "all", p_lat = 48.857, p_lng = 2.352 }
+avant = """update public.library_items set created_at = now() - interval '1 hour' where id in ('07a67541-95c2-4219-90a3-6f2a2f5936b2', 'a68a269b-ba69-4bf7-b63d-6b7abceccb28', 'ba2a0d29-008c-44f1-9221-0e6be258668f');
+insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{sofia}}'::uuid), greatest('{{charles}}'::uuid, '{{sofia}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now();
+insert into public.feed_adds (content_id, adder_id, recipient_id) values ('a68a269b-ba69-4bf7-b63d-6b7abceccb28', '{{testeur}}', '{{charles}}');
+update public.contents set anchor_lat = 48.8566, anchor_lng = 2.3522 where id = 'ba2a0d29-008c-44f1-9221-0e6be258668f';
+insert into public.blocks (blocker_id, blocked_id) values ('{{sofia}}', '{{charles}}');
+update public.contents set revoked_at = now() where id = 'ba2a0d29-008c-44f1-9221-0e6be258668f'"""
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li) || jsonb_build_object('contents', (select jsonb_build_object('shareable', c.shareable, 'saveable', c.saveable) from public.contents c where c.id = li.id), 'library_media', coalesce((select jsonb_agg(to_jsonb(m) order by m.slot) from public.library_media m where m.item_id = li.id), '[]'::jsonb))), '[]'::jsonb) from public.feed_items(p_kind => 'card', p_mode => 'all', p_lat => 48.857, p_lng => 2.352) li"
+
+[[cas]]
+nom = "mon fil : l'ajout d'un ami qui m'a bloqué n'y entre pas"
+qui = "charles"
+rpc = "feed_items"
+args = { p_kind = "card", p_mode = "friends" }
+avant = """update public.library_items set created_at = now() - interval '1 hour' where id = 'a68a269b-ba69-4bf7-b63d-6b7abceccb28';
+insert into public.feed_adds (content_id, adder_id, recipient_id) values ('a68a269b-ba69-4bf7-b63d-6b7abceccb28', '{{testeur}}', '{{charles}}');
+insert into public.blocks (blocker_id, blocked_id) values ('{{testeur}}', '{{charles}}')"""
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li)), '[]'::jsonb) from public.feed_items(p_kind => 'card', p_mode => 'friends') li"
+
+[[cas]]
+nom = "mon fil : rien de plus vieux que trois jours"
+qui = "charles"
+rpc = "feed_items"
+args = { p_kind = "card", p_mode = "all" }
+avant = """insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{sofia}}'::uuid), greatest('{{charles}}'::uuid, '{{sofia}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now()"""
+ancien_resultat = "select coalesce(jsonb_agg(to_jsonb(li)), '[]'::jsonb) from public.feed_items(p_kind => 'card', p_mode => 'all') li"
+
+[[cas]]
+nom = "qui m'a ajouté ce que j'ai aimé"
+qui = "charles"
+rpc = "feed_adders"
+args = { p_content_ids = ["a68a269b-ba69-4bf7-b63d-6b7abceccb28", "8fd72884-30fe-419c-9944-867af78b1f12"] }
+avant = """insert into public.feed_adds (content_id, adder_id, recipient_id) values ('a68a269b-ba69-4bf7-b63d-6b7abceccb28', '{{testeur}}', '{{charles}}'), ('8fd72884-30fe-419c-9944-867af78b1f12', '{{mimi}}', '{{charles}}');
+insert into public.content_likes (content_id, user_id) values ('a68a269b-ba69-4bf7-b63d-6b7abceccb28', '{{charles}}')"""
+
+[[cas]]
+nom = "ajouter ma publication au fil de mes amis"
+qui = "charles"
+rpc = "add_to_feed"
+args = { p_content_id = "26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9", p_recipient_ids = ["{{testeur}}", "{{mimi}}", "{{yanis}}", "{{charles}}", "{{testeur}}"] }
+doit_changer = ["public.feed_adds"]
+
+[[cas]]
+nom = "ajouter au fil d'un ami qui l'a déjà"
+qui = "charles"
+rpc = "add_to_feed"
+args = { p_content_id = "26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9", p_recipient_ids = ["{{testeur}}", "{{mimi}}"] }
+avant = "insert into public.feed_adds (content_id, adder_id, recipient_id) values ('26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9', '{{lea}}', '{{testeur}}')"
+doit_changer = ["public.feed_adds"]
+
+[[cas]]
+nom = "ajouter au fil un ami bloqué par l'auteur"
+qui = "testeur"
+rpc = "add_to_feed"
+args = { p_content_id = "26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9", p_recipient_ids = ["{{charles}}", "{{bot01}}"] }
+avant = "insert into public.blocks (blocker_id, blocked_id) values ('{{charles}}', '{{bot01}}')"
+
+[[cas]]
+nom = "ajouter au fil une publication non partageable"
+qui = "charles"
+rpc = "add_to_feed"
+args = { p_content_id = "59a3046f-a9f3-40dd-8b12-9a1b19dd147e", p_recipient_ids = ["{{testeur}}"] }
+attendu = "refuse"
+
+[[cas]]
+nom = "ajouter au fil une publication que je ne vois pas"
+qui = "charles"
+rpc = "add_to_feed"
+args = { p_content_id = "07a67541-95c2-4219-90a3-6f2a2f5936b2", p_recipient_ids = ["{{testeur}}"] }
+attendu = "refuse"
+
+[[cas]]
+nom = "ajouter au fil en étant suspendu"
+qui = "charles"
+rpc = "add_to_feed"
+args = { p_content_id = "26e067e4-ce1b-4a01-b6a5-cf29cf0a9be9", p_recipient_ids = ["{{testeur}}"] }
+avant = "update public.profiles set suspended_at = now() where id = '{{charles}}'"
+attendu = "refuse"
