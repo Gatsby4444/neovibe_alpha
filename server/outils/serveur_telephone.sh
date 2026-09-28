@@ -30,6 +30,18 @@ fi
 
 # La base et l'entrepôt de fichiers doivent tourner.
 docker start nv_rust_db nv_s3 > /dev/null
+# Un conteneur qui vient de démarrer n'accepte pas encore de connexion :
+# sans cette attente, la vérification ci-dessous concluait à tort que la
+# base n'existait pas (constaté le 2026-09-28, juste après Docker Desktop).
+PRETE=non
+for _ in $(seq 1 30); do
+  docker exec nv_rust_db pg_isready -U postgres -q && { PRETE=oui; break; }
+  sleep 1
+done
+if [ "$PRETE" != oui ]; then
+  echo "La base ne répond pas après 30 s (Docker Desktop démarré ? docker logs nv_rust_db)."
+  exit 1
+fi
 if ! docker exec nv_rust_db psql -U postgres -d nv_serveur -Atc "select 1" > /dev/null 2>&1; then
   echo "La base du serveur (nv_serveur) n'existe pas : python server/outils/base_locale.py --serveur"
   exit 1

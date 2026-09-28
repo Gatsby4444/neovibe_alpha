@@ -52,15 +52,22 @@ Future<void> main() async {
   // Toute erreur Dart part dans le MÊME journal que la couche caméra native
   // (Réglages → Développeur → Journal caméra) : Jay peut copier une trace
   // unique, y compris après un crash.
+  //
+  // ⚠️ L'erreur seule ne dit pas OÙ : le 2026-09-28, « Using ref when a
+  // widget is about to or has been unmounted » est arrivée sans aucun moyen
+  // de savoir quel écran l'avait levée. On garde donc les lignes de NOTRE
+  // code dans la pile (`_ourFrames`).
   final flutterOnError = FlutterError.onError;
   FlutterError.onError = (details) {
-    NativeCameraController.log('ERREUR FLUTTER : ${details.exception}');
-    AppLog.instance.error('Erreur Flutter', '${details.exception}');
+    final where = _ourFrames(details.stack);
+    NativeCameraController.log('ERREUR FLUTTER : ${details.exception}$where');
+    AppLog.instance.error('Erreur Flutter', '${details.exception}$where');
     flutterOnError?.call(details);
   };
   PlatformDispatcher.instance.onError = (error, stack) {
-    NativeCameraController.log('ERREUR DART : $error');
-    AppLog.instance.error('Erreur Dart', '$error');
+    final where = _ourFrames(stack);
+    NativeCameraController.log('ERREUR DART : $error$where');
+    AppLog.instance.error('Erreur Dart', '$error$where');
     return false;
   };
 
@@ -261,4 +268,20 @@ void _suivreLaConnexion() {
       AppLog.instance.error('jeton pour la file de publication : $err');
     }
   });
+}
+
+/// Les lignes de NOTRE code dans une pile d'appels, pour savoir OÙ une
+/// erreur est née (au plus 6, sur une ligne chacune, précédées d'un saut
+/// de ligne ; vide s'il n'y en a aucune). Les lignes du framework et des
+/// paquets sont écartées : elles sont les mêmes pour toutes les erreurs.
+String _ourFrames(StackTrace? stack) {
+  if (stack == null) return '';
+  final ours = stack
+      .toString()
+      .split('\n')
+      .where((l) => l.contains('package:neovibe/'))
+      .take(6)
+      .map((l) => l.replaceFirst(RegExp(r'^#\d+\s+'), '  à '))
+      .toList();
+  return ours.isEmpty ? '' : '\n${ours.join('\n')}';
 }
