@@ -11,6 +11,7 @@
 //! (« sont-ils amis ? », « l'un a-t-il bloqué l'autre ? ») : chacune est
 //! écrite une seule fois.
 pub mod acces;
+pub mod ancien_gardien;
 pub mod carte;
 pub mod comptes;
 pub mod conversations;

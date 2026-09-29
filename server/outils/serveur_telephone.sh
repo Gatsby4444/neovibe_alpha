@@ -58,6 +58,11 @@ if ! grep -q '^NV_BADGE_CLE=' "$ENV_LOCAL"; then
   echo "Clé de badge créée (docdev/serveur_local.env)."
 fi
 
+# L'ancien gardien éteint dans la base du serveur (jamais dans la
+# référence de la preuve, qui le joue allumé) : le serveur refuse de
+# démarrer sinon (nv_app::ancien_gardien).
+bash "$RACINE/server/outils/cargo.sh" run -q -p nv-server -- eteindre-l-ancien-gardien   | docker exec -i nv_rust_db psql -q -v ON_ERROR_STOP=1 -U postgres -d nv_serveur
+
 echo "Serveur pour le téléphone : http://$IP:8787 — fichiers : http://$IP:8333"
 echo "(Ctrl+C pour l'arrêter)"
 NV_DATABASE_URL="postgres://postgres:neovibe@localhost:54329/nv_serveur" \

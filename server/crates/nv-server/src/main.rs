@@ -29,6 +29,12 @@ async fn main() -> anyhow::Result<()> {
         println!("{}", base64::engine::general_purpose::STANDARD.encode(Badge::nouvelle_cle()));
         return Ok(());
     }
+    // Le SQL qui éteint l'ancien gardien, pour le propriétaire des tables :
+    // `nv-server eteindre-l-ancien-gardien | sudo -u postgres psql -d neovibe`.
+    if std::env::args().nth(1).as_deref() == Some("eteindre-l-ancien-gardien") {
+        print!("{}", nv_app::ancien_gardien::sql_pour_les_eteindre());
+        return Ok(());
+    }
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
         .init();
@@ -45,6 +51,15 @@ async fn main() -> anyhow::Result<()> {
         .connect(&config.database_url)
         .await
         .context("connexion à la base")?;
+    // Le serveur n'est juste qu'avec l'ancien gardien éteint (nv_app::ancien_gardien).
+    let allumes = nv_app::ancien_gardien::encore_allumes(&pool).await.context("état de l'ancien gardien")?;
+    if !allumes.is_empty() {
+        anyhow::bail!(
+            "l'ancien gardien est encore allumé ({}) : le serveur referait son travail en double. \
+             L'éteindre : nv-server eteindre-l-ancien-gardien | psql (en propriétaire des tables)",
+            allumes.join(", ")
+        );
+    }
     let entrepot = EntrepotS3::new(config.entrepot.clone()).map_err(|e| anyhow::anyhow!("{e}"))?;
     entrepot.preparer(&COFFRES).await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let entrepot: Arc<dyn nv_core::fichiers::Entrepot> = Arc::new(entrepot);

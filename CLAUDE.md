@@ -660,8 +660,12 @@ natif, pour ne rien découvrir au dernier moment lors du portage iOS.
 - **En fin de session**, **vérifier** que ce fichier reflète l'état réel du code
   natif ; le corriger sinon.
 - Stratégie plateforme (Android d'abord, iOS additif, pas de fork) :
-  `docs/strategie-multiplateforme.md`. **On développe Android d'abord** ; iOS ne
-  démarre que sur décision explicite de Jay, une fois Android terminé.
+  `docs/strategie-multiplateforme.md`. **On développe Android d'abord.**
+  ✏️ *Décision de Jay du 2026-09-29* (ses amis testeurs sont en partie sur
+  iPhone) : **la PRÉPARATION iOS commence maintenant** — compte développeur
+  Apple, étude écrite du BLE sur iPhone, construction automatique iOS sur un
+  Mac loué ; **le code natif iOS attend que Jay ait un iPhone** (pas de Mac à
+  ce jour), et commence par le prototype du ping.
 
 ---
 

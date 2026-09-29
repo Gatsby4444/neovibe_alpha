@@ -10,35 +10,10 @@ use nv_core::{Actor, Ctx, NvError};
 use crate::cas::Cas;
 use crate::compare::{self, Issue};
 
-/// Les déclencheurs de l'ANCIEN GARDIEN : des règles du produit, traduites
-/// en Rust, qui disparaîtront avec lui. Le nouveau côté les coupe.
-///
-/// Ne sont PAS dans cette liste les **fondations**, qui restent dans la base
-/// parce qu'elles doivent voir tous les chemins, effacements en cascade
-/// compris (docs/serveur-rust.md) : l'horodatage des profils
-/// (`profiles_updated_at`), les pierres tombales des fichiers
-/// (`*_octets_a_supprimer`, `events_affiche_au_balai`), l'annonce des
-/// disparitions (`*_annonce_disparition`), l'activité des conversations
-/// (`messages_activity`), et les annonces du direct et de la preuve.
-// (La libération des preuves, `*_libere`, n'y est pas : c'est une
-// FONDATION — elle doit voir la disparition d'un signalement par cascade.)
-pub const DECLENCHEURS_DU_GARDIEN: &[(&str, &str)] = &[
-    ("public.messages", "messages_rules"),
-    ("public.card_deliveries", "card_deliveries_rules"),
-    ("public.cards", "cards_refuse_si_suspendu"),
-    ("public.connection_requests", "connection_requests_refuse_si_suspendu"),
-    ("public.content_likes", "content_likes_refuse_si_suspendu"),
-    ("public.recommendations", "recommendations_refuse_si_suspendu"),
-    ("public.waves", "waves_refuse_si_suspendu"),
-    ("public.card_reports", "card_reports_scelle"),
-    ("public.content_reports", "content_reports_scelle"),
-    ("public.event_reports", "event_reports_scelle"),
-    ("public.library_vibe_reports", "library_vibe_reports_scelle"),
-    ("public.connections", "connections_delete_oublie"),
-    ("public.ping_pairs", "ping_pairs_meeting"),
-    ("public.event_crossings", "event_crossings_meeting"),
-    ("auth.users", "record_device_signup"),
-];
+// Les déclencheurs de l'ANCIEN GARDIEN, que le nouveau côté coupe : la
+// liste vit dans `nv_app::ancien_gardien` — la même que celle que le
+// serveur en service exige éteinte.
+use nv_app::ancien_gardien::DECLENCHEURS_DU_GARDIEN;
 
 /// Une ligne du journal des changements.
 #[derive(Debug, Clone)]
@@ -233,7 +208,10 @@ async fn cote_nouveau(
     // oubliait une règle qu'un déclencheur portait, l'ancien la tiendrait à
     // sa place et la preuve passerait quand même — puis la règle
     // disparaîtrait avec l'ancien gardien. (Annulé au retour au point de
-    // sauvegarde.)
+    // sauvegarde.) Sans condition, exprès — et non par
+    // `sql_pour_les_eteindre`, qui tolère un déclencheur disparu : la
+    // référence de la preuve DOIT les avoir tous, un absent fait échouer la
+    // preuve au lieu de la laisser comparer contre un ancien gardien amputé.
     for (table, declencheur) in DECLENCHEURS_DU_GARDIEN {
         exec(&mut tx, &format!("alter table {table} disable trigger {declencheur}")).await?;
     }

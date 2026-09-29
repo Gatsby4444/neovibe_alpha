@@ -266,7 +266,8 @@ preuve, chacun justifié) :
 **Les fondations** — ce qui RESTE dans la base, parce qu'il doit voir tous
 les chemins, effacements en cascade compris : les contraintes (liens,
 unicité, formes), l'horodatage des profils (`set_updated_at`), les pierres
-tombales des fichiers (`inscrit_*`, `oublie_l_affiche`), l'annonce des
+tombales des fichiers (`inscrit_*`, `oublie_l_affiche` — déclencheur
+`events_affiche_au_balai`), l'annonce des
 disparitions (`annonce_une_disparition`), l'activité des conversations
 (`note_conversation_activity`), les annonces du direct (`nv.annoncer`), et la
 libération des preuves de modération (`libere_la_preuve` : un signalement
@@ -277,6 +278,18 @@ l'ancien tiendrait à la place du Rust une règle oubliée), et le test
 `sans_ancien_gardien` vérifie que le Rust n'appelle aucune fonction de
 l'ancien gardien. Chaque situation peut exiger que l'ancien gardien ÉCRIVE
 (`doit_changer`) : une situation qui ne produit rien est « mal posée ».
+
+⚠️ **En service, l'ancien gardien est ÉTEINT** (2026-09-29). Jusque-là, la
+preuve le coupait, mais le serveur en service tournait à côté de lui : ce
+qui ne se rejoue pas sans effet se faisait deux fois — la rencontre au ping
+était notée en double dans `meetings` (relevé par le verificateur-base sur
+le VPS). La liste des déclencheurs traduits vit en UN endroit,
+`nv_app::ancien_gardien` (la preuve et le serveur la lisent) ; **le serveur
+refuse de démarrer si l'un d'eux est allumé**, et `deployer.sh`,
+`monter_base.sh`, `serveur_telephone.sh` les éteignent d'après elle
+(`nv-server eteindre-l-ancien-gardien`). Éteints, pas supprimés : leur
+retrait (et celui des fonctions et des règles RLS de l'ancien gardien)
+passera par le `cartographe`.
 
 ## Mode d'emploi du chantier
 

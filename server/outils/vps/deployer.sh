@@ -68,7 +68,11 @@ export DATABASE_URL="$NV_DATABASE_URL" CARGO_TARGET_DIR=/opt/neovibe/target
 cd /opt/neovibe/src
 /root/.cargo/bin/cargo build --release -q -p nv-server
 /root/.cargo/bin/cargo test --release -q -p nv-server
+/root/.cargo/bin/cargo test --release -q -p nv-app --lib ancien_gardien
 install -m 755 /opt/neovibe/target/release/nv-server /opt/neovibe/bin/nv-server
+# L'ancien gardien éteint (le serveur refuse de démarrer sinon) — d'après
+# la liste que porte le serveur lui-même. Rejouable.
+/opt/neovibe/bin/nv-server eteindre-l-ancien-gardien | sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d neovibe
 # La clé des badges : tirée une fois, jamais remplacée (la changer
 # déconnecte tout le monde — c'est le geste de la purge, RAPPELS #176 ⑥).
 if grep -q '^NV_BADGE_CLE=$' /etc/neovibe/nv-server.env; then

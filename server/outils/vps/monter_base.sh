@@ -40,4 +40,13 @@ STATUT=0
 # passe) : elle ne reste pas sur le disque, réussite ou échec.
 rm -rf "$PAQUET/copie"
 [ "$STATUT" = 0 ] || { echo "La base $BASE n'est PAS prête."; exit "$STATUT"; }
+# Une base neuve a l'ancien gardien ALLUMÉ (il vient des migrations de
+# Supabase) : le serveur refuse d'y démarrer tant qu'il n'est pas éteint.
+if [ -x /opt/neovibe/bin/nv-server ]; then
+  /opt/neovibe/bin/nv-server eteindre-l-ancien-gardien | sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d "$BASE"
+  echo "Ancien gardien éteint."
+  systemctl start nv-server
+else
+  echo "⚠️  Serveur pas encore construit : l'ancien gardien sera éteint au déploiement (deployer.sh)."
+fi
 echo "Base $BASE prête."

@@ -66,6 +66,15 @@ Détail dans [`systeme-camera-explique.md`](systeme-camera-explique.md).
    côté Dart ne suppose aucun « Android-isme ». Ainsi iOS sera **additif**.
 3. **iOS plus tard, sur décision de Jay**, une fois le développement Android
    terminé. On implémentera alors le côté iOS des ponts (voir catalogue).
+   ✏️ **Décision de Jay du 2026-09-29** : une partie des amis testeurs est
+   sur iPhone. Ordre retenu : (a) l'app Android passe sur le serveur du VPS ;
+   (b) les améliorations d'avant-test (Flutter surtout : servent aux deux) ;
+   (c) **préparation iOS dès maintenant, sans code natif** — compte
+   développeur Apple (Jay), étude écrite de ce que l'iPhone permet en BLE
+   (arrière-plan, iPhone↔iPhone, iPhone↔Android), construction automatique
+   de l'app iOS sur un Mac loué (Jay n'a pas de Mac) ; (d) iPhone en main :
+   **le prototype du ping d'abord** (le plus gros risque produit), puis les
+   ponts dans l'ordre utile aux tests, et la question d'un Mac.
 
 ---
 
