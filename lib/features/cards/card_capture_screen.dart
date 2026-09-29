@@ -31,6 +31,7 @@ import 'face_background.dart';
 import 'camera_controls.dart';
 import 'gallery_import_screen.dart';
 import 'native_camera.dart';
+import 'oneshot_video.dart';
 import 'send/recipient_picker_screen.dart';
 import 'send/share_context.dart';
 import 'send/share_progress_banner.dart';
@@ -1085,20 +1086,21 @@ class _CardCaptureScreenState extends ConsumerState<CardCaptureScreen>
     });
     try {
       if (dualVideo) {
-        // Arrière = recto, avant = verso (ordre inchangé, consigne Jay).
-        final shots = await _camera.stopGlDualVideo();
-        _front = await _adoptFace(shots.back);
+        // Arrêter, adopter les deux faces (arrière = recto, avant = verso),
+        // journaliser : `terminerVideoOneshot` (les deux faces ou aucune ; un
+        // journal ne fait jamais échouer une prise — panne du 2026-09-30).
+        final faces = await terminerVideoOneshot(
+          arreter: _camera.stopGlDualVideo,
+          adopter: _adoptFace,
+          journal: NativeCameraController.log,
+        );
+        _front = faces.recto;
         _frontIsVideo = true;
         _frontOrigin = FaceOrigin.camera;
-        _back = await _adoptFace(shots.front);
+        _back = faces.verso;
         _backIsVideo = true;
         _backOrigin = FaceOrigin.camera;
         _berealTimer?.cancel();
-        await NativeCameraController.log(
-          'Oneshot : double vidéo GPU écrite — '
-          'recto ${await shots.back.length() ~/ 1024} Ko, '
-          'verso ${await shots.front.length() ~/ 1024} Ko',
-        );
         // Rien à rouvrir : arrêter les encodeurs ne fait que retirer leur
         // surface EGL, les deux caméras continuent de rendre l'aperçu.
         if (mounted) setState(() => _step = 2);
