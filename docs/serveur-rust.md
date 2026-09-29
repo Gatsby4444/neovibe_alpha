@@ -211,7 +211,7 @@ existante**. La plateforme complète vient ensuite.
 | 9. Carte | ✅ 2026-09-27 — `carte/guichet.rs` : les 9 opérations (amis sur la carte, partage, cacher, demander / répondre / état d'une demande, Vibes autour, Vibes à lire) et 3 gestes directs (`location_sharing_mine`, `location_hidden_list`, `map_rules_walking`) ; **qui voit ma position** écrit une fois (`peut_voir_position`) ; la demande de position passe par **la** conversation directe (`conversations::guichet::conversation_directe`) et le passage obligé des messages ; balais `balai_positions` et `balai_demandes` — 36 situations identiques (430 au total) |
 | 10. Modération et administration | ✅ 2026-09-27 — `moderation/` : signaler (`report_sent_vibe · drop_vibe · event`, et les gestes directs `content_report_create`, `profile_report_create`) avec **la preuve scellée** (`preuves.rs`, ex-`scelle_la_preuve`) ; les 13 gestes d'administration (`admin.rs`), tous refusés hors de `admins` et journalisés — y compris regarder une preuve. La **libération** des preuves (`libere_la_preuve`) est reclassée FONDATION : elle doit voir la disparition d'un signalement par cascade — 45 situations identiques (475 au total) |
 | 11. L'app complète | ✅ 2026-09-27 — **la couche d'accès de l'app** (`lib/core/api/` : `NvApi` les opérations, `NvDirect` le direct, `NvFichiers` les coffres, `NvAuth` la connexion ; `SupabaseBackend` pour l'app de tous les jours, `RustBackend` pour l'app d'essai — choisi à la construction, `--dart-define=SERVEUR=rust`) : les 48 fichiers de l'app qui parlaient à Supabase n'en parlent plus, les gestes directs sur les tables sont rangés sous le nom de l'opération Rust (`supabase_gestes.dart`). **Trois garde-fous** (`test/couche_d_acces_test.dart`) : seule la couche d'accès parle à Supabase ; chaque opération existe des deux côtés ; **chaque appel envoie exactement les champs que son guichet Rust accepte et exige** (181 appels, contre-testé des deux côtés). Le natif : `Serveurs.distant` → `SupabaseHttp` ou `RustHttp` (la file de publication en morceaux reprenables, la balise du ping, la présence en soirée). Essais de bout en bout contre le vrai serveur : l'app (`test/serveur_rust_bout_en_bout_test.dart` : comptes, refus, amis, conversation, direct, « en train d'écrire », fichiers) et le natif (`RustHttpEssaiTest.kt` : envoi en trois morceaux coupé puis repris, balise, présence, badge refusé — contre-testé). **L'app d'essai** « NeoVibe (Rust) » : un autre paquet, qui s'installe à côté de l'app habituelle (voir plus bas). **La base du serveur est séparée de la référence de la preuve** (`nv_serveur` ≠ `postgres`, `outils/base_locale.py`). Au passage : les recommandations et les bloqués rendent enfin leurs profils par `profil_vu` (ils recopiaient le masque). 475 situations identiques |
-| 12. Mise en ligne et déménagement | à faire |
+| 12. Mise en ligne et déménagement | 🟡 commencée le 2026-09-29 — **le VPS est prêt** (voir « Le VPS » plus bas) : PostgreSQL 17, portier https (Caddy, certificat de `api.neovibe.fun`), le serveur construit sur place contre sa base, sous son propre rôle `nv_server` (données seulement) ; base `neovibe` montée par **la même recette que la base locale** (`outils/recette_base.sh`) avec une copie fraîche des données de dev ; sauvegarde chaque nuit + restauration essayée, y compris sur un serveur de base neuf. **Reste** : la clé S3 du serveur (Jay, tableau de bord Cloudflare) → lancer le serveur ; recopier les fichiers de Supabase vers R2 ; copie des sauvegardes hors du VPS (`neovibe-sauvegardes`) ; l'app d'essai `--vps` ; retrait de l'ancien gardien SQL ; la bascule de l'app habituelle |
 
 **Écarts voulus entre l'ancien et le nouveau gardien** (visibles dans la
 preuve, chacun justifié) :
@@ -292,6 +292,48 @@ l'ancien gardien. Chaque situation peut exiger que l'ancien gardien ÉCRIVE
 | lancer le serveur **pour le téléphone** | `bash server/outils/serveur_telephone.sh` (écoute sur le réseau local ; liens de fichiers à l'adresse du PC) |
 | construire **l'app d'essai** | `bash server/outils/app_d_essai.sh` → `build/essai_rust/NeoVibe-Rust.apk` ; avec `--publier` : une pré-version GitHub `essai-rust-v<version>` (à télécharger sur le téléphone, jamais vue par le bouton de mise à jour de l'app habituelle) |
 | essais de bout en bout (serveur lancé) | `NV_SERVEUR_ESSAI=http://127.0.0.1:8787 flutter test test/serveur_rust_bout_en_bout_test.dart` ; natif : `cd android && NV_SERVEUR_ESSAI=http://127.0.0.1:8787 ./gradlew :app:testDebugUnitTest --tests '*RustHttpEssaiTest*'` |
+
+## Le VPS (étape 12)
+
+**La machine** : Hostinger KVM 2 (Vilnius), Ubuntu 26.04, `2.24.162.2`,
+nom public `api.neovibe.fun`. Accès : `ssh -i ~/.ssh/neovibe_vps
+root@2.24.162.2`, clé seulement. Tout ce qui y est posé l'est par les
+scripts de `server/outils/vps/`, versionnés — rien à la main.
+
+| Geste (depuis le PC, racine du dépôt) | Commande |
+|---|---|
+| installer / remettre d'aplomb le socle (rejouable) | `bash server/outils/vps/deployer.sh --installer` |
+| monter la base (refuse d'écraser) | `bash server/outils/vps/deployer.sh --base` (après `python server/outils/copier_base_dev.py`) |
+| l'effacer et la refaire — **ordre de Jay seulement** | `bash server/outils/vps/deployer.sh --base --remplacer` |
+| construire et relancer le serveur | `bash server/outils/vps/deployer.sh` |
+| l'app d'essai vers le VPS | `bash server/outils/app_d_essai.sh [--publier] --vps` (pré-version `essai-rust-vps-v…`, distincte de celle du PC) |
+| restaurer une sauvegarde (sur le VPS) | `/opt/neovibe/bin/restaurer.sh /var/backups/neovibe/neovibe-<date>.dump [base]` — **jamais `pg_restore` seul** (voir le script : rôles et réglages) |
+
+**Ce qui y tourne, énoncé positivement :**
+
+- **Entrent** : SSH (clé seulement, ni mot de passe ni tunnel), 80 et 443
+  (Caddy). Tout le reste est refusé (ufw).
+- **La base** n'écoute que la machine. `postgres` n'a pas de mot de
+  passe : on ne l'atteint que par `sudo -u postgres` (migrations,
+  sauvegardes). **Le serveur se connecte en `nv_server`**
+  (`server/migrations/20260929000000_le_role_du_serveur.sql`) : lire et
+  écrire des données, rien d'autre — ni commande système, ni lecture de
+  fichiers, ni changement de structure, ni rôle (vérifié sous identité le
+  2026-09-29). Il passe outre les anciennes règles RLS, qui supposent
+  `auth.uid()`.
+- **Le portier** (Caddy) n'a pas d'interface d'administration ; il écrit
+  l'adresse du téléphone dans `X-Forwarded-For` en remplaçant celle du
+  client (aucun portier « de confiance » : ne jamais en déclarer). Le
+  serveur ne lit cet en-tête que si `NV_PORTIER_LOCAL=1` et la connexion
+  vient de la machine ; il compte une IPv6 par bloc /64 et les connexions
+  aussi par compte visé.
+- **Les secrets** sont dans `/etc/neovibe/nv-server.env` (root, 600) :
+  tirés au sort sur place (mot de passe de `nv_server`, clé des badges),
+  sauf la clé S3 (Jay). Jamais dans le dépôt.
+- **Les sauvegardes** : chaque nuit à 03:30 UTC, `/var/backups/neovibe/`
+  (postgres, 700), 14 jours — la base (`.dump`) et les rôles
+  (`roles-<date>.sql`). Même disque que la base : la copie hors de la
+  machine reste à brancher.
 
 ## L'app d'essai (étape 11)
 
@@ -434,7 +476,7 @@ Ce sont des choix de ma responsabilité, signalés à Jay. Ils sont confirmés
 |---|---|---|
 | Langage | Rust stable. Sur ce PC : 1.97.1, chaîne GNU active et gcc de WinLibs. Le VPS compilera sous Linux | décision de Jay |
 | Serveur HTTP | `axum` sur `tokio` | le plus répandu en Rust, maintenu par l'équipe de `tokio` |
-| Accès à la base | PostgreSQL 17 via `sqlx`, **requêtes vérifiées à la construction**. Les métadonnées `.sqlx/` sont versionnées pour construire sans base | un oubli (colonne supprimée, table renommée) casse la construction au lieu de casser chez Jay |
+| Accès à la base | PostgreSQL 17 via `sqlx`, **requêtes vérifiées à la construction**. ✏️ *Relevé le 2026-09-29* : il n'y a PAS de métadonnées `.sqlx/` dans le dépôt — la construction exige une base (sur le PC, la base locale ; sur le VPS, sa propre base, sous le rôle `nv_server`) | un oubli (colonne supprimée, table renommée) casse la construction au lieu de casser chez Jay |
 | Schéma | départ : les migrations de `supabase/migrations/` (prouvées par `tool/repetition_vps`) ; ensuite des migrations `sqlx` dans `server/migrations/` ; à l'étape 12, une base de départ propre, sans les restes de Supabase | |
 | Mots de passe | `argon2id`. Les comptes existants gardent leur empreinte `bcrypt` de Supabase : elle est vérifiée à la connexion, puis réécrite en argon2id | rien à redemander aux utilisateurs |
 | Badge | jeton signé Ed25519 valable 1 h (comme aujourd'hui) ; renouvellement par un jeton opaque, stocké haché, **tournant**, dont la réutilisation est détectée | le natif s'appuie déjà sur un badge d'1 h |

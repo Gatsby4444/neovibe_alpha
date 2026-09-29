@@ -1,10 +1,17 @@
--- Importe la copie des données de dev (docdev/copie_base_dev/, montée en
--- /copie dans le conteneur) dans la base locale de travail.
+-- Importe la copie des données de dev (docdev/copie_base_dev/) dans une
+-- base montée par server/outils/recette_base.sh. Le dossier de la copie,
+-- vu du serveur de la base, est passé par `psql -v copie=<dossier>` ; par
+-- défaut /copie (le conteneur de la base locale).
 --
 -- Les déclencheurs sont suspendus pendant l'import (`replica`) : on recopie
 -- un état, on ne rejoue pas les gestes qui l'ont produit. Les colonnes
 -- calculées par la base (GENERATED ALWAYS) ne s'écrivent pas : elles sont
 -- recalculées.
+\if :{?copie}
+\else
+\set copie /copie
+\endif
+select set_config('nv.copie', :'copie', false);
 set session_replication_role = replica;
 
 do $$
@@ -15,17 +22,18 @@ declare
   v_cols text;
   v_all text;
   n bigint;
+  v_dir text := current_setting('nv.copie');
 begin
   -- D'abord tout vider d'un coup (les lignes de réglage posées par les
   -- migrations sont remplacées par celles de la copie, identiques).
   select string_agg(format('%I.%I', split_part(x, '.', 1), split_part(x, '.', 2)), ', ')
     into v_all
-    from pg_ls_dir('/copie') x
+    from pg_ls_dir(v_dir) x
    where x like '%.json'
      and to_regclass(format('%I.%I', split_part(x, '.', 1), split_part(x, '.', 2))) is not null;
   execute 'truncate ' || v_all || ' cascade';
 
-  for f in select pg_ls_dir('/copie') order by 1 loop
+  for f in select pg_ls_dir(v_dir) order by 1 loop
     continue when f not like '%.json';
     v_schema := split_part(f, '.', 1);
     v_table := split_part(f, '.', 2);
@@ -38,7 +46,7 @@ begin
     execute format(
       'insert into %I.%I (%s) overriding system value '
       'select %s from json_populate_recordset(null::%I.%I, pg_read_file(%L)::json)',
-      v_schema, v_table, v_cols, v_cols, v_schema, v_table, '/copie/' || f);
+      v_schema, v_table, v_cols, v_cols, v_schema, v_table, v_dir || '/' || f);
     get diagnostics n = row_count;
     raise notice '% : %', f, n;
   end loop;

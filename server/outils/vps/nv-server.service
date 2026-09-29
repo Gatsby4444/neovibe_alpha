@@ -1,0 +1,37 @@
+# Le serveur NeoVibe (server/outils/vps/installer.sh).
+[Unit]
+Description=Serveur NeoVibe
+After=network-online.target postgresql@17-main.service
+Wants=network-online.target
+Requires=postgresql@17-main.service
+
+[Service]
+User=neovibe
+Group=neovibe
+EnvironmentFile=/etc/neovibe/nv-server.env
+ExecStart=/opt/neovibe/bin/nv-server
+Restart=always
+RestartSec=3
+# Le serveur n'écrit rien sur le disque : tout va dans la base ou dans
+# l'entrepôt de fichiers. On le lui interdit.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+RestrictNamespaces=yes
+ProtectProc=invisible
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

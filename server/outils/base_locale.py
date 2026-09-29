@@ -2,12 +2,11 @@
 
 1. une base PostgreSQL 17 vide et l'imitation minimale de Supabase
    (`tool/repetition_vps/bootstrap.sql`) ;
-2. toutes les migrations de `supabase/migrations/`, dans l'ordre — la
-   structure ET l'ancien gardien SQL, dont la preuve par comparaison a
-   besoin ;
-3. les migrations propres au serveur Rust (`server/migrations/`) ;
-4. la copie des données de dev (`docdev/copie_base_dev/`, voir
-   `copier_base_dev.py`) ;
+2-4. LA recette de la base (`recette_base.sh`, la même que sur le VPS) :
+   les migrations de `supabase/migrations/` — la structure ET l'ancien
+   gardien SQL, dont la preuve par comparaison a besoin —, celles du
+   serveur Rust (`server/migrations/`), et la copie des données de dev
+   (`docdev/copie_base_dev/`, voir `copier_base_dev.py`) ;
 5. l'instrument de la preuve (`preuve.sql` : le journal des changements) ;
 6. **la base du serveur** (`nv_serveur`), copie de la précédente.
 
@@ -77,20 +76,11 @@ def main():
         time.sleep(1)
     time.sleep(2)
 
-    print('2. Les migrations de Supabase (structure + ancien gardien)…')
-    r = docker('exec', NOM, 'sh', '/work/replay.sh')
-    print('   ' + r.stdout.decode('utf-8', 'replace').strip().splitlines()[-1])
-
-    print('3. Les migrations du serveur Rust…')
-    nv = sorted(f for f in os.listdir(os.path.join(RACINE, 'server', 'migrations')) if f.endswith('.sql'))
-    for f in nv:
-        psql('/nvmigr/' + f)
-    print(f'   {len(nv)} fichier(s)')
-
-    print('4. La copie des données de dev…')
-    r = psql('/outils/importer_copie.sql', un_bloc=False)
-    notes = [l for l in r.stderr.decode('utf-8', 'replace').splitlines() if 'NOTICE' in l]
-    print(f'   {len(notes)} tables remplies')
+    # Étapes 2 à 4 : LA recette, la même que sur le VPS (recette_base.sh).
+    r = docker('exec', '-e', 'BASE=postgres', '-e', 'TRAVAIL=/work', '-e', 'MIGR=/migr',
+               '-e', 'NVMIGR=/nvmigr', '-e', 'OUTILS=/outils', '-e', 'COPIE=/copie',
+               NOM, 'sh', '/outils/recette_base.sh')
+    print(r.stdout.decode('utf-8', 'replace').rstrip())
 
     print('5. L\'instrument de la preuve…')
     psql('/outils/preuve.sql')

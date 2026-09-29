@@ -27,10 +27,16 @@ pub struct Etat {
     pub hub: Arc<crate::direct::Hub>,
     pub limite_comptes: Limiteur,
     pub limite_renouvellement: Limiteur,
+    /// Les connexions par compte visé (l'adresse e-mail), en plus de
+    /// l'adresse du téléphone.
+    pub limite_par_compte: Limiteur,
+    /// Le serveur est derrière un portier https sur la même machine
+    /// (`NV_PORTIER_LOCAL`) : voir [`auth::adresse_client`].
+    pub portier_local: bool,
 }
 
 impl Etat {
-    pub fn new(pool: PgPool, badge: Badge, entrepot: Arc<dyn Entrepot>) -> Self {
+    pub fn new(pool: PgPool, badge: Badge, entrepot: Arc<dyn Entrepot>, portier_local: bool) -> Self {
         let ops = nv_app::registry().into_iter().map(|o| (o.name, o.run)).collect();
         Etat {
             pool,
@@ -40,6 +46,8 @@ impl Etat {
             hub: Arc::new(crate::direct::Hub::default()),
             limite_comptes: Limiteur::new(20, Duration::from_secs(60)),
             limite_renouvellement: Limiteur::new(120, Duration::from_secs(60)),
+            limite_par_compte: Limiteur::new(10, Duration::from_secs(60)),
+            portier_local,
         }
     }
 }

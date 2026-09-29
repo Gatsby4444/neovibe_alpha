@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
     entrepot.preparer(&COFFRES).await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let entrepot: Arc<dyn nv_core::fichiers::Entrepot> = Arc::new(entrepot);
     taches::lancer(pool.clone(), entrepot.clone());
-    let etat = Arc::new(routes::Etat::new(pool, badge, entrepot));
+    let etat = Arc::new(routes::Etat::new(pool, badge, entrepot, config.portier_local));
     direct::ecouter(etat.pool.clone(), etat.hub.clone());
     let app = routes::router(etat);
     let ecoute = tokio::net::TcpListener::bind(&config.adresse)

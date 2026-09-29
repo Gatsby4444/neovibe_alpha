@@ -1,0 +1,22 @@
+# Le portier https du VPS (server/outils/vps/installer.sh).
+# Caddy obtient et renouvelle seul le certificat Let's Encrypt de
+# api.neovibe.fun, et transmet tout au serveur NeoVibe, qui n'écoute que la
+# machine elle-même. Les connexions en direct (WebSocket) passent telles
+# quelles.
+#
+# ⚠️ L'adresse du téléphone : Caddy l'écrit dans X-Forwarded-For en
+# REMPLAÇANT ce qu'un client envoie, parce qu'aucun portier n'est déclaré
+# « de confiance » (vérifié dans le code de Caddy 2.11, reverseproxy.go,
+# par le gardien-securite le 2026-09-29). Le limiteur du serveur s'y fie
+# (NV_PORTIER_LOCAL=1) : ne JAMAIS ajouter `trusted_proxies` ici.
+{
+	# Pas d'interface d'administration : sans elle, aucun programme de la
+	# machine ne peut réécrire la configuration du portier. Un changement
+	# de ce fichier se prend par un redémarrage (systemctl restart caddy).
+	admin off
+}
+
+api.neovibe.fun {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:8787
+}

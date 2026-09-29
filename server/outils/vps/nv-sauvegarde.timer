@@ -1,0 +1,10 @@
+[Unit]
+Description=Sauvegarde quotidienne de la base NeoVibe (03:30 UTC)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

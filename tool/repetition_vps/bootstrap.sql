@@ -1,15 +1,27 @@
 -- Imitation minimale de l'environnement Supabase, pour rejouer les migrations
 -- du dépôt dans une base vide (répétition du déménagement, 2026-09-26).
 -- Ce n'est PAS Supabase : juste ce que les migrations supposent déjà là.
-create role anon nologin noinherit;
-create role authenticated nologin noinherit;
-create role service_role nologin noinherit bypassrls;
-create role authenticator login noinherit;
+-- Les rôles appartiennent au SERVEUR de base, pas à une base : ils survivent
+-- à l'effacement d'une base. Les créer seulement s'ils manquent permet de
+-- remonter une base sur un serveur qui en a déjà porté une (le VPS,
+-- server/outils/vps/monter_base.sh --remplacer — constaté le 2026-09-29).
+-- `authenticator` ne peut PAS se connecter : sans PostgREST, rien ne s'en
+-- sert, et un rôle qui peut se connecter attend un mot de passe.
+do $$
+declare r text;
+begin
+  foreach r in array array['anon', 'authenticated', 'service_role', 'authenticator', 'supabase_admin',
+                           'supabase_auth_admin', 'supabase_storage_admin', 'dashboard_user'] loop
+    if not exists (select 1 from pg_roles where rolname = r) then
+      execute format('create role %I', r);
+    end if;
+  end loop;
+end $$;
+alter role anon nologin noinherit;
+alter role authenticated nologin noinherit;
+alter role service_role nologin noinherit bypassrls;
+alter role authenticator nologin noinherit;
 grant anon, authenticated, service_role to authenticator;
-create role supabase_admin;
-create role supabase_auth_admin;
-create role supabase_storage_admin;
-create role dashboard_user;
 
 create schema extensions;
 create extension pgcrypto schema extensions;

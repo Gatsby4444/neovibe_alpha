@@ -12,6 +12,7 @@
 //! | `NV_S3_REGION` | la région | `us-east-1` |
 //! | `NV_S3_CLE`, `NV_S3_SECRET` | les accès à l'entrepôt | obligatoires |
 //! | `NV_S3_PREFIXE` | préfixe des noms de buckets | `neovibe-` |
+//! | `NV_PORTIER_LOCAL` | `1` : un portier https (Caddy) tourne sur la même machine et transmet l'adresse du téléphone (`X-Forwarded-For`) | absent : l'adresse est celle de la connexion |
 use anyhow::Context;
 use base64::Engine;
 
@@ -23,6 +24,7 @@ pub struct Config {
     pub db_connections: u32,
     pub badge_cle: Option<Vec<u8>>,
     pub entrepot: Reglages,
+    pub portier_local: bool,
 }
 
 fn var(nom: &str) -> Option<String> {
@@ -52,6 +54,7 @@ impl Config {
                 secret: var("NV_S3_SECRET").context("NV_S3_SECRET manquante")?,
                 prefixe: var("NV_S3_PREFIXE").unwrap_or_else(|| "neovibe-".into()),
             },
+            portier_local: var("NV_PORTIER_LOCAL").as_deref() == Some("1"),
         })
     }
 }
