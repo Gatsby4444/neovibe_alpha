@@ -403,12 +403,16 @@ struct NouvelleLivraison {
 async fn card_delivery_create(ctx: &mut Ctx, args: Value) -> NvResult<Value> {
     let moi = ctx.actor.uid()?;
     let a: NouvelleLivraison = parse(args)?;
-    // Même ordre que l'ancienne base : la règle des livraisons (déclencheur)
-    // d'abord, puis « c'est bien ma Vibe » (politique).
-    livraisons::regles(ctx.db(), a.card_id, a.recipient_id).await?;
+    // « C'est bien ma Vibe » d'ABORD : les règles des livraisons parlent du
+    // propriétaire (ses amis, sa suspension) — jouées pour la Vibe d'un
+    // autre, leur refus en apprendrait sur lui (« Ton compte est suspendu »
+    // révélait la suspension d'un tiers ; relevé par le gardien-securite le
+    // 2026-09-29). L'ancienne base faisait l'inverse (déclencheur, puis
+    // politique) : écart voulu, déclaré dans la preuve.
     if !vrai(ctx.db(), &q::possede_carte("$1::uuid", "$2::uuid"), &[P::U(a.card_id), P::U(moi)]).await? {
         return Err(NvError::refused("On ne livre que ses propres Vibes."));
     }
+    livraisons::regles(ctx.db(), a.card_id, a.recipient_id).await?;
     livraisons::inserer(ctx.db(), a.card_id, a.recipient_id, a.message_id, false).await?;
     Ok(Value::Null)
 }

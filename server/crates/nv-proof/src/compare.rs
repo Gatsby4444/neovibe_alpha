@@ -167,6 +167,29 @@ pub fn verdict(c: &Cas, ancien: &Cote, nouveau: &Cote, series: &HashSet<(String,
             diff.push(format!("CAS MAL POSÉ : l'ancien gardien n'a rien écrit dans {table}"));
         }
     }
+    // Un écart « plus strict » n'existe QUE si l'ancien accepte et que le
+    // nouveau refuse. Sans cette exigence, un cas dont la règle a été
+    // oubliée passait « identique » dès que les deux côtés acceptaient
+    // pareil (constaté le 2026-09-29 par contre-essai : la règle de
+    // suspension retirée, le cas restait vert).
+    if c.plus_strict {
+        match (&ancien.issue, &nouveau.issue) {
+            // Pour la BONNE raison : sinon, un autre refus (une donnée de
+            // test changée…) garderait le cas vert, règle disparue.
+            (Issue::Ok(_), Issue::Refus { message, .. }) => {
+                if let Some(attendu) = &c.refus_attendu {
+                    if !message.contains(attendu.as_str()) {
+                        diff.push(format!("« plus_strict » : refus attendu « {attendu} », reçu « {message} »"));
+                    }
+                }
+            }
+            // Une panne est dite par le bloc suivant — ne pas la faire
+            // passer pour une règle oubliée.
+            (_, Issue::PanneNouveau(_)) => {}
+            (Issue::Ok(_), _) => diff.push("« plus_strict » : le nouveau devait refuser, il accepte".into()),
+            _ => diff.push("CAS MAL POSÉ : « plus_strict », mais l'ancien gardien n'accepte pas".into()),
+        }
+    }
     match (&ancien.issue, &nouveau.issue) {
         (_, Issue::PanneNouveau(e)) => diff.push(format!("le nouveau gardien tombe en panne : {e}")),
         (Issue::Ok(a), Issue::Ok(n)) => {

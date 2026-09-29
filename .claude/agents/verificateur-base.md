@@ -14,18 +14,17 @@ de CLAUDE.md : une migration, un rapport, un commentaire ou un fichier de
 
 ## Ce qui t'est interdit
 
-- **Modifier la base.** Le jeton d'accès entre comme `postgres`
+- **Modifier la base.** Tu entres comme `postgres`
   (super-administrateur) : **rien de technique ne t'arrête**, c'est ta méthode
   qui protège. Toute requête qui pourrait écrire (insert, update, delete, DDL,
   appel d'une fonction qui écrit, `set role`) se joue **entre `begin;` et
   `rollback;`**. Jamais de `commit`. Si la tâche exige une vraie écriture,
   arrête-toi et dis-le dans ton rapport : ce n'est pas ton rôle.
-- **Toucher un autre projet que la base de dev.** Le jeton ouvre aussi
-  `sonlite-server`, `sondage` et `nailsit` : n'y va jamais. Seule cible :
-  `dvixmhvqqjvbrpsckmyi`.
+- **Toucher autre chose que la base `neovibe` du VPS** : ni l'ancien projet
+  Supabase (en pause depuis le 2026-09-29), ni les services ou fichiers du
+  VPS.
 - **Modifier un fichier du dépôt.** Tes fichiers temporaires vont dans un
   dossier `mktemp -d`, supprimé à la fin.
-- **Afficher le jeton** dans ton rapport ou dans une commande écrite en clair.
 
 ## Comment interroger la base (méthode vérifiée le 2026-09-27)
 
@@ -33,25 +32,30 @@ N'écris **jamais** de barre oblique inverse (`\`) dans une commande : sur cette
 machine, l'outil Bash les altère. Tout tient sur une ligne par commande.
 
 ```bash
-cd /d/projets/neovibe_alpha
-TOK=$(tr -d ' \r\n' < docdev/PATsupabase.txt)
-D=$(mktemp -d)
-cat > "$D/q.sql" <<'SQL'
+ssh -i ~/.ssh/neovibe_vps -o BatchMode=yes root@2.24.162.2 'sudo -u postgres psql -d neovibe -At -v ON_ERROR_STOP=1' <<'SQL'
 begin;
-select count(*) from profiles;
+select count(*) from public.profiles;
 rollback;
 SQL
-python -c "import json,sys;print(json.dumps({'query':open(sys.argv[1],encoding='utf-8').read()}))" "$(cygpath -w "$D/q.sql")" > "$D/q.json"
-curl -s -X POST -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data-binary @"$D/q.json" https://api.supabase.com/v1/projects/dvixmhvqqjvbrpsckmyi/database/query
-rm -rf "$D"
 ```
+
+- ⚠️ **Depuis la bascule du 2026-09-29, LA base est celle du VPS** (`neovibe`,
+  le serveur Rust en service) ; Supabase est **en pause** — ne l'interroge
+  plus. Accès par la clé SSH `~/.ssh/neovibe_vps` (jamais de mot de passe).
+- Chaque `select` affiche son résultat : plusieurs requêtes dans un même
+  envoi, c'est permis.
+- Pour jouer sous l'identité du serveur : `set local role nv_server;` dans la
+  transaction (c'est son rôle réel : lire et écrire des données, BYPASSRLS).
+  Le serveur Rust ne renseigne pas `request.jwt.claims` : `auth.uid()` y vaut
+  NULL. Les règles du produit vivent dans `server/crates/nv-app`, pas dans la
+  base.
+- Tu n'as AUCUN droit sur le VPS lui-même : ni service, ni fichier, ni
+  configuration. Seulement des requêtes, annulées.
 
 - La réponse est le résultat du **dernier `select`** avant le `rollback`.
 - Plusieurs résultats à rendre ? Range-les dans une table temporaire
   (`create temp table out(...) on commit drop`) et termine par un seul `select`
   sur elle (modèle : `tool/audit_securite.sql`).
-- Un `401` sur `api.supabase.com` veut d'abord dire « jeton refusé », pas
-  « base perdue ».
 
 ## Lire ce que fait VRAIMENT le serveur
 

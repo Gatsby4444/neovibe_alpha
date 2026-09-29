@@ -261,6 +261,8 @@ void main() {
     timeout: const Timeout(Duration(minutes: 1)),
   );
 
+  _essaiSuspendu(url, ignore, sql, hasard);
+
   // Le VRAI parcours d'arrivée (le code même de « Dernière chose pour
   // toi »), contre le serveur : compte, puis profil. Le téléphone est
   // remplacé par une empreinte tirée au sort.
@@ -302,6 +304,86 @@ void main() {
             "delete from public.profiles where id = '$id'; "
             "delete from private.device_signups where user_id = '$id'; "
             "delete from auth.users where id = '$id';",
+          );
+        }
+      }
+    },
+    skip: ignore,
+    timeout: const Timeout(Duration(minutes: 1)),
+  );
+}
+
+/// Un compte suspendu n'envoie plus rien — pas même une Vibe créée avant sa
+/// suspension (décision de Jay, 2026-09-29 ; `livraisons::regles`). Joué
+/// contre le serveur EN SERVICE : la preuve locale dit que le code est juste,
+/// cet essai dit que c'est bien ce code-là qui tourne (le 2026-09-29, un
+/// déploiement installait sans relancer, en silence).
+void _essaiSuspendu(
+  String? url,
+  String? ignore,
+  Future<String> Function(String) sql,
+  String Function() hasard,
+) {
+  test(
+    'un compte suspendu ne livre pas une Vibe créée avant la suspension',
+    () async {
+      final a = RustBackend.pour(url!, coffre: CoffreEnMemoire());
+      final b = RustBackend.pour(url, coffre: CoffreEnMemoire());
+      final ids = <String>[];
+      final carte = '77777777-0000-4000-8000-${hasard()}0000';
+      try {
+        for (final x in [a, b]) {
+          await x.auth.inscription(
+            email: 'essai.${hasard()}@essai.fr',
+            password: 'secret123',
+            empreinte: hasard() * 8,
+          );
+          ids.add(x.auth.compte!);
+          await x.api.op('profile_create', {
+            'id': x.auth.compte,
+            'display_name': 'essai_${hasard()}',
+          });
+        }
+        final (moiA, moiB) = (ids[0], ids[1]);
+        await sql(
+          "insert into public.connections (user_low, user_high, status, origin) "
+          "values (least('$moiA'::uuid, '$moiB'::uuid), greatest('$moiA'::uuid, '$moiB'::uuid), 'full', 'proximity'); "
+          "insert into public.cards (id, owner_id, card_type, front_path) "
+          "values ('$carte', '$moiA', 'one_of_one', '$moiA/u.jpg'); "
+          "update public.profiles set suspended_at = now() where id = '$moiA'",
+        );
+        await expectLater(
+          a.api.op('card_delivery_create', {
+            'card_id': carte,
+            'recipient_id': moiB,
+          }),
+          throwsA(
+            isA<NvApiException>().having(
+              (e) => e.message,
+              'message',
+              contains('suspendu'),
+            ),
+          ),
+        );
+        // Levée la suspension, la même livraison passe : la règle ne
+        // refuse que le suspendu.
+        await sql(
+          "update public.profiles set suspended_at = null where id = '$moiA'",
+        );
+        await a.api.op('card_delivery_create', {
+          'card_id': carte,
+          'recipient_id': moiB,
+        });
+      } finally {
+        if (ids.isNotEmpty) {
+          final l = ids.map((i) => "'$i'").join(', ');
+          await sql(
+            "delete from public.card_deliveries where card_id = '$carte'; "
+            "delete from public.cards where id = '$carte'; "
+            'delete from public.connections where user_low in ($l) or user_high in ($l); '
+            'delete from public.profiles where id in ($l); '
+            'delete from private.device_signups where user_id in ($l); '
+            'delete from auth.users where id in ($l);',
           );
         }
       }

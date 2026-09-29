@@ -15,9 +15,9 @@ m'interdit ? »** Un bouton absent ne protège de rien ; seule la base protège.
 
 - **Corriger.** Tu trouves, tu prouves, tu recommandes. La correction revient
   à Claude, après accord.
-- **Modifier la base.** Le jeton entre comme `postgres` : rien ne t'arrête,
+- **Modifier la base.** Tu entres comme `postgres` : rien ne t'arrête,
   ta méthode protège. Tout essai se joue entre `begin;` et `rollback;`. Jamais
-  de `commit`. Seule cible : le projet de dev `dvixmhvqqjvbrpsckmyi`.
+  de `commit`. Seule cible : la base `neovibe` du VPS.
 - **Modifier un fichier**, y compris `tool/audit_securite.sql`. Si un cas doit
   y entrer, écris-le dans ton rapport, prêt à coller.
 
@@ -27,18 +27,25 @@ Même méthode que le vérificateur en base, vérifiée le 2026-09-27. Jamais de
 `\` dans une commande (l'outil Bash les altère sur cette machine).
 
 ```bash
-cd /d/projets/neovibe_alpha
-TOK=$(tr -d ' \r\n' < docdev/PATsupabase.txt)
-D=$(mktemp -d)
-cat > "$D/q.sql" <<'SQL'
+ssh -i ~/.ssh/neovibe_vps -o BatchMode=yes root@2.24.162.2 'sudo -u postgres psql -d neovibe -At -v ON_ERROR_STOP=1' <<'SQL'
 begin;
--- essais
+select count(*) from public.profiles;
 rollback;
 SQL
-python -c "import json,sys;print(json.dumps({'query':open(sys.argv[1],encoding='utf-8').read()}))" "$(cygpath -w "$D/q.sql")" > "$D/q.json"
-curl -s -X POST -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data-binary @"$D/q.json" https://api.supabase.com/v1/projects/dvixmhvqqjvbrpsckmyi/database/query
-rm -rf "$D"
 ```
+
+- ⚠️ **Depuis la bascule du 2026-09-29, LA base est celle du VPS** (`neovibe`,
+  le serveur Rust en service) ; Supabase est **en pause** — ne l'interroge
+  plus. Accès par la clé SSH `~/.ssh/neovibe_vps` (jamais de mot de passe).
+- Chaque `select` affiche son résultat : plusieurs requêtes dans un même
+  envoi, c'est permis.
+- Pour jouer sous l'identité du serveur : `set local role nv_server;` dans la
+  transaction (c'est son rôle réel : lire et écrire des données, BYPASSRLS).
+  Le serveur Rust ne renseigne pas `request.jwt.claims` : `auth.uid()` y vaut
+  NULL. Les règles du produit vivent dans `server/crates/nv-app`, pas dans la
+  base.
+- Tu n'as AUCUN droit sur le VPS lui-même : ni service, ni fichier, ni
+  configuration. Seulement des requêtes, annulées.
 
 La réponse est le dernier `select` avant le `rollback`. Pour rendre plusieurs
 essais, reprends le montage de `tool/audit_securite.sql` : une table
@@ -96,13 +103,18 @@ rollback;
   rien tester (piège constaté en écrivant l'audit). Vise une ligne qui existe
   forcément, et compte les lignes touchées.
 
-## Rejouer l'audit existant
+## Rejouer les contrôles existants
 
-Envoie `tool/audit_securite.sql` tel quel (même méthode, en remplaçant
-`q.sql` par ce fichier). Chaque ligne où `ok` vaut `false` est une
-régression. Le script dépend de données de dev (Charles, le bot 92, la soirée
-« Goat ») : si une ligne échoue parce qu'une donnée a disparu, dis-le, **ne
-conclus pas à une faille**.
+⚠️ **Depuis la bascule du 2026-09-29**, les règles vivent dans le serveur Rust
+(`server/crates/nv-app`), pas dans les règles RLS de la base :
+`tool/audit_securite.sql` interroge l'ANCIEN gardien (rôle `authenticated`,
+qui ne sert plus) et ne prouve plus rien sur le serveur en service. Le
+contrôle rejouable est **la preuve par comparaison** :
+`bash server/outils/cargo.sh run -q -p nv-proof` (depuis la racine du dépôt,
+Docker lancé, base locale `nv_rust_db`) — chaque situation « différente » est
+une régression ; un écart voulu y porte sa raison (`ecart`). Un cas de faille
+nouveau s'écrit dans `server/preuves/*.toml` (prêt à coller dans ton
+rapport), pas dans `audit_securite.sql`.
 
 ## Ton rapport
 

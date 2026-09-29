@@ -52,6 +52,9 @@ struct CasBrut {
     /// … et les champs de la réponse qu'il concerne (masqués des deux côtés).
     #[serde(default)]
     ecart_champs: Vec<String>,
+    /// Pour un « plus_strict » : le refus attendu du nouveau (un morceau de
+    /// son message) — sinon n'importe quel autre refus le rendrait vert.
+    refus_attendu: Option<String>,
     /// Garde-fou : l'ancien gardien DOIT écrire dans ces tables (sinon la
     /// situation ne teste rien).
     #[serde(default)]
@@ -79,6 +82,8 @@ pub struct Cas {
     /// Écart voulu : le nouveau refuse ce que l'ancien acceptait (avec une
     /// raison obligatoire dans `ecart`).
     pub plus_strict: bool,
+    /// Le refus attendu du nouveau, pour un « plus_strict ».
+    pub refus_attendu: Option<String>,
     pub attendu: Option<String>,
     pub ignorer: Vec<String>,
     pub ecart: Option<String>,
@@ -131,6 +136,7 @@ pub fn avec_creneau(c: &Cas, creneau: i64) -> Cas {
         sans_ordre: c.sans_ordre,
         sans_effet: c.sans_effet,
         plus_strict: c.plus_strict,
+        refus_attendu: c.refus_attendu.clone(),
         attendu: c.attendu.clone(),
         ignorer: c.ignorer.clone(),
         ecart: c.ecart.clone(),
@@ -176,6 +182,7 @@ pub fn avec_heure(c: &Cas, maintenant: chrono::DateTime<chrono::Utc>) -> Cas {
         sans_ordre: c.sans_ordre,
         sans_effet: c.sans_effet,
         plus_strict: c.plus_strict,
+        refus_attendu: c.refus_attendu.clone(),
         attendu: c.attendu.clone(),
         ignorer: c.ignorer.clone(),
         ecart: c.ecart.clone(),
@@ -263,6 +270,7 @@ pub fn charger(filtre: &str) -> Result<Vec<Cas>, String> {
                 sans_ordre: c.sans_ordre,
                 sans_effet: c.equivalence.as_deref() == Some("sans_effet"),
                 plus_strict: c.equivalence.as_deref() == Some("plus_strict"),
+                refus_attendu: c.refus_attendu,
                 attendu: c.attendu,
                 ignorer: c.ignorer,
                 ecart: c.ecart,

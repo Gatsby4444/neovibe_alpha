@@ -61,8 +61,13 @@ PY
   tar -czf - -C "$RACINE/server" --exclude=./target Cargo.toml Cargo.lock crates migrations \
     | "${SSH[@]}" 'tar -xzf - --no-same-owner -C /opt/neovibe/src'
   echo "Construction sur le VPS (quelques minutes)…"
-  "${SSH[@]}" 'bash -s' <<'EOF'
+  # ⚠️ Un arrêt en cours de route doit se VOIR : le 2026-09-29, une
+  # recherche sans résultat (grep, code 1) arrêtait ce script en silence
+  # avant `systemctl restart` — les déploiements installaient le programme
+  # sans jamais le relancer, et rien ne le disait.
+  if ! "${SSH[@]}" 'bash -s' <<'EOF'
 set -euo pipefail
+trap 'echo "🔴 ARRÊT sur le VPS, ligne $LINENO : $BASH_COMMAND"' ERR
 set -a; . /etc/neovibe/nv-server.env; set +a
 export DATABASE_URL="$NV_DATABASE_URL" CARGO_TARGET_DIR=/opt/neovibe/target
 cd /opt/neovibe/src
@@ -83,15 +88,24 @@ fi
 # Un réglage vide vaut « absent », et le serveur retomberait alors sur les
 # valeurs du PC (l'entrepôt local 127.0.0.1:8333) : sur le VPS, chacun est
 # exigé.
-MANQUE="$(grep -oE '^NV_S3_(INTERNE|PUBLIQUE|REGION|CLE|SECRET)=$' /etc/neovibe/nv-server.env | tr -d '=' | tr '\n' ' ')"
+# (Aucun vide trouvé = grep rend 1 : ce n'est pas un échec.)
+MANQUE="$( { grep -oE '^NV_S3_(INTERNE|PUBLIQUE|REGION|CLE|SECRET)=$' /etc/neovibe/nv-server.env || true; } | tr -d '=' | tr '\n' ' ')"
 if [ -n "$MANQUE" ]; then
   echo "⚠️  Réglages de l'entrepôt de fichiers vides dans /etc/neovibe/nv-server.env : $MANQUE— le serveur n'est pas relancé."
   exit 0
 fi
+AVANT="$(systemctl show nv-server -p ActiveEnterTimestampMonotonic --value)"
 systemctl restart nv-server
 sleep 3
-systemctl is-active nv-server
+APRES="$(systemctl show nv-server -p ActiveEnterTimestampMonotonic --value)"
+# Relancé ET en marche, vérifié — pas seulement demandé.
+[ "$(systemctl is-active nv-server)" = active ] && [ "$APRES" != "$AVANT" ]
+echo "Serveur relancé à $(systemctl show nv-server -p ActiveEnterTimestamp --value), programme du $(date -r /opt/neovibe/bin/nv-server '+%Y-%m-%d %H:%M:%S %Z')."
 EOF
+  then
+    echo "🔴 Le déploiement a échoué sur le VPS (voir la ligne « ARRÊT » ci-dessus) : le serveur n'a PAS été relancé avec la nouvelle version."
+    exit 1
+  fi
   echo "Santé : $(curl -s -m 10 "https://$HOTE/v1/sante" || echo 'pas de réponse')"
   ;;
 *)

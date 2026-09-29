@@ -373,7 +373,12 @@ Ce qui en découle, à appliquer avant d'écrire la moindre ligne :
    dépendaient** au lieu de dérouler un plan écrit avant.
 7. **Ne jamais livrer un correctif fondé sur une déduction.** Reproduire la
    panne d'abord — en base, sous l'identité de l'utilisateur, avec la sécurité
-   active (`set local role authenticated` + `request.jwt.claims`). Une
+   active. ✏️ *Depuis la bascule du 2026-09-29* : la sécurité est dans le
+   serveur Rust — on reproduit par le serveur lui-même (test de bout en bout
+   contre lui, ou un cas de la preuve `server/preuves/*.toml` joué au nom de
+   l'utilisateur), en base sous `set local role nv_server` pour les données.
+   (Avant : `set local role authenticated` + `request.jwt.claims`, l'ancien
+   gardien.) Une
    hypothèse plausible qui ne corrige rien fait perdre un aller-retour de test
    à Jay **et** ajoute des changements non justifiés au diff.
 8. **Toute suppression est une opération sur un réseau — relever les DEUX sens
@@ -566,9 +571,12 @@ contrainte, déclencheur ou fonction — et l'écran ne fait que l'**annoncer**.
 6. **Ce que le serveur ne voit pas, il l'exige déclaré** (origine d'une
    face, précision d'une position) — et on DIT la limite : une app modifiée
    qui mentirait n'est pas arrêtée.
-7. **Chaque faille se reproduit en base sous identité avant correction**, et
-   rejoint `tool/audit_securite.sql`, rejoué avant chaque livraison qui
-   touche au serveur.
+7. **Chaque faille se reproduit sous identité avant correction**, et
+   rejoint la preuve (`server/preuves/*.toml`, rejouée par
+   `nv-proof`) avant chaque livraison qui touche au serveur.
+   ✏️ *Depuis la bascule du 2026-09-29* : « le serveur », c'est le serveur
+   Rust ; `tool/audit_securite.sql` visait l'ancien gardien (Supabase, en
+   pause) et ne prouve plus rien sur le serveur en service.
 
 ## Règle impérative : UN DÉFAUT TROUVÉ SE RÉPARE TOUT DE SUITE
 
@@ -672,15 +680,17 @@ natif, pour ne rien découvrir au dernier moment lors du portage iOS.
 ## Stack
 
 - **Frontend** : Flutter/Dart (choisi pour perf caméra, cohérence cross-platform, écosystème BLE)
-- **Backend** : Supabase **pendant la construction** ; ⚠️ **décision de Jay du
-  2026-09-26 : notre propre serveur, écrit en RUST**, construit « tout d'un
-  coup » (domaine par domaine, chaque règle prouvée par comparaison avec
-  l'ancienne avant le déménagement), sur un VPS. **Pause des nouveautés côté
-  serveur** jusqu'au déménagement : l'app reste sur Supabase, le travail côté
-  app et les corrections de bugs continuent (toute correction serveur est
-  reportée dans le Rust). Plan et avancement : **`docs/serveur-rust.md`** ;
-  état de départ : `docs/demenagement-vps.md` ; outil :
-  `tool/repetition_vps/repeter.py`.
+- **Backend** : ✅ **depuis la bascule du 2026-09-29 (v0.9.300), notre propre
+  serveur, écrit en RUST** (décision de Jay du 2026-09-26), sur le VPS :
+  `https://api.neovibe.fun` (Hostinger, Vilnius), base PostgreSQL 17 sur la
+  même machine, médias sur Cloudflare R2. **Supabase est EN PAUSE**
+  (restaurable d'un clic pendant un an) : on ne l'interroge plus. **La base
+  de référence pour toute vérification est celle du VPS** (`neovibe`, accès
+  SSH par clé — méthode dans `.claude/agents/verificateur-base.md`). Les
+  règles du produit vivent dans `server/crates/nv-app` ; le contrôle
+  rejouable est la preuve par comparaison (`nv-proof`), et non plus
+  `tool/audit_securite.sql` (qui visait l'ancien gardien). Plan, avancement
+  et gestes du VPS : **`docs/serveur-rust.md`**.
 - **State management** : Riverpod
 - **Connectivité proximité** : **BLE uniquement, et uniquement pour PROUVER la
   proximité** (décision de Jay du 2026-08-27). Il ne transporte plus rien : ni

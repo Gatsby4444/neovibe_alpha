@@ -196,6 +196,18 @@ insert into public.connection_requests (sender_id, receiver_id, status, expires_
 doit_changer = ["public.connection_requests", "public.card_deliveries"]
 
 [[cas]]
+nom = "suspendu : joindre une Vibe à une demande déjà en attente"
+qui = "charles"
+rpc = "request_connection_with_vibe"
+args = { peer = "{{yanis}}", p_card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc" }
+avant = """insert into public.ping_pairs (user_low, user_high) values (least('{{charles}}'::uuid, '{{yanis}}'::uuid), greatest('{{charles}}'::uuid, '{{yanis}}'::uuid)) on conflict (user_low, user_high) do update set last_seen_at = now();
+insert into public.connection_requests (sender_id, receiver_id, status, expires_at) values ('{{charles}}', '{{yanis}}', 'pending', now() + interval '7 days');
+update public.profiles set suspended_at = now() where id = '{{charles}}'"""
+equivalence = "plus_strict"
+ecart = "un compte suspendu n'envoie plus rien : la demande en attente ne peut plus porter de Vibe (même trou de l'ancien gardien, autre chemin)"
+refus_attendu = "Ton compte est suspendu"
+
+[[cas]]
 nom = "envoyer une Vibe avec une demande à quelqu'un jamais croisé"
 qui = "charles"
 rpc = "request_connection_with_vibe"
@@ -290,6 +302,17 @@ op = "card_delivery_create"
 args = { card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc", recipient_id = "{{testeur}}" }
 ancien = "insert into public.card_deliveries (card_id, recipient_id) values ('89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc', '{{testeur}}')"
 doit_changer = ["public.card_deliveries"]
+
+[[cas]]
+nom = "suspendu : livrer à un ami une Vibe créée avant la suspension"
+qui = "charles"
+op = "card_delivery_create"
+args = { card_id = "89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc", recipient_id = "{{testeur}}" }
+avant = "update public.profiles set suspended_at = now() where id = '{{charles}}'"
+ancien = "insert into public.card_deliveries (card_id, recipient_id) values ('89fb3c15-a103-4b9c-b8b8-d872c7c1b8dc', '{{testeur}}')"
+equivalence = "plus_strict"
+ecart = "un compte suspendu n'envoie plus rien, pas même une Vibe créée avant sa suspension (trou de l'ancien gardien, fermé sur décision de Jay le 2026-09-29)"
+refus_attendu = "Ton compte est suspendu"
 
 [[cas]]
 nom = "livrer ma Vibe à quelqu'un qui n'est pas un ami"

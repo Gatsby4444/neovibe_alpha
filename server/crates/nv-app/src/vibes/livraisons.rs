@@ -20,6 +20,12 @@ pub async fn regles(db: &mut PgConnection, carte: Uuid, destinataire: Uuid) -> N
         .fetch_optional(&mut *db)
         .await?;
     let Some(c) = c else { return Ok(()) };
+    // Un compte suspendu n'envoie plus rien — pas même une Vibe créée AVANT
+    // sa suspension (trou antérieur au serveur Rust, l'ancienne fonction SQL
+    // l'avait aussi ; relevé par le gardien-securite et fermé sur décision
+    // de Jay le 2026-09-29). Posée ICI, le passage obligé de toute livraison
+    // (`livrer` et `card_delivery_create`), elle couvre tous les chemins.
+    acces::refuser_si_suspendu(db, c.owner_id).await?;
     if c.owner_id != destinataire && !acces::sont_amis(db, c.owner_id, destinataire).await? {
         let demande_jointe = sqlx::query_scalar!(
             r#"select exists (select 1 from public.connection_requests r

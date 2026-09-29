@@ -73,21 +73,28 @@ résultat aussi important que le sens entrant.
 ## Comment interroger la base
 
 Méthode vérifiée le 2026-09-27. Jamais de `\` dans une commande (l'outil Bash
-les altère sur cette machine). Seule cible : `dvixmhvqqjvbrpsckmyi`.
+les altère sur cette machine). Seule cible : la base `neovibe` du VPS.
 
 ```bash
-cd /d/projets/neovibe_alpha
-TOK=$(tr -d ' \r\n' < docdev/PATsupabase.txt)
-D=$(mktemp -d)
-cat > "$D/q.sql" <<'SQL'
+ssh -i ~/.ssh/neovibe_vps -o BatchMode=yes root@2.24.162.2 'sudo -u postgres psql -d neovibe -At -v ON_ERROR_STOP=1' <<'SQL'
 begin;
-select 1;
+select count(*) from public.profiles;
 rollback;
 SQL
-python -c "import json,sys;print(json.dumps({'query':open(sys.argv[1],encoding='utf-8').read()}))" "$(cygpath -w "$D/q.sql")" > "$D/q.json"
-curl -s -X POST -H "Authorization: Bearer $TOK" -H "Content-Type: application/json" --data-binary @"$D/q.json" https://api.supabase.com/v1/projects/dvixmhvqqjvbrpsckmyi/database/query
-rm -rf "$D"
 ```
+
+- ⚠️ **Depuis la bascule du 2026-09-29, LA base est celle du VPS** (`neovibe`,
+  le serveur Rust en service) ; Supabase est **en pause** — ne l'interroge
+  plus. Accès par la clé SSH `~/.ssh/neovibe_vps` (jamais de mot de passe).
+- Chaque `select` affiche son résultat : plusieurs requêtes dans un même
+  envoi, c'est permis.
+- Pour jouer sous l'identité du serveur : `set local role nv_server;` dans la
+  transaction (c'est son rôle réel : lire et écrire des données, BYPASSRLS).
+  Le serveur Rust ne renseigne pas `request.jwt.claims` : `auth.uid()` y vaut
+  NULL. Les règles du produit vivent dans `server/crates/nv-app`, pas dans la
+  base.
+- Tu n'as AUCUN droit sur le VPS lui-même : ni service, ni fichier, ni
+  configuration. Seulement des requêtes, annulées.
 
 ## Ton rapport
 
