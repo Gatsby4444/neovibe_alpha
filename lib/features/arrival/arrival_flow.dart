@@ -342,19 +342,32 @@ class ArrivalFlow extends Notifier<ArrivalState> {
       return;
     }
     await _write(() async {
-      final outcome = await ref
-          .read(authRepositoryProvider)
-          .signUp(email: email, password: password);
-      if (outcome == SignUpOutcome.mustConfirmEmail) {
-        throw const _Readable(
-          'Compte créé, mais le serveur demande de confirmer le mail. '
-          'Confirme-le, puis connecte-toi.',
-        );
+      // Trois cas, décidés par la SESSION elle-même :
+      // - connecté : le compte existe (créé au premier appui, le profil a
+      //   échoué ensuite) → on reprend au profil. Réinscrire répondrait « Un
+      //   compte existe déjà avec cette adresse. » (vu par Jay le 2026-09-29,
+      //   en réappuyant sur « Créer mon compte ») ;
+      // - compte créé mais session tombée entre-temps → on se reconnecte
+      //   avec ce qui est tapé (sinon : impasse, « Pas de session ouverte. »
+      //   à chaque appui) ;
+      // - sinon → l'inscription.
+      final connecte = ref.read(currentUserIdProvider) != null;
+      if (!connecte && state.hasAccount) {
+        await ref
+            .read(authRepositoryProvider)
+            .signIn(email: email, password: password);
+      } else if (!connecte) {
+        final outcome = await ref
+            .read(authRepositoryProvider)
+            .signUp(email: email, password: password);
+        if (outcome == SignUpOutcome.mustConfirmEmail) {
+          throw const _Readable(
+            'Compte créé, mais le serveur demande de confirmer le mail. '
+            'Confirme-le, puis connecte-toi.',
+          );
+        }
+        state = state.copyWith(hasAccount: true);
       }
-      // Le compte existe désormais : si le profil échoue (prénom déjà pris),
-      // on ne repasse PAS par l'inscription — elle répondrait « déjà
-      // inscrit ». Le selfie gardé créera le profil (voir [keepSelfie]).
-      state = state.copyWith(hasAccount: true);
       await _createProfile();
       state = state.copyWith(step: ArrivalStep.permissions);
     });

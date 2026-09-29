@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/api/nv_api.dart';
 import 'package:neovibe/core/api/rust_backend.dart';
 import 'package:neovibe/core/session_providers.dart';
+import 'package:neovibe/core/device_identity.dart';
+import 'package:neovibe/features/arrival/arrival_flow.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// **La couche d'accès de l'app contre le VRAI serveur Rust** (étape 11 de
@@ -258,4 +260,63 @@ void main() {
     skip: ignore,
     timeout: const Timeout(Duration(minutes: 1)),
   );
+
+  // Le VRAI parcours d'arrivée (le code même de « Dernière chose pour
+  // toi »), contre le serveur : compte, puis profil. Le téléphone est
+  // remplacé par une empreinte tirée au sort.
+  test(
+    'le parcours d\'arrivée crée le compte ET le profil',
+    () async {
+      final backend = RustBackend.pour(url!, coffre: CoffreEnMemoire());
+      final empreinte = hasard() * 8;
+      final c = ProviderContainer(
+        overrides: [
+          nvBackendProvider.overrideWithValue(backend),
+          deviceIdentityProvider.overrideWithValue(_Empreinte(empreinte)),
+        ],
+      );
+      // Comme `RootGate` : la session est écoutée pendant tout le parcours.
+      c.listen(currentUserIdProvider, (_, _) {});
+      String? id;
+      try {
+        final flow = c.read(arrivalFlowProvider(ArrivalMode.real).notifier);
+        flow.begin(hasAccount: false);
+        flow.setUsername('essai${hasard()}');
+        flow.setPseudo('Essai');
+        await flow.createAccount(
+          email: 'essai.${hasard()}@essai.fr',
+          password: 'secret123',
+        );
+        id = backend.auth.compte;
+        final etat = c.read(arrivalFlowProvider(ArrivalMode.real));
+        expect(etat.error, isNull);
+        expect(id, isNotNull);
+        expect(
+          await sql("select count(*) from public.profiles where id = '$id'"),
+          '1',
+        );
+      } finally {
+        c.dispose();
+        if (id != null) {
+          await sql(
+            "delete from public.profiles where id = '$id'; "
+            "delete from private.device_signups where user_id = '$id'; "
+            "delete from auth.users where id = '$id';",
+          );
+        }
+      }
+    },
+    skip: ignore,
+    timeout: const Timeout(Duration(minutes: 1)),
+  );
+}
+
+/// Un téléphone dont l'empreinte est connue d'avance.
+class _Empreinte extends DeviceIdentity {
+  const _Empreinte(this.valeur);
+
+  final String valeur;
+
+  @override
+  Future<String?> fingerprint() async => valeur;
 }

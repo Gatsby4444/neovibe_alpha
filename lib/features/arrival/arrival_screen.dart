@@ -753,15 +753,22 @@ class _AccountStepState extends ConsumerState<_AccountStep> {
     final p = context.palette;
     final real = context.isRealArrival;
     final s = ref.watch(arrivalFlowProvider(context.arrivalMode));
+    // Le compte est créé et la session ouverte : il ne reste que le profil.
+    // Les champs se figent — une adresse retapée ici ne changerait pas
+    // celle du compte, et l'écran laisserait croire le contraire. Le bouton
+    // ne dépend plus d'eux (ils peuvent être vides si l'écran a été
+    // reconstruit).
+    final dejaCree =
+        real && s.hasAccount && ref.watch(currentUserIdProvider) != null;
     return _StepFrame(
       action: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (s.error != null) _ErrorLine(s.error!),
           GlowButton(
-            label: 'Créer mon compte',
+            label: dejaCree ? 'Terminer mon profil' : 'Créer mon compte',
             busy: s.busy,
-            onPressed: _valid ? _create : null,
+            onPressed: dejaCree || _valid ? _create : null,
           ),
           if (!real)
             TextButton(
@@ -775,10 +782,15 @@ class _AccountStepState extends ConsumerState<_AccountStep> {
         const SizedBox(height: NeoSpace.xxl),
         const StageTitle('Dernière chose\npour toi'),
         const SizedBox(height: NeoSpace.md),
-        const _Lead('Pas de mail à aller confirmer : tu entres tout de suite.'),
+        _Lead(
+          dejaCree
+              ? 'Ton compte est créé : il ne reste que ton profil.'
+              : 'Pas de mail à aller confirmer : tu entres tout de suite.',
+        ),
         const SizedBox(height: NeoSpace.xxl),
         TextField(
           controller: _email,
+          enabled: !dejaCree,
           keyboardType: TextInputType.emailAddress,
           autocorrect: false,
           textInputAction: TextInputAction.next,
@@ -787,6 +799,7 @@ class _AccountStepState extends ConsumerState<_AccountStep> {
         const SizedBox(height: NeoSpace.md),
         TextField(
           controller: _password,
+          enabled: !dejaCree,
           obscureText: _hidden,
           onSubmitted: (_) => _valid ? _create() : null,
           decoration: _field(
