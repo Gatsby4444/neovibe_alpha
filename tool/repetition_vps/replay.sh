@@ -3,7 +3,7 @@
 # Les fins de ligne Windows (CRLF de la copie de travail) sont ramenées à LF.
 #
 # Par défaut, les chemins du conteneur de répétition (/work, /migr) et la
-# base `postgres`. Le VPS passe les siens (server/outils/vps/monter_base.sh) :
+# base `postgres`. Qui en veut d'autres les passe (server/outils/recette_base.sh) :
 #   BASE=neovibe TRAVAIL=/chemin/repetition_vps MIGR=/chemin/migrations sh replay.sh
 BASE="${BASE:-postgres}"
 TRAVAIL="${TRAVAIL:-/work}"

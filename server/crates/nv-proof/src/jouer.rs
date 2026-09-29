@@ -208,9 +208,9 @@ async fn cote_nouveau(
     // oubliait une règle qu'un déclencheur portait, l'ancien la tiendrait à
     // sa place et la preuve passerait quand même — puis la règle
     // disparaîtrait avec l'ancien gardien. (Annulé au retour au point de
-    // sauvegarde.) Sans condition, exprès — et non par
-    // `sql_pour_les_eteindre`, qui tolère un déclencheur disparu : la
-    // référence de la preuve DOIT les avoir tous, un absent fait échouer la
+    // sauvegarde.) Sans condition, exprès : la référence de la preuve DOIT
+    // les avoir tous (les bases en service, elles, les ont retirés —
+    // migrations_en_service/) ; un absent fait échouer la
     // preuve au lieu de la laisser comparer contre un ancien gardien amputé.
     for (table, declencheur) in DECLENCHEURS_DU_GARDIEN {
         exec(&mut tx, &format!("alter table {table} disable trigger {declencheur}")).await?;

@@ -45,7 +45,7 @@ et authentifiés avant de pouvoir commencer.
 
 | Fichier hors-dépôt | Pourquoi | Si tu prends l'option B |
 |---|---|---|
-| `lib/core/config/env.dart` | Contient la clé Supabase → jamais committé (règle de sécurité du projet) | Le recréer depuis `lib/core/config/env.example.dart` — voir §1.4 |
+| `lib/core/config/env.dart` | Contient le jeton Mapbox → jamais committé (règle de sécurité du projet) | Le recréer depuis `lib/core/config/env.example.dart` — voir §1.4 |
 | `.claude/settings.local.json` | Réglages locaux de Claude Code, non suivis par git | Sans lui, Claude redemande l'autorisation à chaque `flutter build` et les MCP sont à réactiver |
 | `android/local.properties` | Chemin du SDK, propre à la machine | Régénéré tout seul par Flutter |
 
@@ -220,13 +220,11 @@ gh repo clone Gatsby4444/neovibe_alpha
 
 Déjà présent si tu as pris le zip. Sinon, deux façons :
 
-- Le copier depuis l'ancienne machine — c'est un fichier de 6 lignes.
-- Le recréer depuis le modèle `lib/core/config/env.example.dart`, avec l'URL du
-  projet Supabase de dev (`https://dvixmhvqqjvbrpsckmyi.supabase.co`) et la
-  **clé publishable**, à récupérer sur https://supabase.com/dashboard (projet
-  `neovibe_alpha`, ref `dvixmhvqqjvbrpsckmyi`) → *Project Settings → API Keys*.
-  Claude Code sait aussi la récupérer via le MCP Supabase
-  (`get_publishable_keys`) une fois celui-ci connecté.
+- Le copier depuis l'ancienne machine.
+- Le recréer depuis le modèle `lib/core/config/env.example.dart` : il ne porte
+  plus que le jeton PUBLIC Mapbox (`docdev/mapbox.txt`). (L'adresse et la clé
+  de Supabase en sont sorties le 2026-09-29 avec l'ancien serveur ; l'adresse
+  du serveur NeoVibe est dans `lib/core/api/serveur.dart`.)
 
 ### 1.5 Rapatrier la mémoire de Claude Code
 
@@ -328,8 +326,8 @@ JAVA_HOME="D:/jdk17" "D:/flutter/bin/flutter.bat" build apk --release
 ```
 
 - **Si `lib/core/config/env.dart` manque** : ne pas inventer de clé. Le recréer
-  depuis `env.example.dart` en récupérant la clé publishable via le MCP Supabase
-  (`get_publishable_keys`, projet `dvixmhvqqjvbrpsckmyi`), ou demander à Jay.
+  depuis `env.example.dart` avec le jeton Mapbox de `docdev/mapbox.txt`, ou
+  demander à Jay.
   **Ne jamais committer ce fichier.**
 - **Si `android/gradlew` ou le wrapper Gradle manque** après un clone frais :
   c'est normal (ignoré par le `.gitignore` de Flutter), l'outil Flutter le
@@ -495,7 +493,7 @@ la mémoire `feedback-read-the-measurement-not-the-instrument`.
   dans `docdev/bot-credentials.txt`, gitignoré, emporté par le zip mais pas par
   un clone. En cas de perte, le seul chemin est la réinitialisation par SQL
   (voir RAPPELS avant-prod #14).
-- **Seed de contenu** : `tool/seed_bot_media.dart` — 26 Vibes (8 avec face
+- **Seed de contenu** : `tool/seed_bot_media.dart` (⚠️ **retiré le 2026-09-29** : il écrivait dans l'ancien serveur, Supabase ; voir l'historique git) — 26 Vibes (8 avec face
   vidéo), 12 stories, 10 publications, tout scellé et téléversé **sous
   l'identité de chaque bot**, donc à travers les vraies règles d'accès.
   ⚠️ Les vidéos seedées n'ont pas leur index en tête (`fastStart` est natif,

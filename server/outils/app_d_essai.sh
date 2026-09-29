@@ -49,11 +49,10 @@ fi
 echo "App d'essai pour le serveur $URL"
 
 # `NEOVIBE_ESSAI_RUST=1` : l'autre paquet et le droit de parler en clair
-# (android/app/build.gradle.kts) ; `SERVEUR=rust` : la couche d'accès de
-# l'app branchée sur le serveur Rust (lib/core/api/serveur.dart).
+# (android/app/build.gradle.kts) ; `SERVEUR_URL` : l'adresse du serveur
+# visé (lib/core/api/serveur.dart).
 NEOVIBE_ESSAI_RUST=1 flutter build apk --release --split-per-abi \
   --target-platform android-arm64 \
-  --dart-define=SERVEUR=rust \
   --dart-define="SERVEUR_URL=$URL"
 
 mkdir -p build/essai_rust

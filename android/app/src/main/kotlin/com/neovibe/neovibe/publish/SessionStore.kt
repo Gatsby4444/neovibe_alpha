@@ -5,9 +5,9 @@ import com.google.gson.Gson
 import java.io.File
 
 /**
- * **Ce que le service sait de la session** : l'adresse du serveur, la clé
- * publique de l'app et le jeton d'accès de l'utilisateur — déposés par le
- * Dart à chaque connexion et à chaque renouvellement.
+ * **Ce que le service sait de la session** : l'adresse du serveur et le
+ * jeton d'accès (le badge) de l'utilisateur — déposés par le Dart à chaque
+ * connexion et à chaque renouvellement.
  *
  * ⚠️ **Le service ne renouvelle JAMAIS le jeton lui-même.** Le jeton de
  * renouvellement est à usage unique : l'employer d'ici invaliderait celui de
@@ -20,15 +20,14 @@ import java.io.File
  * une publication avec son envoi (règle 2 de `CLAUDE.md`).
  */
 /**
- * [serveur] : `rust` (l'app de tous les jours depuis la bascule du
- * 2026-09-29) ou `supabase` (ou absent, pour une session écrite avant le
- * 2026-09-27) — voir [Serveurs].
+ * Un fichier écrit avant le retrait de l'ancien serveur (2026-09-29) porte
+ * encore `anonKey` et `serveur` : Gson ignore ces clés en trop. Son jeton,
+ * s'il venait de l'ancien serveur, est refusé (401) et le service en
+ * redemande un à l'app ([AuthExpired]).
  */
 data class Session(
     val url: String,
-    val anonKey: String,
     val accessToken: String,
-    val serveur: String? = null,
 )
 
 class SessionStore(private val file: File) {

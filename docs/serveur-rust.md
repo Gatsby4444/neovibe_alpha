@@ -279,25 +279,33 @@ l'ancien tiendrait à la place du Rust une règle oubliée), et le test
 l'ancien gardien. Chaque situation peut exiger que l'ancien gardien ÉCRIVE
 (`doit_changer`) : une situation qui ne produit rien est « mal posée ».
 
-⚠️ **En service, l'ancien gardien est ÉTEINT** (2026-09-29). Jusque-là, la
-preuve le coupait, mais le serveur en service tournait à côté de lui : ce
-qui ne se rejoue pas sans effet se faisait deux fois — la rencontre au ping
-était notée en double dans `meetings` (relevé par le verificateur-base sur
-le VPS). La liste des déclencheurs traduits vit en UN endroit,
+⚠️ **En service, l'ancien gardien N'EXISTE PLUS** (2026-09-29). D'abord
+éteint (il tournait à côté du serveur et notait la rencontre au ping en
+double), il a été **retiré** le même jour des bases en service par une
+migration « en service » (`server/migrations_en_service/`, jouée une fois :
+VPS par `deployer.sh`, `nv_serveur` du PC par `base_locale.py --serveur`) —
+avec les règles RLS, 260 fonctions, les rôles et imitations de Supabase
+(inventaire du cartographe ; il reste les 11 fonctions de fondation et
+leurs 23 déclencheurs). **La base de référence de la preuve le garde**,
+comme étalon. La liste de ses déclencheurs vit dans
 `nv_app::ancien_gardien` (la preuve et le serveur la lisent) ; **le serveur
-refuse de démarrer si l'un d'eux est allumé**, et `deployer.sh`,
-`monter_base.sh`, `serveur_telephone.sh` les éteignent d'après elle
-(`nv-server eteindre-l-ancien-gardien`). Éteints, pas supprimés : leur
-retrait (et celui des fonctions et des règles RLS de l'ancien gardien)
-passera par le `cartographe`.
+refuse de démarrer si l'un d'eux existe**.
+
+**Deux dossiers de migrations** : `server/migrations/` (toute base : la
+référence, le PC, le VPS) et `server/migrations_en_service/` (seulement les
+bases en service). Sur le VPS, `deployer.sh` applique les deux, chaque
+fichier UNE fois (table `nv.migrations`, avec son empreinte : un fichier
+modifié après application arrête le déploiement), AVANT la construction —
+une migration doit laisser l'ancien programme tourner (ajouter, pas
+casser).
 
 ## Mode d'emploi du chantier
 
 | Geste | Commande (depuis `server/`) |
 |---|---|
-| copier les données de dev sur le PC | `python outils/copier_base_dev.py` (depuis la racine du dépôt : `python server/outils/copier_base_dev.py`) |
+| copier les données de dev sur le PC | `python server/outils/copier_base_dev.py` — ⚠️ lit l'ancien serveur (Supabase), **en pause** depuis la bascule : la copie existante (`docdev/copie_base_dev/`) reste la donnée de la référence |
 | (re)monter la base locale | `python outils/base_locale.py` (depuis la racine du dépôt) — ⚠️ **deux bases** : `postgres`, **la référence** de la preuve (personne ne la modifie), et `nv_serveur`, **la base de travail** du serveur et des essais, copiée de la référence |
-| remettre la base du serveur à l'état de la référence | `python server/outils/base_locale.py --serveur` |
+| remettre la base du serveur à l'état de la référence | `python server/outils/base_locale.py --serveur` (copie de la référence + les migrations « en service ») |
 | construire | `bash outils/cargo.sh build` — ⚠️ sur ce PC, la chaîne « GNU » de Rust a un éditeur de liens incomplet : le script branche celui de WinLibs |
 | jouer la preuve | `bash outils/cargo.sh run -p nv-proof -- [filtre]` (sur la référence) |
 | monter l'entrepôt de fichiers local | `python server/outils/entrepot_local.py` (SeaweedFS, port 8333 ; MinIO n'est plus distribué en image — constaté le 2026-09-27) ; accès dans `docdev/serveur_local.env`, chargés par `outils/cargo.sh` |
@@ -316,11 +324,8 @@ scripts de `server/outils/vps/`, versionnés — rien à la main.
 | Geste (depuis le PC, racine du dépôt) | Commande |
 |---|---|
 | installer / remettre d'aplomb le socle (rejouable) | `bash server/outils/vps/deployer.sh --installer` |
-| monter la base (refuse d'écraser) | `bash server/outils/vps/deployer.sh --base` (après `python server/outils/copier_base_dev.py`) |
-| l'effacer et la refaire — **ordre de Jay seulement** | `bash server/outils/vps/deployer.sh --base --remplacer` |
-| construire et relancer le serveur | `bash server/outils/vps/deployer.sh` |
+| appliquer les migrations, construire et relancer le serveur | `bash server/outils/vps/deployer.sh` — ✏️ depuis la bascule, la base du VPS est LA base : plus de geste qui la reconstruit depuis la dev (`--base`, `--fichiers` retirés le 2026-09-29) ; en cas de malheur, on RESTAURE une sauvegarde |
 | l'app d'essai vers le VPS | `bash server/outils/app_d_essai.sh [--publier] --vps` (pré-version `essai-rust-vps-v…`, distincte de celle du PC) |
-| recopier les fichiers de la dev (Supabase) vers R2 (rejouable, saute ce qui est déjà là) | `bash server/outils/vps/deployer.sh --fichiers` |
 | poser / relire les règles du coffre des sauvegardes (verrou 30 j, effacement 31 j) | `python server/outils/vps/regles_r2.py [--lire]` |
 | essais de bout en bout contre le VPS | `NV_SERVEUR_ESSAI=https://api.neovibe.fun flutter test test/serveur_rust_bout_en_bout_test.dart` (la base préparée suit l'adresse) |
 | restaurer une sauvegarde (sur le VPS) | `/opt/neovibe/bin/restaurer.sh /var/backups/neovibe/neovibe-<date>.dump [base]` — **jamais `pg_restore` seul** (voir le script : rôles et réglages) |

@@ -4,7 +4,7 @@
 -- Les rôles appartiennent au SERVEUR de base, pas à une base : ils survivent
 -- à l'effacement d'une base. Les créer seulement s'ils manquent permet de
 -- remonter une base sur un serveur qui en a déjà porté une (le VPS,
--- server/outils/vps/monter_base.sh --remplacer — constaté le 2026-09-29).
+-- base_locale.py --serveur, jadis le VPS avant la bascule — constaté le 2026-09-29).
 -- `authenticator` ne peut PAS se connecter : sans PostgREST, rien ne s'en
 -- sert, et un rôle qui peut se connecter attend un mot de passe.
 do $$

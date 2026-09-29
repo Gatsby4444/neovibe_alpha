@@ -1,11 +1,9 @@
 // Copier ce fichier vers env.dart (gitignoré) et renseigner les valeurs.
-// La clé publishable est publique par conception (protégée par RLS),
-// mais on la garde hors du repo par principe (consigne sécurité projet).
+// Gardées hors du dépôt par principe (consigne sécurité projet).
+// (L'adresse et la clé de Supabase en sont sorties le 2026-09-29, avec
+// l'ancien serveur ; l'adresse du serveur est dans core/api/serveur.dart.)
 
 abstract final class Env {
-  static const supabaseUrl = 'https://VOTRE-PROJET.supabase.co';
-  static const supabasePublishableKey = 'sb_publishable_...';
-
   /// Jeton PUBLIC Mapbox (`pk.`), pour la carte. Compte de Jay ;
   /// valeur dans `docdev/mapbox.txt`.
   static const mapboxToken = 'pk....';

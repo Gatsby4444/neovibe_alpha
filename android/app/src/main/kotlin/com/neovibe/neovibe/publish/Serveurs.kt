@@ -11,12 +11,12 @@ interface Distant : Remote {
 }
 
 /**
- * **Le serveur d'une session** : le serveur Rust (l'app de tous les jours
- * depuis la bascule du 2026-09-29, v0.9.300) ou Supabase (l'ancien serveur,
- * en pause ; `--dart-define=SERVEUR=supabase`). C'est le Dart qui le dit, en
- * déposant la session ; le natif ne le devine jamais.
+ * **Le serveur d'une session** : le serveur NeoVibe (Rust), à l'adresse
+ * que le Dart a déposée avec la session. Depuis le retrait de l'ancien
+ * serveur (Supabase, 2026-09-29), il n'y a plus de choix à faire : une seule
+ * porte, pour le service de publication, la balise du ping et la présence en
+ * soirée.
  */
 object Serveurs {
-    fun distant(session: Session): Distant =
-        if (session.serveur == "rust") RustHttp(session) else SupabaseHttp(session)
+    fun distant(session: Session): Distant = RustHttp(session)
 }

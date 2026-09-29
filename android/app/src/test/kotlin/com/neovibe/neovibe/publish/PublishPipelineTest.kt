@@ -20,7 +20,7 @@ import org.junit.Test
 class PublishPipelineTest {
     private val root = Files.createTempDirectory("publish").toFile()
     private val store = PublishStore(root)
-    private val session = Session("https://x", "anon", "jwt")
+    private val session = Session("https://x", "jwt")
     private val exec = Executors.newSingleThreadExecutor()
 
     @After

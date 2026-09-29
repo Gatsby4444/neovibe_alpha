@@ -2,15 +2,20 @@
 //! produit du temps de Supabase, et que le serveur Rust tient désormais
 //! lui-même.
 //!
-//! **Le serveur n'est juste qu'avec eux ÉTEINTS** : c'est ainsi que la preuve
-//! par comparaison le joue (nv-proof). Allumés à côté de lui, ils refont son
-//! travail — et ce qui ne se rejoue pas sans effet se fait deux fois : la
-//! rencontre au ping était notée en double dans `meetings` (relevé en base
-//! du VPS par le verificateur-base le 2026-09-29, avant la bascule de
-//! l'app). D'où la règle, énoncée positivement : **le serveur ne démarre
-//! que si chacun d'eux est éteint** ([`encore_allumes`], appelé au
-//! démarrage), et l'installation les éteint d'après CETTE liste
-//! (`nv-server eteindre-l-ancien-gardien`), la même que celle de la preuve.
+//! **Dans une base EN SERVICE, il n'existe plus** : la migration « en
+//! service » `migrations_en_service/20260929120000_retrait_de_l_ancien_gardien.sql`
+//! l'a retiré (déclencheurs, fonctions, règles RLS, imitations de Supabase),
+//! une fois, sur le VPS (deployer.sh) et sur la base du serveur du PC
+//! (base_locale.py --serveur). D'où la règle, énoncée
+//! positivement : **le serveur ne démarre que si aucun de ces déclencheurs
+//! n'existe** ([`encore_presents`], appelé au démarrage). Histoire : le
+//! 2026-09-29, allumés à côté du serveur, ils refaisaient son travail — la
+//! rencontre au ping était notée deux fois (relevé par le verificateur-base
+//! sur le VPS) ; éteints d'abord, ils ont été retirés le même jour.
+//!
+//! **La base de RÉFÉRENCE de la preuve (nv-proof) les garde**, comme étalon :
+//! la preuve joue l'ancien côté avec eux, le nouveau sans eux — d'où cette
+//! liste, lue par la preuve et par le serveur.
 //!
 //! Ne sont PAS dans cette liste les **fondations**, qui restent dans la base
 //! parce qu'elles doivent voir tous les chemins, effacements en cascade
@@ -19,7 +24,7 @@
 //! (`*_octets_a_supprimer`, `events_affiche_au_balai`), l'annonce des
 //! disparitions (`*_annonce_disparition`), l'activité des conversations
 //! (`messages_activity`), la libération des preuves (`*_libere`), et les
-//! annonces du direct et de la preuve.
+//! annonces du direct (`zz_nv_direct`).
 use sqlx::PgPool;
 
 /// `(table, déclencheur)`.
@@ -41,55 +46,21 @@ pub const DECLENCHEURS_DU_GARDIEN: &[(&str, &str)] = &[
     ("auth.users", "record_device_signup"),
 ];
 
-/// Le SQL qui les éteint (à passer en propriétaire des tables : `postgres`).
-/// Rejouable. Un déclencheur — ou une table — déjà disparu n'est pas une
-/// erreur : c'est l'étape d'après (le retrait de l'ancien gardien).
-///
-/// ⚠️ Limite, dite : le serveur ne vérifie l'extinction qu'à SON DÉMARRAGE
-/// ([`encore_allumes`]). Un déclencheur rallumé pendant qu'il tourne (une
-/// migration rejouée, un geste à la main) referait le travail en double
-/// jusqu'au redémarrage suivant. La cause disparaîtra avec le RETRAIT de ces
-/// déclencheurs de la base de service (RAPPELS #176 ⑩, par le cartographe) ;
-/// d'ici là, tout déploiement repasse par ici et redémarre le serveur.
-pub fn sql_pour_les_eteindre() -> String {
-    DECLENCHEURS_DU_GARDIEN
-        .iter()
-        .map(|(table, declencheur)| {
-            format!(
-                "do $$ begin if exists (select 1 from pg_trigger where tgrelid = to_regclass('{table}') and tgname = '{declencheur}') \
-                 then alter table {table} disable trigger {declencheur}; end if; end $$;\n"
-            )
-        })
-        .collect()
-}
-
-/// Ceux qui sont encore allumés dans la base (vide : le serveur peut
-/// démarrer). Un déclencheur disparu compte comme éteint.
-pub async fn encore_allumes(pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
-    let mut allumes = Vec::new();
+/// Ceux qui existent encore dans la base, allumés ou non (vide : le serveur
+/// peut démarrer).
+pub async fn encore_presents(pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
+    let mut presents = Vec::new();
     for (table, declencheur) in DECLENCHEURS_DU_GARDIEN {
-        let etat: Option<String> = sqlx::query_scalar(
-            "select tgenabled::text from pg_trigger where tgrelid = to_regclass($1) and tgname = $2",
+        let existe: bool = sqlx::query_scalar(
+            "select exists (select 1 from pg_trigger where tgrelid = to_regclass($1) and tgname = $2)",
         )
         .bind(table)
         .bind(declencheur)
-        .fetch_optional(pool)
+        .fetch_one(pool)
         .await?;
-        if etat.is_some_and(|e| e != "D") {
-            allumes.push(format!("{table}.{declencheur}"));
+        if existe {
+            presents.push(format!("{table}.{declencheur}"));
         }
     }
-    Ok(allumes)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn chaque_declencheur_a_sa_ligne() {
-        let sql = sql_pour_les_eteindre();
-        assert_eq!(sql.lines().count(), DECLENCHEURS_DU_GARDIEN.len());
-        assert!(sql.contains("alter table public.ping_pairs disable trigger ping_pairs_meeting;"));
-    }
+    Ok(presents)
 }

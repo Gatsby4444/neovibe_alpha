@@ -1,17 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:neovibe/core/api/supabase_gestes.dart';
 
-/// **La couche d'accès** (`lib/core/api/`, docs/serveur-rust.md étape 11) —
-/// trois garde-fous qu'aucune compilation ne tient :
+/// **La couche d'accès** (`lib/core/api/`, docs/serveur-rust.md) — trois
+/// garde-fous qu'aucune compilation ne tient :
 ///
-/// 1. seule la couche d'accès parle à Supabase : un dépôt qui l'appellerait
-///    en direct échapperait au serveur Rust sans que rien ne le signale ;
-/// 2. chaque opération demandée par l'app EXISTE des deux côtés — une
-///    fonction SQL ou un geste Supabase, ET une opération du serveur Rust.
-///    Une faute de frappe dans un nom ne se verrait sinon qu'à l'usage, et
-///    d'un seul côté ;
+/// 1. plus rien ne parle à l'ancien serveur (Supabase, retiré de l'app le
+///    2026-09-29) : ni paquet, ni adresse ;
+/// 2. chaque opération demandée par l'app EXISTE côté serveur Rust. Une
+///    faute de frappe dans un nom ne se verrait sinon qu'à l'usage ;
 /// 3. chaque appel envoie exactement les champs que son guichet Rust
 ///    accepte et exige — le contrat entre l'app et le serveur, tant qu'il
 ///    n'est pas généré (docs/serveur-rust.md, annexe B).
@@ -23,24 +20,25 @@ void main() {
 
   String chemin(File f) => f.path.replaceAll(r'\', '/');
 
-  test('seule la couche d\'accès parle à Supabase', () {
+  test('plus rien ne parle à l\'ancien serveur (Supabase)', () {
+    final ancien = RegExp(
+      r'supabase_flutter|supabase\.co\b|Supabase\.instance',
+    );
     final fautes = [
-      for (final f in dart('lib'))
-        if (!chemin(f).startsWith('lib/core/api/') &&
-            f.readAsStringSync().contains('package:supabase_flutter'))
-          chemin(f),
+      for (final f in [...dart('lib'), ...dart('tool')])
+        if (ancien.hasMatch(f.readAsStringSync())) chemin(f),
     ];
+    expect(fautes, isEmpty, reason: 'ces fichiers parlent encore à Supabase');
     expect(
-      fautes,
-      isEmpty,
-      reason: 'ces fichiers parlent à Supabase en direct',
+      File('pubspec.yaml').readAsStringSync(),
+      isNot(contains('supabase')),
+      reason: 'le paquet de Supabase est revenu dans pubspec.yaml',
     );
   });
 
-  test('chaque opération de l\'app existe côté Supabase et côté Rust', () {
+  test('chaque opération de l\'app existe côté serveur Rust', () {
     // Les opérations demandées par l'app : `.op('nom'` (Dart) et le natif.
-    // (Les guichets propres au branchement Rust — ses fichiers, son direct —
-    // n'ont pas d'équivalent Supabase : ils ne comptent que côté Rust.)
+    // (Et celles de la couche d'accès elle-même : ses fichiers, son direct.)
     final demande = RegExp(r"""\.op\(\s*'([a-z_0-9]+)'""");
     final demandees = <String>{
       for (final f in dart('lib'))
@@ -63,23 +61,6 @@ void main() {
       }
     }
     expect(demandees.length, greaterThan(100));
-
-    // Côté Supabase : une fonction SQL publique, ou un geste direct.
-    final fonction = RegExp(
-      r'function\s+public\.([a-z_0-9]+)\s*\(',
-      caseSensitive: false,
-    );
-    final sql = <String>{
-      for (final f in Directory(
-        'supabase/migrations',
-      ).listSync().whereType<File>())
-        for (final m in fonction.allMatches(f.readAsStringSync()))
-          m.group(1)!.toLowerCase(),
-    };
-    final sansSupabase = demandees
-        .where((n) => !sql.contains(n) && !gestesSupabase.containsKey(n))
-        .toList();
-    expect(sansSupabase, isEmpty, reason: 'absentes côté Supabase');
 
     // Côté Rust : le registre des guichets (`nom => fonction,` des `ops!`).
     final guichet = RegExp(

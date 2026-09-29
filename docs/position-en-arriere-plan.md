@@ -92,7 +92,7 @@ qu'on lui donne. Il ne décide ni du droit d'être visible, ni de la cadence :
 
 ### 3.2 Il publie **lui-même**, comme le fait déjà l'événement
 
-`SessionStore` + `SupabaseHttp` existent (`publish/`) et sont éprouvés par
+`SessionStore` + `RustHttp` (jadis `SupabaseHttp`, retiré le 2026-09-29) existent (`publish/`) et sont éprouvés par
 `EventPresenceService`. Le natif a déjà tout ce qu'il faut pour appeler
 `publish_ping_beacon(p_lat, p_lon, p_acc, p_token, p_slot)` : **le plan
 d'émission contient les jetons publics des 12 prochaines heures** avec leur

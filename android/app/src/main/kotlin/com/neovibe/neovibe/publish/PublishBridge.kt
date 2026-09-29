@@ -60,15 +60,13 @@ class PublishBridge(
         when (call.method) {
             "configure" -> {
                 val url = call.argument<String>("url")
-                val anon = call.argument<String>("anonKey")
                 val token = call.argument<String>("accessToken")
-                val serveur = call.argument<String>("serveur")
-                if (url == null || anon == null || token == null) {
-                    result.error("BAD_ARGS", "url, anonKey et accessToken sont requis", null)
+                if (url == null || token == null) {
+                    result.error("BAD_ARGS", "url et accessToken sont requis", null)
                     return
                 }
                 io.execute {
-                    sessions.write(Session(url, anon, token, serveur))
+                    sessions.write(Session(url, token))
                     if (store.active().isNotEmpty()) PublishService.kick(context)
                     main.post { result.success(null) }
                 }

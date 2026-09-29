@@ -114,20 +114,10 @@ class PublishBridge {
     }
   }
 
-  /// La session du serveur : à chaque connexion et à chaque renouvellement.
-  /// [serveur] : `supabase` ou `rust` (`core/api/serveur.dart`) — le natif
-  /// parle alors au bon serveur.
-  Future<void> configure({
-    required String serveur,
-    required String url,
-    required String anonKey,
-    required String accessToken,
-  }) => _call('configure', {
-    'serveur': serveur,
-    'url': url,
-    'anonKey': anonKey,
-    'accessToken': accessToken,
-  });
+  /// La session du serveur : à chaque connexion et à chaque renouvellement
+  /// (l'adresse du serveur et le badge).
+  Future<void> configure({required String url, required String accessToken}) =>
+      _call('configure', {'url': url, 'accessToken': accessToken});
 
   Future<void> signOut() => _call('signOut');
 

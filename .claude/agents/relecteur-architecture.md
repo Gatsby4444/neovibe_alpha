@@ -31,8 +31,9 @@ se voit rarement dans la seule ligne modifiée.
 **Côté app (Dart)**
 
 1. **Un écran ne parle jamais au réseau, au disque ou au natif.** Un fichier
-   d'écran ou de widget qui importe `supabase_flutter`, `dart:io`, `http`,
-   un `MethodChannel`, ou qui appelle `.from(` / `.rpc(` / `File(` → défaut.
+   d'écran ou de widget qui importe `dart:io`, `http`, un `MethodChannel`,
+   ou qui appelle `.op(` / `File(` → défaut (Supabase et ses `.from(` /
+   `.rpc(` ont quitté l'app le 2026-09-29).
    Il doit demander à un dépôt (`*_repository.dart`) ou passer par
    `lib/core/api/`.
 2. **Un chemin, une donnée.** Un provider ou une requête qui en duplique un

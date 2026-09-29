@@ -11,7 +11,7 @@ import 'rust_direct.dart';
 import 'serveur.dart';
 
 /// **Le branchement Rust** — l'app d'essai du serveur Rust
-/// (`--dart-define=SERVEUR=rust`, docs/serveur-rust.md étape 11).
+/// (docs/serveur-rust.md).
 ///
 /// - la session : un **badge** d'une heure (`access_token`) et un jeton de
 ///   **renouvellement** tournant, gardés dans le coffre chiffré du téléphone

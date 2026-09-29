@@ -148,7 +148,7 @@ class RustHttpEssaiTest {
             assertEquals("inscription : $texte", 200, r.code)
             val j = gson.fromJson(texte, JsonObject::class.java)
             compte = j.getAsJsonObject("user").get("id").asString
-            return Session(url!!, "", j.get("access_token").asString, serveur = "rust")
+            return Session(url!!, j.get("access_token").asString)
         }
     }
 

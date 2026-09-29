@@ -5,16 +5,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'rust_backend.dart';
-import 'serveur.dart';
-import 'supabase_backend.dart';
 
 /// # La couche d'accès au serveur (RAPPELS #12, docs/serveur-rust.md §11)
 ///
 /// **Le seul endroit de l'app qui sait à quel serveur elle parle.** Les
 /// dépôts demandent une opération par son NOM (`add_to_feed`, `card_get`…),
-/// avec des arguments JSON, et reçoivent une réponse JSON — la même, que le
-/// serveur soit Supabase ou le serveur Rust (les guichets Rust reprennent le
-/// nom et le JSON des fonctions d'aujourd'hui).
+/// avec des arguments JSON, et reçoivent une réponse JSON du serveur
+/// NeoVibe (Rust). (Ses guichets ont repris le nom et le JSON des fonctions
+/// de l'ancien serveur, Supabase — retiré de l'app le 2026-09-29.)
 ///
 /// Quatre portes, séparées :
 /// - [NvApi] : les opérations ;
@@ -162,12 +160,11 @@ abstract class NvBackend {
   NvAuth get auth;
 }
 
-/// Le serveur de cette construction de l'app (`Serveur.nom`) — pour le code
-/// qui vit hors des providers (le démarrage, les services).
-NvBackend get nvBackendCourant =>
-    Serveur.rust ? RustBackend.instance : SupabaseBackend.instance;
+/// Le serveur de l'app — pour le code qui vit hors des providers (le
+/// démarrage, les services).
+NvBackend get nvBackendCourant => RustBackend.instance;
 
-/// Le serveur de cette construction de l'app.
+/// Le serveur de l'app.
 final nvBackendProvider = Provider<NvBackend>((ref) => nvBackendCourant);
 
 final nvApiProvider = Provider<NvApi>(

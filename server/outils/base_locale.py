@@ -89,17 +89,30 @@ def main():
 
 
 def base_du_serveur():
-    """La base de travail du serveur : une copie de la référence (le modèle
-    exige que personne ne soit branché sur la référence pendant la copie)."""
-    print('6. La base du serveur (copie de la référence)…')
+    """La base de travail du serveur : une base EN SERVICE, comme celle du VPS
+    — montée par LA recette (recette_base.sh) avec les migrations « en
+    service » rangées parmi les autres dans le même ordre que sur le VPS
+    (ordre_des_migrations.sh). Pas une copie de la référence retouchée
+    ensuite : le retrait de l'ancien gardien, joué après une migration plus
+    récente, en aurait effacé les fonctions (relecteur, 2026-09-29)."""
+    print('6. La base du serveur (une base en service, comme le VPS)…')
     for requete in ('drop database if exists nv_serveur with (force)',
-                    'create database nv_serveur template postgres'):
+                    'create database nv_serveur',
+                    'alter database nv_serveur set search_path = "$user", public, extensions'):
         r = docker('exec', NOM, 'psql', '-q', '-v', 'ON_ERROR_STOP=1', '-U', 'postgres',
                    '-d', 'template1', '-c', requete, check=False)
         if r.returncode:
             sys.exit(f'{requete} : {r.stderr.decode("utf-8", "replace").strip()}\n'
-                     'Quelque chose est branché sur la référence (un serveur, la preuve, '
-                     'cargo) : l\'arrêter, puis relancer.')
+                     'Quelque chose est branché sur la base du serveur (un serveur, un '
+                     'essai) : l\'arrêter, puis relancer.')
+    # Les migrations « en service » ne sont pas montées dans le conteneur :
+    # on les y dépose (la référence ne les reçoit jamais).
+    docker('exec', NOM, 'rm', '-rf', '/en_service')
+    docker('cp', os.path.join(RACINE, 'server', 'migrations_en_service'), NOM + ':/en_service')
+    r = docker('exec', '-e', 'BASE=nv_serveur', '-e', 'TRAVAIL=/work', '-e', 'MIGR=/migr',
+               '-e', 'NVMIGR=/nvmigr', '-e', 'OUTILS=/outils', '-e', 'COPIE=/copie',
+               '-e', 'EN_SERVICE=/en_service', NOM, 'sh', '/outils/recette_base.sh')
+    print(r.stdout.decode('utf-8', 'replace').rstrip())
     print('   postgres://postgres:neovibe@localhost:54329/nv_serveur')
 
 

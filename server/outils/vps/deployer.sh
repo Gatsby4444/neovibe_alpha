@@ -2,10 +2,15 @@
 # Depuis le PC : prépare le VPS et y met le serveur NeoVibe à jour.
 #
 #   bash server/outils/vps/deployer.sh --installer   installe le socle (une fois ; rejouable)
-#   bash server/outils/vps/deployer.sh --base        monte la base (refuse d'écraser)
-#   bash server/outils/vps/deployer.sh --base --remplacer   l'efface et la refait (ordre de Jay)
-#   bash server/outils/vps/deployer.sh               construit et relance le serveur
-#   bash server/outils/vps/deployer.sh --fichiers    recopie les fichiers de la dev (Supabase) vers R2 (rejouable)
+#   bash server/outils/vps/deployer.sh               applique les migrations, construit, relance
+#
+# ✏️ 2026-09-29, après la bascule : la base du VPS est LA base de NeoVibe.
+# Les gestes qui la reconstruisaient depuis la copie de la dev (`--base`,
+# `--fichiers`) sont retirés — rejoués, ils auraient écrasé les vraies
+# données, et la dev (Supabase) est en pause. En cas de malheur, on
+# RESTAURE une sauvegarde (restaurer.sh). La structure évolue par les
+# migrations de server/migrations/, appliquées une fois chacune (table
+# `nv.migrations`).
 #
 # Accès : la clé ~/.ssh/neovibe_vps (jamais de mot de passe). Le serveur se
 # construit SUR le VPS, contre sa propre base : sqlx y vérifie chaque
@@ -24,41 +29,11 @@ case "${1:-}" in
   tar -czf - -C "$RACINE/server/outils/vps" . | "${SSH[@]}" 'tar -xzf - --no-same-owner -C /root/nv-installer'
   "${SSH[@]}" 'bash /root/nv-installer/installer.sh'
   ;;
---base)
-  COPIE="$RACINE/docdev/copie_base_dev"
-  [ -d "$COPIE" ] || { echo "Pas de copie des données : python server/outils/copier_base_dev.py"; exit 1; }
-  P=/var/tmp/nv-base
-  "${SSH[@]}" "rm -rf $P && mkdir -p $P/repetition_vps $P/supabase_migrations $P/server_migrations $P/outils $P/copie"
-  tar -czf - -C "$RACINE/server/outils/vps" monter_base.sh | "${SSH[@]}" "tar -xzf - --no-same-owner -C $P"
-  tar -czf - -C "$RACINE/server/outils" recette_base.sh importer_copie.sql | "${SSH[@]}" "tar -xzf - --no-same-owner -C $P/outils"
-  tar -czf - -C "$RACINE/tool/repetition_vps" bootstrap.sql replay.sh | "${SSH[@]}" "tar -xzf - --no-same-owner -C $P/repetition_vps"
-  tar -czf - -C "$RACINE/supabase/migrations" . | "${SSH[@]}" "tar -xzf - --no-same-owner -C $P/supabase_migrations"
-  tar -czf - -C "$RACINE/server/migrations" . | "${SSH[@]}" "tar -xzf - --no-same-owner -C $P/server_migrations"
-  tar -czf - -C "$COPIE" . | "${SSH[@]}" "tar -xzf - --no-same-owner -C $P/copie"
-  "${SSH[@]}" "bash $P/monter_base.sh $P ${2:-}; rm -rf $P"
-  ;;
---fichiers)
-  # Les fichiers de la dev (Supabase) vers R2, depuis le VPS. La clé de
-  # service de Supabase est lue par l'API de gestion (PAT de
-  # docdev/PATsupabase.txt) et passe par un tuyau jusqu'au script : elle
-  # n'est écrite sur aucun disque ni affichée.
-  tar -czf - -C "$RACINE/server/outils/vps" copier_fichiers.py | "${SSH[@]}" 'tar -xzf - --no-same-owner -C /root'
-  python - "$RACINE/docdev/PATsupabase.txt" <<'PY' | "${SSH[@]}" 'python3 -u /root/copier_fichiers.py; S=$?; rm -f /root/copier_fichiers.py; exit $S'
-import json, sys, urllib.request
-PROJET = 'dvixmhvqqjvbrpsckmyi'
-tok = open(sys.argv[1]).read().strip()
-req = urllib.request.Request(f'https://api.supabase.com/v1/projects/{PROJET}/api-keys?reveal=true',
-                             headers={'Authorization': 'Bearer ' + tok, 'User-Agent': 'neovibe-copie'})
-cles = json.loads(urllib.request.urlopen(req, timeout=60).read())
-service = next(c['api_key'] for c in cles if c.get('name') == 'service_role')
-print(f'https://{PROJET}.supabase.co')
-print(service)
-PY
-  ;;
 "")
   echo "Envoi des sources du serveur…"
   "${SSH[@]}" 'rm -rf /opt/neovibe/src && mkdir -p /opt/neovibe/src'
-  tar -czf - -C "$RACINE/server" --exclude=./target Cargo.toml Cargo.lock crates migrations \
+  tar -czf - -C "$RACINE/server" --exclude=./target Cargo.toml Cargo.lock crates migrations migrations_en_service \
+    outils/ordre_des_migrations.sh \
     | "${SSH[@]}" 'tar -xzf - --no-same-owner -C /opt/neovibe/src'
   echo "Construction sur le VPS (quelques minutes)…"
   # ⚠️ Un arrêt en cours de route doit se VOIR : le 2026-09-29, une
@@ -71,13 +46,49 @@ trap 'echo "🔴 ARRÊT sur le VPS, ligne $LINENO : $BASH_COMMAND"' ERR
 set -a; . /etc/neovibe/nv-server.env; set +a
 export DATABASE_URL="$NV_DATABASE_URL" CARGO_TARGET_DIR=/opt/neovibe/target
 cd /opt/neovibe/src
+PSQL=(sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d neovibe)
+# Les migrations, chacune UNE fois, dans l'ordre des noms (horodatés), chacune
+# dans sa transaction avec sa trace — celles de tout serveur
+# (server/migrations/) et celles des seules bases en service
+# (server/migrations_en_service/ : le retrait de l'ancien gardien…). AVANT
+# la construction : sqlx vérifie les requêtes contre la structure qui sera en
+# service. ⚠️ Une migration doit donc laisser l'ancien programme tourner (il
+# tourne encore si la construction échoue ensuite) : AJOUTER, pas casser.
+# Le registre n'est écrit que par `postgres` (le serveur ne peut ni
+# l'effacer ni le truquer), et il garde l'empreinte de chaque fichier : un
+# fichier MODIFIÉ après avoir été appliqué arrête le déploiement (il ne
+# serait jamais rejoué, et rien ne le dirait).
+"${PSQL[@]}" <<'SQL'
+create table if not exists nv.migrations (nom text primary key, appliquee_le timestamptz not null default now(), empreinte text);
+alter table nv.migrations add column if not exists empreinte text;
+revoke all on nv.migrations from nv_server;
+SQL
+# L'ordre : celui de outils/ordre_des_migrations.sh — le même que pour la
+# base du serveur du PC (recette_base.sh).
+for f in $(sh outils/ordre_des_migrations.sh migrations migrations_en_service); do
+  nom="$(basename "$f")"
+  emp="$(sha256sum "$f" | cut -d' ' -f1)"
+  deja="$("${PSQL[@]}" -At -v nom="$nom" <<'SQL'
+select coalesce(empreinte, '-') from nv.migrations where nom = :'nom';
+SQL
+)"
+  if [ -z "$deja" ]; then
+    { cat "$f"; echo; echo "insert into nv.migrations (nom, empreinte) values (:'nom', :'emp');"; } \
+      | "${PSQL[@]}" -1 -v nom="$nom" -v emp="$emp"
+    echo "migration appliquée : $nom"
+  elif [ "$deja" = "-" ]; then
+    # Inscrite avant qu'on garde les empreintes : on retient celle d'aujourd'hui.
+    "${PSQL[@]}" -v nom="$nom" -v emp="$emp" <<'SQL'
+update nv.migrations set empreinte = :'emp' where nom = :'nom';
+SQL
+  elif [ "$deja" != "$emp" ]; then
+    echo "🔴 La migration $nom a été MODIFIÉE après avoir été appliquée : on ne réécrit pas une migration passée, on en ajoute une nouvelle."
+    exit 1
+  fi
+done
 /root/.cargo/bin/cargo build --release -q -p nv-server
 /root/.cargo/bin/cargo test --release -q -p nv-server
-/root/.cargo/bin/cargo test --release -q -p nv-app --lib ancien_gardien
 install -m 755 /opt/neovibe/target/release/nv-server /opt/neovibe/bin/nv-server
-# L'ancien gardien éteint (le serveur refuse de démarrer sinon) — d'après
-# la liste que porte le serveur lui-même. Rejouable.
-/opt/neovibe/bin/nv-server eteindre-l-ancien-gardien | sudo -u postgres psql -q -v ON_ERROR_STOP=1 -d neovibe
 # La clé des badges : tirée une fois, jamais remplacée (la changer
 # déconnecte tout le monde — c'est le geste de la purge, RAPPELS #176 ⑥).
 if grep -q '^NV_BADGE_CLE=$' /etc/neovibe/nv-server.env; then
@@ -109,5 +120,5 @@ EOF
   echo "Santé : $(curl -s -m 10 "https://$HOTE/v1/sante" || echo 'pas de réponse')"
   ;;
 *)
-  echo "Usage : deployer.sh [--installer | --base [--remplacer] | --fichiers]"; exit 1 ;;
+  echo "Usage : deployer.sh [--installer]"; exit 1 ;;
 esac

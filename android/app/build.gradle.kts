@@ -43,7 +43,7 @@ android {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.neovibe.neovibe"
         // **L'app d'essai du serveur Rust** (docs/serveur-rust.md, étape 11) —
-        // construite avec `NEOVIBE_ESSAI_RUST=1` (et `--dart-define=SERVEUR=rust`) :
+        // construite avec `NEOVIBE_ESSAI_RUST=1` (et `--dart-define=SERVEUR_URL=…`) :
         // - un AUTRE paquet (`….essairust`) : elle s'installe À CÔTÉ de l'app
         //   habituelle, sans la remplacer ni toucher à ses données ;
         // - le droit de parler en clair (`http://`) au serveur du PC, qui n'a

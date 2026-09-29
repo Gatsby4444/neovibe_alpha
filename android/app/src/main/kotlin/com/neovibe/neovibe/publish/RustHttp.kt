@@ -13,8 +13,8 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
- * **Le serveur Rust, vu du natif** (docs/serveur-rust.md, étape 11) : les
- * mêmes gestes que [SupabaseHttp], par les guichets du serveur Rust.
+ * **Le serveur NeoVibe (Rust), vu du natif** (docs/serveur-rust.md) : les
+ * gestes de [Remote] et [Distant], par les guichets du serveur.
  *
  * - **Les appels** : `POST <url>/v1/rpc/<nom>`, le badge en `Authorization`,
  *   le même JSON que le Dart. Un refus métier fait **400** avec un `message`

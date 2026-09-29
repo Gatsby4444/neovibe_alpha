@@ -47,7 +47,7 @@ checkout v0.9.236 -- <chemin>` le ramène.
 | **La galerie du téléphone en multi-sélection** avec appareil photo du système, découpe des vidéos longues en plusieurs médias (`splitPlan`), filtre « vidéos seulement » | `album_editor/gallery/gallery_import.dart` (`toDraftMedia`, `fromFiles`, `capture`) | — |
 | **Le dépôt d'un album à la file native** : rendu des photos par le shader, calque PNG des vidéos, paramètres du transcodage (`videoSpec`) passés au service qui transcode | `album_editor/publish_preparer.dart` (`PublishPreparer`) | `docs/file-de-publication.md` (v0.9.236) |
 | **Les brouillons d'album** (écrits seuls, repris à l'étape près) | `album_draft_keeper.dart`, `DraftKind.publication` / `.flow`, `drafts_screen.dart` | rapport du 2026-09-20 |
-| **Le seed** d'albums et de Flows par les bots | `tool/seed_feed.dart` (`_album`, `_flow`) | — |
+| **Le seed** d'albums et de Flows par les bots | `tool/seed_feed.dart` (`_album`, `_flow`) — au tag `v0.9.236` (le fichier a quitté le dépôt le 2026-09-29, avec l'ancien serveur) | — |
 
 ## Ce qui est resté, et sous quel nom
 

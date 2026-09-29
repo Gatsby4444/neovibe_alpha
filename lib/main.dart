@@ -239,9 +239,7 @@ void _suivreLaConnexion() {
     final badge = await auth.badge();
     if (badge == null) return;
     await PublishBridge.instance.configure(
-      serveur: Serveur.nom,
-      url: Serveur.rust ? Serveur.url : Env.supabaseUrl,
-      anonKey: Serveur.rust ? '' : Env.supabasePublishableKey,
+      url: Serveur.url,
       accessToken: badge,
     );
   }
