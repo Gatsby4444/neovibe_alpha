@@ -20,8 +20,9 @@ import java.io.File
  * une publication avec son envoi (règle 2 de `CLAUDE.md`).
  */
 /**
- * [serveur] : `supabase` (ou absent, pour une session écrite avant le
- * 2026-09-27) ou `rust` — voir [Serveurs].
+ * [serveur] : `rust` (l'app de tous les jours depuis la bascule du
+ * 2026-09-29) ou `supabase` (ou absent, pour une session écrite avant le
+ * 2026-09-27) — voir [Serveurs].
  */
 data class Session(
     val url: String,

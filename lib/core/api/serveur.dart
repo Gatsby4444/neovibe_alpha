@@ -1,8 +1,12 @@
 /// **Le serveur de l'app** — choisi à la CONSTRUCTION de l'APK, jamais à
-/// l'exécution (docs/serveur-rust.md, étape 11).
+/// l'exécution (docs/serveur-rust.md, étapes 11 et 12).
 ///
-/// L'app de tous les jours parle à Supabase. L'app d'essai du serveur Rust
-/// se construit avec :
+/// ✏️ **Depuis la bascule du 2026-09-29 (v0.9.300), l'app de tous les jours
+/// parle au serveur Rust du VPS**, `https://api.neovibe.fun` : c'est le
+/// défaut, sans rien passer à la construction. Supabase est en pause.
+///
+/// L'app d'essai du serveur du PC se construit encore avec une autre
+/// adresse (`server/outils/app_d_essai.sh`) :
 ///
 /// ```
 /// flutter build apk --dart-define=SERVEUR=rust \
@@ -12,18 +16,17 @@
 /// Rien d'autre ne change : les écrans et les dépôts parlent à la couche
 /// d'accès (`nv_api.dart`), qui seule sait à quel serveur elle parle.
 abstract final class Serveur {
-  /// `supabase` (l'app de tous les jours) ou `rust`.
-  static const nom = String.fromEnvironment(
-    'SERVEUR',
-    defaultValue: 'supabase',
-  );
+  /// `rust` (le défaut depuis la bascule) ou `supabase` (l'ancien serveur,
+  /// en pause — gardé tant que le retrait de Supabase de l'app n'est pas
+  /// fait).
+  static const nom = String.fromEnvironment('SERVEUR', defaultValue: 'rust');
 
   /// L'adresse du serveur Rust (sans `/` final).
   static const url = String.fromEnvironment(
     'SERVEUR_URL',
-    defaultValue: 'http://127.0.0.1:8787',
+    defaultValue: 'https://api.neovibe.fun',
   );
 
-  /// Vrai pour l'app d'essai du serveur Rust.
+  /// Vrai quand l'app parle au serveur Rust.
   static const rust = nom == 'rust';
 }

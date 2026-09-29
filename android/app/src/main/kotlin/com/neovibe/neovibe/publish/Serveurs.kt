@@ -11,10 +11,10 @@ interface Distant : Remote {
 }
 
 /**
- * **Le serveur d'une session** : Supabase (l'app de tous les jours) ou le
- * serveur Rust (l'app d'essai, `--dart-define=SERVEUR=rust`,
- * docs/serveur-rust.md étape 11). C'est le Dart qui le dit, en déposant la
- * session ; le natif ne le devine jamais.
+ * **Le serveur d'une session** : le serveur Rust (l'app de tous les jours
+ * depuis la bascule du 2026-09-29, v0.9.300) ou Supabase (l'ancien serveur,
+ * en pause ; `--dart-define=SERVEUR=supabase`). C'est le Dart qui le dit, en
+ * déposant la session ; le natif ne le devine jamais.
  */
 object Serveurs {
     fun distant(session: Session): Distant =
