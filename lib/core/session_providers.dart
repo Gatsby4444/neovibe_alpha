@@ -42,9 +42,18 @@ final realtimeEpochProvider = Provider<int>((ref) {
 });
 
 /// Le compte connecté, ou nul.
+///
+/// Une seule source, `NvAuth.compte`, relue à chaque `NvAuth.changements` —
+/// notifié par le geste d'écriture lui-même avant qu'il rende la main. Avant
+/// le 2026-09-29, ce provider se recalculait sur l'ÉVÉNEMENT de connexion,
+/// qui arrive « plus tard » : juste après l'inscription, il répondait encore
+/// « personne » (« Pas de session ouverte. », app d'essai du serveur Rust).
 final currentUserIdProvider = Provider<String?>((ref) {
-  ref.watch(authStateProvider);
-  return ref.watch(nvAuthProvider).compte;
+  final auth = ref.watch(nvAuthProvider);
+  void change() => ref.invalidateSelf();
+  auth.changements.addListener(change);
+  ref.onDispose(() => auth.changements.removeListener(change));
+  return auth.compte;
 });
 
 /// Profil de l'utilisateur courant (null si pas encore créé → onboarding).

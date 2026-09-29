@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:neovibe/core/api/nv_api.dart';
 import 'package:neovibe/core/api/rust_backend.dart';
+import 'package:neovibe/core/session_providers.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// **La couche d'accès de l'app contre le VRAI serveur Rust** (étape 11 de
 /// docs/serveur-rust.md) : le code même que l'app utilise, sans téléphone.
@@ -212,5 +214,48 @@ void main() {
     },
     skip: ignore,
     timeout: const Timeout(Duration(minutes: 2)),
+  );
+
+  // Panne vue par Jay dans l'app d'essai (2026-09-28, revue le 2026-09-29) :
+  // « Pas de session ouverte. » en créant un compte. Le compte ET sa session
+  // existaient sur le serveur, pas le profil : l'inscription finie, le
+  // parcours lisait aussitôt « qui est connecté ? » (`currentUserIdProvider`)
+  // et recevait encore « personne ».
+  test(
+    'le compte connecté se lit dès la fin de l\'inscription',
+    () async {
+      final backend = RustBackend.pour(url!, coffre: CoffreEnMemoire());
+      final c = ProviderContainer(
+        overrides: [nvBackendProvider.overrideWithValue(backend)],
+      );
+      // Comme dans l'app : quelqu'un écoute déjà la session.
+      c.listen(currentUserIdProvider, (_, _) {});
+      await Future<void>.delayed(Duration.zero);
+      expect(c.read(currentUserIdProvider), isNull);
+      String? id;
+      try {
+        await c
+            .read(nvAuthProvider)
+            .inscription(
+              email: 'essai.${hasard()}@essai.fr',
+              password: 'secret123',
+              empreinte: hasard() * 8,
+            );
+        id = backend.auth.compte;
+        expect(id, isNotNull);
+        // Aussitôt, sans attendre : c'est ce que fait le parcours d'arrivée.
+        expect(c.read(currentUserIdProvider), id);
+      } finally {
+        c.dispose();
+        if (id != null) {
+          await sql(
+            "delete from private.device_signups where user_id = '$id'; "
+            "delete from auth.users where id = '$id';",
+          );
+        }
+      }
+    },
+    skip: ignore,
+    timeout: const Timeout(Duration(minutes: 1)),
   );
 }

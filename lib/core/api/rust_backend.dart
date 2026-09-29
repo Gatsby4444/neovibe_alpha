@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
@@ -104,6 +104,11 @@ class RustSession {
   Future<bool>? _renouvellement;
   final _evenements = StreamController<NvEvenementAuth>.broadcast();
 
+  /// [NvAuth.changements] : notifié par les deux seuls endroits où la
+  /// session change — [charger] et [_ranger] —, avant qu'ils rendent la
+  /// main, réussite ou échec.
+  final changements = ValueNotifier<int>(0);
+
   String? get compte => (_jetons?['user'] as Map?)?['id'] as String?;
 
   Stream<NvEvenementAuth> get evenements => _evenements.stream;
@@ -114,13 +119,23 @@ class RustSession {
       if (brut != null) _jetons = jsonDecode(brut) as Map<String, dynamic>;
     } catch (_) {
       _jetons = null;
+    } finally {
+      changements.value++;
     }
   }
 
+  /// La session change EN MÉMOIRE d'abord : même si le coffre du téléphone
+  /// refuse l'écriture (trousseau Android en panne), ceux qui lisent
+  /// [compte] sont prévenus — une déconnexion ne doit jamais laisser
+  /// l'accueil affiché sur un compte parti.
   Future<void> _ranger(Map<String, dynamic>? jetons, NvEvenementAuth e) async {
     _jetons = jetons;
-    await _coffre.ecrire(jetons == null ? null : jsonEncode(jetons));
-    _evenements.add(e);
+    try {
+      await _coffre.ecrire(jetons == null ? null : jsonEncode(jetons));
+    } finally {
+      changements.value++;
+      _evenements.add(e);
+    }
   }
 
   Uri _adresse(String chemin) => Uri.parse('$_url$chemin');
@@ -350,6 +365,9 @@ class _Auth implements NvAuth {
 
   @override
   String? get compte => _session.compte;
+
+  @override
+  Listenable get changements => _session.changements;
 
   /// L'état actuel d'abord (comme la session initiale de Supabase), puis
   /// chaque changement.

@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'rust_backend.dart';
@@ -120,8 +120,20 @@ enum NvEvenementAuth { connecte, deconnecte, renouvele }
 
 /// **La connexion.**
 abstract class NvAuth {
-  /// Le compte connecté, ou nul.
+  /// Le compte connecté, ou nul. **La** source : rien d'autre ne le garde.
   String? get compte;
+
+  /// Notifié **sur-le-champ** chaque fois que [compte] peut avoir changé.
+  ///
+  /// La règle, énoncée positivement : quand [connexion], [inscription] ou
+  /// [deconnexion] rendent la main, [changements] a DÉJÀ été notifié —
+  /// c'est le geste d'écriture qui prévient, jamais un messager qui passe
+  /// « plus tard ». (Sans elle, le parcours d'arrivée lisait « personne »
+  /// juste après l'inscription : « Pas de session ouverte. », Jay,
+  /// 2026-09-28 ; reproduit le 2026-09-29,
+  /// test/serveur_rust_bout_en_bout_test.dart.) Qui veut [compte] le relit
+  /// à chaque notification : `currentUserIdProvider`.
+  Listenable get changements;
 
   /// Connexion, déconnexion, badge renouvelé.
   Stream<NvEvenementAuth> get evenements;

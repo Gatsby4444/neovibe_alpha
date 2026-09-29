@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'nv_api.dart';
@@ -193,10 +193,30 @@ class _Auth implements NvAuth {
     _auth.onAuthStateChange.listen((s) {
       final jeton = s.session?.accessToken;
       if (jeton != null) _c().realtime.setAuth(jeton);
+      // Ce qui change sans geste de l'app (session expirée, déconnexion
+      // venue du serveur) : prévenu dès que Supabase l'annonce.
+      _changements.value++;
     });
   }
 
   final SupabaseClient Function() _c;
+
+  /// [NvAuth.changements] : notifié par chaque geste d'écriture AVANT qu'il
+  /// rende la main (voir [_ecrire]), et par l'écoute ci-dessus.
+  final _changements = ValueNotifier<int>(0);
+
+  @override
+  Listenable get changements => _changements;
+
+  /// Un geste qui change la session : il prévient lui-même, sur-le-champ,
+  /// réussite ou échec — jamais « quand Supabase aura relayé ».
+  Future<T> _ecrire<T>(Future<T> Function() geste) async {
+    try {
+      return await _traduire(geste);
+    } finally {
+      _changements.value++;
+    }
+  }
 
   GoTrueClient get _auth => _c().auth;
 
@@ -227,16 +247,14 @@ class _Auth implements NvAuth {
 
   @override
   Future<void> connexion({required String email, required String password}) =>
-      _traduire(
-        () => _auth.signInWithPassword(email: email, password: password),
-      );
+      _ecrire(() => _auth.signInWithPassword(email: email, password: password));
 
   @override
   Future<bool> inscription({
     required String email,
     required String password,
     String? empreinte,
-  }) => _traduire(() async {
+  }) => _ecrire(() async {
     final res = await _auth.signUp(
       email: email,
       password: password,
@@ -246,7 +264,7 @@ class _Auth implements NvAuth {
   });
 
   @override
-  Future<void> deconnexion() => _auth.signOut();
+  Future<void> deconnexion() => _ecrire(() => _auth.signOut());
 
   @override
   Future<String?> badge() async {
