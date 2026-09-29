@@ -5,6 +5,7 @@
 #   bash server/outils/vps/deployer.sh --base        monte la base (refuse d'écraser)
 #   bash server/outils/vps/deployer.sh --base --remplacer   l'efface et la refait (ordre de Jay)
 #   bash server/outils/vps/deployer.sh               construit et relance le serveur
+#   bash server/outils/vps/deployer.sh --fichiers    recopie les fichiers de la dev (Supabase) vers R2 (rejouable)
 #
 # Accès : la clé ~/.ssh/neovibe_vps (jamais de mot de passe). Le serveur se
 # construit SUR le VPS, contre sa propre base : sqlx y vérifie chaque
@@ -35,6 +36,24 @@ case "${1:-}" in
   tar -czf - -C "$RACINE/server/migrations" . | "${SSH[@]}" "tar -xzf - --no-same-owner -C $P/server_migrations"
   tar -czf - -C "$COPIE" . | "${SSH[@]}" "tar -xzf - --no-same-owner -C $P/copie"
   "${SSH[@]}" "bash $P/monter_base.sh $P ${2:-}; rm -rf $P"
+  ;;
+--fichiers)
+  # Les fichiers de la dev (Supabase) vers R2, depuis le VPS. La clé de
+  # service de Supabase est lue par l'API de gestion (PAT de
+  # docdev/PATsupabase.txt) et passe par un tuyau jusqu'au script : elle
+  # n'est écrite sur aucun disque ni affichée.
+  tar -czf - -C "$RACINE/server/outils/vps" copier_fichiers.py | "${SSH[@]}" 'tar -xzf - --no-same-owner -C /root'
+  python - "$RACINE/docdev/PATsupabase.txt" <<'PY' | "${SSH[@]}" 'python3 -u /root/copier_fichiers.py; S=$?; rm -f /root/copier_fichiers.py; exit $S'
+import json, sys, urllib.request
+PROJET = 'dvixmhvqqjvbrpsckmyi'
+tok = open(sys.argv[1]).read().strip()
+req = urllib.request.Request(f'https://api.supabase.com/v1/projects/{PROJET}/api-keys?reveal=true',
+                             headers={'Authorization': 'Bearer ' + tok, 'User-Agent': 'neovibe-copie'})
+cles = json.loads(urllib.request.urlopen(req, timeout=60).read())
+service = next(c['api_key'] for c in cles if c.get('name') == 'service_role')
+print(f'https://{PROJET}.supabase.co')
+print(service)
+PY
   ;;
 "")
   echo "Envoi des sources du serveur…"
@@ -72,5 +91,5 @@ EOF
   echo "Santé : $(curl -s -m 10 "https://$HOTE/v1/sante" || echo 'pas de réponse')"
   ;;
 *)
-  echo "Usage : deployer.sh [--installer | --base [--remplacer]]"; exit 1 ;;
+  echo "Usage : deployer.sh [--installer | --base [--remplacer] | --fichiers]"; exit 1 ;;
 esac

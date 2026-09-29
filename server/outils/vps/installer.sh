@@ -20,7 +20,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 echo "1. Paquets de base…"
 apt-get update -q
-apt-get install -y -q ca-certificates curl gnupg build-essential pkg-config debian-keyring debian-archive-keyring apt-transport-https ufw
+apt-get install -y -q ca-certificates curl gnupg build-essential pkg-config debian-keyring debian-archive-keyring apt-transport-https ufw python3-boto3
 
 echo "   Entrée par clé seulement, pare-feu…"
 # L'image Hostinger laissait l'entrée par mot de passe ouverte
@@ -129,6 +129,8 @@ echo "7. Le service et la sauvegarde…"
 install -m 644 "$ICI/nv-server.service" /etc/systemd/system/nv-server.service
 install -m 755 "$ICI/sauvegarde.sh" /opt/neovibe/bin/sauvegarde.sh
 install -m 755 "$ICI/restaurer.sh" /opt/neovibe/bin/restaurer.sh
+install -m 755 "$ICI/envoyer_sauvegarde.py" /opt/neovibe/bin/envoyer_sauvegarde.py
+install -m 755 "$ICI/noter_sauvegarde.sh" /opt/neovibe/bin/noter_sauvegarde.sh
 install -m 644 "$ICI/nv-sauvegarde.service" /etc/systemd/system/nv-sauvegarde.service
 install -m 644 "$ICI/nv-sauvegarde.timer" /etc/systemd/system/nv-sauvegarde.timer
 systemctl daemon-reload

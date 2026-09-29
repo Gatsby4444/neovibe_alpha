@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
@@ -15,17 +16,42 @@ import 'package:neovibe/core/api/rust_backend.dart';
 /// NV_SERVEUR_ESSAI=http://127.0.0.1:8787 flutter test test/serveur_rust_bout_en_bout_test.dart
 /// ```
 ///
-/// (le serveur lancé sur le PC contre la base locale : `server/outils/`).
+/// (le serveur lancé sur le PC contre la base locale : `server/outils/`), ou
+/// `NV_SERVEUR_ESSAI=https://api.neovibe.fun` : le serveur du VPS.
 /// Deux comptes neufs, amis le temps de l'essai ; tout est effacé à la fin.
 void main() {
   final url = Platform.environment['NV_SERVEUR_ESSAI'];
   final ignore = url == null
       ? 'NV_SERVEUR_ESSAI non défini : pas de serveur Rust à éprouver'
       : null;
+  // La base que l'essai prépare et nettoie est TOUJOURS celle du serveur
+  // éprouvé : un seul réglage, l'adresse, décide des deux.
+  final surLeVps = url != null && Uri.parse(url).host == 'api.neovibe.fun';
 
-  /// Une requête SQL sur la base du serveur (`nv_serveur`, jamais la
-  /// référence de la preuve) : mise en place et ménage.
+  /// Une requête SQL sur la base du serveur éprouvé : mise en place et
+  /// ménage. Sur le PC : `nv_serveur` (jamais la référence de la preuve).
+  /// Sur le VPS (docs/serveur-rust.md « Le VPS ») : la base `neovibe`, par
+  /// SSH (la machine de server/outils/vps/deployer.sh), la requête passant
+  /// par l'entrée de psql.
   Future<String> sql(String requete) async {
+    if (surLeVps) {
+      final home =
+          Platform.environment['HOME'] ?? Platform.environment['USERPROFILE']!;
+      final p = await Process.start('ssh', [
+        '-i',
+        '$home/.ssh/neovibe_vps',
+        '-o',
+        'BatchMode=yes',
+        'root@2.24.162.2',
+        'sudo -u postgres psql -At -v ON_ERROR_STOP=1 -d neovibe',
+      ]);
+      p.stdin.write(requete);
+      await p.stdin.close();
+      final sortie = await p.stdout.transform(utf8.decoder).join();
+      final erreur = await p.stderr.transform(utf8.decoder).join();
+      if (await p.exitCode != 0) throw StateError('sql (vps) : $erreur');
+      return sortie.trim();
+    }
     final r = await Process.run('docker', [
       'exec',
       '-i',

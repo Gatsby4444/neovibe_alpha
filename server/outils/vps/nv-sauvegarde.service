@@ -6,3 +6,9 @@ After=postgresql@17-main.service
 Type=oneshot
 User=postgres
 ExecStart=/opt/neovibe/bin/sauvegarde.sh
+# Puis la copie hors du VPS (coffre R2 neovibe-sauvegardes, verrouillé
+# 30 jours : regles_r2.py). `+` : en root, le seul à lire les accès de
+# l'entrepôt (/etc/neovibe/nv-server.env).
+ExecStartPost=+/usr/bin/python3 /opt/neovibe/bin/envoyer_sauvegarde.py
+# Réussite ou échec, le résultat va au journal des tâches (nv.job_runs).
+ExecStopPost=+/opt/neovibe/bin/noter_sauvegarde.sh

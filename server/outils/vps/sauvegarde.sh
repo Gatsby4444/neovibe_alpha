@@ -9,9 +9,9 @@
 # Ces fichiers contiennent les empreintes de mots de passe : lisibles par
 # postgres seulement.
 #
-# ⚠️ Ils sont sur le MÊME disque que la base : ils protègent d'une erreur
-# (une suppression, une migration ratée), pas de la perte du VPS. La copie
-# hors de la machine est à brancher (docs/serveur-rust.md, étape 12).
+# Ils sont sur le même disque que la base : contre la perte du VPS, chaque
+# passage est ensuite envoyé dans le coffre R2 `neovibe-sauvegardes`
+# (envoyer_sauvegarde.py, lancé par nv-sauvegarde.service).
 set -euo pipefail
 umask 077
 DOSSIER=/var/backups/neovibe

@@ -211,7 +211,7 @@ existante**. La plateforme complète vient ensuite.
 | 9. Carte | ✅ 2026-09-27 — `carte/guichet.rs` : les 9 opérations (amis sur la carte, partage, cacher, demander / répondre / état d'une demande, Vibes autour, Vibes à lire) et 3 gestes directs (`location_sharing_mine`, `location_hidden_list`, `map_rules_walking`) ; **qui voit ma position** écrit une fois (`peut_voir_position`) ; la demande de position passe par **la** conversation directe (`conversations::guichet::conversation_directe`) et le passage obligé des messages ; balais `balai_positions` et `balai_demandes` — 36 situations identiques (430 au total) |
 | 10. Modération et administration | ✅ 2026-09-27 — `moderation/` : signaler (`report_sent_vibe · drop_vibe · event`, et les gestes directs `content_report_create`, `profile_report_create`) avec **la preuve scellée** (`preuves.rs`, ex-`scelle_la_preuve`) ; les 13 gestes d'administration (`admin.rs`), tous refusés hors de `admins` et journalisés — y compris regarder une preuve. La **libération** des preuves (`libere_la_preuve`) est reclassée FONDATION : elle doit voir la disparition d'un signalement par cascade — 45 situations identiques (475 au total) |
 | 11. L'app complète | ✅ 2026-09-27 — **la couche d'accès de l'app** (`lib/core/api/` : `NvApi` les opérations, `NvDirect` le direct, `NvFichiers` les coffres, `NvAuth` la connexion ; `SupabaseBackend` pour l'app de tous les jours, `RustBackend` pour l'app d'essai — choisi à la construction, `--dart-define=SERVEUR=rust`) : les 48 fichiers de l'app qui parlaient à Supabase n'en parlent plus, les gestes directs sur les tables sont rangés sous le nom de l'opération Rust (`supabase_gestes.dart`). **Trois garde-fous** (`test/couche_d_acces_test.dart`) : seule la couche d'accès parle à Supabase ; chaque opération existe des deux côtés ; **chaque appel envoie exactement les champs que son guichet Rust accepte et exige** (181 appels, contre-testé des deux côtés). Le natif : `Serveurs.distant` → `SupabaseHttp` ou `RustHttp` (la file de publication en morceaux reprenables, la balise du ping, la présence en soirée). Essais de bout en bout contre le vrai serveur : l'app (`test/serveur_rust_bout_en_bout_test.dart` : comptes, refus, amis, conversation, direct, « en train d'écrire », fichiers) et le natif (`RustHttpEssaiTest.kt` : envoi en trois morceaux coupé puis repris, balise, présence, badge refusé — contre-testé). **L'app d'essai** « NeoVibe (Rust) » : un autre paquet, qui s'installe à côté de l'app habituelle (voir plus bas). **La base du serveur est séparée de la référence de la preuve** (`nv_serveur` ≠ `postgres`, `outils/base_locale.py`). Au passage : les recommandations et les bloqués rendent enfin leurs profils par `profil_vu` (ils recopiaient le masque). 475 situations identiques |
-| 12. Mise en ligne et déménagement | 🟡 commencée le 2026-09-29 — **le VPS est prêt** (voir « Le VPS » plus bas) : PostgreSQL 17, portier https (Caddy, certificat de `api.neovibe.fun`), le serveur construit sur place contre sa base, sous son propre rôle `nv_server` (données seulement) ; base `neovibe` montée par **la même recette que la base locale** (`outils/recette_base.sh`) avec une copie fraîche des données de dev ; sauvegarde chaque nuit + restauration essayée, y compris sur un serveur de base neuf. **Reste** : la clé S3 du serveur (Jay, tableau de bord Cloudflare) → lancer le serveur ; recopier les fichiers de Supabase vers R2 ; copie des sauvegardes hors du VPS (`neovibe-sauvegardes`) ; l'app d'essai `--vps` ; retrait de l'ancien gardien SQL ; la bascule de l'app habituelle |
+| 12. Mise en ligne et déménagement | 🟡 commencée le 2026-09-29 — **le VPS est prêt** (voir « Le VPS » plus bas) : PostgreSQL 17, portier https (Caddy, certificat de `api.neovibe.fun`), le serveur construit sur place contre sa base, sous son propre rôle `nv_server` (données seulement) ; base `neovibe` montée par **la même recette que la base locale** (`outils/recette_base.sh`) avec une copie fraîche des données de dev ; sauvegarde chaque nuit + restauration essayée, y compris sur un serveur de base neuf. **Même jour** : clé S3 du serveur posée (8 coffres, rien d'autre) ; **le serveur tourne** sur `https://api.neovibe.fun` ; essais de bout en bout ✅ contre lui ; les **999 fichiers** de la dev recopiés dans R2 (657 Mo, 0 échec) ; sauvegardes copiées chaque nuit hors du VPS (coffre verrouillé 30 jours). **Reste** : l'app d'essai `--vps` testée par Jay ; retrait de l'ancien gardien SQL (RAPPELS #176 ⑩) ; la bascule de l'app habituelle |
 
 **Écarts voulus entre l'ancien et le nouveau gardien** (visibles dans la
 preuve, chacun justifié) :
@@ -307,6 +307,9 @@ scripts de `server/outils/vps/`, versionnés — rien à la main.
 | l'effacer et la refaire — **ordre de Jay seulement** | `bash server/outils/vps/deployer.sh --base --remplacer` |
 | construire et relancer le serveur | `bash server/outils/vps/deployer.sh` |
 | l'app d'essai vers le VPS | `bash server/outils/app_d_essai.sh [--publier] --vps` (pré-version `essai-rust-vps-v…`, distincte de celle du PC) |
+| recopier les fichiers de la dev (Supabase) vers R2 (rejouable, saute ce qui est déjà là) | `bash server/outils/vps/deployer.sh --fichiers` |
+| poser / relire les règles du coffre des sauvegardes (verrou 30 j, effacement 31 j) | `python server/outils/vps/regles_r2.py [--lire]` |
+| essais de bout en bout contre le VPS | `NV_SERVEUR_ESSAI=https://api.neovibe.fun flutter test test/serveur_rust_bout_en_bout_test.dart` (la base préparée suit l'adresse) |
 | restaurer une sauvegarde (sur le VPS) | `/opt/neovibe/bin/restaurer.sh /var/backups/neovibe/neovibe-<date>.dump [base]` — **jamais `pg_restore` seul** (voir le script : rôles et réglages) |
 
 **Ce qui y tourne, énoncé positivement :**
@@ -332,8 +335,15 @@ scripts de `server/outils/vps/`, versionnés — rien à la main.
   sauf la clé S3 (Jay). Jamais dans le dépôt.
 - **Les sauvegardes** : chaque nuit à 03:30 UTC, `/var/backups/neovibe/`
   (postgres, 700), 14 jours — la base (`.dump`) et les rôles
-  (`roles-<date>.sql`). Même disque que la base : la copie hors de la
-  machine reste à brancher.
+  (`roles-<date>.sql`) ; puis **copiés hors du VPS** dans le coffre R2
+  `neovibe-sauvegardes`, **verrouillé** : aucune clé, même celle du
+  serveur, ne peut y effacer ou remplacer une sauvegarde avant 30 jours
+  (vérifié le 2026-09-29 : refusé, `ObjectLockedByBucketPolicy`) ;
+  effacées à 31 jours. Chaque passage, réussi ou raté, est noté dans
+  `nv.job_runs` (`job = 'sauvegarde'`) — noté, pas encore signalé à
+  quelqu'un (surveillance : RAPPELS #11). **Restaurer depuis R2** :
+  télécharger le `.dump` et le `roles-` de la même date dans un même
+  dossier du VPS, puis `restaurer.sh`.
 
 ## L'app d'essai (étape 11)
 
